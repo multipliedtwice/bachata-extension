@@ -117,6 +117,16 @@ const uniqueNulPaths = (...values: string[]): string[] =>
 const contained = (root: string, candidate: string): boolean =>
   isPathInsideRoot(root, candidate);
 
+type FileIdentity = { dev: bigint; ino: bigint };
+
+// libuv <1.51 reports a 64-bit Windows volume serial by path but only 32 bits by handle.
+// Match its 1.51 normalization without reducing inode precision or path-to-path identity.
+const sealedInputIdentityMatches = (before: FileIdentity, current: FileIdentity, opened: FileIdentity): boolean =>
+  before.dev === current.dev && before.ino === current.ino && before.ino === opened.ino
+  && (process.platform === "win32"
+    ? (before.dev & 0xffff_ffffn) === (opened.dev & 0xffff_ffffn)
+    : before.dev === opened.dev);
+
 export type RunWorktree = {
   repositoryRoot: string;
   baselineCommit: string;
@@ -608,8 +618,7 @@ export const createWorktreeManager = (
         if (!details.isFile() || !current.isFile()) {
           throw new Error(`Bachata refuses to seal a path that is not a regular file: ${relative}`);
         }
-        if (before.dev !== details.dev || before.ino !== details.ino
-          || current.dev !== details.dev || current.ino !== details.ino
+        if (!sealedInputIdentityMatches(before, current, details)
           || await realpath(source) !== canonicalSource) {
           throw new Error(`Bachata refuses to seal a path that changed while it was opened: ${relative}`);
         }

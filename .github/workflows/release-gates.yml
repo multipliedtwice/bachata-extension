@@ -102,7 +102,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test tests/managedHandoffHardening.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test --test-name-pattern="verification commands stop|orchestration checks do not inherit|sealing refuses.*symbolic link" tests/orchestrator.test.cjs
+          node --test --test-name-pattern="verification commands stop|orchestration checks do not inherit|sealing refuses.*symbolic link|sealed input identity|a sealed working-tree input starts|applying a sealed run refuses a target that no longer holds" tests/orchestrator.test.cjs
 
       - name: Tests
         env:

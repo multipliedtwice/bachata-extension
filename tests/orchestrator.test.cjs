@@ -3760,6 +3760,31 @@ test("a disposed controller refuses retained maintenance instead of racing its o
   }
 });
 
+test("sealed input identity reconciles Windows volume serial widths without accepting replacement", () => {
+  const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
+  const source = readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const loadIdentityCheck = (platform) => require("node:vm").runInNewContext(
+    `${source}\nsealedInputIdentityMatches;`,
+    { exports: {}, require: moduleRequire, process: { platform }, __dirname: path.dirname(filename) },
+    { timeout: 1000 },
+  );
+  const before = { dev: 0x1234_5678_89ab_cdefn, ino: 0x20_0000_0000_0000n };
+  const opened = { dev: 0x89ab_cdefn, ino: before.ino };
+  const windowsMatches = loadIdentityCheck("win32");
+  assert.equal(windowsMatches(before, { ...before }, opened), true);
+  assert.equal(windowsMatches(opened, { ...opened }, opened), true);
+  assert.equal(windowsMatches(before, { ...before, dev: before.dev + 0x1_0000_0000n }, opened), false);
+  assert.equal(windowsMatches(before, before, { ...opened, dev: opened.dev + 1n }), false);
+  assert.equal(windowsMatches(before, before, { ...opened, ino: opened.ino + 1n }), false);
+  assert.equal(windowsMatches(before, { ...before, ino: before.ino + 1n }, opened), false);
+  for (const platform of ["linux", "darwin"]) {
+    const matches = loadIdentityCheck(platform);
+    assert.equal(matches(before, { ...before }, { ...before }), true);
+    assert.equal(matches(before, before, opened), false);
+  }
+});
+
 // EX-G6-02. A sealed run's patch is `inputTree..candidate`: the sealed files are the baseline
 // the work was written against, not lines of the work, so they appear nowhere in it. Apply
 // checked only that the branch still contained the run's baseline commit, and `git apply

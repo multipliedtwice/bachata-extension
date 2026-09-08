@@ -10,7 +10,10 @@ Exact-package graphical acceptance, authenticated-provider smoke, provider-terms
 and compatibility records remain open. No human acceptance inferred from automated
 results. Earlier VSIX acceptance evidence does not cover this build.
 
-## Verified candidate evidence
+The VSIX named above is superseded by the Windows sealed-file identity correction.
+Do not publish it. Replacement packaging and acceptance remain open.
+
+## Superseded candidate evidence
 
 2026-09-08. VSIX source: `be015c4058f5cfed31d24dd6343f3f3138ae1d34`.
 [Paired candidate run 34251453740](https://github.com/multipliedtwice/bachata-extension/actions/runs/34251453740)
@@ -43,15 +46,15 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 | VSIX prepublish `npm test` | 3040 tests, 3039 passed, 0 failed, 1 Windows-only cleanup skip. Commands: `test:source-distribution` (17) plus `test:unit` (3023). |
 | Linux source `npm test` | 3040 tests, 3036 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). All release gates passed. |
 | macOS source `npm test` | 3040 tests, 3029 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases covered by paired candidate and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). All release gates passed. |
-| Native Windows safety | Actual VS Code 1.136.1 process checks and the early release safety step passed, including complete adapter-file exit, process cleanup and sealed-file rejection. Full suite found concurrent Git test-shim writes failing with a Windows file-sharing error; remaining tests continue. Coverage has not run. |
+| Native Windows safety | Actual VS Code 1.136.1 process checks and the early release safety step passed. Full suite found concurrent Git test-shim writes failing with a Windows file-sharing error and two normal sealed-file cases rejected by mismatched volume-ID widths. Remaining tests continue; coverage has not run. |
 | Browser Bridge `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Hosted `test:source-distribution` (6) plus main suite (1204). |
 | Packaged macOS activation | Exact VSIX installed in a fresh VS Code 1.135.0 profile. Existing `e2e/activation/index.cjs` passed against installed files: all 29 pipelines rendered/selectable, custom pipeline creation and JSON round-trip, invalid-JSON recovery, menu hit/focus checks, zero global alerts. Automated smoke only; human checklist remains open. |
 | Dependency audit | Zero reported vulnerabilities in both unchanged locked checkouts. Candidate dependency closure verified during packaging. |
 
 [Extension release gates 34251412987](https://github.com/multipliedtwice/bachata-extension/actions/runs/34251412987)
 validate the candidate source revision on Ubuntu, macOS and Windows. Linux and
-macOS passed all gates. Windows remains blocked by the test-shim failure and unfinished
-checks. No pending gate counted as passed. Final paired verification must
+macOS passed all gates. Windows remains blocked by the test-shim and sealing failures
+and unfinished checks. No pending gate counted as passed. Final paired verification must
 compare the accepted VSIX with the final checkout before deployment.
 
 Follow-up fixture correction writes one record per Git invocation, preserving
@@ -59,6 +62,12 @@ argument, environment and cleanup assertions under concurrent calls. The complet
 four-test file passed against rebuilt source on macOS; native Windows validation
 remains pending. The file now runs in the early Windows safety step. These test,
 workflow and evidence changes do not alter packaged bytes.
+
+The sealing correction follows libuv 1.51's Windows volume-ID normalization while
+retaining full inode precision, exact path-to-path identity and replacement guards.
+Build, 240 managed-fallback checks and seven focused tests passed on macOS with
+Node 22.13.1 and Git 2.55.0; zero skips. Native Windows validation remains pending.
+This production change requires a replacement VSIX and new artifact-bound evidence.
 
 [Bridge release gates 34249800393](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34249800393)
 passed on all three platforms at `68d5ba1`. Changes after the Bridge artifact source
@@ -74,7 +83,7 @@ Maintained-source distribution: `npm run source:export` then `npm run source:ver
 
 ## Publication still blocked
 
-- Finish extension platform gates.
+- Finish corrected extension platform gates and build a replacement VSIX.
 - Complete applicable RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
 - Complete provider-terms review in PROVIDER_TERMS.md.
 - Capture screenshots from this packaged build.
