@@ -20,6 +20,9 @@ pair and owns marketplace deployment. No rebuild during publication.
 - Chrome variables: `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`.
 - Chrome secrets: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, authorized
   for `https://www.googleapis.com/auth/chromewebstore`. Store in GitHub; never source.
+  External OAuth apps in Testing issue refresh tokens valid for seven days. Renew
+  before expiry; testing credentials do not provide durable deployment access. See
+  [Google token expiration](https://developers.google.com/identity/protocols/oauth2#expiration).
 - Create the Chrome item and complete store listing, privacy and distribution settings.
   Browser sign-in alone does not configure CI credentials.
 

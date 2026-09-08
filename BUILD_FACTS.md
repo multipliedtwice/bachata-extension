@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.6.7 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 622 |
-| Maintained source manifest SHA-256 (Git-tracked) | 0e7f18ef100c0e4fd40252ccbe5b8b8812597db32fb1dddb88452413ebe17e3a |
+| Maintained source manifest SHA-256 (Git-tracked) | 2a6df353f61c2efa7f979666cef70732adb1f38e4eaa8ef8fecfb767d650cf2f |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "Bachata: TODO orchestration" | 21 |
@@ -38,11 +38,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 5a004d8c830ed1bd78ba28c593b8636d9a8d337c.
+The working tree was modified, so these values describe the working tree and not commit eb489e26a3424252cab8da1588f171eddf871f58.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 5a004d8c830ed1bd78ba28c593b8636d9a8d337c |
+| Revision | eb489e26a3424252cab8da1588f171eddf871f58 |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 622 |
 | Platform | Darwin 24.5.0 arm64 |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | bachata-vscode-0.7.0.vsix, 11.95 MB, SHA-256 ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d |
-| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.7.zip, 1.05 MB, SHA-256 e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b |
+| Staged VSIX | bachata-vscode-0.7.0.vsix, 11.96 MB, SHA-256 b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03 |
+| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.7.zip, 1.05 MB, SHA-256 d531ebb5f4988b99a78fd00c06e82f7e2c8cfbb10bf3b7b3a2f5f4f904af7fc5 |
 | Test run | not collected in this generation |
 

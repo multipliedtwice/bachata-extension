@@ -2,7 +2,7 @@
 
 One file, one release. It records the exact artifacts and the human validation that automated tests cannot replace. `Not performed` blocks the release metadata gate.
 
-Artifacts under test: Bachata VSIX `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
+Artifacts under test: Bachata VSIX `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03`, Browser Bridge ZIP `d531ebb5f4988b99a78fd00c06e82f7e2c8cfbb10bf3b7b3a2f5f4f904af7fc5`.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 
@@ -11,8 +11,8 @@ Every record in this file is void unless it names one of those hashes. A record 
 
 | Artifact | Version | SHA-256 | Recorded |
 | --- | --- | --- | --- |
-| Bachata VSIX | 0.7.0 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | yes |
-| Browser Bridge ZIP | 0.6.7 | `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b` | yes |
+| Bachata VSIX | 0.7.0 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | yes |
+| Browser Bridge ZIP | 0.6.7 | `d531ebb5f4988b99a78fd00c06e82f7e2c8cfbb10bf3b7b3a2f5f4f904af7fc5` | yes |
 
 ## 1. Graphical Extension Host validation
 
@@ -62,8 +62,8 @@ Run the full release suite from `docs/STABLE_RELEASE_GATE.md` on each clean envi
 
 | OS | Node version | Git version | VSIX SHA-256 | Suite result | Skipped tests | Graphical checklist | Date | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS | 22.13.0 | 2.55.0 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | Automated gates passed at candidate source `be015c4`, run 34251412987; 3040 tests, 3029 passed, 0 failed | 11: seven Linux-only descendant cases, three archive cases passed in candidate run 34251453740, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
-| Linux | 22.13.0 | 2.55.0 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | Automated gates passed at candidate source `be015c4`, run 34251412987; 3040 tests, 3036 passed, 0 failed | 4: three archive cases passed in candidate run 34251453740, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
+| macOS | 22.13.0 | 2.55.0 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | Automated gates passed at source `eb489e2`, run 34263466590; 3061 tests, 3050 passed, 0 failed | 11: seven Linux-only descendant cases, three archive cases covered by the paired candidate, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
+| Linux | 22.13.0 | 2.55.0 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | Automated gates passed at source `eb489e2`, run 34263466590; 3061 tests, 3057 passed, 0 failed | 4: three archive cases covered by the paired candidate, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
 | Windows | — | — | — | — | — | — | — | Not performed |
 
 ## 5. Responsiveness under synchronous state access
@@ -81,4 +81,4 @@ Unconfirmed risk, not a defect. The state store is synchronous and waits on a lo
 
 | Check | Date | VSIX SHA-256 | Result | Notes |
 | --- | --- | --- | --- | --- |
-| Network-backed dependency audit | 2026-09-08 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | Pass | Authorized npm audits report zero vulnerabilities in both packages. Manifests and locks unchanged since audit; candidate run 34251453740 verified locked production dependency closure. |
+| Network-backed dependency audit | 2026-09-08 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | Pass | Authorized registry audits: zero vulnerabilities for extension and Bridge. Package manifests and lockfiles unchanged since those audits; current candidate dependency closure verified during packaging. This records the original audit, not a fresh registry request. |
