@@ -1042,7 +1042,7 @@ test("Claude interruption completes as interrupted", async () => {
 test("Claude interruption force-kills a process that ignores SIGTERM", async () => {
   const previous = process.env.MOCK_CLAUDE_IGNORE_SIGTERM;
   process.env.MOCK_CLAUDE_IGNORE_SIGTERM = "1";
-  const adapter = createClaude({ interruptGraceMs: 50 });
+  const adapter = createClaude({ interruptGraceMs: process.platform === "win32" ? 5000 : 50 });
   const controller = new AbortController();
   try {
     const pending = collect(adapter.send(request("DELAY"), controller.signal));
@@ -1175,7 +1175,7 @@ test("Claude error result rejects even when process exits zero", async () => {
 test("Codex turn timeout rejects and leaves the adapter reusable", async () => {
   const adapter = createCodex(async () => "accept", {
     turnTimeoutMs: 500,
-    interruptGraceMs: 100,
+    interruptGraceMs: process.platform === "win32" ? 5000 : 100,
   });
   try {
     await assert.rejects(
@@ -1211,7 +1211,7 @@ test("Codex adapter rejects concurrent turns", async () => {
 test("Claude turn timeout rejects and leaves the adapter reusable", async () => {
   const adapter = createClaude({
     turnTimeoutMs: 1_000,
-    interruptGraceMs: 100,
+    interruptGraceMs: process.platform === "win32" ? 5000 : 100,
   });
   try {
     await assert.rejects(

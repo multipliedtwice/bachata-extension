@@ -17,6 +17,40 @@ const nodeEnvironment = (cwd) => ({
   ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
 });
 
+test("managed fallback verifier rejects unchecked Codex termination results", () => {
+  const root = path.resolve(__dirname, "..");
+  const verifier = fs.readFileSync(path.join(root, "scripts/verify-managed-fallback.mjs"), "utf8");
+  const guard = verifier.split("\n").find((line) => line.startsWith('check("adapter:confirmedTermination",'));
+  assert.ok(guard, "confirmed-termination release guard must exist");
+  const codexAppServer = fs.readFileSync(path.join(root, "src/adapters/codexAppServer.ts"), "utf8");
+  const claudeCode = fs.readFileSync(path.join(root, "src/adapters/claudeCode.ts"), "utf8");
+  const accepted = (source) => {
+    let passed;
+    vm.runInNewContext(guard, {
+      codexAppServer: source,
+      claudeCode,
+      check: (id, condition) => {
+        assert.equal(id, "adapter:confirmedTermination");
+        passed = condition;
+      },
+    }, { timeout: 1000 });
+    return passed;
+  };
+  assert.equal(accepted(codexAppServer), true);
+  for (const [before, after] of [
+    ["if (transportTermination) return transportTermination;", ""],
+    ["transportTerminationConfirmed = terminated;", "transportTerminationConfirmed = true;"],
+    ["} else if (child === processChild) {", "} if (child === processChild) {"],
+    ["terminateChild ?? (() => Promise.resolve(false))", "terminateChild ?? (() => Promise.resolve(true))"],
+    ['if (transportTermination && !(await transportTermination)) throw new Error("Codex process tree did not terminate");', "if (transportTermination) await transportTermination;"],
+    ["if (processChild && !(await terminateTransport(true))) {", "if (false) {"],
+    ["terminated = await terminateTransport();", "terminated = true;"],
+  ]) {
+    assert.ok(codexAppServer.includes(before), before);
+    assert.equal(accepted(codexAppServer.replace(before, after)), false, before);
+  }
+});
+
 test("Windows executable lookup honors only caller PATH and explicit paths", () => {
   const candidates = new Set([
     "C:\\workspace\\provider.exe",
