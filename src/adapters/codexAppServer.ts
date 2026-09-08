@@ -502,10 +502,8 @@ export const createCodexAppServerAdapter = (
 
   // EX-A5-R10. The drain is bound to the child that owns it: callers pass that launch's scoped
   // terminate (the one that scans for its token), so a descendant that left the process group is
-  // still reached. Spawn/reuse ordering keeps this correct without a defensive rebind — a child's
-  // `terminated` guard fires its failure at most once, `child` is cleared before any replacement is
-  // spawned, and `startPromise` gates reuse — so a stale callback cannot populate a replacement
-  // transport's termination promise here.
+  // still reached. A drained process may deliver its exit event after a replacement starts;
+  // processFailure checks child identity before changing shared transport state.
   const beginTransportTermination = (
     terminate: (graceMs: number) => Promise<boolean>,
   ): Promise<boolean> => {
@@ -1047,7 +1045,7 @@ export const createCodexAppServerAdapter = (
     let terminated = false;
 
     const processFailure = (error: unknown): void => {
-      if (terminated) {
+      if (terminated || child !== processChild) {
         return;
       }
 

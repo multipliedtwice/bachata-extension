@@ -77,7 +77,7 @@ test("a dirty workspace remediation opens Source Control and rechecks the status
   assert.equal(plan.recheck.kind, "gitStatus");
 });
 
-test("verified provider docs are offered as the plan's external action; the bridge placeholder is withheld", () => {
+test("verified provider docs and Bridge downloads are offered as external actions", () => {
   // Codex and Claude now resolve to their verified official docs, so each provider remediation
   // offers exactly that URL as its "Open ... documentation" action.
   assert.equal(verifiedDocumentationUrl("codex"), "https://developers.openai.com/codex/cli/");
@@ -99,11 +99,12 @@ test("verified provider docs are offered as the plan's external action; the brid
     url: "https://code.claude.com/docs/en/overview",
   });
 
-  // The bridge public URL is still a placeholder the owner has not supplied, so the bridge.connect
-  // remediation offers its install guide document but no external download link.
-  assert.equal(verifiedDocumentationUrl("bridge"), undefined);
+  const bridgeUrl = "https://github.com/multipliedtwice/bachata-browser-bridge/releases";
+  assert.equal(verifiedDocumentationUrl("bridge"), bridgeUrl);
   const bridge = remediationPlan("bridge.connect", context);
-  assert.deepEqual(bridge.actions.filter((action) => action.kind === "openExternal"), []);
+  assert.deepEqual(bridge.actions.filter((action) => action.kind === "openExternal"), [
+    { kind: "openExternal", label: "Open Bridge downloads", url: bridgeUrl },
+  ]);
   assert.ok(bridge.actions.some((action) => action.kind === "openDocument" && action.document === "docs/BROWSER_BRIDGE_INSTALL.md"));
 });
 

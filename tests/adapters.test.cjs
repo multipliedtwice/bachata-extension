@@ -199,6 +199,44 @@ test("Codex adapter starts, names, streams, and resumes a thread", async () => {
   }
 });
 
+test("a delayed readiness-process exit cannot fail the replacement Codex transport", async (t) => {
+  const processScope = require("../dist/process/processScope.js");
+  const originalSpawn = processScope.spawnScopedProviderProcess;
+  let launches = 0;
+  let replayExit;
+  let exitObserved;
+  const observed = new Promise((resolve) => { exitObserved = resolve; });
+  t.mock.method(processScope, "spawnScopedProviderProcess", (...args) => {
+    const scope = originalSpawn(...args);
+    launches += 1;
+    if (launches === 1) {
+      const once = scope.child.once;
+      scope.child.once = function (event, listener) {
+        if (event !== "exit") return once.call(this, event, listener);
+        return once.call(this, event, (...values) => {
+          replayExit = () => listener(...values);
+          exitObserved();
+        });
+      };
+    } else {
+      setImmediate(() => replayExit());
+    }
+    return scope;
+  });
+  const adapter = createCodex();
+  try {
+    await adapter.checkAvailability();
+    await observed;
+    const events = await collect(adapter.send(request("after readiness"), new AbortController().signal));
+    assert.equal(launches, 2);
+    assert.equal(completion(events).status, "completed");
+    assert.equal(completion(events).answer, "mock codex answer");
+  } finally {
+    replayExit?.();
+    await adapter.dispose();
+  }
+});
+
 test("Codex adapter forwards approvals and restricts sandbox roots", async () => {
   const recordPath = path.join(os.tmpdir(), `mock-codex-${Date.now()}.jsonl`);
   const previous = process.env.MOCK_RECORD_PATH;
