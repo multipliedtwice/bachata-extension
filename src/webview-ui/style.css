@@ -3414,13 +3414,6 @@ button[data-action="composer-options-toggle"].has-chips span {
 }
 
 .run-tab .run-action-menu > summary {
-  opacity: 0;
-}
-
-.run-tab:hover .run-action-menu > summary,
-.run-tab.selected .run-action-menu > summary,
-.run-tab .run-action-menu[open] > summary,
-.run-tab .run-action-menu > summary:focus-visible {
   opacity: 1;
 }
 

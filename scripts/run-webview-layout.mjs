@@ -160,9 +160,8 @@ const measure = `(() => {
 
 /**
  * EX-UI-02's invariant, measured rather than read: a control that is drawn must be reachable by
- * keyboard, and a control that is not drawn must not be. The strip hides an unselected run's
- * action menu and takes it out of the tab order together; either half alone is a defect — a
- * visible control nobody can reach, or an invisible one focus can land on.
+ * keyboard, and a control that is not drawn must not be. Every run keeps its action menu
+ * visible and keyboard reachable, including on devices without hover support.
  *
  * The fixture carries two runs so this branch actually renders; with one run there is no
  * unselected tab and the assertion would pass by never being exercised.
@@ -208,7 +207,12 @@ const run = async () => {
   const rows = [];
   try {
     session = await connect(profile);
-    await delay(1_200);
+    const readyUntil = Date.now() + 20_000;
+    while (!await session.evaluate('document.readyState === "complete" && document.querySelectorAll(".run-tab").length >= 2')) {
+      if (Date.now() >= readyUntil) throw new Error("The run tab fixture did not become ready within 20 seconds");
+      await delay(100);
+    }
+    await session.evaluate("document.fonts.ready.then(() => true)");
     for (const width of WIDTHS) {
       await session.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
       await delay(300);

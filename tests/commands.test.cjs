@@ -902,7 +902,7 @@ test("Doctor guides Browser Bridge pairing step by step", async () => {
   assert.match(steps, /Discover/u);
   assert.match(steps, /pairing token/u);
   assert.match(steps, /^5\. Bind one ready conversation/mu);
-  assert.deepEqual(guidance.actions, ["Open Bridge install guide", "Show Steps"]);
+  assert.deepEqual(guidance.actions, ["Open Bridge install guide", "Open Bridge downloads", "Show Steps"]);
   assert.ok(harness.executedCommands.includes("vscode.open"));
 });
 

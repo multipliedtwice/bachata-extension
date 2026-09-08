@@ -512,8 +512,8 @@ const attachmentStripHtml = (panel: PanelState, draft: ConversationDraft): strin
   return pending || stored ? `<div class="attachment-strip-shell"><div class="attachment-strip">${pending}${stored}</div></div>` : "";
 };
 
-const runActionsMenuHtml = (conversation: ConversationSummary, reachable = true): string =>
-  `<details class="run-action-menu" ${disclosureAttributes(`run-menu:${conversation.id}`)}><summary data-action="run-menu-toggle"${reachable ? "" : ` tabindex="-1"`} aria-label="Actions for ${escapeAttribute(conversation.title)}">•••</summary><div class="run-action-menu-items">
+const runActionsMenuHtml = (conversation: ConversationSummary): string =>
+  `<details class="run-action-menu" ${disclosureAttributes(`run-menu:${conversation.id}`)}><summary data-action="run-menu-toggle" aria-label="Actions for ${escapeAttribute(conversation.title)}">•••</summary><div class="run-action-menu-items">
     ${conversation.archived ? "" : `<button data-action="run-rename" data-conversation="${escapeAttribute(conversation.id)}">Rename</button>`}
     <button data-action="run-duplicate" data-conversation="${escapeAttribute(conversation.id)}">Duplicate</button>
     <button data-action="${conversation.archived ? "run-unarchive" : "run-archive"}" data-conversation="${escapeAttribute(conversation.id)}">${conversation.archived ? "Unarchive" : "Archive"}</button>
@@ -616,7 +616,7 @@ const tabsHtml = (): string => {
           ${conversation.iterationCount > 1 ? `<small>${String(conversation.activeIteration)}/${String(conversation.iterationCount)}</small>` : ""}
           ${conversation.unread > 0 ? `<span class="unread">${String(conversation.unread)}<span class="sr-only"> unread message${conversation.unread === 1 ? "" : "s"}</span></span>` : ""}
         </button>
-        ${runActionsMenuHtml(conversation, selected)}
+        ${runActionsMenuHtml(conversation)}
       </div>`;
     }).join("")}</div></div>
     <button class="run-tab-new" data-action="create-conversation" aria-label="New run" title="New run"><i class="codicon codicon-add" aria-hidden="true"></i></button>
