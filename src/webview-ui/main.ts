@@ -1248,6 +1248,11 @@ const render = (): void => {
   const distanceFromBottom = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight : 0;
   const scrollTopBefore = scroll ? scroll.scrollTop : 0;
   const control = captureControl();
+  // Native toggle events can arrive after a scheduled render replaces their disclosure.
+  root.querySelectorAll<HTMLDetailsElement>("details[data-disclosure-key]").forEach((disclosure) => {
+    const key = disclosure.dataset.disclosureKey;
+    if (key) recordDisclosure(key, disclosure.open);
+  });
   try {
     root.innerHTML = `<div class="app-shell"><button class="skip-link" data-action="skip-to-composer">Skip to run input</button>${tabsHtml()}<div class="workspace-shell">${readOnlyBannerHtml(state.manager.readOnly)}${globalErrorsHtml()}${mainRoomHtml()}</div>${runDrawerHtml()}${pipelineEditorHtml()}${appDialogHtml()}</div>`;
     // A control the reader cannot use must say so before it is pressed, not after it refuses.
@@ -1815,7 +1820,7 @@ root.addEventListener("toggle", (event: Event) => {
   const disclosureKey = disclosure?.dataset.disclosureKey;
   if (disclosure && disclosureKey) {
     recordDisclosure(disclosureKey, disclosure.open);
-    if (disclosure.open && (disclosure.matches(".header-action-menu") || disclosure.matches(".notification-center"))) {
+    if (disclosure.open && disclosure.matches(transientMenuSelector)) {
       const summary = disclosure.querySelector<HTMLElement>(":scope > summary");
       if (summary) positionRunMenu(summary);
     }

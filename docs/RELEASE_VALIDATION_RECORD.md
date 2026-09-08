@@ -2,7 +2,7 @@
 
 One file, one release. It records the exact artifacts and the human validation that automated tests cannot replace. `Not performed` blocks the release metadata gate.
 
-Artifacts under test: Bachata VSIX not staged, Browser Bridge ZIP not staged.
+Artifacts under test: Bachata VSIX `8873b19ea4de1757363f2f83c3c18f8676f83c370608ac94209d600b83fb1967`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 
@@ -11,8 +11,8 @@ Every record in this file is void unless it names one of those hashes. A record 
 
 | Artifact | Version | SHA-256 | Recorded |
 | --- | --- | --- | --- |
-| Bachata VSIX | 0.7.0 | — | no |
-| Browser Bridge ZIP | 0.6.7 | — | no |
+| Bachata VSIX | 0.7.0 | `8873b19ea4de1757363f2f83c3c18f8676f83c370608ac94209d600b83fb1967` | yes |
+| Browser Bridge ZIP | 0.6.7 | `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b` | yes |
 
 ## 1. Graphical Extension Host validation
 
@@ -81,4 +81,4 @@ Unconfirmed risk, not a defect. The state store is synchronous and waits on a lo
 
 | Check | Date | VSIX SHA-256 | Result | Notes |
 | --- | --- | --- | --- | --- |
-| Network-backed dependency audit | — | — | Not performed | Authorized source audits passed for both packages with zero reported vulnerabilities. Exact VSIX audit and artifact binding remain required after packaging. |
+| Network-backed dependency audit | 2026-09-08 | `8873b19ea4de1757363f2f83c3c18f8676f83c370608ac94209d600b83fb1967` | Pass | Automated npm audit --audit-level=moderate: zero reported vulnerabilities in both locked checkouts. VSIX production dependency bytes match the audited checkout; Bridge ZIP matches all 58 files from its successful hosted build. Browser Bridge SHA-256: `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`. |

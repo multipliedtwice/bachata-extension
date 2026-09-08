@@ -13,6 +13,19 @@ test("the VSIX verifier CLI refuses invocation without an artifact on every plat
   assert.match(result.stderr, /Expected VSIX path/u);
 });
 
+test("packaged Markdown uses VSCE link rewriting without accepting changed copy", async () => {
+  const { packagedDocumentContents } = await import("../scripts/verify-vsix.mjs");
+  const manifest = { repository: { url: "https://github.com/fixture/bachata.git" } };
+  const source = Buffer.from('Read [guide](docs/GUIDE.md).\n<img src="media/header.png">\n[Usage](#usage)\n');
+  const expected = Buffer.from('Read [guide](https://github.com/fixture/bachata/blob/HEAD/docs/GUIDE.md).\n'
+    + '<img src="https://github.com/fixture/bachata/raw/HEAD/media/header.png">\n[Usage](#usage)\n');
+  for (const name of ["README.md", "CHANGELOG.md"]) {
+    assert.deepEqual(await packagedDocumentContents(name, source, manifest), expected);
+    assert.notDeepEqual(await packagedDocumentContents(name, Buffer.from("Changed copy\n"), manifest), expected);
+  }
+  assert.deepEqual(await packagedDocumentContents("docs/GUIDE.md", source, manifest), source);
+});
+
 const crcTable = Array.from({ length: 256 }, (_, value) => {
   let crc = value;
   for (let index = 0; index < 8; index += 1) {

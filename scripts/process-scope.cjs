@@ -48,7 +48,7 @@ const closeState = (child) => {
   };
 };
 
-const taskkill = (pid) =>
+const taskkill = (pid, timeoutMs) =>
   new Promise((resolve) => {
     const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
       env: process.env,
@@ -61,8 +61,19 @@ const taskkill = (pid) =>
         return;
       }
       settled = true;
+      clearTimeout(timeout);
       resolve(value);
     };
+    const timeout = setTimeout(() => {
+      settle(false);
+      try {
+        child.kill();
+      } catch {
+        return;
+      } finally {
+        child.unref();
+      }
+    }, Math.max(1, timeoutMs));
     child.once("error", () => settle(false));
     child.once("close", (code) => settle(code === 0));
   });
@@ -389,14 +400,25 @@ const windowsScopeFromChild = (child, paths, forceKill = taskkill) => {
     }
     if (!termination) {
       terminationRequested = true;
-      forcedKill = child.pid ? forceKill(child.pid) : undefined;
-      termination = (async () => {
+      const budgetMs = Math.max(1, graceMs);
+      const deadlineAt = Date.now() + budgetMs;
+      let timeout;
+      const deadline = new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(false), budgetMs);
+      });
+      forcedKill = child.pid
+        ? Promise.race([
+            new Promise((resolve) => resolve(forceKill(child.pid, budgetMs))).catch(() => false),
+            deadline,
+          ])
+        : undefined;
+      const attempt = (async () => {
         if (!forcedKill) {
           const value = await result;
           return value.cleanupConfirmed === true;
         }
         const killed = await forcedKill;
-        const closed = await close.wait(graceMs);
+        const closed = await close.wait(Math.max(1, deadlineAt - Date.now()));
         if (killed && closed) {
           return true;
         }
@@ -406,10 +428,25 @@ const windowsScopeFromChild = (child, paths, forceKill = taskkill) => {
         }
         return false;
       })();
+      termination = Promise.race([attempt, deadline]).finally(() => clearTimeout(timeout));
     }
     return termination;
   };
   return { child, result, terminate, containment: "jobObject" };
+};
+
+let windowsAssemblyDirectory;
+const windowsAssemblyScopes = new Set();
+const windowsAssemblyPath = () => {
+  if (!windowsAssemblyDirectory) {
+    windowsAssemblyDirectory = mkdtempSync(path.join(tmpdir(), "bachata-windows-assembly-"));
+    process.once("exit", () => {
+      if (windowsAssemblyScopes.size === 0) {
+        rmSync(windowsAssemblyDirectory, { recursive: true, force: true });
+      }
+    });
+  }
+  return path.join(windowsAssemblyDirectory, "job.dll");
 };
 
 const spawnWindowsScope = (executable, args, options) => {
@@ -451,6 +488,8 @@ const spawnWindowsScope = (executable, args, options) => {
       targetStatusPath,
       "-JobStatusPath",
       jobStatusPath,
+      "-AssemblyPath",
+      windowsAssemblyPath(),
     ], {
       cwd: options.cwd,
       env: environment,
@@ -461,6 +500,8 @@ const spawnWindowsScope = (executable, args, options) => {
     rmSync(temporaryDirectory, { recursive: true, force: true });
     throw error;
   }
+  windowsAssemblyScopes.add(child);
+  child.once("close", () => windowsAssemblyScopes.delete(child));
   return windowsScopeFromChild(child, { temporaryDirectory, targetStatusPath, jobStatusPath });
 };
 

@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
 const { spawn } = require("node:child_process");
+const vm = require("node:vm");
 
 const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
 const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
@@ -111,5 +112,120 @@ test("a Windows scope whose forced kill failed still answers from the status fil
     assert.equal(await terminated, false);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows termination stays bounded when taskkill never answers", { timeout: 2_000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-windows-scope-hung-kill-"));
+  const child = new EventEmitter();
+  child.pid = 4_321;
+  const scope = windowsScopeFromChild(
+    child,
+    {
+      temporaryDirectory: directory,
+      targetStatusPath: path.join(directory, "target-status.json"),
+      jobStatusPath: path.join(directory, "job-status.json"),
+    },
+    () => new Promise(() => {}),
+  );
+  try {
+    const terminated = scope.terminate(30);
+    assert.equal(await terminated, false, "a stalled kill must report unconfirmed cleanup");
+    assert.equal(await scope.terminate(30), false, "repeated termination must retain its verdict");
+    child.emit("close", 1, "SIGKILL");
+    const result = await scope.result;
+    assert.equal(result.cleanupConfirmed, false, "runner exit alone must not confirm the stalled tree kill");
+    assert.equal(result.terminationRequested, true);
+    assert.equal(fs.existsSync(directory), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows termination stays bounded while its runner never closes", { timeout: 2_000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-windows-scope-hung-runner-"));
+  const child = new EventEmitter();
+  child.pid = 4_321;
+  const scope = windowsScopeFromChild(
+    child,
+    {
+      temporaryDirectory: directory,
+      targetStatusPath: path.join(directory, "target-status.json"),
+      jobStatusPath: path.join(directory, "job-status.json"),
+    },
+    () => Promise.resolve(true),
+  );
+  try {
+    assert.equal(await scope.terminate(30), false, "taskkill success without runner exit must not confirm cleanup");
+  } finally {
+    child.emit("close", 1, "SIGKILL");
+    await scope.result;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows assembly reuse survives sequential scopes and cleans up only without live runners", async (t) => {
+  for (const keepRunnerAlive of [false, true]) {
+    await t.test(keepRunnerAlive ? "active runner preserves its assembly" : "completed runners release their assembly at exit", async () => {
+      const parent = new EventEmitter();
+      parent.platform = "win32";
+      parent.execPath = process.execPath;
+      parent.env = { ...process.env, SystemRoot: "C:\\Windows" };
+      parent.cwd = () => process.cwd();
+      const runners = [];
+      const runtimeModule = { exports: {} };
+      const scriptDirectory = path.resolve(__dirname, "../scripts");
+      const context = vm.createContext({
+        module: runtimeModule,
+        __dirname: scriptDirectory,
+        process: parent,
+        setTimeout,
+        clearTimeout,
+        require: (name) => name === "node:child_process"
+          ? {
+              spawn: (_executable, args) => {
+                const child = new EventEmitter();
+                child.pid = 4_321 + runners.length;
+                const argument = (name) => args[args.indexOf(name) + 1];
+                runners.push({
+                  child,
+                  assembly: argument("-AssemblyPath"),
+                  target: argument("-TargetStatusPath"),
+                  job: argument("-JobStatusPath"),
+                });
+                return child;
+              },
+            }
+          : require(name),
+      });
+      vm.runInContext(fs.readFileSync(path.join(scriptDirectory, "process-scope.cjs"), "utf8"), context);
+      const finish = async (runner, scope) => {
+        fs.writeFileSync(runner.target, JSON.stringify({ exitCode: 0 }));
+        fs.writeFileSync(runner.job, JSON.stringify({ cleanupConfirmed: true }));
+        runner.child.emit("close", 0, null);
+        assert.equal((await scope.result).cleanupConfirmed, true);
+      };
+      let secondScope;
+      try {
+        const firstScope = runtimeModule.exports.spawnProcessScope("git", ["--version"]);
+        const first = runners[0];
+        assert.equal(path.isAbsolute(first.assembly), true);
+        assert.match(path.basename(path.dirname(first.assembly)), /^bachata-windows-assembly-/u);
+        fs.writeFileSync(first.assembly, "compiled assembly fixture");
+        await finish(first, firstScope);
+        assert.equal(fs.existsSync(first.assembly), true, "sequential commands must retain their assembly");
+        secondScope = runtimeModule.exports.spawnProcessScope("git", ["status"]);
+        assert.equal(runners[1].assembly, first.assembly);
+        if (!keepRunnerAlive) await finish(runners[1], secondScope);
+        parent.emit("exit", 0);
+        assert.equal(fs.existsSync(first.assembly), keepRunnerAlive);
+      } finally {
+        if (keepRunnerAlive && secondScope) await finish(runners[1], secondScope);
+        for (const runner of runners) {
+          fs.rmSync(path.dirname(runner.target), { recursive: true, force: true });
+          fs.rmSync(path.dirname(runner.assembly), { recursive: true, force: true });
+        }
+      }
+    });
   }
 });

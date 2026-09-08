@@ -3,7 +3,8 @@ param(
   [Parameter(Mandatory = $true)][string]$HostScript,
   [Parameter(Mandatory = $true)][string]$PayloadPath,
   [Parameter(Mandatory = $true)][string]$TargetStatusPath,
-  [Parameter(Mandatory = $true)][string]$JobStatusPath
+  [Parameter(Mandatory = $true)][string]$JobStatusPath,
+  [Parameter(Mandatory = $true)][string]$AssemblyPath
 )
 
 $source = @'
@@ -297,7 +298,27 @@ public static class BachataProcessJob
 
 $status = @{ cleanupConfirmed = $false }
 try {
-  Add-Type -TypeDefinition $source -Language CSharp
+  if (-not [System.IO.File]::Exists($AssemblyPath)) {
+    $compiledAssembly = Join-Path (Split-Path -Parent $PayloadPath) "job-compiled.dll"
+    $publicationAssembly = Join-Path (Split-Path -Parent $AssemblyPath) ([Guid]::NewGuid().ToString() + ".dll")
+    try {
+      Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $compiledAssembly -ErrorAction Stop
+      # Publish an unloaded copy: PowerShell may hold the compiler output open.
+      [System.IO.File]::Copy($compiledAssembly, $publicationAssembly)
+      try {
+        [System.IO.File]::Move($publicationAssembly, $AssemblyPath)
+      } catch [System.IO.IOException] {
+        if (-not [System.IO.File]::Exists($AssemblyPath)) { throw }
+      }
+    } finally {
+      if ([System.IO.File]::Exists($publicationAssembly)) {
+        [System.IO.File]::Delete($publicationAssembly)
+      }
+    }
+  }
+  if (-not ("BachataProcessJob" -as [type])) {
+    Add-Type -LiteralPath $AssemblyPath -ErrorAction Stop
+  }
   $cleanupConfirmed = $false
   $errorText = $null
   $hostArguments = @($HostScript, $PayloadPath, $TargetStatusPath)

@@ -639,6 +639,25 @@ test("non-editor disclosures preserve user state across rerenders", () => {
   }
 });
 
+test("run menu state survives a snapshot before its native toggle event", () => {
+  const harness = bootWebview();
+  try {
+    for (const open of [true, false]) {
+      const menu = harness.document.root.querySelector(".run-action-menu");
+      assert.ok(menu, "the run tab has no action menu");
+      menu.open = open;
+      harness.sendWindowMessage({
+        type: "conversation.message",
+        conversationId: "run-1",
+        message: { type: "state.snapshot", state: panelState() },
+      });
+      assert.equal(harness.document.root.querySelector(".run-action-menu").open, open);
+    }
+  } finally {
+    harness.restore();
+  }
+});
+
 test("pipeline editor preserves omitted attachment defaults and uses one checklist summarizer", () => {
   const checklist = pipelineDefinition();
   checklist.steps = [{

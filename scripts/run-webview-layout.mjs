@@ -227,9 +227,14 @@ const run = async () => {
       if (reach.renderFailure) failures.push(`${String(width)}px: the fixture rendered the failure banner, not a room`);
       if (reach.tabs < 2) failures.push(`${String(width)}px: the fixture drew ${String(reach.tabs)} run tabs, so no unselected tab was measured`);
       reach.mismatched.forEach((problem) => { failures.push(`${String(width)}px: ${problem}`); });
+      await press(session, '[data-action="composer-options-toggle"]');
+      const advancedOptionsOpen = await session.evaluate('document.querySelector("#pipeline-iterations") !== null');
+      if (!advancedOptionsOpen) failures.push(`${String(width)}px: advanced options did not open before the menu interaction`);
       await session.evaluate("window.__posted.length = 0");
       await press(session, MENU);
       const opened = await session.evaluate(menuState);
+      const advancedOptionsClosed = await session.evaluate('document.querySelector("#pipeline-iterations") === null');
+      if (!advancedOptionsClosed) failures.push(`${String(width)}px: pressing the action menu left advanced options open`);
       // Escape closes the menu and gives focus back to the control that opened it, so a keyboard
       // reader is never left inside a panel that is no longer there.
       let dismissed = { open: true, focusOnMenu: false };
