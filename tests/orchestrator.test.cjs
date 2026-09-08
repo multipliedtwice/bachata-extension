@@ -3760,6 +3760,44 @@ test("a disposed controller refuses retained maintenance instead of racing its o
   }
 });
 
+test("native sealed input identity agrees between pathname and opened file", { timeout: 10_000 }, async () => {
+  const filesystem = require("node:fs/promises");
+  const root = await mkdtemp(path.join(os.tmpdir(), "bachata-native-sealed-identity-"));
+  const source = path.join(root, "helper.txt");
+  let handle;
+  try {
+    await writeFile(source, "untracked sealed input\n", "utf8");
+    const before = await filesystem.lstat(source, { bigint: true });
+    const canonicalBefore = await filesystem.realpath(source);
+    handle = await filesystem.open(source, filesystem.constants.O_RDONLY
+      | (filesystem.constants.O_NOFOLLOW ?? 0) | (filesystem.constants.O_NONBLOCK ?? 0));
+    const opened = await handle.stat({ bigint: true });
+    const current = await filesystem.lstat(source, { bigint: true });
+    const canonicalAfter = await filesystem.realpath(source);
+    const describe = (value) => ({ dev: String(value.dev), ino: String(value.ino), regularFile: value.isFile() });
+    const evidence = JSON.stringify({
+      node: process.versions.node,
+      uv: process.versions.uv,
+      source,
+      canonicalBefore,
+      canonicalAfter,
+      before: describe(before),
+      opened: describe(opened),
+      current: describe(current),
+    });
+    const deviceId = (value) => process.platform === "win32" ? value & 0xffff_ffffn : value;
+    assert.deepEqual(
+      { before: describe(before), current: describe(current), opened: { dev: String(deviceId(opened.dev)), ino: String(opened.ino), regularFile: opened.isFile() }, canonicalAfter },
+      { before: { ...describe(before), regularFile: true }, current: { ...describe(before), regularFile: true }, opened: { dev: String(deviceId(before.dev)), ino: String(before.ino), regularFile: true }, canonicalAfter: canonicalBefore },
+      evidence,
+    );
+    assert.equal(await handle.readFile("utf8"), "untracked sealed input\n");
+  } finally {
+    await handle?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("sealed input identity reconciles Windows volume serial widths without accepting replacement", () => {
   const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
   const source = readFileSync(filename, "utf8");

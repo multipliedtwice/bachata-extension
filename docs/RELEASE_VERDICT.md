@@ -66,8 +66,11 @@ workflow and evidence changes do not alter packaged bytes.
 The sealing correction follows libuv 1.51's Windows volume-ID normalization while
 retaining full inode precision, exact path-to-path identity and replacement guards.
 Build, 240 managed-fallback checks and seven focused tests passed on macOS with
-Node 22.13.1 and Git 2.55.0; zero skips. Native Windows validation remains pending.
-This production change requires a replacement VSIX and new artifact-bound evidence.
+Node 22.13.1 and Git 2.55.0; zero skips. Native run 34259408093 still rejected the
+two normal sealed-file cases. Its identity matrix and replacement checks passed;
+the normalization alone did not resolve the failure. A native fixture reports
+the exact compared file identities to establish the remaining cause. Replacement
+packaging stays blocked until native sealing passes.
 
 [Bridge release gates 34249800393](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34249800393)
 passed on all three platforms at `68d5ba1`. Changes after the Bridge artifact source
