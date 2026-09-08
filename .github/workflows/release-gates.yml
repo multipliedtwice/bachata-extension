@@ -93,9 +93,13 @@ jobs:
           if ($hostProcess.ExitCode -ne 0) { throw "VS Code process tests exited with $($hostProcess.ExitCode)" }
 
       - name: Tests
+        env:
+          BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
         run: npm test
 
       - name: Coverage gates
+        env:
+          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '' }}
         run: npm run test:coverage
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact

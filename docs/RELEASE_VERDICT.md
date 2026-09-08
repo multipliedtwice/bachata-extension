@@ -1,79 +1,73 @@
 # Release verdict
 
-Artifacts under test: Bachata VSIX `e5d3ab17e2e52a087b1e8e86b7321a288227669e481b0ab002ed38428ce45dca`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
+Artifacts under test: Bachata VSIX `d7951ef2b346e8438d5586a1acf2e7fb3806bb99b1b27c2a0ca544c8ef165f18`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
 
 ## Verdict
 
 **NO-SHIP as a stable release. The source tree is a closed-alpha candidate.**
 
-Existing NO-SHIP verdict retained. Candidate archives exist and pass byte verification.
-Marketplace submission, exact-package graphical acceptance, authenticated-provider
-smoke, provider-terms decisions and compatibility records remain open.
-No human acceptance inferred from automated results.
+Exact-package graphical acceptance, authenticated-provider smoke, provider-terms
+decisions and compatibility records remain open. No human acceptance inferred
+from automated results. Earlier VSIX acceptance evidence does not cover this build.
 
 ## Verified candidate evidence
 
-2026-09-08. VSIX source: `c705b0ae` revision prefix; Node 22.13.1 on macOS.
-VSCE 3.9.2 created the replacement VSIX after prepublish checks passed. Verification
-accepts VSCE's expected Markdown link transformation and compares exact bytes.
-VSIX: 1,885 files, 11,950,356 bytes; 793 build-equivalent runtime files.
-Installed in a fresh VS Code 1.135.0 macOS profile. Exact-package automated activation
-passed: all 29 shipped pipelines, custom pipeline save and JSON roundtrip, invalid
-JSON recovery, advanced options and run menu interaction. Full human checklist
-remains open. macOS refused window screenshot capture; no screenshot recorded.
-Production dependency closure matches the locked checkout.
+2026-09-08. VSIX source: `ed36658a04ffe3f1f646236e89a3521209b8d493`.
+[Paired candidate run 34228223329](https://github.com/multipliedtwice/bachata-extension/actions/runs/34228223329)
+passed on Linux with Node 22.13.0: authenticated Bridge artifact download, contract
+digest and shared fixture parity, types, lint, format, tests, coverage, packaging
+and source-drift check. VSCE 3.9.2 produced the exact downloaded VSIX.
+
+GitHub artifact `10057413687` outer ZIP digest:
+`73d93b0d9008a4f0a8b6f27397169ddd7afb54bae9b95435157d78e8530130a7`.
+Download matches that digest. VSIX: 1,885 files, 11,951,404 bytes;
+793 build-equivalent runtime files. Hosted verification compared source,
+runtime and locked production dependencies, including VSCE's expected Markdown
+link transformation. Local archive matches the hosted VSIX digest above.
 
 Bridge source: `5ae4436107bf5b4d14ccd4ac8d1a9865febc366a`.
 [Release artifact run 34200295838](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34200295838)
-succeeded. Downloaded ZIP matches all 58 hosted build files. Protocol contract and
-shared fixtures match the extension's compatibility pin. Keep these exact bytes.
+passed. ZIP matches all 58 hosted build files. Protocol contract and shared fixtures
+match the extension's compatibility pin. Keep these exact bytes.
 
-Test counts: every `node --test` invocation the package's `npm test` chain
-runs, summed, with contributing commands named. Platform skips are not passes.
+Test counts sum the named command's `node --test` invocations. Skips are not passes.
 
 | Gate | Result |
 | --- | --- |
-| VS Code `npm test` | 3010 tests, 3003 passed, 0 failed, 7 skips. Prepublish chain: `test:source-distribution` (17) plus `test:unit` (2993). Skips require Linux setsid; Linux source CI passed separately. |
-| Browser Bridge `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Hosted package chain: `test:source-distribution` (6) plus main suite (1204). |
-| Paired-artifact and record regression | 98 passed, zero skips: release binding, metadata and build-facts suites, with BACHATA_REQUIRE_RELEASE_ARTIFACTS=1 and the replacement VSIX plus hosted Bridge ZIP staged. |
-| VSIX verifier regression | 8 passed, zero skips. |
-| Dependency audit | Zero reported vulnerabilities in both locked checkouts; exact VSIX binding in RELEASE_VALIDATION_RECORD.md. |
+| Paired candidate `npm test` | 3023 tests: 3022 passed, 0 failed, 1 Windows-only descendant-cleanup skip. Includes source-distribution and unit suites; required artifact cases passed. |
+| VSIX prepublish `npm test` | 3023 tests: 3022 passed, 0 failed, the same Windows-only skip. |
+| Linux source `npm test` | 3023 tests: 3019 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. |
+| Actual Windows VS Code 1.136.1 | Native provider-script, compiler and process checks passed in release run 34228016884. Full suite remains separate. |
+| Browser Bridge `npm test` | 1210 tests: 1210 passed, 0 failed, 0 skipped. Hosted source-distribution and main suites. |
+| Dependency audit | Zero reported vulnerabilities in both unchanged locked checkouts. Candidate dependency closure verified during packaging. |
 
-Extension [release gates run 34206924699](https://github.com/multipliedtwice/bachata-extension/actions/runs/34206924699):
-Linux and macOS passed the corrected layout checks in PR run 34208925507.
-Windows native process completion passes in run 34224114646 after restricting the
-helper to built-in PowerShell modules and restoring the target's original module path.
-Managed worktree checks complete. Native descendant cleanup passes in run 34225649798.
-That run's Windows layout check failed during Chrome startup; Linux exposed a recursive
-test-runner fixture context. Corrections and complete suite proof remain required.
-Source review also found filtered environments removed Electron's required Node mode.
-Scoped helper, provider-script and compiler corrections need actual VS Code runtime proof.
+Extension [release gates run 34228016884](https://github.com/multipliedtwice/bachata-extension/actions/runs/34228016884):
+Linux and macOS passed all gates. Windows passed native process checks, actual
+VS Code checks and UI layout, then exposed test-fixture path, permission and
+cleanup assumptions. Its orchestration file exceeded the aggregate ten-minute
+test budget after passing long scenarios. Fixture corrections and finite Windows
+CI budget changes need a complete rerun. No pending gate counted as passed.
+
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
-Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging and
-source-drift checks.
+Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging
+and source-drift checks.
 
-[Paired candidate run 34221932974](https://github.com/multipliedtwice/bachata-extension/actions/runs/34221932974)
-passed: authenticated Bridge artifact download, contract digest and shared fixture
-parity, source gates, packaging and source-drift check. Acceptance verification and
-deployment remain open. Encrypted Bridge read token and Marketplace PAT configured;
-both expire 2026-10-08.
+Encrypted Bridge read token and Marketplace PAT configured; both expire
+2026-10-08. Acceptance verification and deployment remain open.
 
-Coverage policy: the floors, not these percentages, are the claim.
-Source floors: 78 / 73 / 80 lines / branches / functions. Remaining enforced floors
-live in package.json. No new percentage inferred from a prior build.
-
-Machine-derived source identity and package measurements: BUILD_FACTS.md.
-Maintained-source distribution: `npm run source:export` then `npm run source:verify`.
-Neither source identity nor an automated pass replaces exact-artifact acceptance.
+Coverage policy: enforced floors in package.json define the claim. Source floors:
+78 / 73 / 80 lines / branches / functions. No percentage inferred from a prior build.
+Source measurements: BUILD_FACTS.md. Maintained-source distribution:
+`npm run source:export` then `npm run source:verify`.
 
 ## Publication still blocked
 
-- Complete applicable rows in RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md.
+- Complete applicable RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
 - Complete provider-terms review in PROVIDER_TERMS.md.
-- Capture screenshots from the packaged build.
-- Configure Chrome item and Chrome deployment credentials.
-- Finish hosted extension gates and paired workflow proof.
-- Run `npm run release:verify`; human reviews bound evidence and owns the verdict.
+- Capture screenshots from this packaged build.
+- Configure Chrome item and deployment credentials.
+- Pass corrected extension platform gates.
+- Run `npm run release:verify`; human reviews bound evidence and owns verdict.
 
 Moderated validation and benchmark claims remain unproved. Unclaimed future
-features are governed by STABLE_RELEASE_GATE.md and TODO.md, not inferred as done.
+features follow STABLE_RELEASE_GATE.md and TODO.md; no completion inferred.

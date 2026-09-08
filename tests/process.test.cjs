@@ -247,6 +247,65 @@ test("script process-tree termination reaches a surviving POSIX process group", 
 });
 
 
+test("bounded command consumes a valid CI budget without changing child test budgets", { timeout: 90_000 }, async () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-command-budget-"));
+  const command = path.join(directory, "child.cjs");
+  fs.mkdirSync(path.join(directory, "scripts", "lib"), { recursive: true });
+  for (const relative of [
+    "run-bounded-command.mjs", "install-termination-handlers.mjs", "wait-for-child.mjs",
+    "process-scope.mjs", "process-scope.cjs", "windows-job-runner.ps1",
+    "windows-process-host.cjs", "lib/worktreeLock.mjs",
+  ]) {
+    fs.copyFileSync(path.join(__dirname, "..", "scripts", relative), path.join(directory, "scripts", relative));
+  }
+  fs.writeFileSync(command, `
+(async () => {
+  const { acquireWorktreeLock } = await import("./scripts/lib/worktreeLock.mjs");
+  const lock = await acquireWorktreeLock({ waitMs: 1000 });
+  await lock.release();
+  setTimeout(() => process.exit(process.env.BACHATA_COMMAND_TIMEOUT_MS === undefined ? 0 : 2), 100);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+`);
+  const runner = path.join(directory, "scripts", "run-bounded-command.mjs");
+  const environment = { ...process.env, BACHATA_COMMAND_TIMEOUT_MS: "60000" };
+  delete environment.BACHATA_WORKTREE_LOCK_OWNER;
+  const bounded = spawn(process.execPath, [runner, "1", process.execPath, command], {
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  bounded.stdout.on("data", (chunk) => { output += chunk; });
+  bounded.stderr.on("data", (chunk) => { output += chunk; });
+  try {
+    await waitForChildExit(bounded);
+    assert.equal(bounded.exitCode, 0, output);
+    assert.equal(fs.existsSync(path.join(directory, ".bachata-worktree.lock")), false);
+  } finally {
+    await stopSpawned(bounded);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("bounded command rejects an overflowing CI budget before starting its command", async () => {
+  const runner = path.join(__dirname, "..", "scripts", "run-bounded-command.mjs");
+  const bounded = spawn(process.execPath, [runner, "1000", "must-not-start"], {
+    env: { ...process.env, BACHATA_COMMAND_TIMEOUT_MS: "2147483648" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  bounded.stdout.on("data", (chunk) => { output += chunk; });
+  bounded.stderr.on("data", (chunk) => { output += chunk; });
+  try {
+    await waitForChildExit(bounded);
+    assert.notEqual(bounded.exitCode, 0);
+    assert.match(output, /BACHATA_COMMAND_TIMEOUT_MS must be an integer/u);
+  } finally {
+    await stopSpawned(bounded);
+  }
+});
+
 test("bounded command escalates after the direct parent exits on SIGTERM", async (context) => {
   if (process.platform === "win32") {
     context.skip("POSIX process group test");

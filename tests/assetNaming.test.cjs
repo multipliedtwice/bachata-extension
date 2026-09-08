@@ -23,7 +23,11 @@ test("directory components cannot escape the chosen destination", () => {
 });
 
 test("separators, wildcards and control characters are replaced", () => {
-  assert.equal(safeBrowserAssetName("a:b*c?d\"e<f>g|h.txt"), "a_b_c_d_e_f_g_h.txt");
+  assert.equal(safeBrowserAssetName("name:b*c?d\"e<f>g|h.txt"), "name_b_c_d_e_f_g_h.txt");
+  assert.equal(
+    safeBrowserAssetName("a:b*c?d\"e<f>g|h.txt"),
+    process.platform === "win32" ? "b_c_d_e_f_g_h.txt" : "a_b_c_d_e_f_g_h.txt",
+  );
   assert.equal(safeBrowserAssetName("tab\tname.txt").includes("\t"), false);
   assert.equal(safeBrowserAssetName("nul\u0000name.txt").includes("\u0000"), false);
   assert.equal(safeBrowserAssetName("del\u007fname.txt").includes("\u007f"), false);

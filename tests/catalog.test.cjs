@@ -565,8 +565,9 @@ test("a catalog created before participants existed migrates without losing runs
 
 test("execution identity rotates on every run.started and survives reopen", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-catalog-execution-"));
+  let catalog;
   try {
-    const catalog = createStateCatalog(root);
+    catalog = createStateCatalog(root);
     const run = catalog.createRun({ title: "Fix cancellation" });
     assert.equal(catalog.latestExecutionRef(run.runRef), undefined);
     catalog.appendEvent({ runRef: run.runRef, type: "run.started", status: "running" });
@@ -577,11 +578,12 @@ test("execution identity rotates on every run.started and survives reopen", asyn
     catalog.appendEvent({ runRef: run.runRef, type: "run.started", status: "running" });
     const second = catalog.latestExecutionRef(run.runRef);
     assert.notEqual(second, first);
-    catalog.dispose?.();
-    const reopened = createStateCatalog(root);
-    assert.equal(reopened.latestExecutionRef(run.runRef), second);
-    reopened.dispose?.();
+    catalog.close();
+    catalog = undefined;
+    catalog = createStateCatalog(root);
+    assert.equal(catalog.latestExecutionRef(run.runRef), second);
   } finally {
+    catalog?.close();
     await rm(root, { recursive: true, force: true });
   }
 });

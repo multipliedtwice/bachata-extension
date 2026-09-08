@@ -96,11 +96,70 @@ const createProject = (prefix) => {
   return root;
 };
 
-const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+const realGit = () => {
+  const lookup = process.platform === "win32"
+    ? path.join(process.env.SystemRoot ?? process.env.SYSTEMROOT, "System32", "where.exe")
+    : "which";
+  const found = execFileSync(lookup, [process.platform === "win32" ? "git.exe" : "git"], {
+    encoding: "utf8",
+    timeout: 10_000,
+  }).trim().split(/\r?\n/u)[0];
+  assert.ok(found && path.isAbsolute(found), "Git lookup did not return an absolute executable path");
+  return found;
+};
+
+const writeWindowsGitShim = (directory, logPath, executable) => {
+  const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+  const compiler = ["Framework64", "Framework"].map((framework) =>
+    path.join(systemRoot, "Microsoft.NET", framework, "v4.0.30319", "csc.exe"),
+  ).find((candidate) => fs.existsSync(candidate));
+  assert.ok(compiler, "The Windows Git shim requires the bundled .NET Framework C# compiler");
+  const literal = (value) => `@"${value.replaceAll('"', '""')}"`;
+  const source = path.join(path.dirname(logPath), "git-shim.cs");
+  const runner = fs.readFileSync(path.join(__dirname, "..", "scripts", "windows-job-runner.ps1"), "utf8");
+  const quote = runner.match(/    private static string Quote\(string value\)[\s\S]*?(?=    private static uint ActiveProcesses)/u)?.[0];
+  assert.ok(quote, "The Windows process runner's argument quotation function is unavailable");
+  fs.writeFileSync(source, `
+using System;
+using System.Collections;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+class GitShim {
+${quote}
+  static int Main(string[] args) {
+    StringBuilder record = new StringBuilder("BEGIN\\n");
+    record.Append("ARGS ").Append(String.Join(" ", args)).Append('\\n');
+    foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables()) {
+      if (entry.Key.ToString().StartsWith("GIT_", StringComparison.Ordinal))
+        record.Append(entry.Key).Append('=').Append(entry.Value).Append('\\n');
+    }
+    record.Append("END\\n");
+    File.AppendAllText(${literal(logPath)}, record.ToString());
+    ProcessStartInfo start = new ProcessStartInfo(${literal(executable)}, String.Join(" ", Array.ConvertAll(args, Quote)));
+    start.UseShellExecute = false;
+    using (Process child = Process.Start(start)) {
+      child.WaitForExit();
+      return child.ExitCode;
+    }
+  }
+}
+`);
+  execFileSync(compiler, ["/nologo", "/target:exe", `/out:${path.join(directory, "git.exe")}`, source], {
+    timeout: 30_000,
+    maxBuffer: 65_536,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+};
 
 // A stand-in for git that records the argument vector and the GIT_* environment it was handed,
 // then hands the work to the real one so the verification still reaches its real conclusion.
 const writeGitShim = (directory, logPath) => {
+  const executable = realGit();
+  if (process.platform === "win32") {
+    writeWindowsGitShim(directory, logPath, executable);
+    return;
+  }
   fs.writeFileSync(
     path.join(directory, "git"),
     [
@@ -111,7 +170,7 @@ const writeGitShim = (directory, logPath) => {
       "  env | grep '^GIT_' | sort",
       "  printf 'END\\n'",
       `} >> ${JSON.stringify(logPath)}`,
-      `exec ${JSON.stringify(realGit)} "$@"`,
+      `exec ${JSON.stringify(executable)} "$@"`,
       "",
     ].join("\n"),
     { mode: 0o755 },
@@ -144,7 +203,8 @@ const runProjectChecks = async (root, changedFiles, pathPrefix) => {
     const [result] = await runManagedControllerVerification(turn, options(root, baseline), ["project-checks"]);
     return result;
   } finally {
-    process.env.PATH = original;
+    if (original === undefined) delete process.env.PATH;
+    else process.env.PATH = original;
   }
 };
 
@@ -199,7 +259,7 @@ test("every git the managed handoff runs carries the git hardening", async () =>
     assert.ok(invocations.length > 0, "no git invocation was observed");
     for (const invocation of invocations) {
       assert.equal(invocation.environment.GIT_CONFIG_NOSYSTEM, "1", invocation.args);
-      assert.equal(invocation.environment.GIT_CONFIG_GLOBAL, "/dev/null", invocation.args);
+      assert.equal(invocation.environment.GIT_CONFIG_GLOBAL, process.platform === "win32" ? "NUL" : "/dev/null", invocation.args);
       assert.equal(invocation.environment.GIT_TERMINAL_PROMPT, "0", invocation.args);
       assert.equal(invocation.environment.GIT_OPTIONAL_LOCKS, "0", invocation.args);
     }

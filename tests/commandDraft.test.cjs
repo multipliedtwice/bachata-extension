@@ -1,20 +1,23 @@
 const assert = require("node:assert/strict");
+const path = require("node:path");
 const test = require("node:test");
 const { createCommandDraft } = require("../dist/context/commandDraft.js");
 
 test("native command drafts have deterministic scopes and no execution instruction", () => {
-  const file = createCommandDraft({ scope: "file", filePath: "/work/src/a.ts", workspaceRoot: "/work" });
-  assert.match(file.prompt, /src\/a\.ts/u);
-  const selection = createCommandDraft({ scope: "selection", filePath: "/work/a.ts", workspaceRoot: "/work", selection: { startLine: 2, endLine: 3, text: "const x = 1;" } });
+  const workspaceRoot = path.resolve("command-draft-workspace");
+  const file = createCommandDraft({ scope: "file", filePath: path.join(workspaceRoot, "src", "a.ts"), workspaceRoot });
+  assert.equal(file.prompt.split("\n")[0], `Review file: ${path.join("src", "a.ts")}`);
+  const selection = createCommandDraft({ scope: "selection", filePath: path.join(workspaceRoot, "a.ts"), workspaceRoot, selection: { startLine: 2, endLine: 3, text: "const x = 1;" } });
   assert.match(selection.prompt, /a\.ts:2-3/u);
   assert.match(createCommandDraft({ scope: "stagedDiff" }).prompt, /git diff --cached/u);
   assert.throws(() => createCommandDraft({ scope: "selection", filePath: "/work/a.ts" }), /Select code/u);
 });
 
 test("workspace names beginning with dots stay workspace-relative", () => {
-  const draft = createCommandDraft({ scope: "file", filePath: "/work/..foo/a.ts", workspaceRoot: "/work" });
-  assert.match(draft.prompt, /\.\.foo\/a\.ts/u);
-  assert.doesNotMatch(draft.prompt, /\/work\//u);
+  const workspaceRoot = path.resolve("command-draft-workspace");
+  const draft = createCommandDraft({ scope: "file", filePath: path.join(workspaceRoot, "..foo", "a.ts"), workspaceRoot });
+  assert.equal(draft.prompt.split("\n")[0], `Review file: ${path.join("..foo", "a.ts")}`);
+  assert.equal(draft.prompt.includes(workspaceRoot), false);
 });
 
 test("staged diff drafts name the repository they target", () => {

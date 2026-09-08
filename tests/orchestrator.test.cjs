@@ -3814,7 +3814,11 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     ].join("\n"), { "src/base.txt": "committed\n", "src/run.sh": "#!/bin/sh\necho hello\n" });
 
     // The only difference the seal carries is the mode. The bytes are already committed.
-    await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    if (process.platform === "win32") {
+      git(repository, "update-index", "--chmod=+x", "src/run.sh");
+    } else {
+      await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    }
     assert.match(git(repository, "status", "--porcelain=v1"), /src\/run\.sh/u, "the mode change is not dirty");
 
     const manager = createFakeConversationManager(async ({ options }) => {
@@ -3830,7 +3834,7 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     const run = await controller.start({ sealedInputPaths: ["src/run.sh"] });
     assert.equal(run.status, "completed", run.error ?? "");
 
-    git(repository, "checkout", "--", "src/run.sh");
+    git(repository, "restore", "--source=HEAD", "--staged", "--worktree", "--", "src/run.sh");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "the tidy-up left the tree dirty");
 
     const refused = await controller.applyRetained(run.runId);
@@ -3842,7 +3846,11 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     assert.match(refused.reason, /no longer holds the input this run was sealed with/u);
     assert.deepEqual(refused.conflicts, ["src/run.sh"]);
 
-    await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    if (process.platform === "win32") {
+      git(repository, "update-index", "--chmod=+x", "src/run.sh");
+    } else {
+      await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    }
     git(repository, "add", "--", "src/run.sh");
     git(repository, "commit", "-m", "restore the executable mode");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "restoring the mode left the tree dirty");

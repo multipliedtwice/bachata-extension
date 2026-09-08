@@ -992,12 +992,24 @@ test("a publication that throws removes its own claim and publishes nothing", as
     cleanup(lockPath);
   }
 });
-test("a failed record write publishes nothing and leaves no permanent empty lock", async () => {
+test("a failed record write publishes nothing and leaves no permanent empty lock", async (context) => {
   const { acquireWorktreeLock } = await loadLock();
+  const filesystem = require("node:fs/promises");
+  const { syncBuiltinESMExports } = require("node:module");
   const lockPath = temporaryLockPath("failed-write");
+  const open = filesystem.open;
+  let failedWrite;
+  const openMock = context.mock.method(filesystem, "open", async (...args) => {
+    const handle = await open(...args);
+    if (String(args[0]).startsWith(`${lockPath}.claim-`)) {
+      failedWrite = context.mock.method(handle, "writeFile", async () => {
+        throw Object.assign(new Error("EACCES: injected record write failure"), { code: "EACCES" });
+      });
+    }
+    return handle;
+  });
+  syncBuiltinESMExports();
   try {
-    // The directory is made read-only, so creating the private claim fails outright.
-    fs.chmodSync(path.dirname(lockPath), 0o500);
     const failed = await acquireWorktreeLock({
       lockPath,
       environment: {},
@@ -1007,8 +1019,12 @@ test("a failed record write publishes nothing and leaves no permanent empty lock
       log: () => undefined,
     }).then(() => "acquired", (error) => error.code ?? error.message);
     assert.notEqual(failed, "acquired", "a write that cannot happen must not yield ownership");
-    fs.chmodSync(path.dirname(lockPath), 0o700);
+    assert.equal(failed, "EACCES");
+    assert.equal(failedWrite?.mock.callCount(), 1, "the private record write must be attempted");
+    openMock.mock.restore();
+    syncBuiltinESMExports();
     assert.equal(fs.existsSync(lockPath), false, "no empty canonical lock may be left behind");
+    assert.deepEqual(fs.readdirSync(path.dirname(lockPath)), [], "the failed private claim must be removed");
     const next = await acquireWorktreeLock({
       lockPath,
       environment: {},
@@ -1019,11 +1035,8 @@ test("a failed record write publishes nothing and leaves no permanent empty lock
     });
     await next.release();
   } finally {
-    try {
-      fs.chmodSync(path.dirname(lockPath), 0o700);
-    } catch {
-      // Already restored.
-    }
+    openMock.mock.restore();
+    syncBuiltinESMExports();
     cleanup(lockPath);
   }
 });
