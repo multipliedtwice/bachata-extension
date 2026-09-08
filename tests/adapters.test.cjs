@@ -8,12 +8,13 @@ const { createCodexAppServerAdapter } = require("../dist/adapters/codexAppServer
 const { createClaudeCodeAdapter } = require("../dist/adapters/claudeCode.js");
 const { createAdapterRegistry, registerAdapterType } = require("../dist/adapters/registry.js");
 const { isProviderFailureError } = require("../dist/adapters/providerFailure.js");
+const { safeProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 
 const fixtures = path.join(__dirname, "fixtures");
 const mockCodex = path.join(fixtures, "mock-codex.cjs");
 const mockClaude = path.join(fixtures, "mock-claude.cjs");
 const mockClaudePersistent = path.join(fixtures, "mock-claude-persistent.cjs");
-const canonicalTmpdir = fs.realpathSync(os.tmpdir());
+const canonicalTmpdir = fs.realpathSync.native(os.tmpdir());
 
 const collect = async (iterable) => {
   const events = [];
@@ -673,7 +674,10 @@ test("Codex malformed JSON rejects an active turn", async () => {
 test("Claude malformed JSON rejects after transport termination", async () => {
   const previous = process.env.MOCK_CLAUDE_INVALID_JSON;
   process.env.MOCK_CLAUDE_INVALID_JSON = "1";
-  const adapter = createClaude();
+  // Keep the permission channel open so malformed output terminates a live CLI.
+  const adapter = createClaude({
+    requestPermission: async () => ({ behavior: "deny", message: "denied" }),
+  });
   try {
     await assert.rejects(
       collect(adapter.send(request("invalid"), new AbortController().signal)),
@@ -1731,7 +1735,7 @@ test("native availability probes use the restricted provider environment", async
   );
   const previousSecret = process.env.BACHATA_UNSAFE_PROBE_SECRET;
   process.env.BACHATA_UNSAFE_PROBE_SECRET = "must-not-leak";
-  const environment = { BACHATA_ALLOWED_PROBE_ENV: "allowed" };
+  const environment = safeProcessEnvironment(directory, { BACHATA_ALLOWED_PROBE_ENV: "allowed" });
   const adapters = [
     createCodex(undefined, { command, environment }),
     createClaude({ command, environment }),

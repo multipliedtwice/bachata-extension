@@ -366,6 +366,35 @@ test("all detached-process wrappers install shared termination handlers", () => 
   }
 });
 
+test("test-file runner continues after a completed failure and still exits nonzero", async () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-test-file-failure-"));
+  const failedFile = path.join(directory, "first.test.cjs");
+  const passedFile = path.join(directory, "second.test.cjs");
+  const marker = path.join(directory, "continued.txt");
+  const runner = path.join(__dirname, "..", "scripts", "run-test-files.mjs");
+  fs.writeFileSync(failedFile, 'require("node:test")("first fails", () => { throw new Error("expected fixture failure"); });\n');
+  fs.writeFileSync(passedFile, `require("node:test")("second passes", () => { require("node:fs").writeFileSync(${JSON.stringify(marker)}, "passed"); });\n`);
+  const child = spawn(process.execPath, [runner, failedFile, passedFile], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  try {
+    await waitForChildExit(child);
+    assert.equal(child.exitCode, 1, output);
+    assert.equal(child.signalCode, null, output);
+    assert.equal(fs.readFileSync(marker, "utf8"), "passed", output);
+    assert.ok(output.includes(`Test files failed:\n${failedFile} exited with 1`), output);
+    assert.ok(!output.includes(`${passedFile} exited with`), output);
+  } finally {
+    await stopSpawned(child);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 
 test("command availability cleanup removes descendants after a successful direct parent exit", async (context) => {
   if (process.platform === "win32") {

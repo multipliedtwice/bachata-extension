@@ -52,6 +52,43 @@ test("native process scopes complete sequential commands with confirmed cleanup"
   }
 });
 
+test("native Windows scopes remove descendants after their parent exits", {
+  skip: process.platform !== "win32",
+  timeout: 30_000,
+}, async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-descendant-"));
+  const pidPath = path.join(cwd, "child.pid");
+  const descendant = [
+    'const fs = require("node:fs");',
+    `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+    `setInterval(() => { if (!fs.existsSync(${JSON.stringify(cwd)})) process.exit(0); }, 100);`,
+    'setTimeout(() => process.exit(0), 30_000);',
+    'process.send("ready");',
+  ].join("\n");
+  const parent = [
+    'const { spawn } = require("node:child_process");',
+    `const child = spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], { stdio: ["ignore", "ignore", "ignore", "ipc"] });`,
+    'child.once("error", () => process.exit(1));',
+    'child.once("message", () => process.exit(0));',
+  ].join("\n");
+  try {
+    const result = await runProcess(process.execPath, ["-e", parent], {
+      cwd,
+      environment: gitProcessEnvironment(cwd),
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    });
+    assert.equal(result.timedOut, false, result.stderr);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(result.cleanupConfirmed, true, result.stderr);
+    const pid = Number(fs.readFileSync(pidPath, "utf8"));
+    assert.ok(Number.isSafeInteger(pid) && pid > 1);
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("Windows process host restores the target module path without changing unrelated environment", { timeout: 15_000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-host-environment-"));
   const payloadPath = path.join(directory, "payload.json");
