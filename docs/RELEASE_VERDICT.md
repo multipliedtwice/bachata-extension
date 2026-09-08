@@ -42,8 +42,8 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 
 | Gate | Result |
 | --- | --- |
-| Paired candidate `npm test` | 3040 tests, 3039 passed, 0 failed, 1 Windows-only cleanup skip. Commands: `test:source-distribution` (17) plus `test:unit` (3023); required artifact cases passed. |
-| VSIX prepublish `npm test` | 3040 tests, 3039 passed, 0 failed, 1 Windows-only cleanup skip. Commands: `test:source-distribution` (17) plus `test:unit` (3023). |
+| Paired candidate `npm test` | 3040 tests, 3039 passed, 0 failed, 1 skip: Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023); required artifact cases passed. |
+| VSIX prepublish `npm test` | 3040 tests, 3039 passed, 0 failed, 1 skip: Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). |
 | Linux source `npm test` | 3040 tests, 3036 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). All release gates passed. |
 | macOS source `npm test` | 3040 tests, 3029 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases covered by paired candidate and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). All release gates passed. |
 | Native Windows safety | Actual VS Code 1.136.1 process checks and the early release safety step passed. Full suite found concurrent Git test-shim writes failing with a Windows file-sharing error and two normal sealed-file cases rejected by mismatched volume-ID widths. Remaining tests continue; coverage has not run. |
