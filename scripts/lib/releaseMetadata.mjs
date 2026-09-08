@@ -478,7 +478,9 @@ export const releaseMetadataFindings = ({
   requireUrl(findings, "homepage", packageJson.homepage);
   requireUrl(findings, "bugs.url", packageJson.bugs?.url);
   requireUrl(findings, "qna", packageJson.qna);
-  requireUrl(findings, "sponsor.url", packageJson.sponsor?.url);
+  if (packageJson.sponsor !== undefined) {
+    requireUrl(findings, "sponsor.url", packageJson.sponsor?.url);
+  }
 
   if (artifacts.vsix && packageJson.version !== artifacts.vsix.version) {
     findings.push(`package.json version ${String(packageJson.version)} does not match the staged VSIX version ${artifacts.vsix.version}.`);

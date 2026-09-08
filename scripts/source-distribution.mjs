@@ -19,6 +19,7 @@ const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const profiles = {
   "bachata-vscode": {
     files: new Set([
+      ".gitattributes",
       ".gitignore",
       "BUILD_FACTS.md",
       "CHANGELOG.md",

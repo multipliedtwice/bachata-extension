@@ -62,8 +62,8 @@ const resolveChrome = () => {
 const readDebugPort = async (profile, child) => {
   const portFile = path.join(profile, "DevToolsActivePort");
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (child.exitCode !== null) {
-      throw new Error(`Chrome exited with ${String(child.exitCode)} before it reported a debugging port`);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`Chrome exited with ${String(child.signalCode ?? child.exitCode)} before it reported a debugging port`);
     }
     if (existsSync(portFile)) {
       const [port] = readFileSync(portFile, "utf8").split("\n");

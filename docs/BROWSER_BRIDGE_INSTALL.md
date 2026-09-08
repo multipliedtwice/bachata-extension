@@ -10,7 +10,10 @@ The Browser Bridge is a separate browser extension. Browser providers (ChatGPT, 
 
 ## Acquisition
 
-Official download: https://todo-release.invalid/bachata-browser-bridge/releases
+Official releases: https://github.com/multipliedtwice/bachata-browser-bridge/releases
+
+Install only a published release with its ZIP and checksum. An empty release page means
+no official download is available yet.
 
 The download is a ZIP containing the unpacked extension. Packaging does not put a checksum
 file inside that ZIP. Compute its SHA-256 and compare it with the checksum published beside

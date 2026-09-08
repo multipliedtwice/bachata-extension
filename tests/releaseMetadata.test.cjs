@@ -133,6 +133,17 @@ test("placeholder identity, missing evidence, and unrecorded rows all block rele
   }
 });
 
+test("sponsorship is optional, but a supplied sponsor URL must be valid", async () => {
+  const { releaseMetadataFindings } = await load();
+  const input = completeInput();
+  delete input.packageJson.sponsor;
+  assert.deepEqual(releaseMetadataFindings(input), []);
+  for (const url of ["https://todo-release.invalid/support", "http://example.com/support", ""]) {
+    input.packageJson.sponsor = { url };
+    assert.ok(releaseMetadataFindings(input).some((finding) => finding.includes("sponsor.url")));
+  }
+});
+
 test("a plain http URL is refused", async () => {
   const { releaseMetadataFindings } = await load();
   const input = completeInput();

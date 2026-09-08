@@ -4,8 +4,7 @@ export const documentationUrls = {
   // Verified official provider setup docs. The Codex URL redirects to learn.chatgpt.com/docs/codex/cli.
   codex: "https://developers.openai.com/codex/cli/",
   claude: "https://code.claude.com/docs/en/overview",
-  // Bridge stays a placeholder until the owner supplies the canonical public URL; never invented.
-  bridge: "https://todo-release.invalid/bachata-browser-bridge/releases",
+  bridge: "https://github.com/multipliedtwice/bachata-browser-bridge/releases",
   git: "https://git-scm.com/downloads",
 } as const;
 

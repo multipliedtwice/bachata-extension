@@ -1,22 +1,19 @@
 {
   "name": "bachata-vscode",
   "displayName": "Bachata",
-  "description": "Review code with several AI agents in VS Code. They challenge each other, repeat the review from a fresh start, and show what they found. You decide what gets fixed.",
+  "description": "Build your own AI workflow in VS Code: choose assistants, give each a job, and arrange planning, coding, review, and revision steps.",
   "version": "0.7.0",
-  "publisher": "todo-release-publisher",
+  "publisher": "Rememo",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://todo-release.invalid/bachata-vscode.git"
+    "url": "https://github.com/multipliedtwice/bachata-extension.git"
   },
-  "homepage": "https://todo-release.invalid/bachata-vscode",
+  "homepage": "https://github.com/multipliedtwice/bachata-extension#readme",
   "bugs": {
-    "url": "https://todo-release.invalid/bachata-vscode/issues"
+    "url": "https://github.com/multipliedtwice/bachata-extension/issues"
   },
-  "qna": "https://todo-release.invalid/bachata-vscode/discussions",
-  "sponsor": {
-    "url": "https://todo-release.invalid/bachata-vscode/support"
-  },
+  "qna": "https://github.com/multipliedtwice/bachata-extension/issues",
   "galleryBanner": {
     "color": "#1f1f1f",
     "theme": "dark"
@@ -131,7 +128,7 @@
       },
       {
         "view": "bachata.launcher",
-        "contents": "If Bachata did start, it has nothing to show until a provider and a pipeline are chosen.\nSetup installs nothing: it checks which AI CLI you already have and picks the pipeline the review commands will use.\n[Run setup](command:bachata.setup)\n[Open the walkthrough](command:workbench.action.openWalkthrough?%5B%22todo-release-publisher.bachata-vscode%23bachata.gettingStarted%22%5D)"
+        "contents": "If Bachata did start, it has nothing to show until a provider and a pipeline are chosen.\nSetup installs nothing: it checks which AI CLI you already have and picks the pipeline the review commands will use.\n[Run setup](command:bachata.setup)\n[Open the walkthrough](command:workbench.action.openWalkthrough?%5B%22Rememo.bachata-vscode%23bachata.gettingStarted%22%5D)"
       }
     ],
     "snippets": [

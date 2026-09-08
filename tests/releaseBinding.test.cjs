@@ -255,7 +255,7 @@ test("screenshots of the packaged build never ship inside that build", () => {
     "a screenshot of the packaged build ships inside that build, so adding one changes the artifact it proves",
   );
   const media = fs.readdirSync(path.join(root, "media"), { withFileTypes: true })
-    .filter((entry) => entry.isFile())
+    .filter((entry) => entry.isFile() && entry.name !== "HEADER_PROMPT.md")
     .map((entry) => `media/${entry.name}`)
     .sort();
   assert.deepEqual(
@@ -263,6 +263,7 @@ test("screenshots of the packaged build never ship inside that build", () => {
     media,
     "the packaged media set drifted from the repository media set",
   );
+  assert.equal(packageJson.files.includes("media/HEADER_PROMPT.md"), false);
 });
 
 test("candidate creation gates on identity only, never on evidence about the candidate", () => {
