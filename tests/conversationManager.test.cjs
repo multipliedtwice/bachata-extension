@@ -951,7 +951,10 @@ test("attachment snapshots include webview-safe preview URIs without mutating ru
       message.message.state.attachments.length === 1,
     );
     assert.match(snapshot.message.state.attachments[0].previewUri, /^webview:/u);
-    assert.equal(snapshot.message.state.attachments[0].previewUri.endsWith("attachments/image-1.png"), true);
+    assert.equal(
+      snapshot.message.state.attachments[0].previewUri,
+      `webview:${path.join(harness.storageRoot, "attachments", "image-1.png")}`,
+    );
     assert.equal(harness.runtimeInstances[0].state.attachments[0].previewUri, undefined);
   } finally {
     harness.subscription.dispose();
@@ -1064,9 +1067,9 @@ test("conversation tabs use isolated runtime storage and one shared bridge", asy
       harness.runtimeInstances[1].options.storageKey,
       `bachata.conversationRuntime.v2.${active}`,
     );
-    assert.match(
+    assert.equal(
       harness.runtimeInstances[1].options.storageDirectory,
-      new RegExp(`conversations[\\/]${active}$`),
+      path.join(harness.storageRoot, "conversations", active),
     );
     assert.equal(harness.runtimeInstances[1].options.bridge, harness.bridge);
   } finally {

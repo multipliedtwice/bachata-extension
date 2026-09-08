@@ -194,7 +194,7 @@ test("an inspection that fails refuses, and only ENOENT or ENOTDIR means genuine
   // permission or an I/O error ended the walk with the same answer a genuinely absent directory
   // gives — and that answer authorizes a recursive removal. Only `ENOENT` and `ENOTDIR` state
   // that a path is not there; everything else states that the question was not answered.
-  const root = path.join(path.sep, "owned", "root");
+  const root = path.resolve(path.sep, "owned", "root");
   const link = { isSymbolicLink: () => true };
   const directory = { isSymbolicLink: () => false };
   const roots = new Set([root]);
@@ -357,7 +357,7 @@ test("a scratch prefix that would create a directory somewhere else is refused",
 
 test("a directory this module never created cannot be removed even inside the temporary root", () => {
   const strayRoot = scratchRootSync("bachata-scratch-stray-");
-  const base = require("node:fs").realpathSync(require("node:os").tmpdir());
+  const base = require("node:fs").realpathSync.native(require("node:os").tmpdir());
   // Built the same way a scratch directory is, but presented as a bare path the guard has no
   // record of: the ownership check, not the prefix check, is what refuses it.
   assert.equal(scratchProblem(strayRoot, base, new Set()), `a scratch target must be a directory this run created: ${strayRoot}`);

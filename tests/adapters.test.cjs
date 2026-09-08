@@ -8,12 +8,13 @@ const { createCodexAppServerAdapter } = require("../dist/adapters/codexAppServer
 const { createClaudeCodeAdapter } = require("../dist/adapters/claudeCode.js");
 const { createAdapterRegistry, registerAdapterType } = require("../dist/adapters/registry.js");
 const { isProviderFailureError } = require("../dist/adapters/providerFailure.js");
+const { safeProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 
 const fixtures = path.join(__dirname, "fixtures");
 const mockCodex = path.join(fixtures, "mock-codex.cjs");
 const mockClaude = path.join(fixtures, "mock-claude.cjs");
 const mockClaudePersistent = path.join(fixtures, "mock-claude-persistent.cjs");
-const canonicalTmpdir = fs.realpathSync(os.tmpdir());
+const canonicalTmpdir = fs.realpathSync.native(os.tmpdir());
 
 const collect = async (iterable) => {
   const events = [];
@@ -673,7 +674,10 @@ test("Codex malformed JSON rejects an active turn", async () => {
 test("Claude malformed JSON rejects after transport termination", async () => {
   const previous = process.env.MOCK_CLAUDE_INVALID_JSON;
   process.env.MOCK_CLAUDE_INVALID_JSON = "1";
-  const adapter = createClaude();
+  // Keep the permission channel open so malformed output terminates a live CLI.
+  const adapter = createClaude({
+    requestPermission: async () => ({ behavior: "deny", message: "denied" }),
+  });
   try {
     await assert.rejects(
       collect(adapter.send(request("invalid"), new AbortController().signal)),
@@ -1038,7 +1042,7 @@ test("Claude interruption completes as interrupted", async () => {
 test("Claude interruption force-kills a process that ignores SIGTERM", async () => {
   const previous = process.env.MOCK_CLAUDE_IGNORE_SIGTERM;
   process.env.MOCK_CLAUDE_IGNORE_SIGTERM = "1";
-  const adapter = createClaude({ interruptGraceMs: 50 });
+  const adapter = createClaude({ interruptGraceMs: process.platform === "win32" ? 5000 : 50 });
   const controller = new AbortController();
   try {
     const pending = collect(adapter.send(request("DELAY"), controller.signal));
@@ -1171,7 +1175,7 @@ test("Claude error result rejects even when process exits zero", async () => {
 test("Codex turn timeout rejects and leaves the adapter reusable", async () => {
   const adapter = createCodex(async () => "accept", {
     turnTimeoutMs: 500,
-    interruptGraceMs: 100,
+    interruptGraceMs: process.platform === "win32" ? 5000 : 100,
   });
   try {
     await assert.rejects(
@@ -1207,7 +1211,7 @@ test("Codex adapter rejects concurrent turns", async () => {
 test("Claude turn timeout rejects and leaves the adapter reusable", async () => {
   const adapter = createClaude({
     turnTimeoutMs: 1_000,
-    interruptGraceMs: 100,
+    interruptGraceMs: process.platform === "win32" ? 5000 : 100,
   });
   try {
     await assert.rejects(
@@ -1333,35 +1337,207 @@ test("Codex workspace-write mode stays inside the working directory", async () =
   }
 });
 
-test("Codex request timeout terminates ambiguous transport and recovers", async () => {
-  const previous = process.env.MOCK_CODEX_HANG_METHOD;
-  process.env.MOCK_CODEX_HANG_METHOD = "thread/start";
-  const adapter = createCodex(async () => "accept", {
-    requestTimeoutMs: 5_000,
-    interruptGraceMs: 50,
-  });
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+};
 
+const withinTransportDeadline = async (promise) => {
+  let timer;
   try {
-    const pending = collect(
-      adapter.send(request("request timeout"), new AbortController().signal),
-    );
-    setTimeout(() => {
-      delete process.env.MOCK_CODEX_HANG_METHOD;
-    }, 50);
-    await assert.rejects(pending, /Codex request thread\/start timed out after 5000 ms/);
-
-    const recovered = await collect(
-      adapter.send(request("recovered"), new AbortController().signal),
-    );
-    assert.equal(completion(recovered).status, "completed");
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Codex fixture did not settle")), 15_000); }),
+    ]);
   } finally {
-    await adapter.dispose();
-    if (previous === undefined) {
-      delete process.env.MOCK_CODEX_HANG_METHOD;
-    } else {
-      process.env.MOCK_CODEX_HANG_METHOD = previous;
-    }
+    clearTimeout(timer);
   }
+};
+
+const captureCodexTransports = (context, transform) => {
+  const processScope = require("../dist/process/processScope.js");
+  const originalSpawn = processScope.spawnScopedProviderProcess;
+  const scopes = [];
+  const writes = [];
+  const firstThread = deferred();
+  context.mock.method(processScope, "spawnScopedProviderProcess", (command, args, options) => {
+    const scope = originalSpawn(command, args, {
+      ...options,
+      env: { ...options.env, MOCK_CODEX_HANG_METHOD: scopes.length === 0 ? "thread/start" : "" },
+    });
+    scopes.push(scope);
+    const write = scope.child.stdin.write;
+    context.mock.method(scope.child.stdin, "write", function (chunk, ...rest) {
+      const message = JSON.parse(String(chunk));
+      writes.push({ child: scope.child, message });
+      const result = write.call(this, chunk, ...rest);
+      if (scopes.length === 1 && message.method === "thread/start") firstThread.resolve();
+      return result;
+    });
+    return transform?.(scope, scopes.length) ?? scope;
+  });
+  return { scopes, writes, firstThread: firstThread.promise };
+};
+
+const closeCodexTransports = async (adapter, scopes) => {
+  const results = await withinTransportDeadline(Promise.all(scopes.map((scope) => scope.terminate(5000))));
+  await adapter.dispose();
+  assert.ok(results.every(Boolean), "every owned fixture transport must terminate");
+};
+
+test("Codex request timeout waits for owned transport cleanup before recovery", { timeout: 30_000 }, async (context) => {
+  const cleanupStarted = deferred();
+  const releaseCleanup = deferred();
+  const { scopes } = captureCodexTransports(context, (scope, launch) => launch === 1 ? {
+    ...scope,
+    terminate: async (graceMs) => {
+      cleanupStarted.resolve();
+      await releaseCleanup.promise;
+      return scope.terminate(graceMs);
+    },
+  } : scope);
+  const adapter = createCodex(async () => "accept", { interruptGraceMs: 5000 });
+  context.after(async () => {
+    releaseCleanup.resolve();
+    await closeCodexTransports(adapter, scopes);
+  });
+  const failedTurn = assert.rejects(
+    collect(adapter.send(request("request timeout"), new AbortController().signal)),
+    /Codex request thread\/start timed out after 5000 ms/,
+  );
+  failedTurn.catch(() => undefined);
+  await withinTransportDeadline(cleanupStarted.promise);
+  let recoverySettled = false;
+  const recovery = adapter.checkAvailability().finally(() => { recoverySettled = true; });
+  recovery.catch(() => undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(scopes.length, 1);
+  assert.equal(recoverySettled, false);
+  releaseCleanup.resolve();
+  await withinTransportDeadline(failedTurn);
+  assert.match(await withinTransportDeadline(recovery), /^codex app-server/);
+  assert.equal(scopes.length, 2);
+});
+
+test("Codex retains an unconfirmed transport for disposal and refuses replacement", { timeout: 30_000 }, async (context) => {
+  let permitCleanup = false;
+  const { scopes, firstThread } = captureCodexTransports(context, (scope) => ({
+    ...scope,
+    terminate: (graceMs) => permitCleanup ? scope.terminate(graceMs) : Promise.resolve(false),
+  }));
+  const adapter = createCodex(async () => "accept", { interruptGraceMs: 5000 });
+  context.after(async () => {
+    permitCleanup = true;
+    await closeCodexTransports(adapter, scopes);
+  });
+  const failedTurn = assert.rejects(
+    collect(adapter.send(request("failed cleanup"), new AbortController().signal)),
+    /Codex process tree did not terminate/,
+  );
+  failedTurn.catch(() => undefined);
+  await withinTransportDeadline(firstThread);
+  scopes[0].child.stdout.emit("data", Buffer.from("invalid JSON\n"));
+  await withinTransportDeadline(failedTurn);
+  await assert.rejects(adapter.checkAvailability(), /Codex process tree did not terminate/);
+  await assert.rejects(
+    collect(adapter.send(request("must not replace"), new AbortController().signal)),
+    /Codex process tree did not terminate/,
+  );
+  await assert.rejects(adapter.dispose(), /Codex process tree did not terminate during disposal/);
+  assert.equal(scopes.length, 1);
+  assert.equal(scopes[0].child.exitCode, null);
+  assert.equal(scopes[0].child.signalCode, null);
+  permitCleanup = true;
+  await adapter.dispose();
+  assert.ok(scopes[0].child.exitCode !== null || scopes[0].child.signalCode !== null);
+});
+
+test("Codex availability refuses success when probe cleanup is unconfirmed", { timeout: 30_000 }, async (context) => {
+  let permitCleanup = false;
+  let approvalCalls = 0;
+  const { scopes } = captureCodexTransports(context, (scope) => ({
+    ...scope,
+    terminate: (graceMs) => permitCleanup ? scope.terminate(graceMs) : Promise.resolve(false),
+  }));
+  const adapter = createCodex(async () => {
+    approvalCalls += 1;
+    return "accept";
+  }, { interruptGraceMs: 5000 });
+  context.after(async () => {
+    permitCleanup = true;
+    await closeCodexTransports(adapter, scopes);
+  });
+  await assert.rejects(adapter.checkAvailability(), /Codex process tree did not terminate after its availability check/);
+  scopes[0].child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+    id: "retired-approval", method: "item/commandExecution/requestApproval", params: { command: "npm test" },
+  })}\n`));
+  assert.equal(approvalCalls, 0);
+  await assert.rejects(adapter.checkAvailability(), /Codex process tree did not terminate after its availability check/);
+  assert.equal(scopes.length, 1);
+});
+
+test("Codex disposal prevents recovery waiting on a retiring transport from launching", { timeout: 30_000 }, async (context) => {
+  const cleanupStarted = deferred();
+  const releaseCleanup = deferred();
+  const { scopes, firstThread } = captureCodexTransports(context, (scope) => ({
+    ...scope,
+    terminate: async (graceMs) => {
+      cleanupStarted.resolve();
+      await releaseCleanup.promise;
+      return scope.terminate(graceMs);
+    },
+  }));
+  const adapter = createCodex(async () => "accept", { interruptGraceMs: 5000 });
+  context.after(async () => {
+    releaseCleanup.resolve();
+    await closeCodexTransports(adapter, scopes);
+  });
+  const failedTurn = assert.rejects(
+    collect(adapter.send(request("retiring"), new AbortController().signal)), /Codex emitted invalid JSON/,
+  );
+  failedTurn.catch(() => undefined);
+  await withinTransportDeadline(firstThread);
+  scopes[0].child.stdout.emit("data", Buffer.from("invalid JSON\n"));
+  await withinTransportDeadline(cleanupStarted.promise);
+  const recovery = assert.rejects(adapter.checkAvailability(), /Codex adapter is disposed/);
+  const disposal = adapter.dispose();
+  releaseCleanup.resolve();
+  await withinTransportDeadline(Promise.all([failedTurn, recovery, disposal]));
+  assert.equal(scopes.length, 1);
+});
+
+test("Codex ignores failed-transport lines and delayed approval replies after replacement", { timeout: 30_000 }, async (context) => {
+  const approval = deferred();
+  let approvalCalls = 0;
+  const { scopes, writes, firstThread } = captureCodexTransports(context);
+  const adapter = createCodex(async () => {
+    approvalCalls += 1;
+    return approval.promise;
+  }, { interruptGraceMs: 5000 });
+  context.after(async () => {
+    approval.resolve("accept");
+    await closeCodexTransports(adapter, scopes);
+  });
+  const failedTurn = assert.rejects(
+    collect(adapter.send(request("old request"), new AbortController().signal)), /Codex emitted invalid JSON/,
+  );
+  failedTurn.catch(() => undefined);
+  await withinTransportDeadline(firstThread);
+  const approvalRequest = (id) => JSON.stringify({
+    id, method: "item/commandExecution/requestApproval", params: { command: "npm test" },
+  });
+  scopes[0].child.stdout.emit("data", Buffer.from(`${approvalRequest("old-approval")}\n`));
+  assert.equal(approvalCalls, 1);
+  scopes[0].child.stdout.emit("data", Buffer.from(`invalid JSON\n${approvalRequest("after-failure")}\n`));
+  assert.equal(approvalCalls, 1);
+  await withinTransportDeadline(failedTurn);
+  const events = await collect(adapter.send(request("replacement"), new AbortController().signal));
+  assert.equal(completion(events).status, "completed");
+  assert.equal(scopes.length, 2);
+  approval.resolve("accept");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(writes.some(({ message }) => message.id === "old-approval" || message.id === "after-failure"), false);
 });
 
 test("Claude does not persist an unconfirmed generated session", async () => {
@@ -1731,7 +1907,7 @@ test("native availability probes use the restricted provider environment", async
   );
   const previousSecret = process.env.BACHATA_UNSAFE_PROBE_SECRET;
   process.env.BACHATA_UNSAFE_PROBE_SECRET = "must-not-leak";
-  const environment = { BACHATA_ALLOWED_PROBE_ENV: "allowed" };
+  const environment = safeProcessEnvironment(directory, { BACHATA_ALLOWED_PROBE_ENV: "allowed" });
   const adapters = [
     createCodex(undefined, { command, environment }),
     createClaude({ command, environment }),

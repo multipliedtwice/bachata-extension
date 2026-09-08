@@ -595,10 +595,10 @@ export const createClaudeCodeAdapter = (
       let child: ChildProcessWithoutNullStreams;
       let terminateChild: (graceMs: number) => Promise<boolean>;
       try {
-        const invocation = commandInvocation(options.command, args);
+        const invocation = commandInvocation(options.command, args, options.environment);
         const scope = spawnScopedProviderProcess(invocation.command, invocation.args, {
           cwd: requestData.workingDirectory,
-          ...(options.environment === undefined ? {} : { env: options.environment }),
+          env: invocation.environment,
         });
         child = scope.child;
         terminateChild = scope.terminate;

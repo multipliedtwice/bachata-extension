@@ -4,10 +4,231 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
-const { spawn } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
+const { promisify } = require("node:util");
+const vm = require("node:vm");
 
 const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
 const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
+const { runProcess } = require("../dist/orchestrator/commandRunner.js");
+const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
+const nodeEnvironment = (cwd) => ({
+  ...gitProcessEnvironment(cwd),
+  ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+});
+
+test("managed fallback verifier rejects unchecked Codex termination results", () => {
+  const root = path.resolve(__dirname, "..");
+  const verifier = fs.readFileSync(path.join(root, "scripts/verify-managed-fallback.mjs"), "utf8");
+  const guard = verifier.split("\n").find((line) => line.startsWith('check("adapter:confirmedTermination",'));
+  assert.ok(guard, "confirmed-termination release guard must exist");
+  const codexAppServer = fs.readFileSync(path.join(root, "src/adapters/codexAppServer.ts"), "utf8");
+  const claudeCode = fs.readFileSync(path.join(root, "src/adapters/claudeCode.ts"), "utf8");
+  const accepted = (source) => {
+    let passed;
+    vm.runInNewContext(guard, {
+      codexAppServer: source,
+      claudeCode,
+      check: (id, condition) => {
+        assert.equal(id, "adapter:confirmedTermination");
+        passed = condition;
+      },
+    }, { timeout: 1000 });
+    return passed;
+  };
+  assert.equal(accepted(codexAppServer), true);
+  for (const [before, after] of [
+    ["if (transportTermination) return transportTermination;", ""],
+    ["transportTerminationConfirmed = terminated;", "transportTerminationConfirmed = true;"],
+    ["} else if (child === processChild) {", "} if (child === processChild) {"],
+    ["terminateChild ?? (() => Promise.resolve(false))", "terminateChild ?? (() => Promise.resolve(true))"],
+    ['if (transportTermination && !(await transportTermination)) throw new Error("Codex process tree did not terminate");', "if (transportTermination) await transportTermination;"],
+    ["if (processChild && !(await terminateTransport(true))) {", "if (false) {"],
+    ["terminated = await terminateTransport();", "terminated = true;"],
+  ]) {
+    assert.ok(codexAppServer.includes(before), before);
+    assert.equal(accepted(codexAppServer.replace(before, after)), false, before);
+  }
+});
+
+test("Windows executable lookup honors only caller PATH and explicit paths", () => {
+  const candidates = new Set([
+    "C:\\workspace\\provider.exe",
+    "C:\\trusted\\provider.exe",
+    "C:\\trusted\\named.bin",
+    "C:\\trusted\\suffix.com",
+    "C:\\tools with spaces\\provider.exe",
+  ]);
+  const inspected = [];
+  const runtimeModule = { exports: {} };
+  const context = vm.createContext({
+    module: runtimeModule,
+    process: { platform: "win32", cwd: () => "C:\\workspace", env: { PATH: "C:\\workspace" } },
+    require: (name) => name === "node:fs" ? {
+      ...fs,
+      statSync: (candidate) => {
+        inspected.push(candidate);
+        return { isFile: () => candidates.has(candidate) };
+      },
+    } : require(name),
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../scripts/process-scope.cjs"), "utf8"), context);
+  const resolve = runtimeModule.exports.resolveProcessExecutable;
+  assert.equal(resolve("provider", { Path: "C:\\trusted" }), "C:\\trusted\\provider.exe");
+  assert.equal(inspected.includes("C:\\workspace\\provider.exe"), false);
+  assert.equal(resolve("provider", { PATH: "C:\\trusted", Path: "C:\\workspace" }), "C:\\trusted\\provider.exe");
+  assert.equal(resolve("provider", { PATH: '"C:\\tools with spaces"' }), "C:\\tools with spaces\\provider.exe");
+  assert.equal(resolve("provider", { PATH: ".;C:\\trusted" }), "C:\\workspace\\provider.exe");
+  assert.equal(resolve("named.bin", { PATH: "C:\\trusted" }), "C:\\trusted\\named.bin");
+  assert.equal(resolve("suffix.", { PATH: "C:\\trusted" }), "C:\\trusted\\suffix.com");
+  for (const environment of [{}, { undefined: "C:\\trusted" }, { PATH: "" }, { PATH: ";;" }, { PATH: " C:\\trusted " }]) {
+    assert.throws(() => resolve("provider", environment), { code: "ENOENT" });
+  }
+  assert.throws(() => resolve("", { PATH: "C:\\trusted" }), { code: "ENOENT" });
+  for (const command of ["C:\\workspace\\provider.exe", ".\\provider.exe", "./provider.exe"]) {
+    assert.equal(resolve(command, {}), command);
+  }
+});
+
+test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 90_000 }, async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
+  try {
+    for (const marker of ["first", "second"]) {
+      const environment = nodeEnvironment(cwd);
+      if (marker === "second") {
+        environment.PSModulePath = "caller-module-path";
+        environment.NoDefaultCurrentDirectoryInExePath = "caller-search-policy";
+      }
+      const target = `process.stdout.write(JSON.stringify({ marker: ${JSON.stringify(marker)}, modulePath: process.env.PSModulePath ?? null, runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, searchPolicy: process.env.NoDefaultCurrentDirectoryInExePath ?? null }))`;
+      const result = await runProcess(process.execPath, ["-e", target], {
+        cwd,
+        environment,
+        timeoutMs: marker === "first" ? 30_000 : 10_000,
+        maxOutputBytes: 1_024,
+      });
+      assert.deepEqual(result, {
+        exitCode: 0,
+        stdout: JSON.stringify({ marker, modulePath: environment.PSModulePath ?? null, runAsNode: environment.ELECTRON_RUN_AS_NODE ?? null, searchPolicy: environment.NoDefaultCurrentDirectoryInExePath ?? null }),
+        stderr: "",
+        timedOut: false,
+        cancelled: false,
+        cleanupConfirmed: true,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      });
+    }
+    const git = await runProcess("git", ["--version"], {
+      cwd,
+      environment: gitProcessEnvironment(cwd),
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    });
+    assert.equal(git.timedOut, false, git.stderr);
+    assert.equal(git.cleanupConfirmed, true, git.stderr);
+    assert.equal(git.exitCode, 0, git.stderr);
+    assert.match(git.stdout, /^git version /u);
+    const unavailable = await runProcess(`bachata-unavailable-${path.basename(cwd)}`, [], {
+      cwd,
+      environment: gitProcessEnvironment(cwd),
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    });
+    assert.equal(unavailable.exitCode, undefined);
+    assert.equal(unavailable.cleanupConfirmed, true, unavailable.stderr);
+    assert.equal(unavailable.timedOut, false, unavailable.stderr);
+    assert.match(unavailable.stderr, /ENOENT/u);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native Windows scopes remove descendants after their parent exits", {
+  skip: process.platform !== "win32",
+  timeout: 30_000,
+}, async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-descendant-"));
+  const pidPath = path.join(cwd, "child.pid");
+  const descendant = [
+    'const fs = require("node:fs");',
+    `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+    `setInterval(() => { if (!fs.existsSync(${JSON.stringify(cwd)})) process.exit(0); }, 100);`,
+    'setTimeout(() => process.exit(0), 30_000);',
+    'process.send("ready");',
+  ].join("\n");
+  const parent = [
+    'const { spawn } = require("node:child_process");',
+    `const child = spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], { stdio: ["ignore", "ignore", "ignore", "ipc"] });`,
+    'child.once("error", () => process.exit(1));',
+    'child.once("message", () => process.exit(0));',
+  ].join("\n");
+  try {
+    const result = await runProcess(process.execPath, ["-e", parent], {
+      cwd,
+      environment: nodeEnvironment(cwd),
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    });
+    assert.equal(result.timedOut, false, result.stderr);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(result.cleanupConfirmed, true, result.stderr);
+    const pid = Number(fs.readFileSync(pidPath, "utf8"));
+    assert.ok(Number.isSafeInteger(pid) && pid > 1);
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Windows process host restores target helper variables without changing unrelated environment", { timeout: 15_000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-host-environment-"));
+  const payloadPath = path.join(directory, "payload.json");
+  const statusPath = path.join(directory, "status.json");
+  const hostPath = path.resolve(__dirname, "../scripts/windows-process-host.cjs");
+  const environment = nodeEnvironment(directory);
+  environment.BACHATA_TARGET_ONLY = "target";
+  try {
+    for (const modulePath of [undefined, "caller-module-path"]) {
+      if (modulePath === undefined) delete environment.PSModulePath;
+      else {
+        environment.PSModulePath = modulePath;
+        environment.ELECTRON_RUN_AS_NODE = "1";
+      }
+      fs.writeFileSync(payloadPath, JSON.stringify({
+        executable: process.execPath,
+        args: ["-e", "process.stdout.write(JSON.stringify({ modulePath: process.env.PSModulePath ?? null, runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, target: process.env.BACHATA_TARGET_ONLY, helper: process.env.BACHATA_HELPER_ONLY ?? null }))"],
+        cwd: directory,
+        helperEnvironment: {
+          ...(modulePath === undefined ? {} : { PSModulePath: modulePath }),
+          ...(environment.ELECTRON_RUN_AS_NODE === undefined ? {} : { ELECTRON_RUN_AS_NODE: environment.ELECTRON_RUN_AS_NODE }),
+        },
+        stdinMode: "ignore",
+      }));
+      const result = await promisify(execFile)(process.execPath, [hostPath, payloadPath, statusPath], {
+        cwd: directory,
+        env: { ...environment, PSModulePath: "helper-module-path", ELECTRON_RUN_AS_NODE: "1", BACHATA_HELPER_ONLY: "helper" },
+        encoding: "utf8",
+        timeout: 5_000,
+      });
+      assert.deepEqual(JSON.parse(result.stdout), { modulePath: modulePath ?? null, runAsNode: environment.ELECTRON_RUN_AS_NODE ?? null, target: "target", helper: "helper" });
+      assert.deepEqual(JSON.parse(fs.readFileSync(statusPath, "utf8")), { exitCode: 0 });
+    }
+    fs.writeFileSync(payloadPath, JSON.stringify({
+      executable: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      cwd: directory,
+    }));
+    await assert.rejects(promisify(execFile)(process.execPath, [hostPath, payloadPath, statusPath], {
+      cwd: directory,
+      env: environment,
+      timeout: 5_000,
+    }), { code: 1 });
+    assert.deepEqual(JSON.parse(fs.readFileSync(statusPath, "utf8")), {
+      error: "Windows target helper environment is missing or invalid",
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 const waitForChildExit = (child) =>
   child.exitCode !== null || child.signalCode !== null
@@ -15,6 +236,104 @@ const waitForChildExit = (child) =>
     : new Promise((resolve) => {
         child.once("close", resolve);
       });
+
+test("Windows process host restores only caller helper settings and rejects other payload keys", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../scripts/windows-process-host.cjs"), "utf8");
+  const inherited = {
+    SystemRoot: "C:\\Windows",
+    PSModulePath: "helper-modules",
+    psmodulepath: "helper-lowercase-modules",
+    ELECTRON_RUN_AS_NODE: "1",
+    electron_run_as_node: "helper-lowercase-node-mode",
+    NoDefaultCurrentDirectoryInExePath: "1",
+    nodefaultcurrentdirectoryinexepath: "helper-lowercase-search-policy",
+    PATH: "C:\\helper-path",
+    Path: "C:\\helper-lowercase-path",
+    BACHATA_TARGET_ONLY: "target",
+  };
+  for (const [helperEnvironment, valid] of [
+    [{}, true],
+    [{ PsModulePath: "caller-modules", Electron_Run_As_Node: "0", NoDefaultCurrentDirectoryInExePath: "caller-search-policy", Path: "C:\\caller-path" }, true],
+    [{ NODE_OPTIONS: "--require=untrusted.cjs" }, false],
+    [{ ELECTRON_RUN_AS_NODE: 1 }, false],
+  ]) {
+    let targetEnvironment;
+    let status;
+    const exit = new Error("host exited");
+    const context = vm.createContext({
+      process: {
+        argv: ["node", "host", "payload.json", "status.json"],
+        env: inherited,
+        exit: () => { throw exit; },
+      },
+      require: (name) => name === "node:fs"
+        ? {
+            readFileSync: () => JSON.stringify({ executable: "git", args: ["--version"], helperEnvironment }),
+            writeFileSync: (_path, value) => { status = JSON.parse(value); },
+          }
+        : name === "./process-scope.cjs"
+          ? { resolveProcessExecutable: (command) => command }
+          : {
+            spawn: (_executable, _args, options) => {
+              targetEnvironment = options.env;
+              return new EventEmitter();
+            },
+          },
+    });
+    if (valid) {
+      vm.runInContext(source, context);
+      assert.deepEqual(JSON.parse(JSON.stringify(targetEnvironment)), {
+        SystemRoot: "C:\\Windows",
+        BACHATA_TARGET_ONLY: "target",
+        ...helperEnvironment,
+      });
+    } else {
+      assert.throws(() => vm.runInContext(source, context), (error) => error === exit);
+      assert.equal(targetEnvironment, undefined);
+      assert.deepEqual(status, { error: "Windows target helper environment is missing or invalid" });
+    }
+  }
+});
+
+test("Windows process host reports failed lookup without launching a target or inheriting ambient PATH", () => {
+  const runtimeModule = { exports: {} };
+  const inspected = [];
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../scripts/process-scope.cjs"), "utf8"), vm.createContext({
+    module: runtimeModule,
+    process: { platform: "win32", cwd: () => "C:\\workspace", env: { PATH: "C:\\ambient-impostor" } },
+    require: (name) => name === "node:fs" ? {
+      ...fs,
+      statSync: (candidate) => {
+        inspected.push(candidate);
+        return { isFile: () => candidate === "C:\\ambient-impostor\\git.exe" };
+      },
+    } : require(name),
+  }));
+  for (const helperEnvironment of [{}, { PATH: "" }, { Path: "C:\\missing" }]) {
+    let status;
+    let launched = false;
+    const exit = new Error("host exited");
+    const host = vm.createContext({
+      process: {
+        argv: ["node", "host", "payload.json", "status.json"],
+        env: { PATH: "C:\\ambient-impostor", SystemRoot: "C:\\Windows" },
+        exit: (code) => { assert.equal(code, 1); throw exit; },
+      },
+      require: (name) => {
+        if (name === "./process-scope.cjs") return runtimeModule.exports;
+        if (name === "node:fs") return {
+          readFileSync: () => JSON.stringify({ executable: "git", cwd: "C:\\workspace", args: [], helperEnvironment }),
+          writeFileSync: (_path, value) => { status = JSON.parse(value); },
+        };
+        return { spawn: () => { launched = true; return new EventEmitter(); } };
+      },
+    });
+    assert.throws(() => vm.runInContext(fs.readFileSync(path.join(__dirname, "../scripts/windows-process-host.cjs"), "utf8"), host), (error) => error === exit);
+    assert.match(status.error, /spawn git ENOENT/u);
+    assert.equal(launched, false);
+  }
+  assert.ok(inspected.every((candidate) => candidate.startsWith("C:\\missing\\")));
+});
 
 /**
  * `process.platform` is a plain configurable value property, so the win32 branches these tests
@@ -111,5 +430,210 @@ test("a Windows scope whose forced kill failed still answers from the status fil
     assert.equal(await terminated, false);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows termination stays bounded when taskkill never answers", { timeout: 2_000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-windows-scope-hung-kill-"));
+  const child = new EventEmitter();
+  child.pid = 4_321;
+  const scope = windowsScopeFromChild(
+    child,
+    {
+      temporaryDirectory: directory,
+      targetStatusPath: path.join(directory, "target-status.json"),
+      jobStatusPath: path.join(directory, "job-status.json"),
+    },
+    () => new Promise(() => {}),
+  );
+  try {
+    const terminated = scope.terminate(30);
+    assert.equal(await terminated, false, "a stalled kill must report unconfirmed cleanup");
+    assert.equal(await scope.terminate(30), false, "repeated termination must retain its verdict");
+    child.emit("close", 1, "SIGKILL");
+    const result = await scope.result;
+    assert.equal(result.cleanupConfirmed, false, "runner exit alone must not confirm the stalled tree kill");
+    assert.equal(result.terminationRequested, true);
+    assert.equal(fs.existsSync(directory), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows termination stays bounded while its runner never closes", { timeout: 2_000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-windows-scope-hung-runner-"));
+  const child = new EventEmitter();
+  child.pid = 4_321;
+  const scope = windowsScopeFromChild(
+    child,
+    {
+      temporaryDirectory: directory,
+      targetStatusPath: path.join(directory, "target-status.json"),
+      jobStatusPath: path.join(directory, "job-status.json"),
+    },
+    () => Promise.resolve(true),
+  );
+  try {
+    assert.equal(await scope.terminate(30), false, "taskkill success without runner exit must not confirm cleanup");
+  } finally {
+    child.emit("close", 1, "SIGKILL");
+    await scope.result;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Windows scope termination resolves taskkill only beneath a valid SystemRoot", async () => {
+  const scriptDirectory = path.resolve(__dirname, "../scripts");
+  const source = fs.readFileSync(path.join(scriptDirectory, "process-scope.cjs"), "utf8");
+  for (const systemRoot of ["D:\\Windows", "relative\\Windows"]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-taskkill-resolution-"));
+    const runner = new EventEmitter();
+    runner.pid = 4_321;
+    const launches = [];
+    const runtimeModule = { exports: {} };
+    const context = vm.createContext({
+      module: runtimeModule,
+      __dirname: scriptDirectory,
+      process: { env: { SystemRoot: systemRoot, PATH: "C:\\workspace" } },
+      setTimeout,
+      clearTimeout,
+      require: (name) => name === "node:child_process"
+        ? {
+            spawn: (executable, args) => {
+              launches.push({ executable, args: Array.from(args) });
+              const helper = new EventEmitter();
+              setImmediate(() => {
+                helper.emit("close", 0);
+                runner.emit("close", 1, "SIGKILL");
+              });
+              return helper;
+            },
+          }
+        : require(name),
+    });
+    vm.runInContext(source, context);
+    const scope = runtimeModule.exports.windowsScopeFromChild(runner, {
+      temporaryDirectory: directory,
+      targetStatusPath: path.join(directory, "target.json"),
+      jobStatusPath: path.join(directory, "job.json"),
+    });
+    try {
+      if (systemRoot === "D:\\Windows") {
+        assert.equal(await scope.terminate(1_000), true);
+        assert.deepEqual(launches, [{
+          executable: "D:\\Windows\\System32\\taskkill.exe",
+          args: ["/PID", "4321", "/T", "/F"],
+        }]);
+      } else {
+        assert.equal(await scope.terminate(10), false);
+        assert.deepEqual(launches, [], "invalid SystemRoot must not fall back to cwd or PATH");
+      }
+    } finally {
+      runner.emit("close", 1, "SIGKILL");
+      await scope.result;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Windows assembly reuse survives sequential scopes and cleans up only without live runners", async (t) => {
+  for (const keepRunnerAlive of [false, true]) {
+    await t.test(keepRunnerAlive ? "active runner preserves its assembly" : "completed runners release their assembly at exit", async () => {
+      const parent = new EventEmitter();
+      parent.platform = "win32";
+      parent.execPath = process.execPath;
+      parent.env = {
+        SystemRoot: "C:\\Windows",
+        PSModulePath: "C:\\untrusted-modules",
+        psmodulepath: "C:\\untrusted-lowercase-modules",
+        ELECTRON_RUN_AS_NODE: "caller-node-mode",
+        electron_run_as_node: "caller-lowercase-node-mode",
+        NoDefaultCurrentDirectoryInExePath: "caller-search-policy",
+        nodefaultcurrentdirectoryinexepath: "caller-lowercase-search-policy",
+        BACHATA_TEST_SECRET: "fixture-secret",
+      };
+      parent.cwd = () => process.cwd();
+      const runners = [];
+      const runtimeModule = { exports: {} };
+      const scriptDirectory = path.resolve(__dirname, "../scripts");
+      const context = vm.createContext({
+        module: runtimeModule,
+        __dirname: scriptDirectory,
+        process: parent,
+        setTimeout,
+        clearTimeout,
+        require: (name) => name === "node:child_process"
+          ? {
+              spawn: (_executable, args, options) => {
+                const child = new EventEmitter();
+                child.pid = 4_321 + runners.length;
+                const argument = (name) => args[args.indexOf(name) + 1];
+                runners.push({
+                  child,
+                  assembly: argument("-AssemblyPath"),
+                  target: argument("-TargetStatusPath"),
+                  job: argument("-JobStatusPath"),
+                  environment: options.env,
+                  payload: JSON.parse(fs.readFileSync(argument("-PayloadPath"), "utf8")),
+                });
+                return child;
+              },
+            }
+          : require(name),
+      });
+      vm.runInContext(fs.readFileSync(path.join(scriptDirectory, "process-scope.cjs"), "utf8"), context);
+      const finish = async (runner, scope) => {
+        fs.writeFileSync(runner.target, JSON.stringify({ exitCode: 0 }));
+        fs.writeFileSync(runner.job, JSON.stringify({ cleanupConfirmed: true }));
+        runner.child.emit("close", 0, null);
+        assert.equal((await scope.result).cleanupConfirmed, true);
+      };
+      let secondScope;
+      try {
+        const firstScope = runtimeModule.exports.spawnProcessScope("git", ["--version"]);
+        const first = runners[0];
+        assert.equal(first.payload.executable, "git", "target lookup must remain inside the bounded host");
+        assert.deepEqual(JSON.parse(JSON.stringify(first.environment)), {
+          SystemRoot: "C:\\Windows",
+          PATH: "",
+          PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
+          ELECTRON_RUN_AS_NODE: "1",
+          NoDefaultCurrentDirectoryInExePath: "1",
+          BACHATA_TEST_SECRET: "fixture-secret",
+        });
+        assert.deepEqual(first.payload.helperEnvironment, {
+          PSModulePath: "C:\\untrusted-modules",
+          psmodulepath: "C:\\untrusted-lowercase-modules",
+          ELECTRON_RUN_AS_NODE: "caller-node-mode",
+          electron_run_as_node: "caller-lowercase-node-mode",
+          NoDefaultCurrentDirectoryInExePath: "caller-search-policy",
+          nodefaultcurrentdirectoryinexepath: "caller-lowercase-search-policy",
+        }, "the target must retain its caller's helper environment");
+        assert.equal(JSON.stringify(first.payload).includes("fixture-secret"), false, "the payload must not persist unrelated environment values");
+        assert.equal(parent.env.PSModulePath, "C:\\untrusted-modules", "wrapper setup must not mutate the caller's environment");
+        assert.equal(parent.env.ELECTRON_RUN_AS_NODE, "caller-node-mode", "wrapper setup must not mutate the caller's Node mode");
+        assert.equal(path.isAbsolute(first.assembly), true);
+        assert.match(path.basename(path.dirname(first.assembly)), /^bachata-windows-assembly-/u);
+        fs.writeFileSync(first.assembly, "compiled assembly fixture");
+        await finish(first, firstScope);
+        assert.equal(fs.existsSync(first.assembly), true, "sequential commands must retain their assembly");
+        secondScope = runtimeModule.exports.spawnProcessScope("git", ["status"], {
+          env: { ...parent.env, PATH: "C:\\trusted", Path: "C:\\alternate" },
+        });
+        assert.equal(runners[1].environment.PATH, "C:\\trusted");
+        assert.equal(runners[1].payload.helperEnvironment.PATH, "C:\\trusted");
+        assert.equal(runners[1].payload.helperEnvironment.Path, "C:\\alternate");
+        assert.equal(runners[1].assembly, first.assembly);
+        if (!keepRunnerAlive) await finish(runners[1], secondScope);
+        parent.emit("exit", 0);
+        assert.equal(fs.existsSync(first.assembly), keepRunnerAlive);
+      } finally {
+        if (keepRunnerAlive && secondScope) await finish(runners[1], secondScope);
+        for (const runner of runners) {
+          fs.rmSync(path.dirname(runner.target), { recursive: true, force: true });
+          fs.rmSync(path.dirname(runner.assembly), { recursive: true, force: true });
+        }
+      }
+    });
   }
 });

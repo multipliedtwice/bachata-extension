@@ -3,6 +3,9 @@ const { appendFile, mkdtemp, readFile, rm } = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { readFileSync } = require("node:fs");
+const { createRequire } = require("node:module");
+const vm = require("node:vm");
 
 const {
   createWorkspaceMutationFence,
@@ -137,6 +140,49 @@ test("workspace mutation fencing distinguishes equal tokens from different resou
   } finally {
     await first.dispose().catch(() => undefined);
     await second?.dispose().catch(() => undefined);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("rejected fence activation closes its database before returning the original failure", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "bachata-workspace-mutation-rejected-"));
+  const filename = require.resolve("../dist/state/workspaceMutationFence.js");
+  const requireModule = createRequire(filename);
+  const sqlite = requireModule("./sqlite");
+  const databases = [];
+  const scopedModule = { exports: {} };
+  vm.runInNewContext(readFileSync(filename, "utf8"), {
+    exports: scopedModule.exports,
+    require: (name) => name === "./sqlite" ? {
+      ...sqlite,
+      openSqliteDatabase: (...args) => {
+        const database = sqlite.openSqliteDatabase(...args);
+        databases.push(database);
+        return database;
+      },
+    } : requireModule(name),
+  }, { filename });
+  try {
+    for (const rejectedCheck of [1, 2]) {
+      let checks = 0;
+      const original = new Error(`writer replaced at activation check ${String(rejectedCheck)}`);
+      await assert.rejects(scopedModule.exports.createWorkspaceMutationFence(root, {
+        resourceKey: "workspace-state-writer:test",
+        token: 1,
+        assertWritable: () => {
+          checks += 1;
+          if (checks === rejectedCheck) throw original;
+        },
+      }), (error) => error === original);
+      assert.equal(checks, rejectedCheck);
+      assert.equal(databases.length, rejectedCheck);
+      assert.throws(() => databases.at(-1).prepare("SELECT 1"), /database is not open/u);
+    }
+  } finally {
+    for (const database of databases) {
+      try { database.close(); } catch { /* Already closed. */ }
+    }
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -92,18 +92,48 @@ test("streamed deltas update only the live agent output and preserve editor stat
 });
 
 
-test("verification commands use a fixed non-login shell and browser shell actions stay disabled", async () => {
-  const commandSource = await loadSource("src/orchestrator/commandRunner.ts");
+test("verification commands use a fixed non-login shell and browser shell actions stay disabled", async (context) => {
+  const processScope = require("../dist/process/processScope.js");
+  const { runCommand, runProcess } = require("../dist/orchestrator/commandRunner.js");
+  const launches = [];
+  context.mock.method(processScope, "spawnProcessScope", (executable, args, options) => {
+    launches.push({ executable, args, options });
+    return {
+      child: {},
+      result: Promise.resolve({ exitCode: 0, cleanupConfirmed: true }),
+      terminate: async () => { throw new Error("The completed fixture must not need termination"); },
+    };
+  });
+  const environment = {
+    SystemRoot: "D:\\Windows",
+    SHELL: "/untrusted/login-shell",
+    ComSpec: "D:\\untrusted\\cmd.exe",
+    COMSPEC: "D:\\untrusted\\alternate.exe",
+  };
+  const hostEnvironment = process.env;
+  const options = { cwd: process.cwd(), timeoutMs: 1_000, maxOutputBytes: 1_024, environment };
+  const command = 'echo "quoted argument" && echo second';
+  const args = ["literal argument", "&&", "$HOME"];
+  try {
+    process.env = environment;
+    assert.equal((await runCommand(command, options)).exitCode, 0);
+    assert.equal((await runProcess("explicit-tool", args, options)).exitCode, 0);
+  } finally {
+    process.env = hostEnvironment;
+  }
+  assert.equal(launches.length, 2);
+  assert.equal(launches[0].executable, command);
+  assert.deepEqual(launches[0].args, []);
+  assert.equal(launches[0].options.shell, process.platform === "win32" ? "D:\\Windows\\System32\\cmd.exe" : "/bin/sh");
+  assert.equal(launches[1].executable, "explicit-tool");
+  assert.deepEqual(launches[1].args, args);
+  assert.equal(launches[1].options.shell, undefined);
+  assert.ok(launches.every((launch) => launch.options.env === environment));
   const browserSource = await loadSource("src/browser/workspaceActions.ts");
   const runtimeSource = await loadSource("src/runtime/createRuntime.ts");
   const policySource = await loadSource("src/runtime/browserActionPolicy.ts");
   const packageJson = JSON.parse(await loadSource("package.json"));
 
-  assert.match(commandSource, /return "\/bin\/sh"/u);
-  assert.match(commandSource, /const shell = resolveCommandShell\(\)/u);
-  assert.match(commandSource, /\["-c", command\]/u);
-  assert.doesNotMatch(commandSource, /process\.env\.SHELL/u);
-  assert.doesNotMatch(commandSource, /-lc/u);
   assert.match(browserSource, /Arbitrary shell actions are disabled; use structured workspace actions/u);
   assert.doesNotMatch(browserSource, /const runShell = async/u);
   // The refusal moved to the policy module the runtime calls; both halves are asserted so
@@ -170,16 +200,19 @@ test("pipeline editor operations remain bound to the conversation that opened th
   assert.match(source, /restoreDialogFocus\(pendingEditorOperation\.returnFocusSelector\)/u);
 });
 
-test("verification resolves a trusted Windows command shell without ComSpec", async () => {
-  const source = await loadSource("src/orchestrator/commandRunner.ts");
-
-  assert.match(source, /environment\.SystemRoot \?\? environment\.SYSTEMROOT \?\? environment\.WINDIR/u);
-  assert.match(
-    source,
-    /path\.win32\.join\(path\.win32\.normalize\(systemRoot\), "System32", "cmd\.exe"\)/u,
-  );
-  assert.doesNotMatch(source, /process\.env\.ComSpec/u);
-  assert.doesNotMatch(source, /String\.raw`C:/u);
+test("verification resolves a trusted Windows command shell without ComSpec", () => {
+  const { resolveCommandShell } = require("../dist/orchestrator/commandRunner.js");
+  for (const key of ["SystemRoot", "SYSTEMROOT", "WINDIR"]) {
+    assert.equal(resolveCommandShell("win32", {
+      [key]: "D:\\Windows",
+      ComSpec: "D:\\untrusted\\cmd.exe",
+      SHELL: "/untrusted/login-shell",
+    }), "D:\\Windows\\System32\\cmd.exe");
+  }
+  for (const environment of [{ ComSpec: "D:\\untrusted\\cmd.exe" }, { SystemRoot: "relative", ComSpec: "D:\\untrusted\\cmd.exe" }]) {
+    assert.throws(() => resolveCommandShell("win32", environment), /Windows SystemRoot is unavailable or invalid/u);
+  }
+  assert.equal(resolveCommandShell("linux", { SHELL: "/untrusted/login-shell" }), "/bin/sh");
 });
 
 test("webview guards editor, interaction, attachment, and archived state", async () => {

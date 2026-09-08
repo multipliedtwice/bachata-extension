@@ -64,10 +64,59 @@ jobs:
       - name: No telemetry
         run: npm run check:no-telemetry
 
+      - name: Native Windows process completion
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        run: |
+          npm run build:emit
+          node --test --test-name-pattern="native (process|Windows) scopes" tests/terminationIntegrity.test.cjs
+
+      - name: Windows VS Code process host
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          ELECTRON_RUN_AS_NODE: "1"
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'vscode-1.136.1.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'vscode-1.136.1'
+          Invoke-WebRequest -Uri 'https://vscode.download.prss.microsoft.com/dbazure/download/stable/a44adf7f53e00964ab890f9f8758a334f1fc15bc/VSCode-win32-x64-1.136.1.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'deca16ea5c4d71ece23e50af57632bba3abd0e3577c3c8bfbcdd90b03f11e402') {
+            throw 'VS Code download digest mismatch'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $directory
+          $stdout = Join-Path $env:RUNNER_TEMP 'vscode-process-tests.stdout'
+          $stderr = Join-Path $env:RUNNER_TEMP 'vscode-process-tests.stderr'
+          $hostProcess = Start-Process -FilePath (Join-Path $directory 'Code.exe') -ArgumentList '--test', '--test-name-pattern=native', 'tests/terminationIntegrity.test.cjs', 'tests/commandInvocation.test.cjs', 'tests/managedProjectChecks.test.cjs', 'tests/gitHeadGuard.test.cjs', 'tests/managedHandoffHardening.test.cjs', 'tests/orchestrator.test.cjs' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Get-Content $stdout
+          Get-Content $stderr
+          if ($hostProcess.ExitCode -ne 0) { throw "VS Code process tests exited with $($hostProcess.ExitCode)" }
+
+      - name: Native Windows release safety
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: |
+          node --test tests/adapters.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/process.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/managedHandoffHardening.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-name-pattern="verification commands stop|orchestration checks do not inherit|sealing refuses.*symbolic link|sealed input identity|a sealed working-tree input starts|applying a sealed run refuses a target that no longer holds" tests/orchestrator.test.cjs
+
+      - name: Native Windows file and fixture safety
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: node --test --test-concurrency=1 tests/codexProtocol.test.cjs tests/publishFindings.test.cjs tests/releaseBinding.test.cjs tests/scratchSafety.test.cjs tests/storage.test.cjs tests/timeoutBounds.test.cjs tests/vsixVerification.test.cjs tests/workspaceMutationFence.test.cjs tests/worktreeLock.test.cjs
+
       - name: Tests
+        env:
+          BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
         run: npm test
 
       - name: Coverage gates
+        env:
+          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '' }}
         run: npm run test:coverage
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact

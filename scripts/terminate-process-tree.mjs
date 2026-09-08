@@ -1,18 +1,8 @@
-import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import processScopeRuntime from "./process-scope.cjs";
 
 const delay = (durationMs) =>
   new Promise((resolve) => setTimeout(resolve, Math.max(1, durationMs)));
-
-const taskkill = (pid, force) =>
-  new Promise((resolve) => {
-    const child = spawn("taskkill", ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    child.once("error", () => resolve(false));
-    child.once("close", (code) => resolve(code === 0));
-  });
 
 const waitForExit = (child, timeoutMs) =>
   new Promise((resolve) => {
@@ -131,7 +121,7 @@ export const terminateProcessTree = async (child, graceMs) => {
     if (child.exitCode !== null || child.signalCode !== null) {
       return true;
     }
-    const terminated = await taskkill(pid, true);
+    const terminated = await processScopeRuntime.terminateWindowsProcessTree(pid, graceMs);
     const parentExited = await waitForExit(child, graceMs);
     return terminated && parentExited;
   }

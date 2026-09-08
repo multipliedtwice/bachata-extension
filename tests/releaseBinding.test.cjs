@@ -1,10 +1,11 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const test = require("node:test");
 
 const root = path.join(__dirname, "..");
-const load = () => import(`file://${path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")}`);
+const load = () => import(pathToFileURL(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")).href);
 const bridgeCompatibility = JSON.parse(
   fs.readFileSync(path.join(root, "protocol", "browser-bridge.compatibility.json"), "utf8"),
 );
@@ -318,7 +319,7 @@ test("an unbindable recorded row refuses the whole binding instead of being rewr
   try {
     const script = path.join(root, "scripts", "bind-release-artifacts.mjs");
     const probe = [
-      "import { planDocumentBinding } from " + JSON.stringify(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")) + ";",
+      "import { planDocumentBinding } from " + JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")).href) + ";",
       "const artifacts = { vsix: { label: 'Bachata VSIX', sha256: 'a'.repeat(64), version: '1' }, bridge: { label: 'Browser Bridge ZIP', sha256: 'b'.repeat(64), version: '1' } };",
       "const original = ['# R', '', 'Artifacts under test: Bachata VSIX `' + 'c'.repeat(64) + '`, Browser Bridge ZIP `' + 'd'.repeat(64) + '`.', '', '| Step | Date | Result | Notes |', '| --- | --- | --- | --- |', '| Install | 2026-08-01 | pass | none |', ''].join('\\n');",
       "const plan = planDocumentBinding({ relative: 'docs/PROVIDER_TERMS.md', original, artifacts });",
@@ -410,7 +411,7 @@ test("the packaged file set is derived from the manifest, not guessed", () => {
 
 test("an actual screenshot never enters the verifier's equivalence set", async () => {
   const { shippedSourceFiles } = await import(
-    `file://${path.join(root, "scripts", "verify-vsix.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "verify-vsix.mjs")).href
   );
   const screenshot = path.join(root, "media", "screenshots", "verifier-fixture.png");
   const created = !fs.existsSync(screenshot);
@@ -481,7 +482,7 @@ test("a terminal dual-artifact row missing one hash refuses the binding", async 
 
 test("the Browser Bridge is resolved from the pinned version, never by scanning", async () => {
   const { resolvePinnedBridgeArchive, pinnedBridgeRelease } = await import(
-    `file://${path.join(root, "scripts", "lib", "releaseArtifacts.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "releaseArtifacts.mjs")).href
   );
   const pinned = await pinnedBridgeRelease(root);
   assert.equal(pinned.version, bridgeCompatibility.browserBridgeVersion);
@@ -515,10 +516,10 @@ test("the Browser Bridge is resolved from the pinned version, never by scanning"
 
 test("the Browser Bridge archive is structurally verified, not only hashed", requiresPinnedBridgeArchive, async () => {
   const { verifyBridgeArchive, bridgeSourceRoot } = await import(
-    `file://${path.join(root, "scripts", "verify-bridge.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "verify-bridge.mjs")).href
   );
   const { resolvePinnedBridgeArchive } = await import(
-    `file://${path.join(root, "scripts", "lib", "releaseArtifacts.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "releaseArtifacts.mjs")).href
   );
   const pinned = await resolvePinnedBridgeArchive(root);
   const result = await verifyBridgeArchive(pinned.path, pinned, {
@@ -562,7 +563,7 @@ test("every temporary directory a release command takes is removed under one lif
     removeEveryTrackedTemporaryDirectory,
     removeTrackedTemporaryDirectory,
     trackedTemporaryDirectories,
-  } = await import(`file://${path.join(root, "scripts", "lib", "temporaryResources.mjs")}`);
+  } = await import(pathToFileURL(path.join(root, "scripts", "lib", "temporaryResources.mjs")).href);
   const first = await createTrackedTemporaryDirectory(path.join(os.tmpdir(), "bachata-tracked-a-"));
   const second = await createTrackedTemporaryDirectory(path.join(os.tmpdir(), "bachata-tracked-b-"));
   try {
@@ -594,7 +595,7 @@ test("packaged production dependencies are byte-checked before anything from the
 
 test("a record document cannot substitute, empty, or rename a required table", async () => {
   const { releaseMetadataFindings, RECORD_SCHEMAS } = await import(
-    `file://${path.join(root, "scripts", "lib", "releaseMetadata.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "releaseMetadata.mjs")).href
   );
   const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
   const live = () => ({
@@ -674,10 +675,10 @@ test("the binder refuses a substituted record document before it plans any write
 
 test("the Browser Bridge archive is a closed package compared with its build", requiresPinnedBridgeArchive, async () => {
   const { verifyBridgeArchive, bridgeSourceRoot, MAXIMUM_BRIDGE_ENTRIES } = await import(
-    `file://${path.join(root, "scripts", "verify-bridge.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "verify-bridge.mjs")).href
   );
   const { resolvePinnedBridgeArchive } = await import(
-    `file://${path.join(root, "scripts", "lib", "releaseArtifacts.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "releaseArtifacts.mjs")).href
   );
   const pinned = await resolvePinnedBridgeArchive(root);
   const sourceRoot = await bridgeSourceRoot(pinned.path);
@@ -733,7 +734,7 @@ test("the production dependency closure is compared in both directions", () => {
 
 test("a record row cannot be substituted while keeping its first cell", async () => {
   const { releaseMetadataFindings } = await import(
-    `file://${path.join(root, "scripts", "lib", "releaseMetadata.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "releaseMetadata.mjs")).href
   );
   const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
   const live = () => ({
@@ -868,7 +869,7 @@ const zipArchive = (entries) => {
 };
 
 test("normalized path collisions are refused before extraction", async () => {
-  const { verifyVsix } = await import(`file://${path.join(root, "scripts", "verify-vsix.mjs")}`);
+  const { verifyVsix } = await import(pathToFileURL(path.join(root, "scripts", "verify-vsix.mjs")).href);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-vsix-collision-"));
   try {
     const archive = path.join(directory, "collision.vsix");
@@ -887,7 +888,7 @@ test("normalized path collisions are refused before extraction", async () => {
 });
 
 test("an unexpected directory record fails the Bridge closure comparison", async () => {
-  const { verifyBridgeArchive } = await import(`file://${path.join(root, "scripts", "verify-bridge.mjs")}`);
+  const { verifyBridgeArchive } = await import(pathToFileURL(path.join(root, "scripts", "verify-bridge.mjs")).href);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-closure-"));
   try {
     const source = path.join(directory, "dist");
@@ -927,7 +928,7 @@ test("an unexpected directory record fails the Bridge closure comparison", async
 });
 
 test("a missing managed schema fails Bridge verification", async () => {
-  const { verifyBridgeArchive } = await import(`file://${path.join(root, "scripts", "verify-bridge.mjs")}`);
+  const { verifyBridgeArchive } = await import(pathToFileURL(path.join(root, "scripts", "verify-bridge.mjs")).href);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-managed-"));
   try {
     const manifest = JSON.stringify({
@@ -956,7 +957,7 @@ test("a missing managed schema fails Bridge verification", async () => {
 
 test("two copies of the pinned Bridge are refused even when identical", async () => {
   const { resolvePinnedBridgeArchive } = await import(
-    `file://${path.join(root, "scripts", "lib", "releaseArtifacts.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "releaseArtifacts.mjs")).href
   );
   const pinned = JSON.parse(
     fs.readFileSync(path.join(root, "protocol", "browser-bridge.compatibility.json"), "utf8"),
@@ -1053,7 +1054,7 @@ test("the binder script refuses to run while a lock is held and leaves no stagin
 });
 
 const releaseArtifacts = () => import(
-  `file://${path.join(root, "scripts", "lib", "releaseArtifacts.mjs")}`
+  pathToFileURL(path.join(root, "scripts", "lib", "releaseArtifacts.mjs")).href
 );
 
 test("a release artifact replaced by a symbolic link is refused, not read", async () => {
@@ -1067,6 +1068,131 @@ test("a release artifact replaced by a symbolic link is refused, not read", asyn
     await assert.rejects(openPinnedArtifact(link), /symbolic link/u);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const isolatedArtifactReader = (filesystem, platform = process.platform) => {
+  const vm = require("node:vm");
+  const context = vm.createContext({
+    ...filesystem,
+    path: platform === "win32" ? path.win32 : path,
+    process: { platform },
+    Buffer,
+  });
+  const loadFunction = (name, result) => {
+    const source = fs.readFileSync(path.join(root, "scripts", "lib", name), "utf8")
+      .replace(/^import .*;$/gmu, "")
+      .replace(/^export /gmu, "");
+    return vm.compileFunction(`${source}\nreturn ${result};`, [], { parsingContext: context })();
+  };
+  context.openVerifiedRegularFile = loadFunction("verifiedRegularFile.mjs", "openVerifiedRegularFile");
+  return loadFunction("releaseArtifacts.mjs", "openPinnedArtifact");
+};
+
+test("artifact reads verify Windows root volume before reading and close both handles", async () => {
+  const filesystem = require("node:fs/promises");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-artifact-volume-"));
+  const candidate = path.join(directory, "artifact.zip");
+  fs.writeFileSync(candidate, "artifact bytes");
+  try {
+    for (const wrongVolume of [false, true]) {
+      let sourceReads = 0;
+      let sourceCloses = 0;
+      let rootCloses = 0;
+      let rootReads = 0;
+      const windowsPath = "C:\\workspace\\artifact.zip";
+      const inode = 0x20_0000_0000_0001n;
+      const io = {
+        ...filesystem,
+        lstat: async (file, options) => {
+          assert.equal(file, windowsPath);
+          assert.equal(options.bigint, true);
+          const details = await filesystem.lstat(candidate, options);
+          return { ...details, dev: 0n, ino: inode, isFile: () => true, isSymbolicLink: () => false };
+        },
+        realpath: async (file) => { assert.equal(file, windowsPath); return windowsPath; },
+        open: async (file, flags) => {
+          if (file === "C:\\") {
+            const anchor = await filesystem.open(directory, filesystem.constants.O_RDONLY);
+            return {
+              stat: async (options) => {
+                const details = await anchor.stat(options);
+                return { ...details, dev: 42n, isDirectory: () => details.isDirectory() };
+              },
+              read: async () => { rootReads += 1; throw new Error("root bytes must not be read"); },
+              close: async () => { rootCloses += 1; await anchor.close(); },
+            };
+          }
+          assert.equal(file, windowsPath);
+          const handle = await filesystem.open(candidate, flags);
+          return {
+            stat: async (options) => {
+              const details = await handle.stat(options);
+              return { ...details, dev: wrongVolume ? 43n : 42n, ino: inode, isFile: () => details.isFile() };
+            },
+            read: async (...args) => { sourceReads += 1; return handle.read(...args); },
+            close: async () => { sourceCloses += 1; await handle.close(); },
+          };
+        },
+      };
+      const operation = isolatedArtifactReader(io, "win32")(windowsPath);
+      if (wrongVolume) await assert.rejects(operation, /changed while it was being opened/u);
+      else assert.equal((await operation).bytes.toString(), "artifact bytes");
+      assert.equal(sourceReads, wrongVolume ? 0 : 1);
+      assert.equal(sourceCloses, 1);
+      assert.equal(rootCloses, 1);
+      assert.equal(rootReads, 0);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("artifact open-boundary file and directory replacements are refused before reading", async () => {
+  const filesystem = require("node:fs/promises");
+  for (const replaceDirectory of [false, true]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-artifact-race-"));
+    const parent = path.join(directory, "source");
+    const outside = path.join(directory, "outside");
+    fs.mkdirSync(parent);
+    fs.mkdirSync(outside);
+    const candidate = path.join(parent, "candidate.zip");
+    const secret = path.join(outside, "candidate.zip");
+    fs.writeFileSync(candidate, "safe");
+    fs.writeFileSync(secret, "secret");
+    let reads = 0;
+    let closes = 0;
+    let swapped = false;
+    try {
+      const io = {
+        ...filesystem,
+        open: async (file, flags) => {
+          if (file !== candidate) return filesystem.open(file, flags);
+          if (replaceDirectory) {
+            fs.renameSync(parent, `${parent}-original`);
+            fs.symlinkSync(outside, parent, "junction");
+          } else {
+            fs.unlinkSync(candidate);
+            fs.symlinkSync(secret, candidate);
+          }
+          swapped = true;
+          const handle = await filesystem.open(file, flags & ~(filesystem.constants.O_NOFOLLOW ?? 0));
+          return {
+            stat: (options) => handle.stat(options),
+            read: async (...args) => { reads += 1; return handle.read(...args); },
+            close: async () => { closes += 1; await handle.close(); },
+          };
+        },
+      };
+      await assert.rejects(isolatedArtifactReader(io)(candidate), replaceDirectory
+        ? /changed while it was being opened/u : /symbolic link/u);
+      assert.equal(swapped, true);
+      assert.equal(reads, 0);
+      assert.equal(closes, 1);
+      assert.equal(fs.readFileSync(secret, "utf8"), "secret");
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1119,7 +1245,7 @@ test("a same-size in-place rewrite during the read is refused", async () => {
 
 test("a manifest-first archive is still validated to the end of its central directory", async () => {
   const { readZipEntryFromBuffer } = await import(
-    `file://${path.join(root, "scripts", "lib", "zipEntry.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "zipEntry.mjs")).href
   );
   const archive = zipArchive([
     ["manifest.json", "{\"version\":\"1.0.0\"}"],
@@ -1158,7 +1284,7 @@ test("a manifest-first archive is still validated to the end of its central dire
 
 test("a Bridge directory record carrying data is refused even when its name matches the build", async () => {
   const { verifyBridgeArchive } = await import(
-    `file://${path.join(root, "scripts", "verify-bridge.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "verify-bridge.mjs")).href
   );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-directory-"));
   try {
@@ -1190,7 +1316,7 @@ test("a Bridge directory record carrying data is refused even when its name matc
 
 test("Bridge entries that collide once normalized are refused", async () => {
   const { verifyBridgeArchive } = await import(
-    `file://${path.join(root, "scripts", "verify-bridge.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "verify-bridge.mjs")).href
   );
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-collision-"));
   try {
@@ -1209,7 +1335,7 @@ test("Bridge entries that collide once normalized are refused", async () => {
 });
 
 test("VSIX entries that are Windows filesystem aliases are refused", async () => {
-  const { verifyVsix } = await import(`file://${path.join(root, "scripts", "verify-vsix.mjs")}`);
+  const { verifyVsix } = await import(pathToFileURL(path.join(root, "scripts", "verify-vsix.mjs")).href);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-vsix-alias-"));
   try {
     for (const name of [
@@ -1236,7 +1362,7 @@ test("VSIX entries that are Windows filesystem aliases are refused", async () =>
 
 test("npm platform predicates apply exclusions before allowlists and honour libc", async () => {
   const { packagePlatformSatisfied } = await import(
-    `file://${path.join(root, "scripts", "verify-vsix.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "verify-vsix.mjs")).href
   );
   const darwin = { platform: "darwin", arch: "arm64", libc: "glibc" };
   const linuxMusl = { platform: "linux", arch: "x64", libc: "musl" };
@@ -1262,7 +1388,7 @@ test("npm platform predicates apply exclusions before allowlists and honour libc
 });
 
 const bindingTransaction = () => import(
-  `file://${path.join(root, "scripts", "lib", "documentBindingTransaction.mjs")}`
+  pathToFileURL(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs")).href
 );
 
 const bindingFixture = (documents) => {
@@ -1285,13 +1411,13 @@ test("a successful binding rewrites every document and keeps its mode", async ()
     { name: "one.md", original: "one before\n", next: "one after\n", mode: 0o644 },
     { name: "two.md", original: "two before\n", next: "two after\n", mode: 0o640 },
   ]);
+  const originalModes = plans.map(({ file }) => fs.statSync(file).mode & 0o777);
   try {
     const outcome = await bindDocuments({ docsDirectory: directory, plans });
     assert.equal(outcome.status, "bound");
     assert.equal(fs.readFileSync(plans[0].file, "utf8"), "one after\n");
     assert.equal(fs.readFileSync(plans[1].file, "utf8"), "two after\n");
-    assert.equal(fs.statSync(plans[0].file).mode & 0o777, 0o644, "staging mode replaced the document mode");
-    assert.equal(fs.statSync(plans[1].file).mode & 0o777, 0o640, "staging mode replaced the document mode");
+    assert.deepEqual(plans.map(({ file }) => fs.statSync(file).mode & 0o777), originalModes, "staging mode replaced the document mode");
     assert.deepEqual(bindingResidue(directory), [], "the binder left staging or backup files behind");
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -1372,6 +1498,7 @@ test("a rename failure restores every already-committed document with its mode",
     { name: "one.md", original: "one before\n", next: "one after\n", mode: 0o644 },
     { name: "two.md", original: "two before\n", next: "two after\n", mode: 0o600 },
   ]);
+  const originalModes = plans.map(({ file }) => fs.statSync(file).mode & 0o777);
   try {
     const outcome = await bindDocuments({
       docsDirectory: directory,
@@ -1385,8 +1512,7 @@ test("a rename failure restores every already-committed document with its mode",
     assert.equal(outcome.status, "rolled-back");
     assert.equal(fs.readFileSync(plans[0].file, "utf8"), "one before\n", "a committed document was not restored");
     assert.equal(fs.readFileSync(plans[1].file, "utf8"), "two before\n");
-    assert.equal(fs.statSync(plans[0].file).mode & 0o777, 0o644, "the restored document lost its mode");
-    assert.equal(fs.statSync(plans[1].file).mode & 0o777, 0o600);
+    assert.deepEqual(plans.map(({ file }) => fs.statSync(file).mode & 0o777), originalModes, "the restored document lost its mode");
     assert.deepEqual(bindingResidue(directory), []);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -1425,7 +1551,7 @@ test("a document replaced by a symbolic link is never written through", async ()
   const { bindDocuments } = await bindingTransaction();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bind-outside-"));
   const target = path.join(outside, "external.md");
-  fs.writeFileSync(target, "external bytes\n", "utf8");
+  fs.writeFileSync(target, "one before\n", "utf8");
   const { directory, plans } = bindingFixture([
     { name: "one.md", original: "one before\n", next: "one after\n" },
   ]);
@@ -1436,7 +1562,7 @@ test("a document replaced by a symbolic link is never written through", async ()
     assert.equal(outcome.status, "rolled-back");
     assert.equal(
       fs.readFileSync(target, "utf8"),
-      "external bytes\n",
+      "one before\n",
       "the binder wrote through a replacement symbolic link",
     );
     assert.deepEqual(bindingResidue(directory), []);
@@ -1605,7 +1731,7 @@ test("a binder killed between renames is recovered by the next run", async () =>
   try {
     const probe = path.join(directory, "crash.mjs");
     fs.writeFileSync(probe, [
-      `import { bindDocuments } from ${JSON.stringify(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs"))};`,
+      `import { bindDocuments } from ${JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs")).href)};`,
       `const plans = ${JSON.stringify(plans)};`,
       `await bindDocuments({`,
       `  docsDirectory: ${JSON.stringify(directory)},`,

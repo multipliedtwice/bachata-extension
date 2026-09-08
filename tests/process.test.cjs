@@ -120,18 +120,52 @@ const hangingCommand = path.join(
   "mock-hanging-command.cjs",
 );
 
-test("command availability timeout force-kills an unresponsive process", async () => {
+test("command availability timeout force-kills an unresponsive process", async (context) => {
+  const processScope = require("../dist/process/processScope.js");
+  const spawnScope = processScope.spawnProcessScope;
+  let ownedScope;
+  context.mock.method(processScope, "spawnProcessScope", (...args) => {
+    assert.equal(ownedScope, undefined, "the fixture must own exactly one process scope");
+    ownedScope = spawnScope(...args);
+    return ownedScope;
+  });
+  const waitForScopeResult = async () => {
+    let timeout;
+    try {
+      return await Promise.race([
+        ownedScope.result,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("The fixture process scope did not finish cleanup")), 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+  context.after(async () => {
+    if (ownedScope) {
+      assert.equal(await terminateProcessTree(ownedScope.child, 5_000), true, "the fixture process scope must be stopped");
+      await waitForScopeResult();
+    }
+  });
+  const terminateGraceMs = process.platform === "win32" ? 5_000 : 50;
   const startedAt = Date.now();
 
   await assert.rejects(
     checkCommand(hangingCommand, [], {
       timeoutMs: 50,
-      terminateGraceMs: 50,
+      terminateGraceMs,
     }),
-    /timed out after 50 ms/,
+    (error) => {
+      assert.match(error.message, /timed out after 50 ms/u);
+      assert.doesNotMatch(error.message, /cleanup could not be confirmed/u);
+      return true;
+    },
   );
 
-  assert.ok(Date.now() - startedAt < 2000);
+  assert.ok(Date.now() - startedAt < terminateGraceMs + 2_000);
+  assert.equal((await waitForScopeResult()).cleanupConfirmed, true);
+  assert.ok(ownedScope.child.exitCode !== null || ownedScope.child.signalCode !== null);
 });
 
 test("command timeout terminates descendant processes on POSIX", async (context) => {
@@ -246,6 +280,65 @@ test("script process-tree termination reaches a surviving POSIX process group", 
   }
 });
 
+
+test("bounded command consumes a valid CI budget without changing child test budgets", { timeout: 90_000 }, async () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-command-budget-"));
+  const command = path.join(directory, "child.cjs");
+  fs.mkdirSync(path.join(directory, "scripts", "lib"), { recursive: true });
+  for (const relative of [
+    "run-bounded-command.mjs", "install-termination-handlers.mjs", "wait-for-child.mjs",
+    "process-scope.mjs", "process-scope.cjs", "windows-job-runner.ps1",
+    "windows-process-host.cjs", "lib/worktreeLock.mjs",
+  ]) {
+    fs.copyFileSync(path.join(__dirname, "..", "scripts", relative), path.join(directory, "scripts", relative));
+  }
+  fs.writeFileSync(command, `
+(async () => {
+  const { acquireWorktreeLock } = await import("./scripts/lib/worktreeLock.mjs");
+  const lock = await acquireWorktreeLock({ waitMs: 1000 });
+  await lock.release();
+  setTimeout(() => process.exit(process.env.BACHATA_COMMAND_TIMEOUT_MS === undefined ? 0 : 2), 100);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+`);
+  const runner = path.join(directory, "scripts", "run-bounded-command.mjs");
+  const environment = { ...process.env, BACHATA_COMMAND_TIMEOUT_MS: "60000" };
+  delete environment.BACHATA_WORKTREE_LOCK_OWNER;
+  const bounded = spawn(process.execPath, [runner, "1", process.execPath, command], {
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  bounded.stdout.on("data", (chunk) => { output += chunk; });
+  bounded.stderr.on("data", (chunk) => { output += chunk; });
+  try {
+    await waitForChildExit(bounded);
+    assert.equal(bounded.exitCode, 0, output);
+    assert.equal(fs.existsSync(path.join(directory, ".bachata-worktree.lock")), false);
+  } finally {
+    await stopSpawned(bounded);
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("bounded command rejects an overflowing CI budget before starting its command", async () => {
+  const runner = path.join(__dirname, "..", "scripts", "run-bounded-command.mjs");
+  const bounded = spawn(process.execPath, [runner, "1000", "must-not-start"], {
+    env: { ...process.env, BACHATA_COMMAND_TIMEOUT_MS: "2147483648" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  bounded.stdout.on("data", (chunk) => { output += chunk; });
+  bounded.stderr.on("data", (chunk) => { output += chunk; });
+  try {
+    await waitForChildExit(bounded);
+    assert.notEqual(bounded.exitCode, 0);
+    assert.match(output, /BACHATA_COMMAND_TIMEOUT_MS must be an integer/u);
+  } finally {
+    await stopSpawned(bounded);
+  }
+});
 
 test("bounded command escalates after the direct parent exits on SIGTERM", async (context) => {
   if (process.platform === "win32") {
@@ -363,6 +456,41 @@ test("all detached-process wrappers install shared termination handlers", () => 
   ]) {
     const source = fs.readFileSync(path.join(__dirname, "..", "scripts", script), "utf8");
     assert.match(source, /installTerminationHandlers/u, script);
+  }
+});
+
+test("test-file runner continues after a completed failure and still exits nonzero", async () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-test-file-failure-"));
+  const failedFile = path.join(directory, "first.test.cjs");
+  const passedFile = path.join(directory, "second.test.cjs");
+  const marker = path.join(directory, "continued.txt");
+  const runner = path.join(__dirname, "..", "scripts", "run-test-files.mjs");
+  fs.writeFileSync(failedFile, 'require("node:test")("first fails", () => { throw new Error("expected fixture failure"); });\n');
+  fs.writeFileSync(passedFile, `require("node:test")("second passes", () => { require("node:fs").writeFileSync(${JSON.stringify(marker)}, "passed"); });\n`);
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const child = spawn(process.execPath, [runner, failedFile, passedFile], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: environment,
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  try {
+    await waitForChildExit(child);
+    assert.equal(child.exitCode, 1, output);
+    assert.equal(child.signalCode, null, output);
+    assert.equal(fs.readFileSync(marker, "utf8"), "passed", output);
+    const outputLines = output.split(/\r?\n/u);
+    const summaryIndex = outputLines.indexOf("Error: Test files failed:");
+    assert.notEqual(summaryIndex, -1, output);
+    assert.equal(outputLines[summaryIndex + 1], `${failedFile} exited with 1`, output);
+    assert.ok(!output.includes(`${passedFile} exited with`), output);
+  } finally {
+    await stopSpawned(child);
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 

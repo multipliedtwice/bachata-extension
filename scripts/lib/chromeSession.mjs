@@ -135,6 +135,14 @@ export const openCdpSession = async ({
   deadlines = DEADLINES,
 }) => {
   const child = launch();
+  const stderrLimit = 16 * 1024;
+  let stderrTail = Buffer.alloc(0);
+  const captureStderr = (chunk) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    stderrTail = Buffer.concat([stderrTail, bytes.subarray(-stderrLimit)]).subarray(-stderrLimit);
+  };
+  child.stderr?.on("data", captureStderr);
+  const portController = new AbortController();
   const pending = new Map();
   // A socket or a browser that goes away must reject what is waiting on it. Left alone those
   // promises never settle and the run hangs until its outer bound kills it, reporting nothing.
@@ -151,7 +159,8 @@ export const openCdpSession = async ({
     const port = await withDeadline(
       deadlines.port,
       "Chrome never reported a debugging port",
-      () => readPort(child),
+      () => readPort(child, portController.signal),
+      () => { portController.abort(); },
     );
     const page = await discoverPage({ port, child, fetchTargets, wait, deadlines });
     socket = createSocket(page.webSocketDebuggerUrl);
@@ -216,13 +225,22 @@ export const openCdpSession = async ({
     } catch (problem) {
       stranded = problem;
     }
+    const stderr = stderrTail.toString("utf8").trim();
+    const failure = stderr
+      ? new Error(`${error.message}\nChrome stderr (last ${String(stderrLimit)} bytes):\n${stderr}`, { cause: error })
+      : error;
     if (stranded) {
       throw new AggregateError(
-        [error, stranded],
-        `${error.message} — and the browser it started could not be stopped: ${stranded.message}`,
+        [failure, stranded],
+        `${failure.message} — and the browser it started could not be stopped: ${stranded.message}`,
       );
     }
-    throw error;
+    throw failure;
+  } finally {
+    portController.abort();
+    child.stderr?.removeListener("data", captureStderr);
+    stderrTail = Buffer.alloc(0);
+    child.stderr?.resume();
   }
 };
 

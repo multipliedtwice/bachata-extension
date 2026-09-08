@@ -40,10 +40,10 @@ test("pipeline scope matches canonical multi-root paths while preserving the dis
       extensionDirectory,
     });
     assert.equal(scope.root, path.resolve(linkedRoot));
-    assert.equal(scope.canonicalRoot, fs.realpathSync(realRoot));
+    assert.equal(scope.canonicalRoot, fs.realpathSync.native(realRoot));
     assert.equal(
       scope.directory,
-      path.join(fs.realpathSync(realRoot), ".bachata", "pipelines"),
+      path.join(fs.realpathSync.native(realRoot), ".bachata", "pipelines"),
     );
     assert.match(scope.key, /^workspace:/u);
   } finally {
@@ -63,7 +63,7 @@ test("pipeline scope ignores a configured root that is no longer in the workspac
       extensionDirectory,
     });
     assert.equal(single.root, path.resolve(remainingRoot));
-    assert.equal(single.canonicalRoot, fs.realpathSync(remainingRoot));
+    assert.equal(single.canonicalRoot, fs.realpathSync.native(remainingRoot));
 
     const multi = await resolvePipelineScope({
       workspaceRoots: [remainingRoot, anotherRoot],
@@ -72,7 +72,7 @@ test("pipeline scope ignores a configured root that is no longer in the workspac
     });
     assert.equal(multi.root, undefined);
     assert.equal(multi.canonicalRoot, undefined);
-    assert.equal(multi.directory, fs.realpathSync(extensionDirectory));
+    assert.equal(multi.directory, fs.realpathSync.native(extensionDirectory));
     assert.match(multi.key, /^extension:/u);
   } finally {
     remove(removedRoot, remainingRoot, anotherRoot, extensionDirectory);

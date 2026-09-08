@@ -7,6 +7,7 @@ import {
   createBoundedBuffer,
 } from "../process/boundedOutput";
 import { ProcessScopeResult, spawnProcessScope } from "../process/processScope";
+import { nodeProcessEnvironment } from "../process/commandInvocation";
 import { gitProcessEnvironment, safeProcessEnvironment } from "../process/safeEnvironment";
 import { humanOnlyE2ePlanRefusal, humanOnlyE2eRefusal } from "../process/humanOnlyE2e";
 import { VerificationCheckResult } from "./types";
@@ -67,6 +68,7 @@ const execute = async (
   executable: string,
   args: string[],
   options: CommandExecutionOptions,
+  shell?: string,
 ): Promise<CommandExecution> => {
   if (options.signal?.aborted) {
     return {
@@ -87,6 +89,7 @@ const execute = async (
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     cleanupGraceMs: 2_000,
+    ...(shell === undefined ? {} : { shell }),
   });
   scope.child.stdout?.on("data", (chunk: Buffer) => appendBoundedBuffer(stdout, chunk));
   scope.child.stderr?.on("data", (chunk: Buffer) => appendBoundedBuffer(stderr, chunk));
@@ -179,9 +182,7 @@ export const runCommand = async (
   command: string,
   options: CommandExecutionOptions,
 ): Promise<CommandExecution> => {
-  const shell = resolveCommandShell();
-  const args = process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command];
-  return execute(shell, args, options);
+  return execute(command, [], options, resolveCommandShell());
 };
 
 
@@ -319,9 +320,10 @@ const projectChecksExecution = async (options: CommandExecutionOptions): Promise
       failures.push(`${relative}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  const runBatches = async (label: string, executable: string, prefix: string[], files: string[], batchSize = 100): Promise<void> => {
+  const nodeOptions = { ...options, environment: nodeProcessEnvironment(options.environment ?? safeProcessEnvironment(options.cwd)) };
+  const runBatches = async (label: string, executable: string, prefix: string[], files: string[], batchSize = 100, executionOptions = options): Promise<void> => {
     for (let offset = 0; offset < files.length; offset += batchSize) {
-      const result = await runProcess(executable, [...prefix, ...files.slice(offset, offset + batchSize)], options);
+      const result = await runProcess(executable, [...prefix, ...files.slice(offset, offset + batchSize)], executionOptions);
       if (result.exitCode !== 0 || result.timedOut || result.cancelled || !result.cleanupConfirmed) {
         failures.push(`${label}: ${result.stderr || result.stdout || "failed"}`);
         break;
@@ -331,7 +333,7 @@ const projectChecksExecution = async (options: CommandExecutionOptions): Promise
       summaries.push(`${label} passed for ${String(files.length)} file(s)`);
     }
   };
-  await runBatches("Node syntax", process.execPath, ["--check"], existing.filter((entry) => /\.(?:cjs|mjs|js)$/iu.test(entry)), 1);
+  await runBatches("Node syntax", process.execPath, ["--check"], existing.filter((entry) => /\.(?:cjs|mjs|js)$/iu.test(entry)), 1, nodeOptions);
   await runBatches("Python syntax", "python3", ["-I", "-S", "-c", "import ast,pathlib,sys;[ast.parse(pathlib.Path(p).read_text(encoding='utf-8'),filename=p) for p in sys.argv[1:]]"], existing.filter((entry) => /\.pyi?$/iu.test(entry)));
   await runBatches("PHP syntax", "php", ["-n", "-l"], existing.filter((entry) => /\.php$/iu.test(entry)), 1);
   await runBatches("Shell syntax", "/bin/sh", ["-n"], existing.filter((entry) => /\.(?:bash|sh)$/iu.test(entry)), 1);
@@ -386,7 +388,7 @@ const projectChecksExecution = async (options: CommandExecutionOptions): Promise
         } else {
           args.push("--project", project, "--noEmit", "--pretty", "false", "--incremental", "false");
         }
-        const result = await runProcess(process.execPath, args, options);
+        const result = await runProcess(process.execPath, args, nodeOptions);
         if (result.exitCode !== 0 || result.timedOut || result.cancelled || !result.cleanupConfirmed) {
           failures.push(`TypeScript project check (${project}): ${result.stderr || result.stdout || "failed"}`);
         } else {

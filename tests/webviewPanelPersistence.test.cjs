@@ -46,7 +46,7 @@ const loadPanelModule = () => {
   const vscode = {
     ViewColumn: { One: 1 },
     Uri: {
-      joinPath: (base, ...segments) => uri(path.join(base.fsPath, ...segments)),
+      joinPath: (base, ...segments) => uri(path.posix.join(base.fsPath, ...segments)),
     },
     window: {
       createWebviewPanel: () => {

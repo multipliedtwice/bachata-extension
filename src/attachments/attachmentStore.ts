@@ -129,9 +129,35 @@ const detectedMimeType = (data: Buffer): string | undefined => {
 
 const isInside = isPathInsideRoot;
 
-const READ_FILE_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+const READ_FILE_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
 const READ_DIRECTORY_FLAGS =
   constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_DIRECTORY ?? 0);
+
+type FileIdentity = { dev: bigint; ino: bigint };
+
+const attachmentIdentityMatches = (before: FileIdentity, current: FileIdentity, opened: FileIdentity, rootDevice?: bigint): boolean =>
+  before.dev === current.dev && before.ino === current.ino && before.ino === opened.ino
+  && (process.platform === "win32"
+    ? before.dev === 0n
+      ? rootDevice !== undefined && rootDevice > 0n && before.ino > 0n && opened.dev === rootDevice
+      : (before.dev & 0xffff_ffffn) === (opened.dev & 0xffff_ffffn)
+    : before.dev === opened.dev);
+
+// Windows can omit pathname volume IDs or report more bits than a descriptor does.
+// A missing ID needs an independent filesystem-root anchor, never a zero wildcard.
+const attachmentRootDevice = async (canonical: string, identity: FileIdentity): Promise<bigint | undefined> => {
+  if (process.platform !== "win32" || identity.dev !== 0n) return undefined;
+  const handle = await open(path.parse(canonical).root, constants.O_RDONLY);
+  try {
+    const details = await handle.stat({ bigint: true });
+    if (!details.isDirectory() || details.dev <= 0n) {
+      throw new Error("Bachata cannot establish the filesystem volume for attachment storage");
+    }
+    return details.dev;
+  } finally {
+    await handle.close();
+  }
+};
 
 export const createAttachmentStore = (
   storageDirectory: string,
@@ -160,7 +186,7 @@ export const createAttachmentStore = (
       let current = resolvedStorageDirectory;
       for (const segment of relative.split(path.sep).filter(Boolean)) {
         current = path.join(current, segment);
-        const link = await lstat(current).catch((error) => {
+        const link = await lstat(current, { bigint: true }).catch((error) => {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
           throw error;
         });
@@ -173,6 +199,12 @@ export const createAttachmentStore = (
         if (!link.isDirectory()) {
           throw new Error(`${label} passes through ${current}, which is not a directory`);
         }
+        const canonicalBefore = await realpath(current);
+        const canonicalStorage = await realpath(resolvedStorageDirectory);
+        if (canonicalBefore !== path.resolve(canonicalStorage, path.relative(resolvedStorageDirectory, current))) {
+          throw new Error(`${label} resolves to ${canonicalBefore}, which Bachata does not own`);
+        }
+        const rootDevice = await attachmentRootDevice(canonicalBefore, link);
         const handle = await open(current, READ_DIRECTORY_FLAGS).catch((error) => {
           const code = (error as NodeJS.ErrnoException).code;
           if (code === "ELOOP" || code === "EMLINK" || code === "ENOTDIR") {
@@ -183,11 +215,14 @@ export const createAttachmentStore = (
           throw error;
         });
         handles.push(handle);
-        const opened = await handle.stat();
+        const opened = await handle.stat({ bigint: true });
+        const currentLink = await lstat(current, { bigint: true });
         // The descriptor, not the pathname, is what the ownership decision rests on: a
         // directory swapped for a symbolic link between the lstat above and this open
         // resolves to a different inode and is refused here.
-        if (!opened.isDirectory() || opened.dev !== link.dev || opened.ino !== link.ino) {
+        if (!opened.isDirectory() || !currentLink.isDirectory() || currentLink.isSymbolicLink()
+          || !attachmentIdentityMatches(link, currentLink, opened, rootDevice)
+          || await realpath(current) !== canonicalBefore) {
           throw new Error(
             `${label} changed while Bachata was validating ${current}, so Bachata refuses to read or write through it`,
           );
@@ -268,6 +303,15 @@ export const createAttachmentStore = (
     attachment: AttachmentMetadata,
   ): Promise<Buffer> => {
     const filePath = await resolveOwnedAttachmentPath(attachment.relativePath);
+    const before = await lstat(filePath, { bigint: true });
+    if (before.isSymbolicLink()) throw new Error(`Attachment file is a symbolic link: ${attachment.id}`);
+    if (!before.isFile()) throw new Error(`Attachment file is invalid: ${attachment.id}`);
+    const canonicalBefore = await realpath(filePath);
+    const canonicalStorage = await realpath(resolvedStorageDirectory);
+    if (canonicalBefore !== path.resolve(canonicalStorage, path.relative(resolvedStorageDirectory, filePath))) {
+      throw new Error(`Attachment file is outside extension storage: ${attachment.id}`);
+    }
+    const rootDevice = await attachmentRootDevice(canonicalBefore, before);
     const handle = await open(filePath, READ_FILE_FLAGS).catch((error) => {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ELOOP" || code === "EMLINK") {
@@ -276,12 +320,14 @@ export const createAttachmentStore = (
       throw error;
     });
     try {
-      const details = await handle.stat();
-      if (!details.isFile() || details.size !== attachment.size) {
+      const details = await handle.stat({ bigint: true });
+      if (!details.isFile() || !Number.isSafeInteger(attachment.size) || details.size !== BigInt(attachment.size)) {
         throw new Error(`Attachment file is invalid: ${attachment.id}`);
       }
-      const link = await lstat(filePath);
-      if (link.dev !== details.dev || link.ino !== details.ino) {
+      const link = await lstat(filePath, { bigint: true });
+      if (link.isSymbolicLink() || !link.isFile()
+        || !attachmentIdentityMatches(before, link, details, rootDevice)
+        || await realpath(filePath) !== canonicalBefore) {
         throw new Error(`Attachment file was replaced while it was being read: ${attachment.id}`);
       }
       const data = await handle.readFile();

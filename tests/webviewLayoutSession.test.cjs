@@ -3,6 +3,7 @@ const test = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
+const { PassThrough } = require("node:stream");
 
 // EX-UI-04. The browser layout gate starts a real Chrome. Two things about that were unowned.
 //
@@ -125,10 +126,14 @@ test("a browser that never reports a debugging port is stopped before the failur
 test("a port read that hangs is bounded, and the browser it started is stopped", async () => {
   const { openCdpSession } = await loadSession();
   const child = fakeChild();
+  let portSignal;
   await assert.rejects(
     openCdpSession({
       launch: () => child,
-      readPort: () => new Promise(() => {}),
+      readPort: (_child, signal) => {
+        portSignal = signal;
+        return new Promise(() => {});
+      },
       fetchTargets: async () => [],
       createSocket: () => fakeSocket(),
       wait: briefly,
@@ -136,7 +141,53 @@ test("a port read that hangs is bounded, and the browser it started is stopped",
     }),
     /Chrome never reported a debugging port/u,
   );
+  assert.equal(portSignal.aborted, true, "the session deadline did not cancel port polling");
   assert.equal(stopped(child), true);
+});
+
+test("a failed Chrome startup retains only its bounded stderr tail and original error", async () => {
+  const { openCdpSession } = await loadSession();
+  const child = fakeChild();
+  child.stderr = new PassThrough();
+  const original = new Error("Chrome exited before it reported a debugging port");
+  await assert.rejects(
+    openCdpSession({
+      launch: () => child,
+      readPort: async () => {
+        child.stderr.write("discarded-startup-prefix");
+        child.stderr.write("x".repeat(20 * 1024));
+        child.stderr.write("\nChrome launch failure detail");
+        throw original;
+      },
+      wait: briefly,
+      deadlines: DEADLINES,
+    }),
+    (error) => {
+      assert.equal(error.cause, original);
+      assert.match(error.message, /Chrome launch failure detail$/u);
+      assert.doesNotMatch(error.message, /discarded-startup-prefix/u);
+      const tail = error.message.split("Chrome stderr (last 16384 bytes):\n")[1];
+      assert.equal(Buffer.byteLength(tail), 16 * 1024);
+      assert.equal(stopped(child), true);
+      return true;
+    },
+  );
+  assert.equal(child.stderr.listenerCount("data"), 0);
+  child.stderr.destroy();
+});
+
+test("a connected Chrome stops retaining stderr and keeps draining the pipe", async () => {
+  const { closeCdpSession } = await loadSession();
+  const child = fakeChild();
+  child.stderr = new PassThrough();
+  const { session } = await openWith({ child, socket: fakeSocket() });
+  try {
+    assert.equal(child.stderr.listenerCount("data"), 0);
+    assert.equal(child.stderr.readableFlowing, true);
+  } finally {
+    await closeCdpSession(session, { wait: briefly, deadlines: DEADLINES });
+    child.stderr.destroy();
+  }
 });
 
 test("a browser that exposes no debuggable page is bounded and stopped", async () => {

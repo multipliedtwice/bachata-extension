@@ -418,6 +418,7 @@ export const createCodexAppServerAdapter = (
    * resource is released only once nothing of it is still running.
    */
   let transportTermination: Promise<boolean> | undefined;
+  let transportTerminationConfirmed: boolean | undefined;
   let terminateChild: ((graceMs: number) => Promise<boolean>) | undefined;
   const pending = new Map<number, PendingRequest>();
   const listeners = new Set<NotificationListener>();
@@ -431,6 +432,7 @@ export const createCodexAppServerAdapter = (
   const write = (message: JsonObject): void => {
     if (
       !child ||
+      transportTermination !== undefined ||
       child.exitCode !== null ||
       child.signalCode !== null ||
       child.stdin.destroyed
@@ -439,14 +441,6 @@ export const createCodexAppServerAdapter = (
     }
 
     child.stdin.write(`${JSON.stringify(message)}\n`);
-  };
-
-  const respond = (id: RpcId, result: JsonObject): void => {
-    write({ id, result });
-  };
-
-  const respondError = (id: RpcId, code: number, message: string): void => {
-    write({ id, error: { code, message } });
   };
 
   const request = (
@@ -508,14 +502,21 @@ export const createCodexAppServerAdapter = (
     terminate: (graceMs: number) => Promise<boolean>,
   ): Promise<boolean> => {
     if (transportTermination) return transportTermination;
-    transportTermination = terminate(options.interruptGraceMs).then(
+    const processChild = child;
+    transportTermination = Promise.resolve().then(() => terminate(options.interruptGraceMs)).then(
       (terminated) => {
+        transportTerminationConfirmed = terminated;
         if (!terminated) {
           log("Codex process tree did not terminate");
+        } else if (child === processChild) {
+          child = undefined;
+          terminateChild = undefined;
+          failTransport = undefined;
         }
         return terminated;
       },
       (error) => {
+        transportTerminationConfirmed = false;
         log(`Codex process-tree termination failed: ${errorMessage(error)}`);
         return false;
       },
@@ -529,7 +530,11 @@ export const createCodexAppServerAdapter = (
   const currentTerminate = (): (graceMs: number) => Promise<boolean> =>
     terminateChild ?? (() => Promise.resolve(false));
 
-  const terminateTransport = (): Promise<boolean> => {
+  const terminateTransport = (retryUnconfirmed = false): Promise<boolean> => {
+    if (retryUnconfirmed && transportTerminationConfirmed === false) {
+      transportTermination = undefined;
+      transportTerminationConfirmed = undefined;
+    }
     const processChild = child;
     if (!processChild) {
       return transportTermination ?? Promise.resolve(true);
@@ -538,6 +543,13 @@ export const createCodexAppServerAdapter = (
   };
 
   const answerServerRequest = async (message: JsonObject): Promise<void> => {
+    const owner = child;
+    const respond = (id: RpcId, result: JsonObject): void => {
+      if (owner && child === owner && transportTermination === undefined) write({ id, result });
+    };
+    const respondError = (id: RpcId, code: number, message: string): void => {
+      if (owner && child === owner && transportTermination === undefined) write({ id, error: { code, message } });
+    };
     const id =
       typeof message.id === "number" || typeof message.id === "string"
         ? message.id
@@ -1016,10 +1028,14 @@ export const createCodexAppServerAdapter = (
     listeners.forEach((listener) => listener(message));
   };
 
-  const start = async (): Promise<void> => {
+  const startTransport = async (): Promise<void> => {
     if (disposed) {
       throw new Error("Codex adapter is disposed");
     }
+    if (transportTermination && !(await transportTermination)) {
+      throw new Error("Codex process tree did not terminate; refusing to start a replacement transport");
+    }
+    if (disposed) throw new Error("Codex adapter is disposed");
 
     if (
       initialized &&
@@ -1030,19 +1046,18 @@ export const createCodexAppServerAdapter = (
       return;
     }
 
-    if (startPromise) {
-      return startPromise;
-    }
-
-    const invocation = commandInvocation(options.command, ["app-server"]);
+    const invocation = commandInvocation(options.command, ["app-server"], options.environment);
     const scope = spawnScopedProviderProcess(invocation.command, invocation.args, {
-      ...(options.environment === undefined ? {} : { env: options.environment }),
+      env: invocation.environment,
     });
     const processChild = scope.child;
     terminateChild = scope.terminate;
     child = processChild;
     transportTermination = undefined;
+    transportTerminationConfirmed = undefined;
     let terminated = false;
+    const transportIsActive = (): boolean =>
+      !terminated && child === processChild && transportTermination === undefined;
 
     const processFailure = (error: unknown): void => {
       if (terminated || child !== processChild) {
@@ -1059,9 +1074,6 @@ export const createCodexAppServerAdapter = (
       requestByTurn.clear();
       fileChangeProposals.clear();
       pendingRequestData = undefined;
-      if (child === processChild) {
-        child = undefined;
-      }
       if (failTransport === processFailure) {
         failTransport = undefined;
       }
@@ -1076,7 +1088,7 @@ export const createCodexAppServerAdapter = (
     const decoder = createBoundedLineDecoder();
     let linesClosed = false;
     processChild.stdout.on("data", (chunk: Buffer) => {
-      if (linesClosed) return;
+      if (linesClosed || !transportIsActive()) return;
       let produced: string[];
       try {
         produced = decoder.push(chunk);
@@ -1085,12 +1097,18 @@ export const createCodexAppServerAdapter = (
         processFailure(error);
         return;
       }
-      for (const line of produced) handleLine(line);
+      for (const line of produced) {
+        if (!transportIsActive()) break;
+        handleLine(line);
+      }
     });
     processChild.stdout.on("end", () => {
-      if (linesClosed) return;
+      if (linesClosed || !transportIsActive()) return;
       try {
-        for (const line of decoder.end()) handleLine(line);
+        for (const line of decoder.end()) {
+          if (!transportIsActive()) break;
+          handleLine(line);
+        }
       } catch (error) {
         processFailure(error);
       }
@@ -1168,8 +1186,13 @@ export const createCodexAppServerAdapter = (
       });
     });
 
-    startPromise = promise;
+    await promise;
+  };
 
+  const start = async (): Promise<void> => {
+    if (startPromise) return startPromise;
+    const promise = startTransport();
+    startPromise = promise;
     try {
       await promise;
     } finally {
@@ -1317,7 +1340,7 @@ export const createCodexAppServerAdapter = (
       }
     } finally {
       initialized = false;
-      await terminateTransport();
+      if (!(await terminateTransport())) throw new Error("Codex process tree did not terminate after its availability check");
     }
     const agent = serverUserAgent ?? "";
     return `codex app-server ${/^[^/\s]+\/(\S+)/u.exec(agent)?.[1] ?? agent}`;
@@ -1387,7 +1410,7 @@ export const createCodexAppServerAdapter = (
       };
 
       const validateNoCommit = async (): Promise<void> => {
-        if (transportTermination) await transportTermination;
+        if (transportTermination && !(await transportTermination)) throw new Error("Codex process tree did not terminate");
         if (requestData.workspacePolicy?.commitMode === "never") {
           await assertGitHeadUnchanged(requestData.workingDirectory, gitBaseline);
         }
@@ -1705,11 +1728,14 @@ export const createCodexAppServerAdapter = (
       disposed = true;
       const error = new Error("Codex adapter disposed");
       const processChild = child;
-      if (processChild) void beginTransportTermination(currentTerminate());
+      if (processChild && !transportTermination) void beginTransportTermination(currentTerminate());
       rejectPending(error);
       failActiveOperations(error);
       listeners.clear();
       if (transportTermination) await transportTermination;
+      if (processChild && !(await terminateTransport(true))) {
+        throw new Error("Codex process tree did not terminate during disposal");
+      }
       child = undefined;
       failTransport = undefined;
       initialized = false;

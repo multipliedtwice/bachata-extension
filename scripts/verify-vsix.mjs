@@ -127,6 +127,17 @@ const renamedSourceFiles = [
   { source: "LICENSE", packaged: "extension/LICENSE.txt" },
 ];
 
+export const packagedDocumentContents = async (source, contents, manifest) => {
+  if (source !== "README.md" && source !== "CHANGELOG.md") return contents;
+  const { ReadmeProcessor, ChangelogProcessor } = await import("@vscode/vsce/out/package.js");
+  const Processor = source === "README.md" ? ReadmeProcessor : ChangelogProcessor;
+  const result = await new Processor(manifest).onFile({
+    path: `extension/${source.toLowerCase()}`,
+    contents,
+  });
+  return result.contents;
+};
+
 const repositoryFiles = async (relativeDirectory) => {
   const absolute = path.join(repositoryRoot, relativeDirectory);
   const entries = await readdir(absolute, { withFileTypes: true });
@@ -490,7 +501,8 @@ export const verifyVsix = async (file) => {
       const local = path.join(repositoryRoot, pair.source);
       const packaged = path.join(destination, pair.packaged);
       try {
-        buildHashes[pair.source] = await sha256File(local);
+        const contents = await packagedDocumentContents(pair.source, await readFile(local), repositoryManifest);
+        buildHashes[pair.source] = createHash("sha256").update(contents).digest("hex");
       } catch (error) {
         throw new Error(
           `The current source or build is missing ${pair.source}; run npm run build before verifying: ${

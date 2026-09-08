@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { gitProcessEnvironment } from "../process/safeEnvironment";
+import { resolveProcessExecutable } from "../process/processScope";
 import type { CycleBaseline } from "./types";
 import { byCodeUnitOn } from "../security/ordinal";
 
@@ -18,13 +19,14 @@ type GitOutput = { ok: boolean; stdout: string };
 
 const gitOutput = async (cwd: string, args: string[]): Promise<GitOutput> => {
   try {
-    const result = await execFileAsync("git", args, {
+    const environment = gitProcessEnvironment(cwd);
+    const result = await execFileAsync(resolveProcessExecutable("git", environment, cwd), args, {
       cwd,
       encoding: "utf8",
       timeout: 30_000,
       maxBuffer: 8_388_608,
       windowsHide: true,
-      env: gitProcessEnvironment(cwd),
+      env: environment,
     });
     return { ok: true, stdout: result.stdout };
   } catch (error) {

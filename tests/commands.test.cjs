@@ -524,7 +524,7 @@ test("review commands bind the run to the repository that owns the target file",
   assert.deepEqual(harness.errors, []);
   assert.equal(harness.createdConversations.length, 1);
   assert.equal(harness.createdConversations[0].workingDirectory, "/work/second");
-  assert.match(harness.createdConversations[0].preparedDraft, /src\/a\.ts/u);
+  assert.equal(harness.createdConversations[0].preparedDraft.split("\n")[0], `Review file: ${require("node:path").join("src", "a.ts")}`);
   assert.equal(harness.workspaceFolderPicks.length, 0);
 });
 

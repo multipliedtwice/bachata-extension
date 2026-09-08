@@ -59,8 +59,9 @@ const gateRepository = async (root) => {
   return repository;
 };
 
-const runGate = (repository, script) => {
-  const result = spawnSync(process.execPath, [path.join("scripts", script)], {
+const runGate = (repository, script, preload = "") => {
+  const args = preload ? ["--import", `data:text/javascript,${encodeURIComponent(preload)}`] : [];
+  const result = spawnSync(process.execPath, [...args, path.join("scripts", script)], {
     cwd: repository,
     encoding: "utf8",
   });
@@ -79,7 +80,8 @@ test("both gates cover tracked and unignored untracked files, and no ignored one
     // re-encode — the files a gate that parsed quoted output would silently skip.
     write(repository, "src/untracked.mjs", "export const untracked = 1;\n");
     write(repository, "src/with space.mjs", "export const spaced = 1;\n");
-    write(repository, "src/naïve-\"quoted\".mjs", "export const unusual = 1;\n");
+    const unusual = process.platform === "win32" ? "src/naïve-quoted.mjs" : 'src/naïve-"quoted".mjs';
+    write(repository, unusual, "export const unusual = 1;\n");
     // Ignored generated output, carrying both violations.
     write(repository, "generated/ignored.mjs", "// @ts-ignore  \nexport const ignored = 1;\n");
 
@@ -88,7 +90,7 @@ test("both gates cover tracked and unignored untracked files, and no ignored one
     assert.ok(enumerated.includes("src/tracked.mjs"), JSON.stringify(enumerated));
     assert.ok(enumerated.includes("src/untracked.mjs"), JSON.stringify(enumerated));
     assert.ok(enumerated.includes("src/with space.mjs"), JSON.stringify(enumerated));
-    assert.ok(enumerated.includes('src/naïve-"quoted".mjs'), JSON.stringify(enumerated));
+    assert.ok(enumerated.includes(unusual), JSON.stringify(enumerated));
     assert.equal(enumerated.includes("generated/ignored.mjs"), false, "an ignored file was enumerated");
     // Deterministic: the same tree enumerates the same files in the same order.
     assert.deepEqual(candidateFiles(repository), enumerated);
@@ -299,7 +301,7 @@ test("a gate counts what it read, not what it enumerated", async () => {
 });
 
 test("an eligible file a gate cannot read fails the gate instead of vanishing from it", gitWorktreeSkip, async () => {
-  const root = await scratchRoot("bachata-gate-unreadable-");
+  const root = await scratchRoot("bachata-gate-portable-");
   let opaque;
   try {
     const repository = await gateRepository(root);
@@ -309,11 +311,20 @@ test("an eligible file a gate cannot read fails the gate instead of vanishing fr
     assert.equal(runGate(repository, "lint.mjs").status, 0);
 
     opaque = write(repository, "src/opaque.mjs", "export const opaque = 1;\n");
-    chmodSync(opaque, 0o000);
-    const lint = runGate(repository, "lint.mjs");
+    const preload = process.platform === "win32" ? `
+      import fs from "node:fs/promises";
+      import { syncBuiltinESMExports } from "node:module";
+      const open = fs.open;
+      fs.open = (file, ...args) => String(file) === ${JSON.stringify(opaque)}
+        ? Promise.reject(Object.assign(new Error("fixture read denied"), { code: "EACCES" }))
+        : open(file, ...args);
+      syncBuiltinESMExports();
+    ` : "";
+    if (process.platform !== "win32") chmodSync(opaque, 0o000);
+    const lint = runGate(repository, "lint.mjs", preload);
     assert.equal(lint.status, 1, lint.output);
     assert.match(lint.output, /src\/opaque\.mjs: could not be read \(EACCES\) — not checked/u);
-    const format = runGate(repository, "format-check.mjs");
+    const format = runGate(repository, "format-check.mjs", preload);
     assert.equal(format.status, 1, format.output);
     assert.match(format.output, /src\/opaque\.mjs: could not be read \(EACCES\) — not checked/u);
   } finally {
@@ -353,21 +364,42 @@ test("a filename cannot write a line of the gate's own output", gitWorktreeSkip,
   // A newline is a legal byte in a path. A gate that prints one finding per line and interpolates
   // the path raw lets a filename append lines that read like the gate's own — including a line
   // that reads like a passing result, or one that blames a file that is fine.
-  const root = await scratchRoot("bachata-gate-spoof-");
+  const root = await scratchRoot("bachata-gate-portable-");
   try {
     const repository = await gateRepository(root);
     write(repository, "src/tracked.mjs", "export const tracked = 1;\n");
     const forged = "src/inject\n- src/decoy.mjs:1: no-ts-ignore: forged.mjs";
-    write(repository, forged, "// @ts-ignore\nexport const injected = 1;\n");
+    const stored = process.platform === "win32" ? "src/injected.mjs" : forged;
+    write(repository, stored, "// @ts-ignore\nexport const injected = 1;\n");
+    const preload = process.platform === "win32" ? `
+      import child from "node:child_process";
+      import fs from "node:fs/promises";
+      import { syncBuiltinESMExports } from "node:module";
+      const spawn = child.spawnSync;
+      child.spawnSync = (...args) => {
+        const result = spawn(...args);
+        if (args[0] === "git" && args[1][0] === "ls-files" && typeof result.stdout === "string") {
+          result.stdout = result.stdout.replace(${JSON.stringify(stored)}, ${JSON.stringify(forged)});
+        }
+        return result;
+      };
+      for (const name of ["open", "lstat"]) {
+        const original = fs[name];
+        fs[name] = (file, ...args) => original(
+          String(file) === ${JSON.stringify(path.join(repository, forged))}
+            ? ${JSON.stringify(path.join(repository, stored))} : file, ...args);
+      }
+      syncBuiltinESMExports();
+    ` : "";
     git(repository, "add", "--all");
     git(repository, "commit", "-m", "initial");
 
     const { candidateFiles } = await loadCandidateModule();
-    assert.ok(candidateFiles(repository).includes(forged), "the NUL-separated listing lost the path");
+    assert.ok(candidateFiles(repository).includes(stored), "the NUL-separated listing lost the path");
+    assert.deepEqual(candidateFiles(repository, () => ({ status: 0, stdout: `${forged}\u0000` })), [forged]);
 
-    const lint = runGate(repository, "lint.mjs");
+    const lint = runGate(repository, "lint.mjs", preload);
     assert.equal(lint.status, 1, lint.output);
-    // One finding, printed on one line, with the path quoted and its newline escaped.
     assert.equal(lint.output.match(/^- /gmu).length, 1, lint.output);
     assert.match(lint.output, /^- "src\/inject\\n- src\/decoy\.mjs:1: no-ts-ignore: forged\.mjs":1: no-ts-ignore/mu);
     assert.equal(
@@ -499,21 +531,31 @@ test("the reader never opens the path a link points at", gitWorktreeSkip, async 
 });
 
 test("an eligible candidate that is not a regular file is refused, not silently checked", gitWorktreeSkip, async () => {
-  const root = await scratchRoot("bachata-gate-nonregular-");
+  const root = await scratchRoot("bachata-gate-portable-");
   try {
     const { containedReader } = await loadCandidateModule();
     const repository = await makeScratchChild(root, "repository");
-    // A directory carrying an eligible extension: opened successfully on POSIX, and caught by the
-    // `fstat` on the handle rather than by anything about its name.
-    mkdirSync(path.join(repository, "src/looks-like.mjs"), { recursive: true });
+    // A directory carrying an eligible extension opens successfully on POSIX and is caught by the
+    // `fstat` on the handle, not by anything about its name.
+    mkdirSync(path.join(repository, "src", "looks-like.mjs"), { recursive: true });
     const read = containedReader({ root: repository });
     await assert.rejects(() => read("src/looks-like.mjs"), /is a directory, and a gate reads regular files/u);
 
-    // A FIFO is the case that would otherwise hang rather than fail: opening one for reading
-    // blocks until a writer arrives. `O_NONBLOCK` is what turns that into a refusal.
-    const fifo = path.join(repository, "src/pipe.mjs");
-    const made = spawnSync("mkfifo", [fifo], { encoding: "utf8" });
-    if (made.status === 0) {
+    // A FIFO is the case that would otherwise hang instead of failing: opening one for reading
+    // blocks until a writer arrives, and `O_NONBLOCK` is what turns that into a refusal.
+    if (process.platform === "win32") {
+      const fifo = containedReader({
+        root: repository,
+        lstat: async () => ({
+          isSymbolicLink: () => false, isFile: () => false,
+          isDirectory: () => false, isFIFO: () => true,
+        }),
+        open: async () => { throw new Error("a FIFO must never be opened"); },
+      });
+      await assert.rejects(() => fifo("src/pipe.mjs"), /is a FIFO, and a gate reads regular files/u);
+    } else {
+      const made = spawnSync("mkfifo", [path.join(repository, "src", "pipe.mjs")], { encoding: "utf8" });
+      assert.equal(made.status, 0, made.stderr);
       await assert.rejects(() => read("src/pipe.mjs"), /is a FIFO, and a gate reads regular files/u);
     }
   } finally {
@@ -640,7 +682,7 @@ test("a tracked file under a symbolic-link ancestor is refused, not read from ou
     const outside = await makeScratchChild(root, "outside");
     writeFileSync(path.join(outside, "tracked.mjs"), "// @ts-ignore\nexport const outside = 1;   \n", "utf8");
     renameSync(path.join(repository, "src"), path.join(repository, "src.real"));
-    symlinkSync(outside, path.join(repository, "src"));
+    symlinkSync(outside, path.join(repository, "src"), process.platform === "win32" ? "junction" : "dir");
     // Nothing about the index changed: the tracked entry is still an ordinary file, not a link.
     assert.equal(git(repository, "ls-files", "-s", "src/tracked.mjs").split(/\s+/u)[0], "100644");
     assert.ok(git(repository, "ls-files", "--cached").includes("src/tracked.mjs"));
@@ -680,7 +722,7 @@ test("a symbolic-link ancestor is refused even when it points back inside the re
     git(repository, "add", "--all");
     git(repository, "commit", "-m", "initial");
     renameSync(path.join(repository, "src"), path.join(repository, "src.real"));
-    symlinkSync(path.join(repository, "inner"), path.join(repository, "src"));
+    symlinkSync(path.join(repository, "inner"), path.join(repository, "src"), process.platform === "win32" ? "junction" : "dir");
 
     const result = runGate(repository, "format-check.mjs");
     assert.equal(result.status, 1, result.output);
@@ -700,7 +742,7 @@ test("a repository root reached through a symbolic link is refused before any ca
     mkdirSync(path.join(repository, "src"), { recursive: true });
     writeFileSync(path.join(repository, "src/real.mjs"), "export const real = 1;\n", "utf8");
     const linkedRoot = path.join(root, "linked-root");
-    symlinkSync(repository, linkedRoot);
+    symlinkSync(repository, linkedRoot, process.platform === "win32" ? "junction" : "dir");
 
     const opened = [];
     const { open } = require("node:fs/promises");

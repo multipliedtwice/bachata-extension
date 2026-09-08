@@ -17,6 +17,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as pollDelay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { closeCdpSession, delay, openCdpSession } from "./lib/chromeSession.mjs";
@@ -59,9 +60,10 @@ const resolveChrome = () => {
  * on that number — a VS Code helper, another checkout's run — and the collision would look like a
  * layout failure.
  */
-const readDebugPort = async (profile, child) => {
+const readDebugPort = async (profile, child, signal) => {
   const portFile = path.join(profile, "DevToolsActivePort");
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (;;) {
+    signal.throwIfAborted();
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(`Chrome exited with ${String(child.signalCode ?? child.exitCode)} before it reported a debugging port`);
     }
@@ -69,9 +71,8 @@ const readDebugPort = async (profile, child) => {
       const [port] = readFileSync(portFile, "utf8").split("\n");
       if (port && Number.isInteger(Number(port))) return Number(port);
     }
-    await delay(100);
+    await pollDelay(100, undefined, { signal });
   }
-  throw new Error("Chrome never wrote DevToolsActivePort");
 };
 
 /**
@@ -97,8 +98,8 @@ const connect = (profile) =>
       "--window-size=1280,900",
       "--hide-scrollbars",
       pathToFileURL(fixture).href,
-    ], { stdio: "ignore" }),
-    readPort: (child) => readDebugPort(profile, child),
+    ], { stdio: ["ignore", "ignore", "pipe"] }),
+    readPort: (child, signal) => readDebugPort(profile, child, signal),
   });
 
 // A pointer user arrives at a control by moving onto it, and the move can change what is drawn
@@ -127,6 +128,15 @@ const pressKey = async (session, key, code, keyCode) => {
     await session.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode });
   }
   await delay(160);
+};
+
+const waitForState = async (session, expression) => {
+  const deadline = Date.now() + 5_000;
+  while (!await session.evaluate(expression)) {
+    if (Date.now() >= deadline) return false;
+    await delay(50);
+  }
+  return true;
 };
 
 const MENU = ".run-tab.selected .run-action-menu > summary";
@@ -227,9 +237,14 @@ const run = async () => {
       if (reach.renderFailure) failures.push(`${String(width)}px: the fixture rendered the failure banner, not a room`);
       if (reach.tabs < 2) failures.push(`${String(width)}px: the fixture drew ${String(reach.tabs)} run tabs, so no unselected tab was measured`);
       reach.mismatched.forEach((problem) => { failures.push(`${String(width)}px: ${problem}`); });
+      await press(session, '[data-action="composer-options-toggle"]');
+      const advancedOptionsOpen = await waitForState(session, 'document.querySelector("#pipeline-iterations") !== null');
+      if (!advancedOptionsOpen) failures.push(`${String(width)}px: advanced options did not open before the menu interaction`);
       await session.evaluate("window.__posted.length = 0");
       await press(session, MENU);
       const opened = await session.evaluate(menuState);
+      const advancedOptionsClosed = await waitForState(session, 'document.querySelector("#pipeline-iterations") === null');
+      if (!advancedOptionsClosed) failures.push(`${String(width)}px: pressing the action menu left advanced options open`);
       // Escape closes the menu and gives focus back to the control that opened it, so a keyboard
       // reader is never left inside a panel that is no longer there.
       let dismissed = { open: true, focusOnMenu: false };

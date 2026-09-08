@@ -1,5 +1,10 @@
-import { ChildProcess, spawn } from "node:child_process";
+import { ChildProcess } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import * as path from "node:path";
+
+const { terminateWindowsProcessTree } = require(path.resolve(__dirname, "../../scripts/process-scope.cjs")) as {
+  terminateWindowsProcessTree: (pid: number, timeoutMs: number) => Promise<boolean>;
+};
 
 const waitForExit = (child: ChildProcess): Promise<void> =>
   new Promise((resolve) => {
@@ -26,18 +31,6 @@ const settleWithin = async (
   }
   return result;
 };
-
-const taskkill = (pid: number, force: boolean): Promise<boolean> =>
-  new Promise((resolve) => {
-    const args = ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])];
-    const child = spawn("taskkill", args, {
-      env: process.env,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    child.once("error", () => resolve(false));
-    child.once("close", (code) => resolve(code === 0));
-  });
 
 const signalPosixGroup = (
   child: ChildProcess,
@@ -145,7 +138,7 @@ export const terminateProcessTree = async (
     if (child.exitCode !== null || child.signalCode !== null) {
       return true;
     }
-    const terminated = await taskkill(pid, true);
+    const terminated = await terminateWindowsProcessTree(pid, graceMs);
     const parentExited = await settleWithin(waitForExit(child), graceMs);
     return terminated && parentExited;
   }

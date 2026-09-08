@@ -5,6 +5,9 @@ const { chmod, mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } = requ
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const shellNodeExecutable = (process.versions.electron
+  ? process.platform === "win32" ? 'set "ELECTRON_RUN_AS_NODE=1" && ' : "ELECTRON_RUN_AS_NODE=1 "
+  : "") + (process.platform === "win32" ? `"${process.execPath}"` : JSON.stringify(process.execPath));
 
 const { resolveCommandShell, runCommand, runProcess, runVerificationChecks } = require("../dist/orchestrator/commandRunner.js");
 const { selectRunnableTasks, taskPathsConflict } = require("../dist/orchestrator/scheduler.js");
@@ -370,20 +373,21 @@ test("scheduler respects dependencies, path conflicts, priority, and concurrency
   assert.deepEqual(selectRunnableTasks(current).map((value) => value.spec.id), ["T4"]);
 });
 
-test("verification commands stop at the first deterministic failure", async () => {
+test("native verification commands stop at the first deterministic failure", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "bachata-checks-"));
   try {
     const results = await runVerificationChecks([
-      `${JSON.stringify(process.execPath)} -e "process.stdout.write('ok')"`,
-      `${JSON.stringify(process.execPath)} -e "process.stderr.write('bad'); process.exit(3)"`,
-      `${JSON.stringify(process.execPath)} -e "process.exit(0)"`,
+      `${shellNodeExecutable} -e "process.stdout.write('ok')"`,
+      `${shellNodeExecutable} -e "process.stderr.write('bad'); process.exit(3)"`,
+      `${shellNodeExecutable} -e "require('node:fs').writeFileSync('must-not-run.txt', 'ran')"`,
     ], {
       cwd,
       timeoutMs: 5_000,
       maxOutputBytes: 10_000,
     });
-    assert.deepEqual(results.map((value) => value.status), ["passed", "failed"]);
+    assert.deepEqual(results.map((value) => value.status), ["passed", "failed"], JSON.stringify(results));
     assert.equal(results[1].exitCode, 3);
+    assert.equal(existsSync(path.join(cwd, "must-not-run.txt")), false);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -1126,7 +1130,8 @@ test("Master checks execution state only and blocks a reported deviation", gitWo
     const masterRoom = [...manager.rooms.values()].find((options) => options.pipelineId === "todo-master");
     assert.ok(masterRoom);
     assert.notEqual(masterRoom.workingDirectory, repository);
-    assert.match(masterRoom.workingDirectory, /orchestration[\/]master$/u);
+    assert.equal(path.basename(masterRoom.workingDirectory), "master");
+    assert.equal(path.basename(path.dirname(masterRoom.workingDirectory)), "orchestration");
     assert.match(masterPrompts[0], /T1/u);
     assert.doesNotMatch(masterPrompts[0], /private-file-content/u);
     assert.equal(await readFile(path.join(result.integrationWorktree, "src", "value.txt"), "utf8"), "private-file-content\n");
@@ -1288,6 +1293,10 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
   let releaseFirst;
   let calls = 0;
   let taskResolutionCount = 0;
+  let controller;
+  let starting;
+  let markFirstStarted;
+  const firstStarted = new Promise((resolve) => { markFirstStarted = resolve; });
   const taskRuns = [];
   const acceptedTaskSnapshot = pipelineSnapshotFor("todo-implementation");
   const changedTaskSnapshot = createPipelineSnapshot(
@@ -1309,6 +1318,7 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
         calls += 1;
         taskRuns.push(runOptions.pipelineSnapshot);
         if (calls === 1) {
+          markFirstStarted();
           await firstTurn;
         }
         await writeFile(path.join(options.workingDirectory, "src", "value.txt"), `after-${String(calls)}\n`, "utf8");
@@ -1325,9 +1335,12 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
           : changedTaskSnapshot;
       },
     );
-    const controller = createController(root, repository, manager, { todoRetries: 0 });
-    const starting = controller.start();
-    await waitFor(() => calls === 1);
+    controller = createController(root, repository, manager, { todoRetries: 0 });
+    starting = controller.start();
+    await Promise.race([
+      firstStarted,
+      starting.then(() => { throw new Error("The run finished before its first task started"); }),
+    ]);
     const stopping = controller.stop();
     releaseFirst();
     await stopping;
@@ -1356,6 +1369,9 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
     assert.equal(await store.getActiveRun(), undefined);
     await controller.dispose();
   } finally {
+    releaseFirst();
+    await controller?.dispose();
+    await starting?.catch(() => undefined);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -2502,7 +2518,7 @@ test("resume rejects a persisted run owned by another workspace", async () => {
   }
 });
 
-test("orchestration checks do not inherit arbitrary extension secrets", async () => {
+test("native orchestration checks do not inherit arbitrary extension secrets", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "bachata-command-environment-"));
   const previous = process.env.BACHATA_ORCHESTRATION_SECRET;
   process.env.BACHATA_ORCHESTRATION_SECRET = "must-not-leak";
@@ -2511,11 +2527,11 @@ test("orchestration checks do not inherit arbitrary extension secrets", async ()
     // exceed the time a loaded machine needs to start one Node process, so it is generous
     // enough that a slow start cannot turn an isolation check into a timeout.
     const result = await runCommand(
-      `${JSON.stringify(process.execPath)} -e "process.stdout.write(process.env.BACHATA_ORCHESTRATION_SECRET || '')"`,
+      `${shellNodeExecutable} -e "process.stdout.write(process.env.BACHATA_ORCHESTRATION_SECRET || '')"`,
       { cwd, timeoutMs: 120_000, maxOutputBytes: 10_000 },
     );
     assert.equal(result.timedOut ?? false, false, "the isolation check must complete, not time out");
-    assert.equal(result.exitCode, 0);
+    assert.equal(result.exitCode, 0, result.stderr);
     assert.equal(result.stdout, "");
   } finally {
     if (previous === undefined) {
@@ -2583,7 +2599,15 @@ test("generated checklist execution enforces explicit checks, ids, and user-owne
         allowNoChecks: true,
         issues: [{ ...request.issues[0], paths: ["C:\\outside"] }],
       }),
-      /exceeds the user-authored scope/u,
+      process.platform === "win32" ? /Invalid generated task path/u : /exceeds the user-authored scope/u,
+    );
+    await assert.rejects(
+      controller.startChecklist({
+        ...request,
+        allowNoChecks: true,
+        issues: [{ ...request.issues[0], paths: ["C:/outside"] }],
+      }),
+      /Invalid generated task path/u,
     );
     await assert.rejects(
       controller.startChecklist({ ...request, allowNoChecks: true, allowedPaths: [] }),
@@ -3681,7 +3705,7 @@ test("an editor that moves after approval does not change which repository Impro
     const improved = await controller.improve({ workspaceRoot: repositoryA });
     assert.ok(trustReads >= 2, "the move never landed inside the startup window");
     assert.equal(editorRoot, repositoryB, "the test never moved the editor");
-    const canonical = (value) => realpathSync(value);
+    const canonical = (value) => realpathSync.native(value);
     assert.equal(
       canonical(improved.ledger.workspaceRoot),
       canonical(repositoryA),
@@ -3736,6 +3760,216 @@ test("a disposed controller refuses retained maintenance instead of racing its o
   }
 });
 
+test("native sealed input identity agrees between pathname and opened file", { timeout: 10_000 }, async () => {
+  const filesystem = require("node:fs/promises");
+  const root = await mkdtemp(path.join(os.tmpdir(), "bachata-native-sealed-identity-"));
+  const source = path.join(root, "helper.txt");
+  let handle;
+  try {
+    await writeFile(source, "untracked sealed input\n", "utf8");
+    const before = await filesystem.lstat(source, { bigint: true });
+    const canonicalBefore = await filesystem.realpath(source);
+    let rootDevice;
+    if (process.platform === "win32" && before.dev === 0n) {
+      const anchor = await filesystem.open(path.parse(canonicalBefore).root, filesystem.constants.O_RDONLY);
+      try {
+        const details = await anchor.stat({ bigint: true });
+        assert.equal(details.isDirectory(), true);
+        assert.ok(details.dev > 0n);
+        rootDevice = details.dev;
+      } finally {
+        await anchor.close();
+      }
+    }
+    handle = await filesystem.open(source, filesystem.constants.O_RDONLY
+      | (filesystem.constants.O_NOFOLLOW ?? 0) | (filesystem.constants.O_NONBLOCK ?? 0));
+    const opened = await handle.stat({ bigint: true });
+    const current = await filesystem.lstat(source, { bigint: true });
+    const canonicalAfter = await filesystem.realpath(source);
+    const describe = (value) => ({ dev: String(value.dev), ino: String(value.ino), regularFile: value.isFile() });
+    const evidence = JSON.stringify({
+      node: process.versions.node,
+      uv: process.versions.uv,
+      rootDevice: rootDevice === undefined ? undefined : String(rootDevice),
+      source,
+      canonicalBefore,
+      canonicalAfter,
+      before: describe(before),
+      opened: describe(opened),
+      current: describe(current),
+    });
+    const deviceId = (value) => process.platform === "win32" && rootDevice === undefined ? value & 0xffff_ffffn : value;
+    assert.deepEqual(
+      { before: describe(before), current: describe(current), opened: { dev: String(deviceId(opened.dev)), ino: String(opened.ino), regularFile: opened.isFile() }, canonicalAfter },
+      { before: { ...describe(before), regularFile: true }, current: { ...describe(before), regularFile: true }, opened: { dev: String(rootDevice ?? deviceId(before.dev)), ino: String(before.ino), regularFile: true }, canonicalAfter: canonicalBefore },
+      evidence,
+    );
+    assert.equal(await handle.readFile("utf8"), "untracked sealed input\n");
+  } finally {
+    await handle?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("sealed input identity reconciles Windows volume serial widths without accepting replacement", () => {
+  const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
+  const source = readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const loadIdentityCheck = (platform) => require("node:vm").runInNewContext(
+    `${source}\nsealedInputIdentityMatches;`,
+    { exports: {}, require: moduleRequire, process: { platform }, __dirname: path.dirname(filename) },
+    { timeout: 1000 },
+  );
+  const before = { dev: 0x1234_5678_89ab_cdefn, ino: 0x20_0000_0000_0000n };
+  const opened = { dev: 0x89ab_cdefn, ino: before.ino };
+  const windowsMatches = loadIdentityCheck("win32");
+  assert.equal(windowsMatches(before, { ...before }, opened), true);
+  assert.equal(windowsMatches(opened, { ...opened }, opened), true);
+  assert.equal(windowsMatches(before, { ...before, dev: before.dev + 0x1_0000_0000n }, opened), false);
+  assert.equal(windowsMatches(before, before, { ...opened, dev: opened.dev + 1n }), false);
+  assert.equal(windowsMatches(before, before, { ...opened, ino: opened.ino + 1n }), false);
+  assert.equal(windowsMatches(before, { ...before, ino: before.ino + 1n }, opened), false);
+  const missingDevice = { ...before, dev: 0n };
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened, 0n), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened, opened.dev), true);
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened, opened.dev + 1n), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, { ...opened, dev: 0n }, opened.dev), false);
+  assert.equal(windowsMatches(missingDevice, { ...missingDevice, dev: opened.dev }, opened, opened.dev), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, { ...opened, ino: before.ino + 1n }, opened.dev), false);
+  assert.equal(windowsMatches({ dev: 0n, ino: 0n }, { dev: 0n, ino: 0n }, { ...opened, ino: 0n }, opened.dev), false);
+  for (const platform of ["linux", "darwin"]) {
+    const matches = loadIdentityCheck(platform);
+    assert.equal(matches(before, { ...before }, { ...before }), true);
+    assert.equal(matches(before, before, opened), false);
+    assert.equal(matches(missingDevice, missingDevice, opened, opened.dev), false);
+  }
+});
+
+test("sealed input identity anchors missing Windows volume IDs at the filesystem root and closes every handle", async () => {
+  const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
+  const source = readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const filesystem = require("node:fs/promises");
+  for (const scenario of [
+    { source: "C:\\workspace\\nested\\file.txt", root: "C:\\", dev: 42n },
+    { source: "\\\\server\\share\\workspace\\file.txt", root: "\\\\server\\share\\", dev: 43n },
+    { dev: 0n, error: /cannot establish/u },
+    { dev: 42n, directory: false, error: /cannot establish/u },
+    { statError: new Error("stat refused"), error: /stat refused/u },
+    { openError: new Error("root unavailable"), error: /root unavailable/u },
+  ]) {
+    let opens = 0;
+    let closes = 0;
+    let reads = 0;
+    const open = async (target, flags) => {
+      opens += 1;
+      assert.equal(target, scenario.root ?? "C:\\");
+      assert.equal(flags, filesystem.constants.O_RDONLY);
+      if (scenario.openError) throw scenario.openError;
+      return {
+        stat: async (options) => {
+          assert.equal(options.bigint, true);
+          if (scenario.statError) throw scenario.statError;
+          return { dev: scenario.dev, isDirectory: () => scenario.directory !== false };
+        },
+        readFile: async () => { reads += 1; throw new Error("anchor bytes must never be read"); },
+        close: async () => { closes += 1; },
+      };
+    };
+    const rootDevice = require("node:vm").runInNewContext(
+      `${source}\nsealedInputRootDevice;`,
+      {
+        exports: {},
+        require: (name) => name === "node:fs/promises" ? { ...filesystem, open }
+          : name === "node:path" ? path.win32 : moduleRequire(name),
+        process: { platform: "win32" },
+        __dirname: path.dirname(filename),
+      },
+      { timeout: 1000 },
+    );
+    const operation = rootDevice(scenario.source ?? "C:\\workspace\\file.txt");
+    if (scenario.error) await assert.rejects(operation, scenario.error);
+    else assert.equal(await operation, scenario.dev);
+    assert.equal(opens, 1);
+    assert.equal(closes, scenario.openError ? 0 : 1);
+    assert.equal(reads, 0);
+  }
+});
+
+test("sealed input identity verifies the root volume before reading the selected file", gitWorktreeSkip, async (context) => {
+  const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
+  const moduleSource = readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const filesystem = require("node:fs/promises");
+  for (const sameVolume of [true, false]) {
+    await context.test(sameVolume ? "matching volume reads the owned file" : "same inode on another volume is rejected before reading", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "bachata-sealed-volume-"));
+      let manager;
+      let run;
+      try {
+        const repository = await createRepository(root, "- [ ] [T1] Work\n", { "src/base.txt": "base\n" });
+        const selected = path.join(await filesystem.realpath(repository), "src", "selected.txt");
+        await writeFile(selected, "sealed bytes\n");
+        const anchor = path.parse(selected).root;
+        const opened = { source: 0, anchor: 0 };
+        const closed = { source: 0, anchor: 0 };
+        const reads = { source: 0, anchor: 0 };
+        const injectedFs = {
+          ...filesystem,
+          lstat: async (target, options) => {
+            const details = await filesystem.lstat(target, options);
+            return target === selected ? Object.assign(Object.create(details), { dev: 0n }) : details;
+          },
+          open: async (target, ...args) => {
+            const handle = await filesystem.open(target, ...args);
+            const kind = target === selected ? "source" : target === anchor ? "anchor" : undefined;
+            if (!kind) return handle;
+            opened[kind] += 1;
+            return {
+              stat: async (options) => Object.assign(Object.create(await handle.stat(options)), {
+                dev: kind === "anchor" || sameVolume ? 42n : 43n,
+              }),
+              readFile: async (...readArgs) => {
+                reads[kind] += 1;
+                assert.equal(kind, "source");
+                assert.equal(closed.anchor, 1, "the volume must be verified and its handle closed before reading");
+                return handle.readFile(...readArgs);
+              },
+              close: async () => { await handle.close(); closed[kind] += 1; },
+            };
+          },
+        };
+        const createManager = require("node:vm").runInNewContext(
+          `${moduleSource}\nexports.createWorktreeManager;`,
+          {
+            exports: {},
+            require: (name) => name === "node:fs/promises" ? injectedFs : moduleRequire(name),
+            process: { platform: "win32" },
+            __dirname: path.dirname(filename),
+            Buffer,
+          },
+          { timeout: 1000 },
+        );
+        manager = createManager(path.join(root, "storage"));
+        const operation = manager.prepareRun(repository, "volume-check", [], "never", ["src/selected.txt"]);
+        if (sameVolume) {
+          run = await operation;
+          assert.equal(await readFile(path.join(run.integrationWorktree, "src", "selected.txt"), "utf8"), "sealed bytes\n");
+        } else {
+          await assert.rejects(operation, /path that changed while it was opened/u);
+        }
+        assert.deepEqual(opened, { source: 1, anchor: 1 });
+        assert.deepEqual(closed, { source: 1, anchor: 1 });
+        assert.deepEqual(reads, { source: sameVolume ? 1 : 0, anchor: 0 });
+      } finally {
+        if (run) await manager.cleanupRun(run);
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 // EX-G6-02. A sealed run's patch is `inputTree..candidate`: the sealed files are the baseline
 // the work was written against, not lines of the work, so they appear nowhere in it. Apply
 // checked only that the branch still contained the run's baseline commit, and `git apply
@@ -3771,6 +4005,7 @@ test("applying a sealed run refuses a target that no longer holds the sealed inp
     // so is the sealed edit. The tree is clean, so every other Apply precondition holds.
     await rm(path.join(repository, "src", "helper.txt"));
     git(repository, "checkout", "--", "src/base.txt");
+    assert.equal(await readFile(path.join(repository, "src", "base.txt"), "utf8"), "committed\n", "restoring the fixture must preserve its committed line endings");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "the tidy-up left the tree dirty");
 
     const refused = await controller.applyRetained(run.runId);
@@ -3814,7 +4049,11 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     ].join("\n"), { "src/base.txt": "committed\n", "src/run.sh": "#!/bin/sh\necho hello\n" });
 
     // The only difference the seal carries is the mode. The bytes are already committed.
-    await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    if (process.platform === "win32") {
+      git(repository, "update-index", "--chmod=+x", "src/run.sh");
+    } else {
+      await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    }
     assert.match(git(repository, "status", "--porcelain=v1"), /src\/run\.sh/u, "the mode change is not dirty");
 
     const manager = createFakeConversationManager(async ({ options }) => {
@@ -3830,7 +4069,8 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     const run = await controller.start({ sealedInputPaths: ["src/run.sh"] });
     assert.equal(run.status, "completed", run.error ?? "");
 
-    git(repository, "checkout", "--", "src/run.sh");
+    git(repository, "restore", "--source=HEAD", "--staged", "--worktree", "--", "src/run.sh");
+    assert.equal(await readFile(path.join(repository, "src", "run.sh"), "utf8"), "#!/bin/sh\necho hello\n", "restoring the mode must not introduce a content change");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "the tidy-up left the tree dirty");
 
     const refused = await controller.applyRetained(run.runId);
@@ -3842,7 +4082,11 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     assert.match(refused.reason, /no longer holds the input this run was sealed with/u);
     assert.deepEqual(refused.conflicts, ["src/run.sh"]);
 
-    await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    if (process.platform === "win32") {
+      git(repository, "update-index", "--chmod=+x", "src/run.sh");
+    } else {
+      await chmod(path.join(repository, "src", "run.sh"), 0o755);
+    }
     git(repository, "add", "--", "src/run.sh");
     git(repository, "commit", "-m", "restore the executable mode");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "restoring the mode left the tree dirty");
@@ -4070,8 +4314,15 @@ test("disposal between the ledger write and begin leaves no active run behind", 
   }
 });
 
-test("sealing refuses a path replaced by a symbolic link after it was listed", gitWorktreeSkip, async () => {
+const assertSealedInputReplacement = async (replaceDirectory) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-controller-sealed-swap-"));
+  const filesystem = require("node:fs/promises");
+  const originalOpen = filesystem.open;
+  let controller;
+  let swapped = false;
+  let opened = 0;
+  let read = 0;
+  let closed = 0;
   try {
     const repository = await createRepository(root, [
       "- [ ] [T1] Anything",
@@ -4079,24 +4330,54 @@ test("sealing refuses a path replaced by a symbolic link after it was listed", g
       "  - Verify: none",
       "",
     ].join("\n"), { "src/base.txt": "committed\n" });
-    const outside = path.join(root, "outside-secret.txt");
+    const outside = path.join(root, "outside", "swap.txt");
+    await mkdir(path.dirname(outside));
     await writeFile(outside, "not part of this repository\n", "utf8");
-    const untracked = path.join(repository, "src", "swap.txt");
+    const untracked = path.join(repository, "src", "nested", "swap.txt");
+    await mkdir(path.dirname(untracked));
     await writeFile(untracked, "real content\n", "utf8");
+    const sourcePath = realpathSync.native(untracked);
 
     const manager = createFakeConversationManager(async () => completedPipeline());
-    const controller = createController(root, repository, manager, { todoRetries: 0 });
-    await rm(untracked, { force: true });
-    await symlink(outside, untracked);
+    controller = createController(root, repository, manager, { todoRetries: 0 });
+    filesystem.open = async (candidate, flags, ...args) => {
+      if (typeof candidate !== "string" || path.relative(sourcePath, candidate) !== "") {
+        return originalOpen(candidate, flags, ...args);
+      }
+      assert.equal(swapped, false);
+      swapped = true;
+      if (replaceDirectory) {
+        await rename(path.dirname(untracked), path.join(root, "original-source"));
+        await symlink(path.dirname(outside), path.dirname(untracked), process.platform === "win32" ? "junction" : "dir");
+      } else {
+        await rm(untracked);
+        await symlink(outside, untracked);
+      }
+      const handle = await originalOpen(candidate, flags & ~(filesystem.constants.O_NOFOLLOW ?? 0), ...args);
+      opened += 1;
+      const readFile = handle.readFile.bind(handle);
+      const close = handle.close.bind(handle);
+      handle.readFile = (...readArgs) => { read += 1; return readFile(...readArgs); };
+      handle.close = async () => { await close(); closed += 1; };
+      return handle;
+    };
     await assert.rejects(
-      controller.start({ sealedInputPaths: ["src/swap.txt"] }),
-      /refuses to seal a symbolic link/u,
+      controller.start({ sealedInputPaths: ["src/nested/swap.txt"] }),
+      replaceDirectory ? /refuses to seal a path that changed while it was opened/u : /refuses to seal a symbolic link/u,
     );
-    const worktrees = path.join(root, "storage", "orchestration", "runs");
-    const sealed = await readFile(path.join(worktrees, "does-not-exist"), "utf8").catch(() => undefined);
-    assert.equal(sealed, undefined);
-    await controller.dispose();
+    assert.equal(swapped, true, "the replacement must occur after validation and before opening");
+    assert.equal(opened, 1, "the fallback must be exercised without O_NOFOLLOW");
+    assert.equal(read, 0, "outside bytes must not be read");
+    assert.equal(closed, opened, "the rejected descriptor must be closed");
+    assert.equal(await createOrchestrationStore(path.join(root, "storage")).getActiveRun(), undefined);
   } finally {
+    filesystem.open = originalOpen;
+    await controller?.dispose();
     await rm(root, { recursive: true, force: true });
   }
+};
+
+test("sealing refuses a path replaced by a symbolic link after it was listed", gitWorktreeSkip, async (context) => {
+  await context.test("the selected file becomes a symbolic link", () => assertSealedInputReplacement(false));
+  await context.test("the parent becomes an outside directory link", () => assertSealedInputReplacement(true));
 });

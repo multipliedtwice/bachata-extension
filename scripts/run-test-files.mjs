@@ -55,9 +55,10 @@ const run = async (file) => {
     if (result.signal) {
       throw new Error(`${file} stopped by ${result.signal}`);
     }
-    if (result.code !== 0) {
-      throw new Error(`${file} exited with ${String(result.code)}`);
+    if (result.code === null) {
+      throw new Error(`${file} exited without an exit code`);
     }
+    return result.code;
   } catch (error) {
     if (termination.isHandling()) {
       await termination.waitForCompletion();
@@ -70,10 +71,25 @@ const run = async (file) => {
 };
 
 await withWorktreeLock({ label: "unit tests" }, async () => {
+  const failures = [];
   try {
     for (const file of files) {
+      if (termination.isHandling()) {
+        await termination.waitForCompletion();
+        return;
+      }
       process.stdout.write(`\n[test-file] ${file}\n`);
-      await run(file);
+      const code = await run(file);
+      if (termination.isHandling()) {
+        await termination.waitForCompletion();
+        return;
+      }
+      if (code !== undefined && code !== 0) {
+        failures.push(`${file} exited with ${String(code)}`);
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`Test files failed:\n${failures.join("\n")}`);
     }
   } finally {
     termination.remove();

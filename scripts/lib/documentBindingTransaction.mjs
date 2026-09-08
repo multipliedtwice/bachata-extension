@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants, link, open, readFile, rename, rm, stat } from "node:fs/promises";
 import * as path from "node:path";
+import { openVerifiedRegularFile } from "./verifiedRegularFile.mjs";
 
 export const LOCK_NAME = ".bachata-bind.lock";
 export const JOURNAL_NAME = ".bachata-bind.journal.json";
@@ -8,15 +9,11 @@ export const JOURNAL_NAME = ".bachata-bind.journal.json";
 const DEFAULT_DOCUMENT_MODE = 0o644;
 
 const noFollowRead = async (file) => {
-  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const { handle, details } = await openVerifiedRegularFile(file);
   try {
-    const details = await handle.stat();
-    if (!details.isFile()) {
-      throw new Error(`${file} is not a regular file`);
-    }
     return {
       contents: (await handle.readFile()).toString("utf8"),
-      mode: details.mode & 0o7777,
+      mode: Number(details.mode & 0o7777n),
       dev: details.dev,
       ino: details.ino,
     };

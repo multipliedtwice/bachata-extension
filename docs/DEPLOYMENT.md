@@ -14,6 +14,9 @@ pair and owns marketplace deployment. No rebuild during publication.
 - VS Code variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`. Entra application or managed
   identity needs Marketplace publisher access. Federated credential subject:
   `repo:OWNER/REPOSITORY:environment:marketplace`; audience `api://AzureADTokenExchange`.
+- Alternative: environment secret `VSCE_PAT`. Azure DevOps token needs Marketplace
+  Manage, all accessible organizations, short expiry. Store encrypted; rotate before
+  expiry. Workload identity takes precedence when both Azure variables exist.
 - Chrome variables: `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`.
 - Chrome secrets: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, authorized
   for `https://www.googleapis.com/auth/chromewebstore`. Store in GitHub; never source.
@@ -42,7 +45,7 @@ Authentication: [VS Code publishing](https://code.visualstudio.com/api/working-w
 
 Publication accepts only successful paired workflow attempts from this repository
 at the deployment commit. No branch-head rebuild, automatic version bump, tag or push.
-VS Code uses the locked VSCE with `--packagePath` and Entra authentication.
+VS Code uses the locked VSCE with `--packagePath` and Entra or scoped PAT authentication.
 Chrome uses [v2 upload](https://developer.chrome.com/docs/webstore/api/reference/rest/v2/media/upload)
 then [publish](https://developer.chrome.com/docs/webstore/api/reference/rest/v2/publish).
 Upload completion is polled with a fixed bound. Review is never skipped.

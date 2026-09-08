@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const root = path.join(__dirname, "..");
-const load = () => import(`file://${path.join(root, "scripts", "lib", "releaseMetadata.mjs")}`);
+const load = () => import("../scripts/lib/releaseMetadata.mjs");
 
 const VSIX_HASH = "a".repeat(64);
 const BRIDGE_HASH = "b".repeat(64);
@@ -392,7 +392,7 @@ test("a completed dependency-audit row is accepted, not pinned to old prose", as
   const completed = {
     ...live,
     validationRecord: live.validationRecord.replace(
-      "| Network-backed dependency audit | — | — | Not performed | — |",
+      /^\| Network-backed dependency audit \|[^\r\n]*$/mu,
       `| Network-backed dependency audit | 2026-08-25 | \`${VSIX_HASH}\` | Pass | 0 vulnerabilities |`,
     ),
   };

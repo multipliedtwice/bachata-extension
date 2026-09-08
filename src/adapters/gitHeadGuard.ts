@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { gitProcessEnvironment } from "../process/safeEnvironment";
+import { resolveProcessExecutable } from "../process/processScope";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,13 +20,14 @@ type GitResult = {
 
 const gitResult = async (cwd: string, args: string[]): Promise<GitResult> => {
   try {
-    const result = await execFileAsync("git", args, {
+    const environment = gitProcessEnvironment(cwd);
+    const result = await execFileAsync(resolveProcessExecutable("git", environment, cwd), args, {
       cwd,
       encoding: "utf8",
       timeout: 15_000,
       maxBuffer: 1_048_576,
       windowsHide: true,
-      env: gitProcessEnvironment(cwd),
+      env: environment,
     });
     return { ok: true, stdout: result.stdout, stderr: result.stderr, unavailable: false };
   } catch (error) {

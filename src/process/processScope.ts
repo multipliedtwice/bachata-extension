@@ -32,10 +32,11 @@ export type ProcessScopeOptions = {
   stdio?: StdioOptions;
   windowsHide?: boolean;
   cleanupGraceMs?: number;
-  shell?: boolean;
+  shell?: boolean | string;
 };
 
 type ProcessScopeRuntime = {
+  resolveProcessExecutable: (command: string, env?: NodeJS.ProcessEnv, cwd?: string) => string;
   scopeEnvironmentKey: string;
   spawnProcessScope: (
     executable: string,
@@ -53,6 +54,12 @@ const runtime = require(path.resolve(
   __dirname,
   "../../scripts/process-scope.cjs",
 )) as ProcessScopeRuntime;
+
+export const resolveProcessExecutable = (
+  command: string,
+  env?: NodeJS.ProcessEnv,
+  cwd?: string,
+): string => runtime.resolveProcessExecutable(command, env, cwd);
 
 export const spawnProcessScope = (
   executable: string,
@@ -87,7 +94,7 @@ export const spawnScopedProviderProcess = (
   };
   if (options.cwd !== undefined) spawnOptions.cwd = options.cwd;
   if (env !== undefined) spawnOptions.env = env;
-  const child = spawn(command, args, spawnOptions);
+  const child = spawn(resolveProcessExecutable(command, env, options.cwd), args, spawnOptions);
   const terminate = (graceMs: number): Promise<boolean> =>
     token === undefined
       ? terminateProcessTree(child, graceMs)

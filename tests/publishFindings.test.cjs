@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const Module = require("node:module");
+const path = require("node:path");
 const test = require("node:test");
 
 const originalLoad = Module._load;
@@ -38,6 +39,7 @@ const collection = () => {
 };
 
 const result = (findings) => ({ checks: [], findings, changedFiles: [], evidence: [] });
+const repositoryRoot = path.resolve("/repo");
 
 const finding = (overrides = {}) => ({
   message: "retry is unbounded",
@@ -56,10 +58,10 @@ test("only accepted findings are projected into the editor", () => {
       finding({ disposition: "rejected", message: "not real" }),
       finding({ disposition: "proposed", message: "still a claim" }),
     ]),
-    "/repo",
+    repositoryRoot,
   );
   assert.equal(published.located, 1, "a projection carried a finding that was not accepted");
-  const diagnostics = target.entries.get("/repo/src/retry.ts");
+  const diagnostics = target.entries.get(path.join(repositoryRoot, "src", "retry.ts"));
   assert.equal(diagnostics.length, 1);
   assert.equal(diagnostics[0].message, "retry is unbounded");
   assert.equal(diagnostics[0].source, "Bachata");
@@ -67,11 +69,11 @@ test("only accepted findings are projected into the editor", () => {
 
 test("republishing removes projections that are no longer accepted", () => {
   const target = collection();
-  publishRunFindings(target, result([finding()]), "/repo");
+  publishRunFindings(target, result([finding()]), repositoryRoot);
   assert.equal(target.entries.size, 1);
 
   // The finding was rejected in a later round.
-  publishRunFindings(target, result([finding({ disposition: "rejected" })]), "/repo");
+  publishRunFindings(target, result([finding({ disposition: "rejected" })]), repositoryRoot);
   assert.equal(
     target.entries.size,
     0,
@@ -84,17 +86,17 @@ test("a projection carries the location that navigates back to the finding", () 
   publishRunFindings(
     target,
     result([finding({ location: { file: "src/a.ts", startLine: 12, endLine: 14 } })]),
-    "/repo",
+    repositoryRoot,
   );
-  const diagnostics = target.entries.get("/repo/src/a.ts");
+  const diagnostics = target.entries.get(path.join(repositoryRoot, "src", "a.ts"));
   assert.equal(diagnostics[0].range.start.line, 11, "the projection lost its line provenance");
   assert.equal(diagnostics[0].range.end.line, 13);
 });
 
 test("projection is optional: no result publishes nothing and clears what was there", () => {
   const target = collection();
-  publishRunFindings(target, result([finding()]), "/repo");
-  const cleared = publishRunFindings(target, undefined, "/repo");
+  publishRunFindings(target, result([finding()]), repositoryRoot);
+  const cleared = publishRunFindings(target, undefined, repositoryRoot);
   assert.deepEqual(cleared, { located: 0, unlocated: 0 });
   assert.equal(target.entries.size, 0);
 });

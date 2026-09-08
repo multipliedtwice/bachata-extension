@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { constants, lstat, open, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir } from "node:fs/promises";
 
 import { readZipEntryFromBuffer } from "./zipEntry.mjs";
+import { openVerifiedRegularFile } from "./verifiedRegularFile.mjs";
 import * as path from "node:path";
 
 export const BRIDGE_COMPATIBILITY_PATH = "protocol/browser-bridge.compatibility.json";
@@ -83,37 +84,26 @@ export const BRIDGE_ARTIFACT_LIMITS = {
 };
 
 export const openPinnedArtifact = async (candidate, limits = {}) => {
-  const handle = await open(candidate, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error) => {
-    const code = (error && error.code);
-    if (code === "ELOOP" || code === "EMLINK") {
-      throw new Error(
-        `${candidate} is a symbolic link. A release artifact must be a regular file this checkout owns.`,
-      );
-    }
-    throw error;
-  });
+  const { handle, details } = await openVerifiedRegularFile(candidate);
   try {
-    const details = await handle.stat();
-    if (!details.isFile()) {
-      throw new Error(`${candidate} is not a regular file`);
-    }
     const maximumBytes = limits.maximumBytes ?? MAXIMUM_ARTIFACT_BYTES;
     if (details.size > maximumBytes) {
       throw new Error(
         `${candidate} is ${String(details.size)} bytes, above the ${String(maximumBytes)}-byte limit this release reads into memory`,
       );
     }
-    const bytes = Buffer.alloc(details.size);
+    const size = Number(details.size);
+    const bytes = Buffer.alloc(size);
     let read = 0;
-    while (read < details.size) {
-      const chunk = await handle.read(bytes, read, Math.min(1_048_576, details.size - read), read);
+    while (read < size) {
+      const chunk = await handle.read(bytes, read, Math.min(1_048_576, size - read), read);
       if (chunk.bytesRead === 0) break;
       read += chunk.bytesRead;
     }
-    if (read !== details.size) {
+    if (read !== size) {
       throw new Error(`${candidate} ended after ${String(read)} of ${String(details.size)} bytes`);
     }
-    const after = await handle.stat();
+    const after = await handle.stat({ bigint: true });
     if (after.size !== details.size) {
       throw new Error(
         `${candidate} changed size while it was being read: ${String(details.size)} bytes became ${String(after.size)}`,
@@ -122,10 +112,10 @@ export const openPinnedArtifact = async (candidate, limits = {}) => {
     if (after.dev !== details.dev || after.ino !== details.ino) {
       throw new Error(`${candidate} was replaced while it was being read`);
     }
-    if (after.mtimeMs !== details.mtimeMs || after.ctimeMs !== details.ctimeMs) {
+    if (after.mtimeNs !== details.mtimeNs || after.ctimeNs !== details.ctimeNs) {
       throw new Error(`${candidate} was rewritten in place while it was being read`);
     }
-    return { path: candidate, bytes, size: details.size };
+    return { path: candidate, bytes, size };
   } finally {
     await handle.close();
   }

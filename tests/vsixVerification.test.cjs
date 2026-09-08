@@ -2,8 +2,10 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
+const { pathToFileURL } = require("node:url");
 
 const verifierPath = path.join(__dirname, "..", "scripts", "verify-vsix.mjs");
+const verifierUrl = pathToFileURL(verifierPath).href;
 const { webviewRuntimeAssets } = require("../dist/webview/assets.js");
 
 test("the VSIX verifier CLI refuses invocation without an artifact on every platform", () => {
@@ -11,6 +13,19 @@ test("the VSIX verifier CLI refuses invocation without an artifact on every plat
   assert.ifError(result.error);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Expected VSIX path/u);
+});
+
+test("packaged Markdown uses VSCE link rewriting without accepting changed copy", async () => {
+  const { packagedDocumentContents } = await import("../scripts/verify-vsix.mjs");
+  const manifest = { repository: { url: "https://github.com/fixture/bachata.git" } };
+  const source = Buffer.from('Read [guide](docs/GUIDE.md).\n<img src="media/header.png">\n[Usage](#usage)\n');
+  const expected = Buffer.from('Read [guide](https://github.com/fixture/bachata/blob/HEAD/docs/GUIDE.md).\n'
+    + '<img src="https://github.com/fixture/bachata/raw/HEAD/media/header.png">\n[Usage](#usage)\n');
+  for (const name of ["README.md", "CHANGELOG.md"]) {
+    assert.deepEqual(await packagedDocumentContents(name, source, manifest), expected);
+    assert.notDeepEqual(await packagedDocumentContents(name, Buffer.from("Changed copy\n"), manifest), expected);
+  }
+  assert.deepEqual(await packagedDocumentContents("docs/GUIDE.md", source, manifest), source);
 });
 
 const crcTable = Array.from({ length: 256 }, (_, value) => {
@@ -84,7 +99,7 @@ const manifest = {
 };
 
 test("VSIX verification requires manifest-referenced runtime assets", async () => {
-  const { manifestAssets, requiredVsixEntries, missingVsixEntries } = await import(verifierPath);
+  const { manifestAssets, requiredVsixEntries, missingVsixEntries } = await import(verifierUrl);
 
   assert.deepEqual(manifestAssets(manifest), [
     "dist/extension.js",
@@ -130,7 +145,7 @@ test("VSIX verification requires manifest-referenced runtime assets", async () =
 });
 
 test("stale packaged runtime files are rejected against the current build", async () => {
-  const { staleVsixEntries } = await import(verifierPath);
+  const { staleVsixEntries } = await import(verifierUrl);
 
   const build = {
     "dist/extension.js": "a".repeat(64),
@@ -198,7 +213,7 @@ test("the webview asset manifest matches what the packaged HTML loads", () => {
 });
 
 test("archive entry names are validated and duplicates rejected", async () => {
-  const { unsafeVsixEntryReason } = await import(verifierPath);
+  const { unsafeVsixEntryReason } = await import(verifierUrl);
 
   assert.equal(unsafeVsixEntryReason("extension/dist/extension.js"), undefined);
   assert.equal(unsafeVsixEntryReason("extension.vsixmanifest"), undefined);
@@ -215,7 +230,7 @@ test("archive entry names are validated and duplicates rejected", async () => {
 test("verification rejects unsafe, duplicate, and self-executing archives without running their code", async () => {
   const fs = require("node:fs");
   const os = require("node:os");
-  const { verifyVsix } = await import(verifierPath);
+  const { verifyVsix } = await import(verifierUrl);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-vsix-negative-"));
   const marker = path.join(directory, "executed-marker");
   try {
@@ -250,7 +265,7 @@ test("verification rejects unsafe, duplicate, and self-executing archives withou
 });
 
 test("packaged first-party sources are compared against the working tree", async () => {
-  const { packagedSourceEquivalence, staleVsixEntries } = await import(verifierPath);
+  const { packagedSourceEquivalence, staleVsixEntries } = await import(verifierUrl);
 
   const pairs = packagedSourceEquivalence([
     "package.json",
