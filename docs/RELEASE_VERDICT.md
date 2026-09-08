@@ -1,6 +1,6 @@
 # Release verdict
 
-Artifacts under test: Bachata VSIX `d7951ef2b346e8438d5586a1acf2e7fb3806bb99b1b27c2a0ca544c8ef165f18`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
+Artifacts under test: Bachata VSIX `75f1c873a210b48ac373081d17c9ed655e829815542fea2bb628d3d3395ef59a`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
 
 ## Verdict
 
@@ -10,25 +10,29 @@ Exact-package graphical acceptance, authenticated-provider smoke, provider-terms
 decisions and compatibility records remain open. No human acceptance inferred
 from automated results. Earlier VSIX acceptance evidence does not cover this build.
 
-This candidate also has a confirmed Windows executable-lookup defect: a workspace
-`git.exe` can run before the filtered PATH is searched. Windows sealed-file handling also follows symbolic links because its no-follow flag
-is unsupported there. Source corrections need native validation and a replacement
-VSIX. Do not publish the artifact below.
+Codex recovery can discard ownership of a failed transport before cleanup is
+confirmed. The Windows adapter test bodies finish without file completion; this
+source-backed defect is consistent with that hang. Fix transport ownership,
+validate native recovery and replace this VSIX before acceptance or publication.
 
 ## Verified candidate evidence
 
-2026-09-08. VSIX source: `ed36658a04ffe3f1f646236e89a3521209b8d493`.
-[Paired candidate run 34228223329](https://github.com/multipliedtwice/bachata-extension/actions/runs/34228223329)
+2026-09-08. VSIX source: `407bec706bd1885747e3887af44162c7efb14279`.
+[Paired candidate run 34245180082](https://github.com/multipliedtwice/bachata-extension/actions/runs/34245180082)
 passed on Linux with Node 22.13.0: authenticated Bridge artifact download, contract
 digest and shared fixture parity, types, lint, format, tests, coverage, packaging
 and source-drift check. VSCE 3.9.2 produced the exact downloaded VSIX.
 
-GitHub artifact `10057413687` outer ZIP digest:
-`73d93b0d9008a4f0a8b6f27397169ddd7afb54bae9b95435157d78e8530130a7`.
-Download matches that digest. VSIX: 1,885 files, 11,951,404 bytes;
+GitHub artifact `10064557035` outer ZIP digest:
+`66991d178b471c0efbc54dc3099aa36c98b27cc094f31b7081ac632b6b9c1e74`.
+Download matches that digest. VSIX: 1,885 files, 11,952,820 bytes;
 793 build-equivalent runtime files. Hosted verification compared source,
 runtime and locked production dependencies, including VSCE's expected Markdown
 link transformation. Local archive matches the hosted VSIX digest above.
+
+This VSIX includes the Windows executable-lookup, scoped missing-command,
+trusted-shell and sealed-file corrections. Prior VSIX artifacts are superseded.
+No prior graphical or provider acceptance transferred.
 
 Bridge source: `5ae4436107bf5b4d14ccd4ac8d1a9865febc366a`.
 [Release artifact run 34200295838](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34200295838)
@@ -40,34 +44,24 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 
 | Gate | Result |
 | --- | --- |
-| Paired candidate `npm test` | 3023 tests, 3022 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006); required artifact cases passed. |
-| VSIX prepublish `npm test` | 3023 tests, 3022 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006). |
-| Linux source `npm test` | 3027 tests, 3023 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3010). Release run 34234203464 at `0c40cf9`; does not validate the later executable-lookup correction. |
-| macOS source `npm test` | 3027 tests, 3016 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3010). Release run 34234203464 at `0c40cf9`. |
-| Actual Windows VS Code 1.136.1 | Native provider-script, compiler and process checks passed in release run 34228016884. Full suite remains separate. |
+| Paired candidate `npm test` | 3035 tests, 3034 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3018); required artifact cases passed. |
+| VSIX prepublish `npm test` | 3035 tests, 3034 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3018). |
+| Actual Windows VS Code 1.136.1 | Native process, provider, compiler and Git checks passed in release run 34246639736 at `b595f26`. Full suite remains separate. |
+| Native Windows release safety | Process completion, trusted shell, secret isolation and sealed-file symbolic-link rejection checks passed in run 34246639736. |
+| Linux source `npm test` | 3035 tests, 3031 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3018). Run 34246639736 at `b595f26` passed all gates, including coverage. |
+| macOS source `npm test` | 3035 tests, 3024 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases covered by paired candidate and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3018). Run 34246639736 at `b595f26` passed all gates, including coverage. |
+| Windows source gates | Run 34246639736 cancelled after all 49 adapter test bodies passed at 15:55:51 UTC without file completion by 16:21:38 UTC. Full suite and coverage did not complete. |
 | Browser Bridge `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Hosted `test:source-distribution` (6) plus main suite (1204). |
 | Dependency audit | Zero reported vulnerabilities in both unchanged locked checkouts. Candidate dependency closure verified during packaging. |
 
-Extension [release gates run 34228016884](https://github.com/multipliedtwice/bachata-extension/actions/runs/34228016884):
-Linux and macOS passed all gates. Windows passed native process checks, actual
-VS Code checks and UI layout, then exposed test-fixture path, permission and
-cleanup assumptions. Its orchestration file exceeded the aggregate ten-minute
-test budget after passing long scenarios. Fixture corrections and finite Windows
-CI budget changes need a complete rerun. No pending gate counted as passed.
-
-[Release gates run 34234203464](https://github.com/multipliedtwice/bachata-extension/actions/runs/34234203464)
-passed all Linux and macOS gates. Windows native process, actual VS Code host and UI layout
-checks passed, then the managed-handoff regression exposed implicit cwd executable
-lookup. Remaining Windows tests were still running when recorded.
-The correction disables that lookup in the isolated Windows launcher and uses an
-absolute system path for its cleanup helper. Native rerun and repackaging remain.
-
-[Candidate run 34239860495](https://github.com/multipliedtwice/bachata-extension/actions/runs/34239860495)
-at `b4e4d96` passed Linux types, lint, format, required artifact tests, coverage,
-packaging and source-drift checks. Both `npm test` and VSIX prepublish ran
-3032 tests, 3031 passed, 0 failed, 1 Windows-only skip: `test:source-distribution`
-(17) plus `test:unit` (3015). This run predates the scoped missing-command and
-sealed-file corrections. Its artifact is superseded; no acceptance transferred.
+[Release gates run 34246639736](https://github.com/multipliedtwice/bachata-extension/actions/runs/34246639736)
+validates `b595f26d0dcc913917e517acc5d8022917d7c76a` on Ubuntu, macOS and
+Windows. Changes after candidate source `407bec7` affect only a native Git test's
+scratch cleanup and BUILD_FACTS.md; neither is packaged. Linux and macOS passed
+all gates. Native Windows steps passed; its full suite stalled in adapter cleanup
+and was cancelled. These results predate the Codex transport-ownership correction.
+Corrected platform gates and a replacement VSIX remain required. Final paired
+verification must compare the accepted VSIX with the final checkout before deployment.
 
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
 Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging

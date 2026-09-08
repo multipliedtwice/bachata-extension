@@ -96,6 +96,8 @@ jobs:
         if: runner.os == 'Windows'
         timeout-minutes: 5
         run: |
+          node --test tests/adapters.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test tests/process.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test --test-name-pattern="verification commands stop|orchestration checks do not inherit|sealing refuses.*symbolic link" tests/orchestrator.test.cjs

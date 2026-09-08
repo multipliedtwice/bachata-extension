@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.6.7 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 621 |
-| Maintained source manifest SHA-256 (Git-tracked) | 7b3784b4ac6a665d9490b31c394fb9bfc8de6f70066c63919c37a233978d2b2f |
+| Maintained source manifest SHA-256 (Git-tracked) | 356829f52cc0ad2fa01fa8c09a2d09cc4ef99a59a1a39db3be51122034a76065 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "Bachata: TODO orchestration" | 21 |
@@ -38,11 +38,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 407bec706bd1885747e3887af44162c7efb14279.
+The working tree was modified, so these values describe the working tree and not commit b595f26d0dcc913917e517acc5d8022917d7c76a.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 407bec706bd1885747e3887af44162c7efb14279 |
+| Revision | b595f26d0dcc913917e517acc5d8022917d7c76a |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 621 |
 | Platform | Darwin 24.5.0 arm64 |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | bachata-vscode-0.7.0.vsix, 11.95 MB, SHA-256 d7951ef2b346e8438d5586a1acf2e7fb3806bb99b1b27c2a0ca544c8ef165f18 |
+| Staged VSIX | bachata-vscode-0.7.0.vsix, 11.95 MB, SHA-256 75f1c873a210b48ac373081d17c9ed655e829815542fea2bb628d3d3395ef59a |
 | Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.7.zip, 1.05 MB, SHA-256 e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b |
 | Test run | not collected in this generation |
 
