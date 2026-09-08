@@ -4,7 +4,8 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
-const { spawn } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
+const { promisify } = require("node:util");
 const vm = require("node:vm");
 
 const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
@@ -12,9 +13,23 @@ const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
 const { runProcess } = require("../dist/orchestrator/commandRunner.js");
 const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 
-test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 45_000 }, async () => {
+test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 90_000 }, async (t) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
   try {
+    if (process.platform === "win32") {
+      const powershell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+      for (const [name, env] of [["inherited", process.env], ["Git", gitProcessEnvironment(cwd)]]) {
+        await t.test(`PowerShell starts with the ${name} environment`, async () => {
+          const result = await promisify(execFile)(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.Write('ready')"], {
+            cwd,
+            env,
+            encoding: "utf8",
+            timeout: 10_000,
+          });
+          assert.equal(result.stdout, "ready");
+        });
+      }
+    }
     for (const marker of ["first", "second"]) {
       const result = await runProcess(process.execPath, ["-e", `process.stdout.write(${JSON.stringify(marker)})`], {
         cwd,
@@ -22,10 +37,16 @@ test("native process scopes complete sequential commands with confirmed cleanup"
         timeoutMs: 10_000,
         maxOutputBytes: 1_024,
       });
-      assert.equal(result.timedOut, false, `${marker}: ${result.stderr}`);
-      assert.equal(result.cleanupConfirmed, true, `${marker}: ${result.stderr}`);
-      assert.equal(result.exitCode, 0, `${marker}: ${result.stderr}`);
-      assert.equal(result.stdout, marker);
+      assert.deepEqual(result, {
+        exitCode: 0,
+        stdout: marker,
+        stderr: "",
+        timedOut: false,
+        cancelled: false,
+        cleanupConfirmed: true,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      });
     }
     const git = await runProcess("git", ["--version"], {
       cwd,

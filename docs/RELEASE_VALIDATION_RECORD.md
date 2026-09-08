@@ -81,4 +81,4 @@ Unconfirmed risk, not a defect. The state store is synchronous and waits on a lo
 
 | Check | Date | VSIX SHA-256 | Result | Notes |
 | --- | --- | --- | --- | --- |
-| Network-backed dependency audit | 2026-09-08 | `e5d3ab17e2e52a087b1e8e86b7321a288227669e481b0ab002ed38428ce45dca` | Passed | Authorized npm audit against each locked checkout: extension and Bridge each report zero vulnerabilities. |
+| Network-backed dependency audit | 2026-09-08 | `e5d3ab17e2e52a087b1e8e86b7321a288227669e481b0ab002ed38428ce45dca` | Pass | Authorized npm audit against each locked checkout: extension and Bridge each report zero vulnerabilities. |
