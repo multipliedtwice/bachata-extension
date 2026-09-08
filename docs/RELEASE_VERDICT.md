@@ -30,15 +30,16 @@ Bridge source: `5ae4436107bf5b4d14ccd4ac8d1a9865febc366a`.
 passed. ZIP matches all 58 hosted build files. Protocol contract and shared fixtures
 match the extension's compatibility pin. Keep these exact bytes.
 
-Test counts sum the named command's `node --test` invocations. Skips are not passes.
+Test counts: every `node --test` invocation the package's `npm test` chain
+runs, summed, with contributing commands named. Platform skips are not passes.
 
 | Gate | Result |
 | --- | --- |
-| Paired candidate `npm test` | 3023 tests: 3022 passed, 0 failed, 1 Windows-only descendant-cleanup skip. Includes source-distribution and unit suites; required artifact cases passed. |
-| VSIX prepublish `npm test` | 3023 tests: 3022 passed, 0 failed, the same Windows-only skip. |
-| Linux source `npm test` | 3023 tests: 3019 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. |
+| Paired candidate `npm test` | 3023 tests, 3022 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006); required artifact cases passed. |
+| VSIX prepublish `npm test` | 3023 tests, 3022 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006). |
+| Linux source `npm test` | 3023 tests, 3019 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006). |
 | Actual Windows VS Code 1.136.1 | Native provider-script, compiler and process checks passed in release run 34228016884. Full suite remains separate. |
-| Browser Bridge `npm test` | 1210 tests: 1210 passed, 0 failed, 0 skipped. Hosted source-distribution and main suites. |
+| Browser Bridge `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Hosted `test:source-distribution` (6) plus main suite (1204). |
 | Dependency audit | Zero reported vulnerabilities in both unchanged locked checkouts. Candidate dependency closure verified during packaging. |
 
 Extension [release gates run 34228016884](https://github.com/multipliedtwice/bachata-extension/actions/runs/34228016884):
@@ -55,7 +56,8 @@ and source-drift checks.
 Encrypted Bridge read token and Marketplace PAT configured; both expire
 2026-10-08. Acceptance verification and deployment remain open.
 
-Coverage policy: enforced floors in package.json define the claim. Source floors:
+Coverage policy: the floors, not these percentages, are the claim. Enforced floors
+live in package.json. Source floors:
 78 / 73 / 80 lines / branches / functions. No percentage inferred from a prior build.
 Source measurements: BUILD_FACTS.md. Maintained-source distribution:
 `npm run source:export` then `npm run source:verify`.
