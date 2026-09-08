@@ -529,7 +529,7 @@ test("workspace patch subprocesses share one action deadline", async (context) =
     return;
   }
   const directory = await temporaryDirectory();
-  const binaryDirectory = path.join(directory, "bin");
+  const binaryDirectory = await temporaryDirectory();
   const previousPath = process.env.PATH;
   try {
     const firstSubprocessMs = 1_800;
@@ -538,7 +538,6 @@ test("workspace patch subprocesses share one action deadline", async (context) =
     const sharedDeadlineCeilingMs = actionTimeoutMs + terminateGraceMs + 1_000;
     const perSubprocessDeadlineFloorMs = firstSubprocessMs + actionTimeoutMs;
 
-    await fs.mkdir(binaryDirectory);
     const fakeGit = path.join(binaryDirectory, "git");
     await fs.writeFile(
       fakeGit,
@@ -582,6 +581,7 @@ setTimeout(() => {
     } else {
       process.env.PATH = previousPath;
     }
+    await removeDirectory(binaryDirectory);
     await removeDirectory(directory);
   }
 });
