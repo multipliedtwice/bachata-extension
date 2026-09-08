@@ -13,14 +13,34 @@ const { spawnProcessScope, windowsScopeFromChild } = require("../scripts/process
 const { runProcess } = require("../dist/orchestrator/commandRunner.js");
 const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 
-test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 90_000 }, async (t) => {
+test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 150_000 }, async (t) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
   try {
     if (process.platform === "win32") {
       const powershell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-      for (const [name, env] of [["inherited", process.env], ["Git", gitProcessEnvironment(cwd)]]) {
-        await t.test(`PowerShell starts with the ${name} environment`, async () => {
-          const result = await promisify(execFile)(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.Write('ready')"], {
+      const gitEnvironment = gitProcessEnvironment(cwd);
+      const selectedEnvironment = (names) => Object.fromEntries(names.flatMap((name) =>
+        process.env[name] === undefined ? [] : [[name, process.env[name]]],
+      ));
+      const environments = [
+        ["inherited", process.env],
+        ["Git", gitEnvironment],
+        ["Git with module path", { ...gitEnvironment, ...selectedEnvironment(["PSModulePath"]) }],
+        ["Git with profile paths", { ...gitEnvironment, ...selectedEnvironment(["USERPROFILE", "APPDATA", "LOCALAPPDATA"]) }],
+      ];
+      for (const [name, env] of environments) {
+        await t.test(`PowerShell resolves paths with the ${name} environment`, async () => {
+          const result = await promisify(execFile)(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.Write((Join-Path (Split-Path 'C:\\scope\\payload.json' -Parent) 'probe'))"], {
+            cwd,
+            env,
+            encoding: "utf8",
+            timeout: 10_000,
+          });
+          assert.equal(result.stdout, "C:\\scope\\probe");
+        });
+        await t.test(`PowerShell compiles with the ${name} environment`, async () => {
+          const command = "Add-Type -TypeDefinition 'public static class NativeScopeProbe { public static string Ready() { return \"ready\"; } }' -Language CSharp -ErrorAction Stop; [Console]::Out.Write([NativeScopeProbe]::Ready())";
+          const result = await promisify(execFile)(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
             cwd,
             env,
             encoding: "utf8",
