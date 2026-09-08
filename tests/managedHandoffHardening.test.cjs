@@ -8,6 +8,7 @@ const { createHash } = require("node:crypto");
 const { spawnScopedProviderProcess } = require("../dist/process/processScope.js");
 const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 const { runProcess } = require("../dist/orchestrator/commandRunner.js");
+const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
 
 const {
   captureManagedRepositoryBaseline,
@@ -215,57 +216,79 @@ const runProjectChecks = async (root, changedFiles, pathPrefix) => {
 // The git that inspects a repository must not be a program that repository supplies. The
 // diff-check half of the managed handoff rebuilt its environment from scratch and threw away the
 // PATH sanitization the probe two lines above it had just applied.
-test("native managed diff checks never run a git the workspace put on PATH", async () => {
+test("native managed diff checks never run a git the workspace put on PATH", async (context) => {
   const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-log-"));
   const logPath = path.join(logRoot, "invocations.log");
   const root = createProject("bachata-handoff-path-");
-  try {
-    writeGitShim(root, logPath);
-    execFileSync("git", ["--version"], { env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}` } });
-    assert.equal(
-      readInvocations(logPath).some((invocation) => invocation.args === "--version"),
-      true,
-      "the workspace-supplied git was not reachable, so this test proves nothing",
-    );
-    for (const pathPrefix of [root, undefined]) {
-      fs.writeFileSync(logPath, "");
-      const result = await runProjectChecks(root, ["notes.txt"], pathPrefix);
-      assert.equal(result.status, "passed", result.summary);
-      assert.match(result.summary, /git diff --check passed/u);
-
-      assert.deepEqual(readInvocations(logPath), [], "managed checks must never launch a workspace-supplied git");
-    }
-    fs.writeFileSync(logPath, "");
-    const originalPath = process.env.PATH;
-    try {
-      process.env.PATH = root;
-      const filtered = gitProcessEnvironment(root);
-      const absentPath = Object.fromEntries(Object.entries(filtered).filter(([key]) => key.toUpperCase() !== "PATH"));
-      for (const environment of [filtered, absentPath]) {
-        const result = await runProcess("git", ["--version"], {
-          cwd: root,
-          environment,
-          timeoutMs: 10_000,
-          maxOutputBytes: 1_024,
-        });
-        assert.equal(result.cleanupConfirmed, true, result.stderr);
-        assert.equal(result.timedOut, false, result.stderr);
-        if (process.platform === "win32") {
-          assert.equal(result.exitCode, undefined);
-          assert.match(result.stderr, /ENOENT/u);
-        } else {
-          assert.equal(result.exitCode, 0, result.stderr);
-          assert.match(result.stdout, /^git version /u);
-        }
+  const processScope = require("../dist/process/processScope.js");
+  const spawnScope = processScope.spawnProcessScope;
+  const ownedScopes = [];
+  context.mock.method(processScope, "spawnProcessScope", (...args) => {
+    const scope = spawnScope(...args);
+    ownedScopes.push(scope);
+    return scope;
+  });
+  context.after(async () => {
+    for (const scope of ownedScopes) {
+      assert.equal(await terminateProcessTree(scope.child, 5_000), true, "the fixture must stop its own process scope before removing scratch");
+      let timeout;
+      try {
+        await Promise.race([
+          scope.result,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("The fixture process scope did not close")), 5_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timeout);
       }
-      assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
-    } finally {
-      if (originalPath === undefined) delete process.env.PATH;
-      else process.env.PATH = originalPath;
     }
-  } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(logRoot, { recursive: true, force: true });
+  });
+  writeGitShim(root, logPath);
+  execFileSync("git", ["--version"], { env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}` } });
+  assert.equal(
+    readInvocations(logPath).some((invocation) => invocation.args === "--version"),
+    true,
+    "the workspace-supplied git was not reachable, so this test proves nothing",
+  );
+  for (const pathPrefix of [root, undefined]) {
+    fs.writeFileSync(logPath, "");
+    const result = await runProjectChecks(root, ["notes.txt"], pathPrefix);
+    assert.equal(result.status, "passed", result.summary);
+    assert.match(result.summary, /git diff --check passed/u);
+
+    assert.deepEqual(readInvocations(logPath), [], "managed checks must never launch a workspace-supplied git");
+  }
+  fs.writeFileSync(logPath, "");
+  const originalPath = process.env.PATH;
+  try {
+    process.env.PATH = root;
+    const filtered = gitProcessEnvironment(root);
+    const absentPath = Object.fromEntries(Object.entries(filtered).filter(([key]) => key.toUpperCase() !== "PATH"));
+    for (const environment of [filtered, absentPath]) {
+      const description = Object.hasOwn(environment, "PATH") ? "empty requested PATH" : "absent requested PATH";
+      const result = await runProcess("git", ["--version"], {
+        cwd: root,
+        environment,
+        timeoutMs: 10_000,
+        maxOutputBytes: 1_024,
+      });
+      assert.equal(result.cleanupConfirmed, true, `${description}: ${result.stderr}`);
+      assert.equal(result.timedOut, false, `${description}: ${result.stderr}`);
+      if (process.platform === "win32") {
+        assert.equal(result.exitCode, undefined);
+        assert.match(result.stderr, /ENOENT/u);
+      } else {
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /^git version /u);
+      }
+    }
+    assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
   }
 });
 
