@@ -581,26 +581,41 @@ export const createWorktreeManager = (
     for (const relative of untracked) {
       const source = path.resolve(run.repositoryRoot, relative);
       const target = path.resolve(run.integrationWorktree, relative);
-      if (!contained(run.integrationWorktree, target)) {
+      if (!contained(run.repositoryRoot, source) || !contained(run.integrationWorktree, target)) {
         throw new Error(`Sealed input path escapes the run worktree: ${relative}`);
       }
-      const handle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error) => {
+      const symbolicLinkError = () => new Error(
+        `Bachata refuses to seal a symbolic link as run input: ${relative}. Seal the file it points at, or commit the link.`,
+      );
+      const before = await lstat(source, { bigint: true });
+      if (before.isSymbolicLink()) throw symbolicLinkError();
+      if (!before.isFile()) {
+        throw new Error(`Bachata refuses to seal a path that is not a regular file: ${relative}`);
+      }
+      const canonicalSource = await realpath(source);
+      if (!contained(run.repositoryRoot, canonicalSource)) throw symbolicLinkError();
+      const handle = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)).catch((error) => {
         const code = (error as NodeJS.ErrnoException).code;
         if (code === "ELOOP" || code === "EMLINK" || code === "ENOTDIR") {
-          throw new Error(
-            `Bachata refuses to seal a symbolic link as run input: ${relative}. Seal the file it points at, or commit the link.`,
-          );
+          throw symbolicLinkError();
         }
         throw error;
       });
       try {
-        const details = await handle.stat();
-        if (!details.isFile()) {
+        const details = await handle.stat({ bigint: true });
+        const current = await lstat(source, { bigint: true });
+        if (current.isSymbolicLink()) throw symbolicLinkError();
+        if (!details.isFile() || !current.isFile()) {
           throw new Error(`Bachata refuses to seal a path that is not a regular file: ${relative}`);
+        }
+        if (before.dev !== details.dev || before.ino !== details.ino
+          || current.dev !== details.dev || current.ino !== details.ino
+          || await realpath(source) !== canonicalSource) {
+          throw new Error(`Bachata refuses to seal a path that changed while it was opened: ${relative}`);
         }
         const contents = await handle.readFile();
         await mkdir(path.dirname(target), { recursive: true });
-        await writeFile(target, contents, { flag: "wx", mode: details.mode & 0o777 });
+        await writeFile(target, contents, { flag: "wx", mode: Number(details.mode & 0o777n) });
       } finally {
         await handle.close();
       }

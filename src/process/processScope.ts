@@ -32,7 +32,7 @@ export type ProcessScopeOptions = {
   stdio?: StdioOptions;
   windowsHide?: boolean;
   cleanupGraceMs?: number;
-  shell?: boolean;
+  shell?: boolean | string;
 };
 
 type ProcessScopeRuntime = {

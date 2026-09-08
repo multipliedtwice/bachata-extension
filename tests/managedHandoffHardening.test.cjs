@@ -239,20 +239,24 @@ test("native managed diff checks never run a git the workspace put on PATH", asy
     const originalPath = process.env.PATH;
     try {
       process.env.PATH = root;
-      const probe = runProcess("git", ["--version"], {
-        cwd: root,
-        environment: gitProcessEnvironment(root),
-        timeoutMs: 10_000,
-        maxOutputBytes: 1_024,
-      });
-      if (process.platform === "win32") {
-        await assert.rejects(probe, { code: "ENOENT" });
-      } else {
-        const result = await probe;
+      const filtered = gitProcessEnvironment(root);
+      const absentPath = Object.fromEntries(Object.entries(filtered).filter(([key]) => key.toUpperCase() !== "PATH"));
+      for (const environment of [filtered, absentPath]) {
+        const result = await runProcess("git", ["--version"], {
+          cwd: root,
+          environment,
+          timeoutMs: 10_000,
+          maxOutputBytes: 1_024,
+        });
         assert.equal(result.cleanupConfirmed, true, result.stderr);
         assert.equal(result.timedOut, false, result.stderr);
-        assert.equal(result.exitCode, 0, result.stderr);
-        assert.match(result.stdout, /^git version /u);
+        if (process.platform === "win32") {
+          assert.equal(result.exitCode, undefined);
+          assert.match(result.stderr, /ENOENT/u);
+        } else {
+          assert.equal(result.exitCode, 0, result.stderr);
+          assert.match(result.stdout, /^git version /u);
+        }
       }
       assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
     } finally {

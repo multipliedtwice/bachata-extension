@@ -5,6 +5,9 @@ const { chmod, mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } = requ
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const shellNodeExecutable = (process.versions.electron
+  ? process.platform === "win32" ? 'set "ELECTRON_RUN_AS_NODE=1" && ' : "ELECTRON_RUN_AS_NODE=1 "
+  : "") + (process.platform === "win32" ? `"${process.execPath}"` : JSON.stringify(process.execPath));
 
 const { resolveCommandShell, runCommand, runProcess, runVerificationChecks } = require("../dist/orchestrator/commandRunner.js");
 const { selectRunnableTasks, taskPathsConflict } = require("../dist/orchestrator/scheduler.js");
@@ -370,20 +373,21 @@ test("scheduler respects dependencies, path conflicts, priority, and concurrency
   assert.deepEqual(selectRunnableTasks(current).map((value) => value.spec.id), ["T4"]);
 });
 
-test("verification commands stop at the first deterministic failure", async () => {
+test("native verification commands stop at the first deterministic failure", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "bachata-checks-"));
   try {
     const results = await runVerificationChecks([
-      `${JSON.stringify(process.execPath)} -e "process.stdout.write('ok')"`,
-      `${JSON.stringify(process.execPath)} -e "process.stderr.write('bad'); process.exit(3)"`,
-      `${JSON.stringify(process.execPath)} -e "process.exit(0)"`,
+      `${shellNodeExecutable} -e "process.stdout.write('ok')"`,
+      `${shellNodeExecutable} -e "process.stderr.write('bad'); process.exit(3)"`,
+      `${shellNodeExecutable} -e "require('node:fs').writeFileSync('must-not-run.txt', 'ran')"`,
     ], {
       cwd,
       timeoutMs: 5_000,
       maxOutputBytes: 10_000,
     });
-    assert.deepEqual(results.map((value) => value.status), ["passed", "failed"]);
+    assert.deepEqual(results.map((value) => value.status), ["passed", "failed"], JSON.stringify(results));
     assert.equal(results[1].exitCode, 3);
+    assert.equal(existsSync(path.join(cwd, "must-not-run.txt")), false);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -1126,7 +1130,8 @@ test("Master checks execution state only and blocks a reported deviation", gitWo
     const masterRoom = [...manager.rooms.values()].find((options) => options.pipelineId === "todo-master");
     assert.ok(masterRoom);
     assert.notEqual(masterRoom.workingDirectory, repository);
-    assert.match(masterRoom.workingDirectory, /orchestration[\/]master$/u);
+    assert.equal(path.basename(masterRoom.workingDirectory), "master");
+    assert.equal(path.basename(path.dirname(masterRoom.workingDirectory)), "orchestration");
     assert.match(masterPrompts[0], /T1/u);
     assert.doesNotMatch(masterPrompts[0], /private-file-content/u);
     assert.equal(await readFile(path.join(result.integrationWorktree, "src", "value.txt"), "utf8"), "private-file-content\n");
@@ -1288,6 +1293,10 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
   let releaseFirst;
   let calls = 0;
   let taskResolutionCount = 0;
+  let controller;
+  let starting;
+  let markFirstStarted;
+  const firstStarted = new Promise((resolve) => { markFirstStarted = resolve; });
   const taskRuns = [];
   const acceptedTaskSnapshot = pipelineSnapshotFor("todo-implementation");
   const changedTaskSnapshot = createPipelineSnapshot(
@@ -1309,6 +1318,7 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
         calls += 1;
         taskRuns.push(runOptions.pipelineSnapshot);
         if (calls === 1) {
+          markFirstStarted();
           await firstTurn;
         }
         await writeFile(path.join(options.workingDirectory, "src", "value.txt"), `after-${String(calls)}\n`, "utf8");
@@ -1325,9 +1335,12 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
           : changedTaskSnapshot;
       },
     );
-    const controller = createController(root, repository, manager, { todoRetries: 0 });
-    const starting = controller.start();
-    await waitFor(() => calls === 1);
+    controller = createController(root, repository, manager, { todoRetries: 0 });
+    starting = controller.start();
+    await Promise.race([
+      firstStarted,
+      starting.then(() => { throw new Error("The run finished before its first task started"); }),
+    ]);
     const stopping = controller.stop();
     releaseFirst();
     await stopping;
@@ -1356,6 +1369,9 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
     assert.equal(await store.getActiveRun(), undefined);
     await controller.dispose();
   } finally {
+    releaseFirst();
+    await controller?.dispose();
+    await starting?.catch(() => undefined);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -2502,7 +2518,7 @@ test("resume rejects a persisted run owned by another workspace", async () => {
   }
 });
 
-test("orchestration checks do not inherit arbitrary extension secrets", async () => {
+test("native orchestration checks do not inherit arbitrary extension secrets", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "bachata-command-environment-"));
   const previous = process.env.BACHATA_ORCHESTRATION_SECRET;
   process.env.BACHATA_ORCHESTRATION_SECRET = "must-not-leak";
@@ -2511,11 +2527,11 @@ test("orchestration checks do not inherit arbitrary extension secrets", async ()
     // exceed the time a loaded machine needs to start one Node process, so it is generous
     // enough that a slow start cannot turn an isolation check into a timeout.
     const result = await runCommand(
-      `${JSON.stringify(process.execPath)} -e "process.stdout.write(process.env.BACHATA_ORCHESTRATION_SECRET || '')"`,
+      `${shellNodeExecutable} -e "process.stdout.write(process.env.BACHATA_ORCHESTRATION_SECRET || '')"`,
       { cwd, timeoutMs: 120_000, maxOutputBytes: 10_000 },
     );
     assert.equal(result.timedOut ?? false, false, "the isolation check must complete, not time out");
-    assert.equal(result.exitCode, 0);
+    assert.equal(result.exitCode, 0, result.stderr);
     assert.equal(result.stdout, "");
   } finally {
     if (previous === undefined) {
@@ -2583,7 +2599,15 @@ test("generated checklist execution enforces explicit checks, ids, and user-owne
         allowNoChecks: true,
         issues: [{ ...request.issues[0], paths: ["C:\\outside"] }],
       }),
-      /exceeds the user-authored scope/u,
+      process.platform === "win32" ? /Invalid generated task path/u : /exceeds the user-authored scope/u,
+    );
+    await assert.rejects(
+      controller.startChecklist({
+        ...request,
+        allowNoChecks: true,
+        issues: [{ ...request.issues[0], paths: ["C:/outside"] }],
+      }),
+      /Invalid generated task path/u,
     );
     await assert.rejects(
       controller.startChecklist({ ...request, allowNoChecks: true, allowedPaths: [] }),
@@ -3771,6 +3795,7 @@ test("applying a sealed run refuses a target that no longer holds the sealed inp
     // so is the sealed edit. The tree is clean, so every other Apply precondition holds.
     await rm(path.join(repository, "src", "helper.txt"));
     git(repository, "checkout", "--", "src/base.txt");
+    assert.equal(await readFile(path.join(repository, "src", "base.txt"), "utf8"), "committed\n", "restoring the fixture must preserve its committed line endings");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "the tidy-up left the tree dirty");
 
     const refused = await controller.applyRetained(run.runId);
@@ -3835,6 +3860,7 @@ test("applying a sealed run refuses a target whose sealed input lost its executa
     assert.equal(run.status, "completed", run.error ?? "");
 
     git(repository, "restore", "--source=HEAD", "--staged", "--worktree", "--", "src/run.sh");
+    assert.equal(await readFile(path.join(repository, "src", "run.sh"), "utf8"), "#!/bin/sh\necho hello\n", "restoring the mode must not introduce a content change");
     assert.equal(git(repository, "status", "--porcelain=v1"), "", "the tidy-up left the tree dirty");
 
     const refused = await controller.applyRetained(run.runId);
@@ -4078,8 +4104,15 @@ test("disposal between the ledger write and begin leaves no active run behind", 
   }
 });
 
-test("sealing refuses a path replaced by a symbolic link after it was listed", gitWorktreeSkip, async () => {
+const assertSealedInputReplacement = async (replaceDirectory) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-controller-sealed-swap-"));
+  const filesystem = require("node:fs/promises");
+  const originalOpen = filesystem.open;
+  let controller;
+  let swapped = false;
+  let opened = 0;
+  let read = 0;
+  let closed = 0;
   try {
     const repository = await createRepository(root, [
       "- [ ] [T1] Anything",
@@ -4087,24 +4120,54 @@ test("sealing refuses a path replaced by a symbolic link after it was listed", g
       "  - Verify: none",
       "",
     ].join("\n"), { "src/base.txt": "committed\n" });
-    const outside = path.join(root, "outside-secret.txt");
+    const outside = path.join(root, "outside", "swap.txt");
+    await mkdir(path.dirname(outside));
     await writeFile(outside, "not part of this repository\n", "utf8");
-    const untracked = path.join(repository, "src", "swap.txt");
+    const untracked = path.join(repository, "src", "nested", "swap.txt");
+    await mkdir(path.dirname(untracked));
     await writeFile(untracked, "real content\n", "utf8");
+    const sourcePath = realpathSync.native(untracked);
 
     const manager = createFakeConversationManager(async () => completedPipeline());
-    const controller = createController(root, repository, manager, { todoRetries: 0 });
-    await rm(untracked, { force: true });
-    await symlink(outside, untracked);
+    controller = createController(root, repository, manager, { todoRetries: 0 });
+    filesystem.open = async (candidate, flags, ...args) => {
+      if (typeof candidate !== "string" || path.relative(sourcePath, candidate) !== "") {
+        return originalOpen(candidate, flags, ...args);
+      }
+      assert.equal(swapped, false);
+      swapped = true;
+      if (replaceDirectory) {
+        await rename(path.dirname(untracked), path.join(root, "original-source"));
+        await symlink(path.dirname(outside), path.dirname(untracked), process.platform === "win32" ? "junction" : "dir");
+      } else {
+        await rm(untracked);
+        await symlink(outside, untracked);
+      }
+      const handle = await originalOpen(candidate, flags & ~(filesystem.constants.O_NOFOLLOW ?? 0), ...args);
+      opened += 1;
+      const readFile = handle.readFile.bind(handle);
+      const close = handle.close.bind(handle);
+      handle.readFile = (...readArgs) => { read += 1; return readFile(...readArgs); };
+      handle.close = async () => { await close(); closed += 1; };
+      return handle;
+    };
     await assert.rejects(
-      controller.start({ sealedInputPaths: ["src/swap.txt"] }),
-      /refuses to seal a symbolic link/u,
+      controller.start({ sealedInputPaths: ["src/nested/swap.txt"] }),
+      replaceDirectory ? /refuses to seal a path that changed while it was opened/u : /refuses to seal a symbolic link/u,
     );
-    const worktrees = path.join(root, "storage", "orchestration", "runs");
-    const sealed = await readFile(path.join(worktrees, "does-not-exist"), "utf8").catch(() => undefined);
-    assert.equal(sealed, undefined);
-    await controller.dispose();
+    assert.equal(swapped, true, "the replacement must occur after validation and before opening");
+    assert.equal(opened, 1, "the fallback must be exercised without O_NOFOLLOW");
+    assert.equal(read, 0, "outside bytes must not be read");
+    assert.equal(closed, opened, "the rejected descriptor must be closed");
+    assert.equal(await createOrchestrationStore(path.join(root, "storage")).getActiveRun(), undefined);
   } finally {
+    filesystem.open = originalOpen;
+    await controller?.dispose();
     await rm(root, { recursive: true, force: true });
   }
+};
+
+test("sealing refuses a path replaced by a symbolic link after it was listed", gitWorktreeSkip, async (context) => {
+  await context.test("the selected file becomes a symbolic link", () => assertSealedInputReplacement(false));
+  await context.test("the parent becomes an outside directory link", () => assertSealedInputReplacement(true));
 });

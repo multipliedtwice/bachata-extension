@@ -54,7 +54,6 @@ test("Windows executable lookup honors only caller PATH and explicit paths", () 
   for (const command of ["C:\\workspace\\provider.exe", ".\\provider.exe", "./provider.exe"]) {
     assert.equal(resolve(command, {}), command);
   }
-  assert.throws(() => runtimeModule.exports.spawnProcessScope("provider", [], { env: {} }), { code: "ENOENT" });
 });
 
 test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 90_000 }, async () => {
@@ -94,6 +93,16 @@ test("native process scopes complete sequential commands with confirmed cleanup"
     assert.equal(git.cleanupConfirmed, true, git.stderr);
     assert.equal(git.exitCode, 0, git.stderr);
     assert.match(git.stdout, /^git version /u);
+    const unavailable = await runProcess(`bachata-unavailable-${path.basename(cwd)}`, [], {
+      cwd,
+      environment: gitProcessEnvironment(cwd),
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    });
+    assert.equal(unavailable.exitCode, undefined);
+    assert.equal(unavailable.cleanupConfirmed, true, unavailable.stderr);
+    assert.equal(unavailable.timedOut, false, unavailable.stderr);
+    assert.match(unavailable.stderr, /ENOENT/u);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -204,11 +213,13 @@ test("Windows process host restores only caller helper settings and rejects othe
     electron_run_as_node: "helper-lowercase-node-mode",
     NoDefaultCurrentDirectoryInExePath: "1",
     nodefaultcurrentdirectoryinexepath: "helper-lowercase-search-policy",
+    PATH: "C:\\helper-path",
+    Path: "C:\\helper-lowercase-path",
     BACHATA_TARGET_ONLY: "target",
   };
   for (const [helperEnvironment, valid] of [
     [{}, true],
-    [{ PsModulePath: "caller-modules", Electron_Run_As_Node: "0", NoDefaultCurrentDirectoryInExePath: "caller-search-policy" }, true],
+    [{ PsModulePath: "caller-modules", Electron_Run_As_Node: "0", NoDefaultCurrentDirectoryInExePath: "caller-search-policy", Path: "C:\\caller-path" }, true],
     [{ NODE_OPTIONS: "--require=untrusted.cjs" }, false],
     [{ ELECTRON_RUN_AS_NODE: 1 }, false],
   ]) {
@@ -226,7 +237,9 @@ test("Windows process host restores only caller helper settings and rejects othe
             readFileSync: () => JSON.stringify({ executable: "git", args: ["--version"], helperEnvironment }),
             writeFileSync: (_path, value) => { status = JSON.parse(value); },
           }
-        : {
+        : name === "./process-scope.cjs"
+          ? { resolveProcessExecutable: (command) => command }
+          : {
             spawn: (_executable, _args, options) => {
               targetEnvironment = options.env;
               return new EventEmitter();
@@ -246,6 +259,46 @@ test("Windows process host restores only caller helper settings and rejects othe
       assert.deepEqual(status, { error: "Windows target helper environment is missing or invalid" });
     }
   }
+});
+
+test("Windows process host reports failed lookup without launching a target or inheriting ambient PATH", () => {
+  const runtimeModule = { exports: {} };
+  const inspected = [];
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../scripts/process-scope.cjs"), "utf8"), vm.createContext({
+    module: runtimeModule,
+    process: { platform: "win32", cwd: () => "C:\\workspace", env: { PATH: "C:\\ambient-impostor" } },
+    require: (name) => name === "node:fs" ? {
+      ...fs,
+      statSync: (candidate) => {
+        inspected.push(candidate);
+        return { isFile: () => candidate === "C:\\ambient-impostor\\git.exe" };
+      },
+    } : require(name),
+  }));
+  for (const helperEnvironment of [{}, { PATH: "" }, { Path: "C:\\missing" }]) {
+    let status;
+    let launched = false;
+    const exit = new Error("host exited");
+    const host = vm.createContext({
+      process: {
+        argv: ["node", "host", "payload.json", "status.json"],
+        env: { PATH: "C:\\ambient-impostor", SystemRoot: "C:\\Windows" },
+        exit: (code) => { assert.equal(code, 1); throw exit; },
+      },
+      require: (name) => {
+        if (name === "./process-scope.cjs") return runtimeModule.exports;
+        if (name === "node:fs") return {
+          readFileSync: () => JSON.stringify({ executable: "git", cwd: "C:\\workspace", args: [], helperEnvironment }),
+          writeFileSync: (_path, value) => { status = JSON.parse(value); },
+        };
+        return { spawn: () => { launched = true; return new EventEmitter(); } };
+      },
+    });
+    assert.throws(() => vm.runInContext(fs.readFileSync(path.join(__dirname, "../scripts/windows-process-host.cjs"), "utf8"), host), (error) => error === exit);
+    assert.match(status.error, /spawn git ENOENT/u);
+    assert.equal(launched, false);
+  }
+  assert.ok(inspected.every((candidate) => candidate.startsWith("C:\\missing\\")));
 });
 
 /**
@@ -503,10 +556,12 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
       };
       let secondScope;
       try {
-        const firstScope = runtimeModule.exports.spawnProcessScope("C:\\trusted\\git.exe", ["--version"]);
+        const firstScope = runtimeModule.exports.spawnProcessScope("git", ["--version"]);
         const first = runners[0];
+        assert.equal(first.payload.executable, "git", "target lookup must remain inside the bounded host");
         assert.deepEqual(JSON.parse(JSON.stringify(first.environment)), {
           SystemRoot: "C:\\Windows",
+          PATH: "",
           PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
           ELECTRON_RUN_AS_NODE: "1",
           NoDefaultCurrentDirectoryInExePath: "1",
@@ -528,7 +583,12 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
         fs.writeFileSync(first.assembly, "compiled assembly fixture");
         await finish(first, firstScope);
         assert.equal(fs.existsSync(first.assembly), true, "sequential commands must retain their assembly");
-        secondScope = runtimeModule.exports.spawnProcessScope("C:\\trusted\\git.exe", ["status"]);
+        secondScope = runtimeModule.exports.spawnProcessScope("git", ["status"], {
+          env: { ...parent.env, PATH: "C:\\trusted", Path: "C:\\alternate" },
+        });
+        assert.equal(runners[1].environment.PATH, "C:\\trusted");
+        assert.equal(runners[1].payload.helperEnvironment.PATH, "C:\\trusted");
+        assert.equal(runners[1].payload.helperEnvironment.Path, "C:\\alternate");
         assert.equal(runners[1].assembly, first.assembly);
         if (!keepRunnerAlive) await finish(runners[1], secondScope);
         parent.emit("exit", 0);

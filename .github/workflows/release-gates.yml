@@ -87,10 +87,15 @@ jobs:
           Expand-Archive -LiteralPath $archive -DestinationPath $directory
           $stdout = Join-Path $env:RUNNER_TEMP 'vscode-process-tests.stdout'
           $stderr = Join-Path $env:RUNNER_TEMP 'vscode-process-tests.stderr'
-          $hostProcess = Start-Process -FilePath (Join-Path $directory 'Code.exe') -ArgumentList '--test', '--test-name-pattern=native', 'tests/terminationIntegrity.test.cjs', 'tests/commandInvocation.test.cjs', 'tests/managedProjectChecks.test.cjs', 'tests/gitHeadGuard.test.cjs', 'tests/managedHandoffHardening.test.cjs' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $hostProcess = Start-Process -FilePath (Join-Path $directory 'Code.exe') -ArgumentList '--test', '--test-name-pattern=native', 'tests/terminationIntegrity.test.cjs', 'tests/commandInvocation.test.cjs', 'tests/managedProjectChecks.test.cjs', 'tests/gitHeadGuard.test.cjs', 'tests/managedHandoffHardening.test.cjs', 'tests/orchestrator.test.cjs' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           Get-Content $stdout
           Get-Content $stderr
           if ($hostProcess.ExitCode -ne 0) { throw "VS Code process tests exited with $($hostProcess.ExitCode)" }
+
+      - name: Native Windows release safety
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: node --test --test-name-pattern="verification commands stop|orchestration checks do not inherit|sealing refuses.*symbolic link" tests/orchestrator.test.cjs
 
       - name: Tests
         env:

@@ -68,6 +68,7 @@ const execute = async (
   executable: string,
   args: string[],
   options: CommandExecutionOptions,
+  shell?: string,
 ): Promise<CommandExecution> => {
   if (options.signal?.aborted) {
     return {
@@ -88,6 +89,7 @@ const execute = async (
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     cleanupGraceMs: 2_000,
+    ...(shell === undefined ? {} : { shell }),
   });
   scope.child.stdout?.on("data", (chunk: Buffer) => appendBoundedBuffer(stdout, chunk));
   scope.child.stderr?.on("data", (chunk: Buffer) => appendBoundedBuffer(stderr, chunk));
@@ -180,9 +182,7 @@ export const runCommand = async (
   command: string,
   options: CommandExecutionOptions,
 ): Promise<CommandExecution> => {
-  const shell = resolveCommandShell();
-  const args = process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command];
-  return execute(shell, args, options);
+  return execute(command, [], options, resolveCommandShell());
 };
 
 

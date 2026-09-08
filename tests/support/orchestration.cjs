@@ -7,6 +7,7 @@ const path = require("node:path");
 const { createTodoOrchestrator } = require("../../dist/orchestrator/controller.js");
 const { createPipelineSnapshot } = require("../../dist/pipeline/identity.js");
 const { evaluateGitVersionSupport } = require("../../dist/process/gitVersionSupport.js");
+const { gitProcessEnvironment } = require("../../dist/process/safeEnvironment.js");
 
 const todoMasterDefinition = require("../../presets/todo-master.pipeline.json");
 const todoImplementationDefinition = require("../../presets/todo-implementation.pipeline.json");
@@ -51,7 +52,12 @@ const gitWorktreeSkip = {
 };
 
 const git = (cwd, ...args) =>
-  execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  execFileSync("git", args, {
+    cwd,
+    env: gitProcessEnvironment(cwd),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
 const createRepository = async (root, todoSource, files = {}) => {
   const repository = path.join(root, "repository");

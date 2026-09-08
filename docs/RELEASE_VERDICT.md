@@ -11,8 +11,9 @@ decisions and compatibility records remain open. No human acceptance inferred
 from automated results. Earlier VSIX acceptance evidence does not cover this build.
 
 This candidate also has a confirmed Windows executable-lookup defect: a workspace
-`git.exe` can run before the filtered PATH is searched. Source correction needs
-native validation and a replacement VSIX. Do not publish the artifact below.
+`git.exe` can run before the filtered PATH is searched. Windows sealed-file handling also follows symbolic links because its no-follow flag
+is unsupported there. Source corrections need native validation and a replacement
+VSIX. Do not publish the artifact below.
 
 ## Verified candidate evidence
 
@@ -60,6 +61,13 @@ checks passed, then the managed-handoff regression exposed implicit cwd executab
 lookup. Remaining Windows tests were still running when recorded.
 The correction disables that lookup in the isolated Windows launcher and uses an
 absolute system path for its cleanup helper. Native rerun and repackaging remain.
+
+[Candidate run 34239860495](https://github.com/multipliedtwice/bachata-extension/actions/runs/34239860495)
+at `b4e4d96` passed Linux types, lint, format, required artifact tests, coverage,
+packaging and source-drift checks. Both `npm test` and VSIX prepublish ran
+3032 tests, 3031 passed, 0 failed, 1 Windows-only skip: `test:source-distribution`
+(17) plus `test:unit` (3015). This run predates the scoped missing-command and
+sealed-file corrections. Its artifact is superseded; no acceptance transferred.
 
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
 Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging

@@ -13,7 +13,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 
 const scopeEnvironmentKey = "BACHATA_PROCESS_SCOPE_TOKEN";
-const windowsHelperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE", "NODEFAULTCURRENTDIRECTORYINEXEPATH"]);
+const windowsHelperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE", "NODEFAULTCURRENTDIRECTORYINEXEPATH", "PATH"]);
 const delay = (durationMs) => new Promise((resolve) => setTimeout(resolve, Math.max(1, durationMs)));
 
 const resolveProcessExecutable = (command, environment = process.env, cwd = process.cwd()) => {
@@ -35,7 +35,7 @@ const resolveProcessExecutable = (command, environment = process.env, cwd = proc
       }
     }
   }
-  throw Object.assign(new Error(`Executable was not found on PATH: ${command}`), { code: "ENOENT", path: command });
+  throw Object.assign(new Error(`spawn ${command} ENOENT: executable was not found on PATH`), { code: "ENOENT", path: command });
 };
 
 const closeState = (child) => {
@@ -476,10 +476,11 @@ const windowsAssemblyPath = () => {
 
 const spawnWindowsScope = (executable, args, options) => {
   const environment = options.env ?? process.env;
-  const targetExecutable = options.shell ? executable : resolveProcessExecutable(executable, environment, options.cwd);
   const powershell = powershellPath(environment);
+  const pathKey = Object.keys(environment).sort().find((key) => key.toUpperCase() === "PATH" && environment[key] !== undefined);
   const runnerEnvironment = {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !windowsHelperEnvironmentKeys.has(name.toUpperCase()))),
+    PATH: pathKey === undefined ? "" : environment[pathKey],
     PSModulePath: path.win32.join(path.win32.dirname(powershell), "Modules"),
     ELECTRON_RUN_AS_NODE: "1",
     // libuv consults the spawning host's environment before searching a command's cwd.
@@ -491,7 +492,7 @@ const spawnWindowsScope = (executable, args, options) => {
   const jobStatusPath = path.join(temporaryDirectory, "job-status.json");
   const hostPath = path.join(__dirname, "windows-process-host.cjs");
   writeFileSync(payloadPath, JSON.stringify({
-    executable: targetExecutable,
+    executable,
     args,
     cwd: options.cwd ?? process.cwd(),
     helperEnvironment: Object.fromEntries(

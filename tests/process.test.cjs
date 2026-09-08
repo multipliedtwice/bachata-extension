@@ -449,7 +449,10 @@ test("test-file runner continues after a completed failure and still exits nonze
     assert.equal(child.exitCode, 1, output);
     assert.equal(child.signalCode, null, output);
     assert.equal(fs.readFileSync(marker, "utf8"), "passed", output);
-    assert.ok(output.includes(`Test files failed:\n${failedFile} exited with 1`), output);
+    const outputLines = output.split(/\r?\n/u);
+    const summaryIndex = outputLines.indexOf("Error: Test files failed:");
+    assert.notEqual(summaryIndex, -1, output);
+    assert.equal(outputLines[summaryIndex + 1], `${failedFile} exited with 1`, output);
     assert.ok(!output.includes(`${passedFile} exited with`), output);
   } finally {
     await stopSpawned(child);
