@@ -680,3 +680,116 @@ test("an attachments directory replaced by a regular file is refused", async () 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("native attachment ownership preserves Windows volume and full inode checks before reading or writing", async (context) => {
+  const filename = require.resolve("../dist/attachments/attachmentStore.js");
+  const source = fs.readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const filesystem = require("node:fs/promises");
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  for (const scenario of [
+    { name: "missing pathname volume uses a verified root", success: true },
+    { name: "wider pathname volume preserves its low bits", wide: true, success: true },
+    { name: "directory on another volume refuses writes", directoryMismatch: true },
+    { name: "unavailable root refuses writes", rootUnavailable: true },
+    { name: "zero root volume refuses writes", rootZero: true },
+    { name: "file on another volume refuses reads", fileMismatch: true },
+    { name: "file inode mismatch above safe integer precision refuses reads", inodeMismatch: true },
+    { name: "pathname replacement refuses reads", pathReplacement: true },
+    { name: "file replaced by a symlink at open refuses reads", symlinkRace: true },
+  ]) {
+    await context.test(scenario.name, async () => {
+      const directory = temporaryDirectory();
+      const canonicalDirectory = await filesystem.realpath(directory);
+      const root = path.parse(canonicalDirectory).root;
+      const attachmentDirectory = path.join(directory, "attachments");
+      const stored = path.join(attachmentDirectory, "image.png");
+      const handles = new Set();
+      let reads = 0;
+      let writes = 0;
+      let selectedStats = 0;
+      const metadata = { id: "image", name: "image.png", mimeType: "image/png", size: png.length, relativePath: path.join("attachments", "image.png") };
+      const reading = scenario.fileMismatch || scenario.inodeMismatch || scenario.pathReplacement || scenario.symlinkRace;
+      try {
+        if (reading) {
+          await filesystem.mkdir(attachmentDirectory);
+          await filesystem.writeFile(stored, png);
+        }
+        const identity = (details, dev, ino = details.ino) => Object.assign(Object.create(details), { dev, ino });
+        const pathDevice = scenario.wide ? 0x1234_5678_0000_002an : 0n;
+        const fileInode = 0x20_0000_0000_0000n;
+        const injectedFs = {
+          ...filesystem,
+          lstat: async (target, options) => {
+            assert.equal(options.bigint, true);
+            const details = await filesystem.lstat(target, options);
+            if (target === stored) selectedStats += 1;
+            return identity(details, pathDevice, target === stored
+              ? fileInode + (scenario.pathReplacement && selectedStats > 1 ? 1n : 0n) : details.ino);
+          },
+          open: async (target, ...args) => {
+            if (target === root && scenario.rootUnavailable) throw new Error("root unavailable");
+            if (target === stored && scenario.symlinkRace) {
+              const replacement = path.join(directory, "outside.png");
+              await filesystem.writeFile(replacement, png);
+              await filesystem.rm(stored);
+              await filesystem.symlink(replacement, stored);
+              args[0] &= ~(filesystem.constants.O_NOFOLLOW ?? 0);
+            }
+            const handle = await filesystem.open(target, ...args);
+            handles.add(handle);
+            return {
+              stat: async (options) => {
+                assert.equal(options.bigint, true);
+                const details = await handle.stat(options);
+                const dev = target === root ? scenario.rootZero ? 0n : 42n
+                  : target === attachmentDirectory && scenario.directoryMismatch || target === stored && scenario.fileMismatch ? 43n : 42n;
+                return identity(details, dev, target === stored ? fileInode + (scenario.inodeMismatch ? 1n : 0n) : details.ino);
+              },
+              readFile: async (...args) => {
+                reads += 1;
+                assert.notEqual(target, root, "filesystem-root bytes must never be read");
+                return handle.readFile(...args);
+              },
+              close: async () => { await handle.close(); handles.delete(handle); },
+            };
+          },
+          writeFile: async (...args) => { writes += 1; return filesystem.writeFile(...args); },
+        };
+        const createStore = require("node:vm").runInNewContext(
+          `${source}\nexports.createAttachmentStore;`,
+          {
+            exports: {},
+            require: (name) => name === "node:fs/promises" ? injectedFs : moduleRequire(name),
+            process: { platform: "win32" },
+            Buffer,
+            structuredClone,
+          },
+          { timeout: 1000 },
+        );
+        const store = createStore(directory);
+        if (scenario.success) {
+          const saved = await savedPngAttachment(store, "image");
+          const backup = await store.backup([saved]);
+          assert.deepEqual(backup[0].data, png);
+          const resolved = await store.resolvePaths([saved], ["image"]);
+          try {
+            assert.deepEqual(await filesystem.readFile(resolved.paths[0]), png);
+          } finally {
+            await resolved.dispose();
+          }
+          assert.equal(reads, 2);
+          assert.equal(writes, 2);
+        } else {
+          await assert.rejects(reading ? store.backup([metadata]) : savedPngAttachment(store, "image"), /changed|replaced|cannot establish|root unavailable/u);
+          assert.equal(reads, 0, "unverified attachment bytes were read");
+          assert.equal(writes, 0, "an unverified directory was written through");
+        }
+        assert.equal(handles.size, 0, "every owned descriptor must close");
+      } finally {
+        await Promise.all([...handles].map((handle) => handle.close()));
+        await filesystem.rm(directory, { recursive: true, force: true });
+      }
+    });
+  }
+});

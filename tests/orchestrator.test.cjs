@@ -3769,6 +3769,18 @@ test("native sealed input identity agrees between pathname and opened file", { t
     await writeFile(source, "untracked sealed input\n", "utf8");
     const before = await filesystem.lstat(source, { bigint: true });
     const canonicalBefore = await filesystem.realpath(source);
+    let rootDevice;
+    if (process.platform === "win32" && before.dev === 0n) {
+      const anchor = await filesystem.open(path.parse(canonicalBefore).root, filesystem.constants.O_RDONLY);
+      try {
+        const details = await anchor.stat({ bigint: true });
+        assert.equal(details.isDirectory(), true);
+        assert.ok(details.dev > 0n);
+        rootDevice = details.dev;
+      } finally {
+        await anchor.close();
+      }
+    }
     handle = await filesystem.open(source, filesystem.constants.O_RDONLY
       | (filesystem.constants.O_NOFOLLOW ?? 0) | (filesystem.constants.O_NONBLOCK ?? 0));
     const opened = await handle.stat({ bigint: true });
@@ -3778,6 +3790,7 @@ test("native sealed input identity agrees between pathname and opened file", { t
     const evidence = JSON.stringify({
       node: process.versions.node,
       uv: process.versions.uv,
+      rootDevice: rootDevice === undefined ? undefined : String(rootDevice),
       source,
       canonicalBefore,
       canonicalAfter,
@@ -3785,10 +3798,10 @@ test("native sealed input identity agrees between pathname and opened file", { t
       opened: describe(opened),
       current: describe(current),
     });
-    const deviceId = (value) => process.platform === "win32" ? value & 0xffff_ffffn : value;
+    const deviceId = (value) => process.platform === "win32" && rootDevice === undefined ? value & 0xffff_ffffn : value;
     assert.deepEqual(
       { before: describe(before), current: describe(current), opened: { dev: String(deviceId(opened.dev)), ino: String(opened.ino), regularFile: opened.isFile() }, canonicalAfter },
-      { before: { ...describe(before), regularFile: true }, current: { ...describe(before), regularFile: true }, opened: { dev: String(deviceId(before.dev)), ino: String(before.ino), regularFile: true }, canonicalAfter: canonicalBefore },
+      { before: { ...describe(before), regularFile: true }, current: { ...describe(before), regularFile: true }, opened: { dev: String(rootDevice ?? deviceId(before.dev)), ino: String(before.ino), regularFile: true }, canonicalAfter: canonicalBefore },
       evidence,
     );
     assert.equal(await handle.readFile("utf8"), "untracked sealed input\n");
@@ -3816,10 +3829,144 @@ test("sealed input identity reconciles Windows volume serial widths without acce
   assert.equal(windowsMatches(before, before, { ...opened, dev: opened.dev + 1n }), false);
   assert.equal(windowsMatches(before, before, { ...opened, ino: opened.ino + 1n }), false);
   assert.equal(windowsMatches(before, { ...before, ino: before.ino + 1n }, opened), false);
+  const missingDevice = { ...before, dev: 0n };
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened, 0n), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened, opened.dev), true);
+  assert.equal(windowsMatches(missingDevice, missingDevice, opened, opened.dev + 1n), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, { ...opened, dev: 0n }, opened.dev), false);
+  assert.equal(windowsMatches(missingDevice, { ...missingDevice, dev: opened.dev }, opened, opened.dev), false);
+  assert.equal(windowsMatches(missingDevice, missingDevice, { ...opened, ino: before.ino + 1n }, opened.dev), false);
+  assert.equal(windowsMatches({ dev: 0n, ino: 0n }, { dev: 0n, ino: 0n }, { ...opened, ino: 0n }, opened.dev), false);
   for (const platform of ["linux", "darwin"]) {
     const matches = loadIdentityCheck(platform);
     assert.equal(matches(before, { ...before }, { ...before }), true);
     assert.equal(matches(before, before, opened), false);
+    assert.equal(matches(missingDevice, missingDevice, opened, opened.dev), false);
+  }
+});
+
+test("sealed input identity anchors missing Windows volume IDs at the filesystem root and closes every handle", async () => {
+  const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
+  const source = readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const filesystem = require("node:fs/promises");
+  for (const scenario of [
+    { source: "C:\\workspace\\nested\\file.txt", root: "C:\\", dev: 42n },
+    { source: "\\\\server\\share\\workspace\\file.txt", root: "\\\\server\\share\\", dev: 43n },
+    { dev: 0n, error: /cannot establish/u },
+    { dev: 42n, directory: false, error: /cannot establish/u },
+    { statError: new Error("stat refused"), error: /stat refused/u },
+    { openError: new Error("root unavailable"), error: /root unavailable/u },
+  ]) {
+    let opens = 0;
+    let closes = 0;
+    let reads = 0;
+    const open = async (target, flags) => {
+      opens += 1;
+      assert.equal(target, scenario.root ?? "C:\\");
+      assert.equal(flags, filesystem.constants.O_RDONLY);
+      if (scenario.openError) throw scenario.openError;
+      return {
+        stat: async (options) => {
+          assert.equal(options.bigint, true);
+          if (scenario.statError) throw scenario.statError;
+          return { dev: scenario.dev, isDirectory: () => scenario.directory !== false };
+        },
+        readFile: async () => { reads += 1; throw new Error("anchor bytes must never be read"); },
+        close: async () => { closes += 1; },
+      };
+    };
+    const rootDevice = require("node:vm").runInNewContext(
+      `${source}\nsealedInputRootDevice;`,
+      {
+        exports: {},
+        require: (name) => name === "node:fs/promises" ? { ...filesystem, open }
+          : name === "node:path" ? path.win32 : moduleRequire(name),
+        process: { platform: "win32" },
+        __dirname: path.dirname(filename),
+      },
+      { timeout: 1000 },
+    );
+    const operation = rootDevice(scenario.source ?? "C:\\workspace\\file.txt");
+    if (scenario.error) await assert.rejects(operation, scenario.error);
+    else assert.equal(await operation, scenario.dev);
+    assert.equal(opens, 1);
+    assert.equal(closes, scenario.openError ? 0 : 1);
+    assert.equal(reads, 0);
+  }
+});
+
+test("sealed input identity verifies the root volume before reading the selected file", gitWorktreeSkip, async (context) => {
+  const filename = require.resolve("../dist/orchestrator/worktreeManager.js");
+  const moduleSource = readFileSync(filename, "utf8");
+  const moduleRequire = require("node:module").createRequire(filename);
+  const filesystem = require("node:fs/promises");
+  for (const sameVolume of [true, false]) {
+    await context.test(sameVolume ? "matching volume reads the owned file" : "same inode on another volume is rejected before reading", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "bachata-sealed-volume-"));
+      let manager;
+      let run;
+      try {
+        const repository = await createRepository(root, "- [ ] [T1] Work\n", { "src/base.txt": "base\n" });
+        const selected = path.join(await filesystem.realpath(repository), "src", "selected.txt");
+        await writeFile(selected, "sealed bytes\n");
+        const anchor = path.parse(selected).root;
+        const opened = { source: 0, anchor: 0 };
+        const closed = { source: 0, anchor: 0 };
+        const reads = { source: 0, anchor: 0 };
+        const injectedFs = {
+          ...filesystem,
+          lstat: async (target, options) => {
+            const details = await filesystem.lstat(target, options);
+            return target === selected ? Object.assign(Object.create(details), { dev: 0n }) : details;
+          },
+          open: async (target, ...args) => {
+            const handle = await filesystem.open(target, ...args);
+            const kind = target === selected ? "source" : target === anchor ? "anchor" : undefined;
+            if (!kind) return handle;
+            opened[kind] += 1;
+            return {
+              stat: async (options) => Object.assign(Object.create(await handle.stat(options)), {
+                dev: kind === "anchor" || sameVolume ? 42n : 43n,
+              }),
+              readFile: async (...readArgs) => {
+                reads[kind] += 1;
+                assert.equal(kind, "source");
+                assert.equal(closed.anchor, 1, "the volume must be verified and its handle closed before reading");
+                return handle.readFile(...readArgs);
+              },
+              close: async () => { await handle.close(); closed[kind] += 1; },
+            };
+          },
+        };
+        const createManager = require("node:vm").runInNewContext(
+          `${moduleSource}\nexports.createWorktreeManager;`,
+          {
+            exports: {},
+            require: (name) => name === "node:fs/promises" ? injectedFs : moduleRequire(name),
+            process: { platform: "win32" },
+            __dirname: path.dirname(filename),
+            Buffer,
+          },
+          { timeout: 1000 },
+        );
+        manager = createManager(path.join(root, "storage"));
+        const operation = manager.prepareRun(repository, "volume-check", [], "never", ["src/selected.txt"]);
+        if (sameVolume) {
+          run = await operation;
+          assert.equal(await readFile(path.join(run.integrationWorktree, "src", "selected.txt"), "utf8"), "sealed bytes\n");
+        } else {
+          await assert.rejects(operation, /path that changed while it was opened/u);
+        }
+        assert.deepEqual(opened, { source: 1, anchor: 1 });
+        assert.deepEqual(closed, { source: 1, anchor: 1 });
+        assert.deepEqual(reads, { source: sameVolume ? 1 : 0, anchor: 0 });
+      } finally {
+        if (run) await manager.cleanupRun(run);
+        await rm(root, { recursive: true, force: true });
+      }
+    });
   }
 });
 

@@ -218,7 +218,7 @@ test("every timeout setting read in this repository is accounted for", async () 
   // Not pinned to an exact number: a new guarded read is correct and must not fail this.
   assert.ok(guarded.length >= 40, `only ${String(guarded.length)} guarded reads were found`);
   assert.ok(
-    guarded.some((finding) => finding.file === "src/commands/doctor.ts"),
+    guarded.some((finding) => finding.file === require("node:path").join("src", "commands", "doctor.ts")),
     "the doctor command's read is not routed through the shared reader",
   );
 });

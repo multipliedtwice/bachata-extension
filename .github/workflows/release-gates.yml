@@ -104,6 +104,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test --test-name-pattern="verification commands stop|orchestration checks do not inherit|sealing refuses.*symbolic link|sealed input identity|a sealed working-tree input starts|applying a sealed run refuses a target that no longer holds" tests/orchestrator.test.cjs
 
+      - name: Native Windows file and fixture safety
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: node --test --test-concurrency=1 tests/codexProtocol.test.cjs tests/publishFindings.test.cjs tests/releaseBinding.test.cjs tests/scratchSafety.test.cjs tests/storage.test.cjs tests/timeoutBounds.test.cjs tests/vsixVerification.test.cjs tests/workspaceMutationFence.test.cjs tests/worktreeLock.test.cjs
+
       - name: Tests
         env:
           BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}

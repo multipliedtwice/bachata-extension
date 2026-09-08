@@ -194,7 +194,7 @@ test("an inspection that fails refuses, and only ENOENT or ENOTDIR means genuine
   // permission or an I/O error ended the walk with the same answer a genuinely absent directory
   // gives — and that answer authorizes a recursive removal. Only `ENOENT` and `ENOTDIR` state
   // that a path is not there; everything else states that the question was not answered.
-  const root = path.join(path.sep, "owned", "root");
+  const root = path.resolve(path.sep, "owned", "root");
   const link = { isSymbolicLink: () => true };
   const directory = { isSymbolicLink: () => false };
   const roots = new Set([root]);

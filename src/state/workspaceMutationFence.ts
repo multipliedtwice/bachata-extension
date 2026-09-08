@@ -146,7 +146,19 @@ export const createWorkspaceMutationFence = async (
     }
   });
 
-  await activate();
+  try {
+    await activate();
+  } catch (error) {
+    try {
+      database.close();
+    } catch (closeError) {
+      throw new AggregateError(
+        [error, closeError],
+        "Workspace mutation fence activation failed and its database could not be closed",
+      );
+    }
+    throw error;
+  }
 
   const run: WorkspaceMutationRunner = <T>(operation: () => Promise<T>): Promise<T> =>
     enqueue(async () => {

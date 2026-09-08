@@ -319,7 +319,7 @@ test("an unbindable recorded row refuses the whole binding instead of being rewr
   try {
     const script = path.join(root, "scripts", "bind-release-artifacts.mjs");
     const probe = [
-      "import { planDocumentBinding } from " + JSON.stringify(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")) + ";",
+      "import { planDocumentBinding } from " + JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")).href) + ";",
       "const artifacts = { vsix: { label: 'Bachata VSIX', sha256: 'a'.repeat(64), version: '1' }, bridge: { label: 'Browser Bridge ZIP', sha256: 'b'.repeat(64), version: '1' } };",
       "const original = ['# R', '', 'Artifacts under test: Bachata VSIX `' + 'c'.repeat(64) + '`, Browser Bridge ZIP `' + 'd'.repeat(64) + '`.', '', '| Step | Date | Result | Notes |', '| --- | --- | --- | --- |', '| Install | 2026-08-01 | pass | none |', ''].join('\\n');",
       "const plan = planDocumentBinding({ relative: 'docs/PROVIDER_TERMS.md', original, artifacts });",
@@ -1071,6 +1071,131 @@ test("a release artifact replaced by a symbolic link is refused, not read", asyn
   }
 });
 
+const isolatedArtifactReader = (filesystem, platform = process.platform) => {
+  const vm = require("node:vm");
+  const context = vm.createContext({
+    ...filesystem,
+    path: platform === "win32" ? path.win32 : path,
+    process: { platform },
+    Buffer,
+  });
+  const loadFunction = (name, result) => {
+    const source = fs.readFileSync(path.join(root, "scripts", "lib", name), "utf8")
+      .replace(/^import .*;$/gmu, "")
+      .replace(/^export /gmu, "");
+    return vm.compileFunction(`${source}\nreturn ${result};`, [], { parsingContext: context })();
+  };
+  context.openVerifiedRegularFile = loadFunction("verifiedRegularFile.mjs", "openVerifiedRegularFile");
+  return loadFunction("releaseArtifacts.mjs", "openPinnedArtifact");
+};
+
+test("artifact reads verify Windows root volume before reading and close both handles", async () => {
+  const filesystem = require("node:fs/promises");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-artifact-volume-"));
+  const candidate = path.join(directory, "artifact.zip");
+  fs.writeFileSync(candidate, "artifact bytes");
+  try {
+    for (const wrongVolume of [false, true]) {
+      let sourceReads = 0;
+      let sourceCloses = 0;
+      let rootCloses = 0;
+      let rootReads = 0;
+      const windowsPath = "C:\\workspace\\artifact.zip";
+      const inode = 0x20_0000_0000_0001n;
+      const io = {
+        ...filesystem,
+        lstat: async (file, options) => {
+          assert.equal(file, windowsPath);
+          assert.equal(options.bigint, true);
+          const details = await filesystem.lstat(candidate, options);
+          return { ...details, dev: 0n, ino: inode, isFile: () => true, isSymbolicLink: () => false };
+        },
+        realpath: async (file) => { assert.equal(file, windowsPath); return windowsPath; },
+        open: async (file, flags) => {
+          if (file === "C:\\") {
+            const anchor = await filesystem.open(directory, filesystem.constants.O_RDONLY);
+            return {
+              stat: async (options) => {
+                const details = await anchor.stat(options);
+                return { ...details, dev: 42n, isDirectory: () => details.isDirectory() };
+              },
+              read: async () => { rootReads += 1; throw new Error("root bytes must not be read"); },
+              close: async () => { rootCloses += 1; await anchor.close(); },
+            };
+          }
+          assert.equal(file, windowsPath);
+          const handle = await filesystem.open(candidate, flags);
+          return {
+            stat: async (options) => {
+              const details = await handle.stat(options);
+              return { ...details, dev: wrongVolume ? 43n : 42n, ino: inode, isFile: () => details.isFile() };
+            },
+            read: async (...args) => { sourceReads += 1; return handle.read(...args); },
+            close: async () => { sourceCloses += 1; await handle.close(); },
+          };
+        },
+      };
+      const operation = isolatedArtifactReader(io, "win32")(windowsPath);
+      if (wrongVolume) await assert.rejects(operation, /changed while it was being opened/u);
+      else assert.equal((await operation).bytes.toString(), "artifact bytes");
+      assert.equal(sourceReads, wrongVolume ? 0 : 1);
+      assert.equal(sourceCloses, 1);
+      assert.equal(rootCloses, 1);
+      assert.equal(rootReads, 0);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("artifact open-boundary file and directory replacements are refused before reading", async () => {
+  const filesystem = require("node:fs/promises");
+  for (const replaceDirectory of [false, true]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-artifact-race-"));
+    const parent = path.join(directory, "source");
+    const outside = path.join(directory, "outside");
+    fs.mkdirSync(parent);
+    fs.mkdirSync(outside);
+    const candidate = path.join(parent, "candidate.zip");
+    const secret = path.join(outside, "candidate.zip");
+    fs.writeFileSync(candidate, "safe");
+    fs.writeFileSync(secret, "secret");
+    let reads = 0;
+    let closes = 0;
+    let swapped = false;
+    try {
+      const io = {
+        ...filesystem,
+        open: async (file, flags) => {
+          if (file !== candidate) return filesystem.open(file, flags);
+          if (replaceDirectory) {
+            fs.renameSync(parent, `${parent}-original`);
+            fs.symlinkSync(outside, parent, "junction");
+          } else {
+            fs.unlinkSync(candidate);
+            fs.symlinkSync(secret, candidate);
+          }
+          swapped = true;
+          const handle = await filesystem.open(file, flags & ~(filesystem.constants.O_NOFOLLOW ?? 0));
+          return {
+            stat: (options) => handle.stat(options),
+            read: async (...args) => { reads += 1; return handle.read(...args); },
+            close: async () => { closes += 1; await handle.close(); },
+          };
+        },
+      };
+      await assert.rejects(isolatedArtifactReader(io)(candidate), replaceDirectory
+        ? /changed while it was being opened/u : /symbolic link/u);
+      assert.equal(swapped, true);
+      assert.equal(reads, 0);
+      assert.equal(closes, 1);
+      assert.equal(fs.readFileSync(secret, "utf8"), "secret");
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("a release artifact above its own descriptor limit is refused before any allocation", async () => {
   const { openPinnedArtifact, BRIDGE_ARTIFACT_LIMITS } = await releaseArtifacts();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-artifact-limit-"));
@@ -1426,7 +1551,7 @@ test("a document replaced by a symbolic link is never written through", async ()
   const { bindDocuments } = await bindingTransaction();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bind-outside-"));
   const target = path.join(outside, "external.md");
-  fs.writeFileSync(target, "external bytes\n", "utf8");
+  fs.writeFileSync(target, "one before\n", "utf8");
   const { directory, plans } = bindingFixture([
     { name: "one.md", original: "one before\n", next: "one after\n" },
   ]);
@@ -1437,7 +1562,7 @@ test("a document replaced by a symbolic link is never written through", async ()
     assert.equal(outcome.status, "rolled-back");
     assert.equal(
       fs.readFileSync(target, "utf8"),
-      "external bytes\n",
+      "one before\n",
       "the binder wrote through a replacement symbolic link",
     );
     assert.deepEqual(bindingResidue(directory), []);
@@ -1606,7 +1731,7 @@ test("a binder killed between renames is recovered by the next run", async () =>
   try {
     const probe = path.join(directory, "crash.mjs");
     fs.writeFileSync(probe, [
-      `import { bindDocuments } from ${JSON.stringify(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs"))};`,
+      `import { bindDocuments } from ${JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs")).href)};`,
       `const plans = ${JSON.stringify(plans)};`,
       `await bindDocuments({`,
       `  docsDirectory: ${JSON.stringify(directory)},`,

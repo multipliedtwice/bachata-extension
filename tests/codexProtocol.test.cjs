@@ -239,8 +239,8 @@ test("readiness performs the handshake and reports the server's own agent", asyn
 test("readiness fails closed when the command does not speak the protocol", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "codex-handshake-"));
   const command = path.join(directory, "silent.cjs");
-  fs.writeFileSync(command, "#!/usr/bin/env node\nprocess.stdout.write('ok\\n');\n", "utf8");
-  const adapter = createAdapter({ command });
+  fs.writeFileSync(command, "#!/usr/bin/env node\nprocess.stdout.write('ok\\n');\nsetInterval(() => {}, 1000);\n", "utf8");
+  const adapter = createAdapter({ command, interruptGraceMs: process.platform === "win32" ? 5000 : 500 });
   try {
     await assert.rejects(adapter.checkAvailability(), /invalid JSON|exited|initialize|protocol/u);
   } finally {

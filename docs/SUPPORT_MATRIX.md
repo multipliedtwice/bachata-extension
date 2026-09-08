@@ -16,6 +16,8 @@ Version: Bachata 0.7.0. Browser Protocol: v9.
 | Generic Browser | Designed | Unsupported | Bridge protocol and target fixtures | Pending for each claimed site |
 | Managed TODO worktrees | Designed | Designed | Git fixture tests | Pending on Linux, macOS, and Windows |
 
+Windows sealed input and attachments: runtimes with missing pathname volume IDs require the opened file to match the canonical drive or UNC root volume. Files on a different mounted volume fail closed before file bytes are read.
+
 ## Stable release blockers
 
 Each blocker below has one machine-checked record. The gate runs in three stages: `check:release-metadata:identity` runs before the candidate is packaged, `check:release-metadata:evidence` validates the human records produced by testing that candidate, and `npm run release:verify` checks identity, evidence, and artifact binding together before publication. Evidence about the candidate is never gated before the candidate exists.

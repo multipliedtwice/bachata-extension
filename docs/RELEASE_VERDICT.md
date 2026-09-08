@@ -46,34 +46,27 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 | VSIX prepublish `npm test` | 3040 tests, 3039 passed, 0 failed, 1 skip: Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). |
 | Linux source `npm test` | 3040 tests, 3036 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). All release gates passed. |
 | macOS source `npm test` | 3040 tests, 3029 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases covered by paired candidate and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3023). All release gates passed. |
-| Native Windows safety | Actual VS Code 1.136.1 process checks and the early release safety step passed. Full suite found concurrent Git test-shim writes failing with a Windows file-sharing error and two normal sealed-file cases rejected by mismatched volume-ID widths. Remaining tests continue; coverage has not run. |
+| Windows source suite (failed) | 3040 tests, 2952 passed, 29 failed, 26 cancelled, 33 skips. Commands: `test:source-distribution` (17) plus `test:unit` (3023). Actual VS Code process checks and early safety passed. Full suite failed; coverage did not run. |
 | Browser Bridge `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Hosted `test:source-distribution` (6) plus main suite (1204). |
 | Packaged macOS activation | Exact VSIX installed in a fresh VS Code 1.135.0 profile. Existing `e2e/activation/index.cjs` passed against installed files: all 29 pipelines rendered/selectable, custom pipeline creation and JSON round-trip, invalid-JSON recovery, menu hit/focus checks, zero global alerts. Automated smoke only; human checklist remains open. |
 | Dependency audit | Zero reported vulnerabilities in both unchanged locked checkouts. Candidate dependency closure verified during packaging. |
 
 [Extension release gates 34251412987](https://github.com/multipliedtwice/bachata-extension/actions/runs/34251412987)
-validate the candidate source revision on Ubuntu, macOS and Windows. Linux and
-macOS passed all gates. Windows remains blocked by the test-shim and sealing failures
-and unfinished checks. No pending gate counted as passed. Final paired verification must
-compare the accepted VSIX with the final checkout before deployment.
+validated the superseded candidate source on Ubuntu, macOS and Windows. Linux and
+macOS passed all gates. Windows completed with failures in file identity checks,
+artifact symlink refusal, SQLite cleanup and platform-specific fixtures. Cancelled
+lock tests remain unverified. No pending or skipped gate counted as passed.
 
-Follow-up fixture correction writes one record per Git invocation, preserving
-argument, environment and cleanup assertions under concurrent calls. The complete
-four-test file passed against rebuilt source on macOS; native Windows validation
-remains pending. The file now runs in the early Windows safety step. These test,
-workflow and evidence changes do not alter packaged bytes.
+Corrections in progress: independent filesystem-root volume proof for Windows
+pathname metadata with a zero device ID; attachment identity checks; artifact
+no-follow reads; failed SQLite activation cleanup; portable imports, paths,
+process fixtures and concurrent Git records. Focused native checks precede the
+next complete platform run. Replacement packaging and exact-byte acceptance
+remain open. Final paired verification must compare the accepted VSIX with the
+final checkout before deployment.
 
-The sealing correction follows libuv 1.51's Windows volume-ID normalization while
-retaining full inode precision, exact path-to-path identity and replacement guards.
-Build, 240 managed-fallback checks and seven focused tests passed on macOS with
-Node 22.13.1 and Git 2.55.0; zero skips. Native run 34259408093 still rejected the
-two normal sealed-file cases. Its identity matrix and replacement checks passed;
-the normalization alone did not resolve the failure. A native fixture reports
-the exact compared file identities to establish the remaining cause. Replacement
-packaging stays blocked until native sealing passes.
-
-[Bridge release gates 34249800393](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34249800393)
-passed on all three platforms at `68d5ba1`. Changes after the Bridge artifact source
+[Bridge release gates 34258993992](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34258993992)
+passed on all three platforms at `b9f16d6`. Changes after the Bridge artifact source
 are documentation only; the verified archive is unchanged.
 
 Encrypted Bridge read token and Marketplace PAT configured; both expire
