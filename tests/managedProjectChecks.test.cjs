@@ -129,25 +129,24 @@ test("native command runner executes Node syntax and the pinned TypeScript compi
     "src/check.cjs": "module.exports = 1;\n",
     "src/check.ts": "export const value: number = 1;\n",
   });
-  try {
-    fs.writeFileSync(path.join(root, "src/check.cjs"), "module.exports = (;\n");
-    fs.writeFileSync(path.join(root, "src/check.ts"), 'export const value: number = "invalid";\n');
-    const [result] = await runVerificationChecks([MANAGED_PROJECT_CHECKS_COMMAND], {
-      cwd: root,
-      timeoutMs: 30_000,
-      maxOutputBytes: 65_536,
-      autonomous: true,
-    });
-    assert.equal(result.status, "failed", result.stderr);
-    assert.match(result.stderr, /Node syntax/u);
-    assert.match(result.stderr, /TypeScript project check/u);
-    assert.match(result.stderr, /SyntaxError/u);
-    assert.match(result.stderr, /TS2322/u);
-    assert.ok(nodeInvocations.some((args) => args[0] === "--check"));
-    assert.ok(nodeInvocations.some((args) => args.includes(require.resolve("typescript/bin/tsc"))));
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  context.after(async () => {
+    await fs.promises.rm(root, { recursive: true, force: true });
+  });
+  fs.writeFileSync(path.join(root, "src/check.cjs"), "module.exports = (;\n");
+  fs.writeFileSync(path.join(root, "src/check.ts"), 'export const value: number = "invalid";\n');
+  const [result] = await runVerificationChecks([MANAGED_PROJECT_CHECKS_COMMAND], {
+    cwd: root,
+    timeoutMs: 30_000,
+    maxOutputBytes: 65_536,
+    autonomous: true,
+  });
+  assert.equal(result.status, "failed", result.stderr);
+  assert.match(result.stderr, /Node syntax/u);
+  assert.match(result.stderr, /TypeScript project check/u);
+  assert.match(result.stderr, /SyntaxError/u);
+  assert.match(result.stderr, /TS2322/u);
+  assert.ok(nodeInvocations.some((args) => args[0] === "--check"));
+  assert.ok(nodeInvocations.some((args) => args.includes(require.resolve("typescript/bin/tsc"))));
 });
 
 test("native managed controller executes the pinned TypeScript compiler", async (context) => {
@@ -165,16 +164,15 @@ test("native managed controller executes the pinned TypeScript compiler", async 
     "tsconfig.json": TSCONFIG,
     "src/check.ts": "export const value: number = 1;\n",
   });
-  try {
-    fs.writeFileSync(path.join(root, "src/check.ts"), 'export const value: number = "invalid";\n');
-    const result = await runProjectChecks(root, ["src/check.ts"]);
-    assert.equal(result.status, "failed", result.summary);
-    assert.match(result.summary, /tsc --noEmit/u);
-    assert.match(result.summary, /TS2322/u);
-    assert.equal(compilerStarted, true);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  context.after(async () => {
+    await fs.promises.rm(root, { recursive: true, force: true });
+  });
+  fs.writeFileSync(path.join(root, "src/check.ts"), 'export const value: number = "invalid";\n');
+  const result = await runProjectChecks(root, ["src/check.ts"]);
+  assert.equal(result.status, "failed", result.summary);
+  assert.match(result.summary, /tsc --noEmit/u);
+  assert.match(result.summary, /TS2322/u);
+  assert.equal(compilerStarted, true);
 });
 
 // EX-A5-R08. Deleting an imported module breaks the importer nobody touched. The deleted path was
