@@ -120,18 +120,52 @@ const hangingCommand = path.join(
   "mock-hanging-command.cjs",
 );
 
-test("command availability timeout force-kills an unresponsive process", async () => {
+test("command availability timeout force-kills an unresponsive process", async (context) => {
+  const processScope = require("../dist/process/processScope.js");
+  const spawnScope = processScope.spawnProcessScope;
+  let ownedScope;
+  context.mock.method(processScope, "spawnProcessScope", (...args) => {
+    assert.equal(ownedScope, undefined, "the fixture must own exactly one process scope");
+    ownedScope = spawnScope(...args);
+    return ownedScope;
+  });
+  const waitForScopeResult = async () => {
+    let timeout;
+    try {
+      return await Promise.race([
+        ownedScope.result,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("The fixture process scope did not finish cleanup")), 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+  context.after(async () => {
+    if (ownedScope) {
+      assert.equal(await terminateProcessTree(ownedScope.child, 5_000), true, "the fixture process scope must be stopped");
+      await waitForScopeResult();
+    }
+  });
+  const terminateGraceMs = process.platform === "win32" ? 5_000 : 50;
   const startedAt = Date.now();
 
   await assert.rejects(
     checkCommand(hangingCommand, [], {
       timeoutMs: 50,
-      terminateGraceMs: 50,
+      terminateGraceMs,
     }),
-    /timed out after 50 ms/,
+    (error) => {
+      assert.match(error.message, /timed out after 50 ms/u);
+      assert.doesNotMatch(error.message, /cleanup could not be confirmed/u);
+      return true;
+    },
   );
 
-  assert.ok(Date.now() - startedAt < 2000);
+  assert.ok(Date.now() - startedAt < terminateGraceMs + 2_000);
+  assert.equal((await waitForScopeResult()).cleanupConfirmed, true);
+  assert.ok(ownedScope.child.exitCode !== null || ownedScope.child.signalCode !== null);
 });
 
 test("command timeout terminates descendant processes on POSIX", async (context) => {
