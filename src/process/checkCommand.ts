@@ -24,7 +24,7 @@ export const checkCommand = async (
   args: string[] = ["--version"],
   options: CheckCommandOptions = {},
 ): Promise<string> => {
-  const invocation = commandInvocation(command, args);
+  const invocation = commandInvocation(command, args, options.environment);
   const timeoutMs = options.timeoutMs ?? 15_000;
   const terminateGraceMs = options.terminateGraceMs ?? 1_000;
   const maxOutputBytes = options.maxOutputBytes ?? 65_536;
@@ -32,7 +32,7 @@ export const checkCommand = async (
   const stderr = createBoundedBuffer(maxOutputBytes);
   const scope = spawnProcessScope(invocation.command, invocation.args, {
     ...(options.workingDirectory === undefined ? {} : { cwd: options.workingDirectory }),
-    env: options.environment ?? process.env,
+    env: invocation.environment,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     cleanupGraceMs: terminateGraceMs,

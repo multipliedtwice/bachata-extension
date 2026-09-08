@@ -53,6 +53,7 @@ import {
   renderManagedTaskHandoff,
 } from "../context/taskHandoff";
 import { runProcess } from "../orchestrator/commandRunner";
+import { nodeProcessEnvironment } from "../process/commandInvocation";
 import { configuredProcessEnvironment, gitProcessEnvironment } from "../process/safeEnvironment";
 import {
   computeManagedWorkspaceFingerprint,
@@ -1729,7 +1730,7 @@ const verifyManagedProjectChecks = async (
             "true",
             "--tsBuildInfoFile",
             path.join(checkRoot, "project.tsbuildinfo"),
-          ], processOptions);
+          ], { ...processOptions, environment: nodeProcessEnvironment(processOptions.environment) });
           typeScriptProjectChecked = true;
           if (!executionPassed(result)) failures.push(processSummary("tsc --noEmit", result));
           else summaries.push("TypeScript project type-check passed");

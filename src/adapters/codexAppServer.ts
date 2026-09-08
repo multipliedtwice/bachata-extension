@@ -1034,9 +1034,9 @@ export const createCodexAppServerAdapter = (
       return startPromise;
     }
 
-    const invocation = commandInvocation(options.command, ["app-server"]);
+    const invocation = commandInvocation(options.command, ["app-server"], options.environment);
     const scope = spawnScopedProviderProcess(invocation.command, invocation.args, {
-      ...(options.environment === undefined ? {} : { env: options.environment }),
+      env: invocation.environment,
     });
     const processChild = scope.child;
     terminateChild = scope.terminate;

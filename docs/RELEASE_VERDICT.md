@@ -43,8 +43,11 @@ Extension [release gates run 34206924699](https://github.com/multipliedtwice/bac
 Linux and macOS passed the corrected layout checks in PR run 34208925507.
 Windows native process completion passes in run 34224114646 after restricting the
 helper to built-in PowerShell modules and restoring the target's original module path.
-Managed worktree checks complete. Full suite exposed three adapter fixture failures;
-fixture corrections and complete Windows suite proof remain required.
+Managed worktree checks complete. Native descendant cleanup passes in run 34225649798.
+That run's Windows layout check failed during Chrome startup; Linux exposed a recursive
+test-runner fixture context. Corrections and complete suite proof remain required.
+Source review also found filtered environments removed Electron's required Node mode.
+Scoped helper, provider-script and compiler corrections need actual VS Code runtime proof.
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
 Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging and
 source-drift checks.

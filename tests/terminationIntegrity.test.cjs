@@ -12,14 +12,18 @@ const { terminateProcessTree } = require("../dist/process/terminateProcessTree.j
 const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
 const { runProcess } = require("../dist/orchestrator/commandRunner.js");
 const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
+const nodeEnvironment = (cwd) => ({
+  ...gitProcessEnvironment(cwd),
+  ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+});
 
 test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 60_000 }, async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
   try {
     for (const marker of ["first", "second"]) {
-      const environment = gitProcessEnvironment(cwd);
+      const environment = nodeEnvironment(cwd);
       if (marker === "second") environment.PSModulePath = "caller-module-path";
-      const target = `process.stdout.write(JSON.stringify({ marker: ${JSON.stringify(marker)}, modulePath: process.env.PSModulePath ?? null }))`;
+      const target = `process.stdout.write(JSON.stringify({ marker: ${JSON.stringify(marker)}, modulePath: process.env.PSModulePath ?? null, runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null }))`;
       const result = await runProcess(process.execPath, ["-e", target], {
         cwd,
         environment,
@@ -28,7 +32,7 @@ test("native process scopes complete sequential commands with confirmed cleanup"
       });
       assert.deepEqual(result, {
         exitCode: 0,
-        stdout: JSON.stringify({ marker, modulePath: environment.PSModulePath ?? null }),
+        stdout: JSON.stringify({ marker, modulePath: environment.PSModulePath ?? null, runAsNode: environment.ELECTRON_RUN_AS_NODE ?? null }),
         stderr: "",
         timedOut: false,
         cancelled: false,
@@ -74,7 +78,7 @@ test("native Windows scopes remove descendants after their parent exits", {
   try {
     const result = await runProcess(process.execPath, ["-e", parent], {
       cwd,
-      environment: gitProcessEnvironment(cwd),
+      environment: nodeEnvironment(cwd),
       timeoutMs: 10_000,
       maxOutputBytes: 1_024,
     });
@@ -89,31 +93,37 @@ test("native Windows scopes remove descendants after their parent exits", {
   }
 });
 
-test("Windows process host restores the target module path without changing unrelated environment", { timeout: 15_000 }, async () => {
+test("Windows process host restores target helper variables without changing unrelated environment", { timeout: 15_000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-host-environment-"));
   const payloadPath = path.join(directory, "payload.json");
   const statusPath = path.join(directory, "status.json");
   const hostPath = path.resolve(__dirname, "../scripts/windows-process-host.cjs");
-  const environment = gitProcessEnvironment(directory);
+  const environment = nodeEnvironment(directory);
   environment.BACHATA_TARGET_ONLY = "target";
   try {
     for (const modulePath of [undefined, "caller-module-path"]) {
       if (modulePath === undefined) delete environment.PSModulePath;
-      else environment.PSModulePath = modulePath;
+      else {
+        environment.PSModulePath = modulePath;
+        environment.ELECTRON_RUN_AS_NODE = "1";
+      }
       fs.writeFileSync(payloadPath, JSON.stringify({
         executable: process.execPath,
-        args: ["-e", "process.stdout.write(JSON.stringify({ modulePath: process.env.PSModulePath ?? null, target: process.env.BACHATA_TARGET_ONLY, helper: process.env.BACHATA_HELPER_ONLY ?? null }))"],
+        args: ["-e", "process.stdout.write(JSON.stringify({ modulePath: process.env.PSModulePath ?? null, runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, target: process.env.BACHATA_TARGET_ONLY, helper: process.env.BACHATA_HELPER_ONLY ?? null }))"],
         cwd: directory,
-        modulePathEnvironment: modulePath === undefined ? {} : { PSModulePath: modulePath },
+        helperEnvironment: {
+          ...(modulePath === undefined ? {} : { PSModulePath: modulePath }),
+          ...(environment.ELECTRON_RUN_AS_NODE === undefined ? {} : { ELECTRON_RUN_AS_NODE: environment.ELECTRON_RUN_AS_NODE }),
+        },
         stdinMode: "ignore",
       }));
       const result = await promisify(execFile)(process.execPath, [hostPath, payloadPath, statusPath], {
         cwd: directory,
-        env: { ...environment, PSModulePath: "helper-module-path", BACHATA_HELPER_ONLY: "helper" },
+        env: { ...environment, PSModulePath: "helper-module-path", ELECTRON_RUN_AS_NODE: "1", BACHATA_HELPER_ONLY: "helper" },
         encoding: "utf8",
         timeout: 5_000,
       });
-      assert.deepEqual(JSON.parse(result.stdout), { modulePath: modulePath ?? null, target: "target", helper: "helper" });
+      assert.deepEqual(JSON.parse(result.stdout), { modulePath: modulePath ?? null, runAsNode: environment.ELECTRON_RUN_AS_NODE ?? null, target: "target", helper: "helper" });
       assert.deepEqual(JSON.parse(fs.readFileSync(statusPath, "utf8")), { exitCode: 0 });
     }
     fs.writeFileSync(payloadPath, JSON.stringify({
@@ -127,7 +137,7 @@ test("Windows process host restores the target module path without changing unre
       timeout: 5_000,
     }), { code: 1 });
     assert.deepEqual(JSON.parse(fs.readFileSync(statusPath, "utf8")), {
-      error: "Windows target module path environment is missing or invalid",
+      error: "Windows target helper environment is missing or invalid",
     });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -140,6 +150,58 @@ const waitForChildExit = (child) =>
     : new Promise((resolve) => {
         child.once("close", resolve);
       });
+
+test("Windows process host restores only caller helper settings and rejects other payload keys", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../scripts/windows-process-host.cjs"), "utf8");
+  const inherited = {
+    SystemRoot: "C:\\Windows",
+    PSModulePath: "helper-modules",
+    psmodulepath: "helper-lowercase-modules",
+    ELECTRON_RUN_AS_NODE: "1",
+    electron_run_as_node: "helper-lowercase-node-mode",
+    BACHATA_TARGET_ONLY: "target",
+  };
+  for (const [helperEnvironment, valid] of [
+    [{}, true],
+    [{ PsModulePath: "caller-modules", Electron_Run_As_Node: "0" }, true],
+    [{ NODE_OPTIONS: "--require=untrusted.cjs" }, false],
+    [{ ELECTRON_RUN_AS_NODE: 1 }, false],
+  ]) {
+    let targetEnvironment;
+    let status;
+    const exit = new Error("host exited");
+    const context = vm.createContext({
+      process: {
+        argv: ["node", "host", "payload.json", "status.json"],
+        env: inherited,
+        exit: () => { throw exit; },
+      },
+      require: (name) => name === "node:fs"
+        ? {
+            readFileSync: () => JSON.stringify({ executable: "git", args: ["--version"], helperEnvironment }),
+            writeFileSync: (_path, value) => { status = JSON.parse(value); },
+          }
+        : {
+            spawn: (_executable, _args, options) => {
+              targetEnvironment = options.env;
+              return new EventEmitter();
+            },
+          },
+    });
+    if (valid) {
+      vm.runInContext(source, context);
+      assert.deepEqual(JSON.parse(JSON.stringify(targetEnvironment)), {
+        SystemRoot: "C:\\Windows",
+        BACHATA_TARGET_ONLY: "target",
+        ...helperEnvironment,
+      });
+    } else {
+      assert.throws(() => vm.runInContext(source, context), (error) => error === exit);
+      assert.equal(targetEnvironment, undefined);
+      assert.deepEqual(status, { error: "Windows target helper environment is missing or invalid" });
+    }
+  }
+});
 
 /**
  * `process.platform` is a plain configurable value property, so the win32 branches these tests
@@ -298,6 +360,8 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
         SystemRoot: "C:\\Windows",
         PSModulePath: "C:\\untrusted-modules",
         psmodulepath: "C:\\untrusted-lowercase-modules",
+        ELECTRON_RUN_AS_NODE: "caller-node-mode",
+        electron_run_as_node: "caller-lowercase-node-mode",
         BACHATA_TEST_SECRET: "fixture-secret",
       };
       parent.cwd = () => process.cwd();
@@ -343,14 +407,18 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
         assert.deepEqual(JSON.parse(JSON.stringify(first.environment)), {
           SystemRoot: "C:\\Windows",
           PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
+          ELECTRON_RUN_AS_NODE: "1",
           BACHATA_TEST_SECRET: "fixture-secret",
         });
-        assert.deepEqual(first.payload.modulePathEnvironment, {
+        assert.deepEqual(first.payload.helperEnvironment, {
           PSModulePath: "C:\\untrusted-modules",
           psmodulepath: "C:\\untrusted-lowercase-modules",
-        }, "the target must retain its caller's module-path environment");
+          ELECTRON_RUN_AS_NODE: "caller-node-mode",
+          electron_run_as_node: "caller-lowercase-node-mode",
+        }, "the target must retain its caller's helper environment");
         assert.equal(JSON.stringify(first.payload).includes("fixture-secret"), false, "the payload must not persist unrelated environment values");
         assert.equal(parent.env.PSModulePath, "C:\\untrusted-modules", "wrapper setup must not mutate the caller's environment");
+        assert.equal(parent.env.ELECTRON_RUN_AS_NODE, "caller-node-mode", "wrapper setup must not mutate the caller's Node mode");
         assert.equal(path.isAbsolute(first.assembly), true);
         assert.match(path.basename(path.dirname(first.assembly)), /^bachata-windows-assembly-/u);
         fs.writeFileSync(first.assembly, "compiled assembly fixture");

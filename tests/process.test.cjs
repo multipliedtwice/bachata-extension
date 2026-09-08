@@ -376,8 +376,11 @@ test("test-file runner continues after a completed failure and still exits nonze
   const runner = path.join(__dirname, "..", "scripts", "run-test-files.mjs");
   fs.writeFileSync(failedFile, 'require("node:test")("first fails", () => { throw new Error("expected fixture failure"); });\n');
   fs.writeFileSync(passedFile, `require("node:test")("second passes", () => { require("node:fs").writeFileSync(${JSON.stringify(marker)}, "passed"); });\n`);
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
   const child = spawn(process.execPath, [runner, failedFile, passedFile], {
     stdio: ["ignore", "pipe", "pipe"],
+    env: environment,
   });
   let output = "";
   child.stdout.on("data", (chunk) => { output += chunk.toString(); });

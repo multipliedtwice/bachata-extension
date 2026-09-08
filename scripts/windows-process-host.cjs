@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
 const { readFileSync, writeFileSync } = require("node:fs");
+const helperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE"]);
 
 const [payloadPath, statusPath] = process.argv.slice(2);
 if (!payloadPath || !statusPath) {
@@ -13,9 +14,9 @@ const writeStatus = (value) => {
 let payload;
 try {
   payload = JSON.parse(readFileSync(payloadPath, "utf8"));
-  if (!payload.modulePathEnvironment || typeof payload.modulePathEnvironment !== "object" || Array.isArray(payload.modulePathEnvironment)
-    || Object.entries(payload.modulePathEnvironment).some(([name, value]) => name.toUpperCase() !== "PSMODULEPATH" || typeof value !== "string")) {
-    throw new Error("Windows target module path environment is missing or invalid");
+  if (!payload.helperEnvironment || typeof payload.helperEnvironment !== "object" || Array.isArray(payload.helperEnvironment)
+    || Object.entries(payload.helperEnvironment).some(([name, value]) => !helperEnvironmentKeys.has(name.toUpperCase()) || typeof value !== "string")) {
+    throw new Error("Windows target helper environment is missing or invalid");
   }
 } catch (error) {
   writeStatus({ error: error instanceof Error ? error.message : String(error) });
@@ -27,8 +28,8 @@ try {
   child = spawn(payload.executable, Array.isArray(payload.args) ? payload.args : [], {
     cwd: payload.cwd,
     env: {
-      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== "PSMODULEPATH")),
-      ...payload.modulePathEnvironment,
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !helperEnvironmentKeys.has(name.toUpperCase()))),
+      ...payload.helperEnvironment,
     },
     shell: payload.shell === true || typeof payload.shell === "string" ? payload.shell : false,
     stdio: [payload.stdinMode === "ignore" ? "ignore" : "inherit", "inherit", "inherit"],

@@ -12,6 +12,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 
 const scopeEnvironmentKey = "BACHATA_PROCESS_SCOPE_TOKEN";
+const windowsHelperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE"]);
 const delay = (durationMs) => new Promise((resolve) => setTimeout(resolve, Math.max(1, durationMs)));
 
 const closeState = (child) => {
@@ -453,8 +454,9 @@ const spawnWindowsScope = (executable, args, options) => {
   const environment = options.env ?? process.env;
   const powershell = powershellPath(environment);
   const runnerEnvironment = {
-    ...Object.fromEntries(Object.entries(environment).filter(([name]) => name.toUpperCase() !== "PSMODULEPATH")),
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => !windowsHelperEnvironmentKeys.has(name.toUpperCase()))),
     PSModulePath: path.win32.join(path.win32.dirname(powershell), "Modules"),
+    ELECTRON_RUN_AS_NODE: "1",
   };
   const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "bachata-process-scope-"));
   const payloadPath = path.join(temporaryDirectory, "payload.json");
@@ -465,8 +467,8 @@ const spawnWindowsScope = (executable, args, options) => {
     executable,
     args,
     cwd: options.cwd ?? process.cwd(),
-    modulePathEnvironment: Object.fromEntries(
-      Object.entries(environment).filter(([name]) => name.toUpperCase() === "PSMODULEPATH"),
+    helperEnvironment: Object.fromEntries(
+      Object.entries(environment).filter(([name]) => windowsHelperEnvironmentKeys.has(name.toUpperCase())),
     ),
     shell: options.shell ?? false,
     stdinMode: options.stdio === "inherit"

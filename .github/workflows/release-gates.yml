@@ -71,6 +71,27 @@ jobs:
           npm run build:emit
           node --test --test-name-pattern="native (process|Windows) scopes" tests/terminationIntegrity.test.cjs
 
+      - name: Windows VS Code process host
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          ELECTRON_RUN_AS_NODE: "1"
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'vscode-1.136.1.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'vscode-1.136.1'
+          Invoke-WebRequest -Uri 'https://vscode.download.prss.microsoft.com/dbazure/download/stable/a44adf7f53e00964ab890f9f8758a334f1fc15bc/VSCode-win32-x64-1.136.1.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'deca16ea5c4d71ece23e50af57632bba3abd0e3577c3c8bfbcdd90b03f11e402') {
+            throw 'VS Code download digest mismatch'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $directory
+          $stdout = Join-Path $env:RUNNER_TEMP 'vscode-process-tests.stdout'
+          $stderr = Join-Path $env:RUNNER_TEMP 'vscode-process-tests.stderr'
+          $hostProcess = Start-Process -FilePath (Join-Path $directory 'Code.exe') -ArgumentList '--test', '--test-name-pattern=native', 'tests/terminationIntegrity.test.cjs', 'tests/commandInvocation.test.cjs', 'tests/managedProjectChecks.test.cjs' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Get-Content $stdout
+          Get-Content $stderr
+          if ($hostProcess.ExitCode -ne 0) { throw "VS Code process tests exited with $($hostProcess.ExitCode)" }
+
       - name: Tests
         run: npm test
 
