@@ -6,9 +6,8 @@ duplicated here. Cross-repository and owner work lives in [`../TODO.md`](../TODO
 
 ## Release verification
 
-- [ ] **EX-AUD-08 / paired release:** prove the release job against real artifacts.
-  `BRIDGE_ARTIFACT_READ_TOKEN` configured. Hosted artifact proof remains
-  (PAIR-AUD-01).
+- [ ] **EX-AUD-08 / paired release:** complete exact-artifact acceptance, then pass
+  the hosted verification phase and deployment (PAIR-AUD-01).
 
 ## Existing safety: ignored writes
 

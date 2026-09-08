@@ -451,6 +451,11 @@ const windowsAssemblyPath = () => {
 
 const spawnWindowsScope = (executable, args, options) => {
   const environment = options.env ?? process.env;
+  const powershell = powershellPath(environment);
+  const runnerEnvironment = {
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => name.toUpperCase() !== "PSMODULEPATH")),
+    PSModulePath: path.win32.join(path.win32.dirname(powershell), "Modules"),
+  };
   const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "bachata-process-scope-"));
   const payloadPath = path.join(temporaryDirectory, "payload.json");
   const targetStatusPath = path.join(temporaryDirectory, "target-status.json");
@@ -460,6 +465,9 @@ const spawnWindowsScope = (executable, args, options) => {
     executable,
     args,
     cwd: options.cwd ?? process.cwd(),
+    modulePathEnvironment: Object.fromEntries(
+      Object.entries(environment).filter(([name]) => name.toUpperCase() === "PSMODULEPATH"),
+    ),
     shell: options.shell ?? false,
     stdinMode: options.stdio === "inherit"
       ? "inherit"
@@ -470,7 +478,7 @@ const spawnWindowsScope = (executable, args, options) => {
   const scriptPath = path.join(__dirname, "windows-job-runner.ps1");
   let child;
   try {
-    child = spawn(powershellPath(environment), [
+    child = spawn(powershell, [
       "-NoLogo",
       "-NoProfile",
       "-NonInteractive",
@@ -492,7 +500,7 @@ const spawnWindowsScope = (executable, args, options) => {
       windowsAssemblyPath(),
     ], {
       cwd: options.cwd,
-      env: environment,
+      env: runnerEnvironment,
       stdio: options.stdio,
       windowsHide: options.windowsHide ?? true,
     });

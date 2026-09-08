@@ -9,93 +9,26 @@ const { promisify } = require("node:util");
 const vm = require("node:vm");
 
 const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
-const { spawnProcessScope, windowsScopeFromChild } = require("../scripts/process-scope.cjs");
+const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
 const { runProcess } = require("../dist/orchestrator/commandRunner.js");
 const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 
-test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 150_000 }, async (t) => {
+test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 60_000 }, async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
   try {
-    if (process.platform === "win32") {
-      const powershell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-      const gitEnvironment = gitProcessEnvironment(cwd);
-      const selectedEnvironment = (names) => Object.fromEntries(names.flatMap((name) =>
-        process.env[name] === undefined ? [] : [[name, process.env[name]]],
-      ));
-      const environments = [
-        ["inherited", process.env],
-        ["Git", gitEnvironment],
-        ["Git with module path", { ...gitEnvironment, ...selectedEnvironment(["PSModulePath"]) }],
-        ["Git with profile paths", { ...gitEnvironment, ...selectedEnvironment(["USERPROFILE", "APPDATA", "LOCALAPPDATA"]) }],
-      ];
-      for (const [name, env] of environments) {
-        await t.test(`PowerShell resolves paths with the ${name} environment`, async () => {
-          const result = await promisify(execFile)(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.Write((Join-Path (Split-Path 'C:\\scope\\payload.json' -Parent) 'probe'))"], {
-            cwd,
-            env,
-            encoding: "utf8",
-            timeout: 10_000,
-          });
-          assert.equal(result.stdout, "C:\\scope\\probe");
-        });
-        await t.test(`PowerShell compiles with the ${name} environment`, async () => {
-          const command = "Add-Type -TypeDefinition 'public static class NativeScopeProbe { public static string Ready() { return \"ready\"; } }' -Language CSharp -ErrorAction Stop; [Console]::Out.Write([NativeScopeProbe]::Ready())";
-          const result = await promisify(execFile)(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
-            cwd,
-            env,
-            encoding: "utf8",
-            timeout: 10_000,
-          });
-          assert.equal(result.stdout, "ready");
-        });
-      }
-      await t.test("the Job Object runner completes a native target", async () => {
-        const scope = spawnProcessScope(process.execPath, ["-e", "process.exit(0)"], {
-          cwd,
-          env: gitProcessEnvironment(cwd),
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        scope.child.stdout.resume();
-        scope.child.stderr.resume();
-        let timeout;
-        try {
-          const result = await Promise.race([
-            scope.result,
-            new Promise((resolve) => { timeout = setTimeout(() => resolve(undefined), 10_000); }),
-          ]);
-          if (!result) {
-            const argument = (name) => scope.child.spawnargs[scope.child.spawnargs.indexOf(name) + 1];
-            const status = (name) => {
-              const file = argument(name);
-              return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "not written";
-            };
-            const state = {
-              compiled: fs.existsSync(path.join(path.dirname(argument("-PayloadPath")), "job-compiled.dll")),
-              cached: fs.existsSync(argument("-AssemblyPath")),
-              target: status("-TargetStatusPath"),
-              job: status("-JobStatusPath"),
-            };
-            await scope.terminate(2_000);
-            assert.fail(`Native runner timed out; existing status files: ${JSON.stringify(state)}`);
-          }
-          assert.equal(result.exitCode, 0, result.error);
-          assert.equal(result.cleanupConfirmed, true, result.error);
-        } finally {
-          clearTimeout(timeout);
-          await scope.terminate(2_000);
-        }
-      });
-    }
     for (const marker of ["first", "second"]) {
-      const result = await runProcess(process.execPath, ["-e", `process.stdout.write(${JSON.stringify(marker)})`], {
+      const environment = gitProcessEnvironment(cwd);
+      if (marker === "second") environment.PSModulePath = "caller-module-path";
+      const target = `process.stdout.write(JSON.stringify({ marker: ${JSON.stringify(marker)}, modulePath: process.env.PSModulePath ?? null }))`;
+      const result = await runProcess(process.execPath, ["-e", target], {
         cwd,
-        environment: gitProcessEnvironment(cwd),
+        environment,
         timeoutMs: 10_000,
         maxOutputBytes: 1_024,
       });
       assert.deepEqual(result, {
         exitCode: 0,
-        stdout: marker,
+        stdout: JSON.stringify({ marker, modulePath: environment.PSModulePath ?? null }),
         stderr: "",
         timedOut: false,
         cancelled: false,
@@ -116,6 +49,51 @@ test("native process scopes complete sequential commands with confirmed cleanup"
     assert.match(git.stdout, /^git version /u);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Windows process host restores the target module path without changing unrelated environment", { timeout: 15_000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-host-environment-"));
+  const payloadPath = path.join(directory, "payload.json");
+  const statusPath = path.join(directory, "status.json");
+  const hostPath = path.resolve(__dirname, "../scripts/windows-process-host.cjs");
+  const environment = gitProcessEnvironment(directory);
+  environment.BACHATA_TARGET_ONLY = "target";
+  try {
+    for (const modulePath of [undefined, "caller-module-path"]) {
+      if (modulePath === undefined) delete environment.PSModulePath;
+      else environment.PSModulePath = modulePath;
+      fs.writeFileSync(payloadPath, JSON.stringify({
+        executable: process.execPath,
+        args: ["-e", "process.stdout.write(JSON.stringify({ modulePath: process.env.PSModulePath ?? null, target: process.env.BACHATA_TARGET_ONLY, helper: process.env.BACHATA_HELPER_ONLY ?? null }))"],
+        cwd: directory,
+        modulePathEnvironment: modulePath === undefined ? {} : { PSModulePath: modulePath },
+        stdinMode: "ignore",
+      }));
+      const result = await promisify(execFile)(process.execPath, [hostPath, payloadPath, statusPath], {
+        cwd: directory,
+        env: { ...environment, PSModulePath: "helper-module-path", BACHATA_HELPER_ONLY: "helper" },
+        encoding: "utf8",
+        timeout: 5_000,
+      });
+      assert.deepEqual(JSON.parse(result.stdout), { modulePath: modulePath ?? null, target: "target", helper: "helper" });
+      assert.deepEqual(JSON.parse(fs.readFileSync(statusPath, "utf8")), { exitCode: 0 });
+    }
+    fs.writeFileSync(payloadPath, JSON.stringify({
+      executable: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      cwd: directory,
+    }));
+    await assert.rejects(promisify(execFile)(process.execPath, [hostPath, payloadPath, statusPath], {
+      cwd: directory,
+      env: environment,
+      timeout: 5_000,
+    }), { code: 1 });
+    assert.deepEqual(JSON.parse(fs.readFileSync(statusPath, "utf8")), {
+      error: "Windows target module path environment is missing or invalid",
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -279,7 +257,12 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
       const parent = new EventEmitter();
       parent.platform = "win32";
       parent.execPath = process.execPath;
-      parent.env = { ...process.env, SystemRoot: "C:\\Windows" };
+      parent.env = {
+        SystemRoot: "C:\\Windows",
+        PSModulePath: "C:\\untrusted-modules",
+        psmodulepath: "C:\\untrusted-lowercase-modules",
+        BACHATA_TEST_SECRET: "fixture-secret",
+      };
       parent.cwd = () => process.cwd();
       const runners = [];
       const runtimeModule = { exports: {} };
@@ -292,7 +275,7 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
         clearTimeout,
         require: (name) => name === "node:child_process"
           ? {
-              spawn: (_executable, args) => {
+              spawn: (_executable, args, options) => {
                 const child = new EventEmitter();
                 child.pid = 4_321 + runners.length;
                 const argument = (name) => args[args.indexOf(name) + 1];
@@ -301,6 +284,8 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
                   assembly: argument("-AssemblyPath"),
                   target: argument("-TargetStatusPath"),
                   job: argument("-JobStatusPath"),
+                  environment: options.env,
+                  payload: JSON.parse(fs.readFileSync(argument("-PayloadPath"), "utf8")),
                 });
                 return child;
               },
@@ -318,6 +303,17 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
       try {
         const firstScope = runtimeModule.exports.spawnProcessScope("git", ["--version"]);
         const first = runners[0];
+        assert.deepEqual(JSON.parse(JSON.stringify(first.environment)), {
+          SystemRoot: "C:\\Windows",
+          PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
+          BACHATA_TEST_SECRET: "fixture-secret",
+        });
+        assert.deepEqual(first.payload.modulePathEnvironment, {
+          PSModulePath: "C:\\untrusted-modules",
+          psmodulepath: "C:\\untrusted-lowercase-modules",
+        }, "the target must retain its caller's module-path environment");
+        assert.equal(JSON.stringify(first.payload).includes("fixture-secret"), false, "the payload must not persist unrelated environment values");
+        assert.equal(parent.env.PSModulePath, "C:\\untrusted-modules", "wrapper setup must not mutate the caller's environment");
         assert.equal(path.isAbsolute(first.assembly), true);
         assert.match(path.basename(path.dirname(first.assembly)), /^bachata-windows-assembly-/u);
         fs.writeFileSync(first.assembly, "compiled assembly fixture");

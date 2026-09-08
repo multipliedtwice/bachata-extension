@@ -119,6 +119,12 @@ test("marketplace publication consumes a verified bundle and never rebuilds or v
   assert.match(deploy, /EXPECTED_RUN_ATTEMPT: \$\{\{ inputs\.release_run_attempt \}\}/u);
   assert.match(deploy, /EXPECTED_EVENT: workflow_dispatch/u);
   assert.match(deploy, /--azure-credential --packagePath/u);
+  const publishStep = deploy.slice(deploy.indexOf("- name: Publish the verified VSIX"));
+  assert.match(publishStep, /VSCE_PAT: \$\{\{ secrets\.VSCE_PAT \}\}/u);
+  assert.equal(deploy.split("secrets.VSCE_PAT").length - 1, 1);
+  assert.match(publishStep, /unset VSCE_PAT\n\s+node .*publish --azure-credential/u);
+  assert.match(publishStep, /elif \[\[ -n "\$VSCE_PAT" \]\]; then\n\s+node .*publish --packagePath/u);
+  assert.doesNotMatch(deploy, /--pat\b|echo[^\n]*\$\{?VSCE_PAT/u);
   assert.doesNotMatch(deploy, /npm (?:version|run (?:build|package))|vsce publish (?:major|minor|patch)/u);
   assert.ok(deploy.indexOf("release-bundle.mjs verify") < deploy.indexOf("publish-chrome-store.mjs"));
 });

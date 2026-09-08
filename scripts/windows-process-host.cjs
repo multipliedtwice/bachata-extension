@@ -13,6 +13,10 @@ const writeStatus = (value) => {
 let payload;
 try {
   payload = JSON.parse(readFileSync(payloadPath, "utf8"));
+  if (!payload.modulePathEnvironment || typeof payload.modulePathEnvironment !== "object" || Array.isArray(payload.modulePathEnvironment)
+    || Object.entries(payload.modulePathEnvironment).some(([name, value]) => name.toUpperCase() !== "PSMODULEPATH" || typeof value !== "string")) {
+    throw new Error("Windows target module path environment is missing or invalid");
+  }
 } catch (error) {
   writeStatus({ error: error instanceof Error ? error.message : String(error) });
   process.exit(1);
@@ -22,7 +26,10 @@ let child;
 try {
   child = spawn(payload.executable, Array.isArray(payload.args) ? payload.args : [], {
     cwd: payload.cwd,
-    env: process.env,
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== "PSMODULEPATH")),
+      ...payload.modulePathEnvironment,
+    },
     shell: payload.shell === true || typeof payload.shell === "string" ? payload.shell : false,
     stdio: [payload.stdinMode === "ignore" ? "ignore" : "inherit", "inherit", "inherit"],
     windowsHide: true,

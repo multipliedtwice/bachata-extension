@@ -7,6 +7,8 @@ param(
   [Parameter(Mandatory = $true)][string]$AssemblyPath
 )
 
+$env:PSModulePath = [System.IO.Path]::Combine($PSHOME, "Modules")
+
 $source = @'
 using System;
 using System.ComponentModel;

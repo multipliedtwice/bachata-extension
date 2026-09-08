@@ -44,9 +44,17 @@ Linux and macOS passed the corrected layout checks in PR run 34208925507.
 Windows native process completion fails: a trivial scoped Node command times out
 without output. Direct PowerShell startup passes with both inherited and filtered
 Git environments in run 34221382609. Wrapper correction and native proof remain required.
+Run 34222733162 isolates missing PowerShell module paths: path commands and compilation
+time out with filtered Git environment, pass when only PSModulePath is restored.
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
 Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging and
 source-drift checks.
+
+[Paired candidate run 34221932974](https://github.com/multipliedtwice/bachata-extension/actions/runs/34221932974)
+passed: authenticated Bridge artifact download, contract digest and shared fixture
+parity, source gates, packaging and source-drift check. Acceptance verification and
+deployment remain open. Encrypted Bridge read token and Marketplace PAT configured;
+both expire 2026-10-08.
 
 Coverage policy: the floors, not these percentages, are the claim.
 Source floors: 78 / 73 / 80 lines / branches / functions. Remaining enforced floors
@@ -61,7 +69,7 @@ Neither source identity nor an automated pass replaces exact-artifact acceptance
 - Complete applicable rows in RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md.
 - Complete provider-terms review in PROVIDER_TERMS.md.
 - Capture screenshots from the packaged build.
-- Configure Chrome item and marketplace deployment credentials.
+- Configure Chrome item and Chrome deployment credentials.
 - Finish hosted extension gates and paired workflow proof.
 - Run `npm run release:verify`; human reviews bound evidence and owns the verdict.
 
