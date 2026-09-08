@@ -223,72 +223,95 @@ test("native managed diff checks never run a git the workspace put on PATH", asy
   const processScope = require("../dist/process/processScope.js");
   const spawnScope = processScope.spawnProcessScope;
   const ownedScopes = [];
+  let bodyCompleted = false;
+  let bodyFailure;
   context.mock.method(processScope, "spawnProcessScope", (...args) => {
     const scope = spawnScope(...args);
     ownedScopes.push(scope);
     return scope;
   });
   context.after(async () => {
-    for (const scope of ownedScopes) {
-      assert.equal(await terminateProcessTree(scope.child, 5_000), true, "the fixture must stop its own process scope before removing scratch");
-      let timeout;
-      try {
-        await Promise.race([
-          scope.result,
-          new Promise((_, reject) => {
-            timeout = setTimeout(() => reject(new Error("The fixture process scope did not close")), 5_000);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timeout);
+    try {
+      for (const scope of ownedScopes) {
+        assert.equal(await terminateProcessTree(scope.child, 5_000), true, "the fixture must stop its own process scope before removing scratch");
+        let timeout;
+        try {
+          const result = await Promise.race([
+            scope.result,
+            new Promise((_, reject) => {
+              timeout = setTimeout(() => reject(new Error("The fixture process scope did not close")), 5_000);
+            }),
+          ]);
+          assert.equal(result.cleanupConfirmed, true, "the fixture process scope must confirm cleanup");
+        } finally {
+          clearTimeout(timeout);
+        }
       }
+      const removalOptions = {
+        recursive: true,
+        force: true,
+        ...(process.platform === "win32" ? { maxRetries: 5, retryDelay: 100 } : {}),
+      };
+      await fs.promises.rm(root, removalOptions);
+      await fs.promises.rm(logRoot, removalOptions);
+    } catch (cleanupFailure) {
+      throw new AggregateError(
+        bodyFailure === undefined ? [cleanupFailure] : [bodyFailure, cleanupFailure],
+        bodyCompleted ? "Native managed Git assertions completed, but fixture cleanup failed" : "Native managed Git assertions and fixture cleanup failed",
+      );
     }
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(logRoot, { recursive: true, force: true });
+    if (bodyFailure !== undefined) throw bodyFailure;
+    assert.equal(bodyCompleted, true, "the native managed Git assertions did not complete");
   });
-  writeGitShim(root, logPath);
-  execFileSync("git", ["--version"], { env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}` } });
-  assert.equal(
-    readInvocations(logPath).some((invocation) => invocation.args === "--version"),
-    true,
-    "the workspace-supplied git was not reachable, so this test proves nothing",
-  );
-  for (const pathPrefix of [root, undefined]) {
-    fs.writeFileSync(logPath, "");
-    const result = await runProjectChecks(root, ["notes.txt"], pathPrefix);
-    assert.equal(result.status, "passed", result.summary);
-    assert.match(result.summary, /git diff --check passed/u);
-
-    assert.deepEqual(readInvocations(logPath), [], "managed checks must never launch a workspace-supplied git");
-  }
-  fs.writeFileSync(logPath, "");
-  const originalPath = process.env.PATH;
   try {
-    process.env.PATH = root;
-    const filtered = gitProcessEnvironment(root);
-    const absentPath = Object.fromEntries(Object.entries(filtered).filter(([key]) => key.toUpperCase() !== "PATH"));
-    for (const environment of [filtered, absentPath]) {
-      const description = Object.hasOwn(environment, "PATH") ? "empty requested PATH" : "absent requested PATH";
-      const result = await runProcess("git", ["--version"], {
-        cwd: root,
-        environment,
-        timeoutMs: 10_000,
-        maxOutputBytes: 1_024,
-      });
-      assert.equal(result.cleanupConfirmed, true, `${description}: ${result.stderr}`);
-      assert.equal(result.timedOut, false, `${description}: ${result.stderr}`);
-      if (process.platform === "win32") {
-        assert.equal(result.exitCode, undefined);
-        assert.match(result.stderr, /ENOENT/u);
-      } else {
-        assert.equal(result.exitCode, 0, result.stderr);
-        assert.match(result.stdout, /^git version /u);
-      }
+    writeGitShim(root, logPath);
+    execFileSync("git", ["--version"], { env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}` } });
+    assert.equal(
+      readInvocations(logPath).some((invocation) => invocation.args === "--version"),
+      true,
+      "the workspace-supplied git was not reachable, so this test proves nothing",
+    );
+    for (const pathPrefix of [root, undefined]) {
+      fs.writeFileSync(logPath, "");
+      const result = await runProjectChecks(root, ["notes.txt"], pathPrefix);
+      assert.equal(result.status, "passed", result.summary);
+      assert.match(result.summary, /git diff --check passed/u);
+
+      assert.deepEqual(readInvocations(logPath), [], "managed checks must never launch a workspace-supplied git");
     }
-    assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
-  } finally {
-    if (originalPath === undefined) delete process.env.PATH;
-    else process.env.PATH = originalPath;
+    fs.writeFileSync(logPath, "");
+    const originalPath = process.env.PATH;
+    try {
+      process.env.PATH = root;
+      const filtered = gitProcessEnvironment(root);
+      const absentPath = Object.fromEntries(Object.entries(filtered).filter(([key]) => key.toUpperCase() !== "PATH"));
+      for (const environment of [filtered, absentPath]) {
+        const description = Object.hasOwn(environment, "PATH") ? "empty requested PATH" : "absent requested PATH";
+        const result = await runProcess("git", ["--version"], {
+          cwd: root,
+          environment,
+          timeoutMs: 10_000,
+          maxOutputBytes: 1_024,
+        });
+        assert.equal(result.cleanupConfirmed, true, `${description}: ${result.stderr}`);
+        assert.equal(result.timedOut, false, `${description}: ${result.stderr}`);
+        if (process.platform === "win32") {
+          assert.equal(result.exitCode, undefined);
+          assert.match(result.stderr, /ENOENT/u);
+        } else {
+          assert.equal(result.exitCode, 0, result.stderr);
+          assert.match(result.stdout, /^git version /u);
+        }
+      }
+      assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+    }
+    bodyCompleted = true;
+  } catch (error) {
+    bodyFailure = error;
+    throw error;
   }
 });
 
