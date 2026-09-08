@@ -4,13 +4,25 @@ const sanitizeExecutablePath = (value: string | undefined, workingDirectory: str
   const delimiter = process.platform === "win32" ? ";" : ":";
   const root = path.resolve(workingDirectory);
   const entries = value.split(delimiter).filter((entry) => {
-    const trimmed = entry.trim();
-    if (!trimmed || !path.isAbsolute(trimmed)) return false;
-    const resolved = path.resolve(trimmed);
+    const effective = process.platform === "win32" && entry.startsWith('"') && entry.endsWith('"') ? entry.slice(1, -1) : entry;
+    if (!effective || !path.isAbsolute(effective)) return false;
+    const resolved = path.resolve(effective);
     const relative = path.relative(root, resolved);
     return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
   });
   return entries.length > 0 ? entries.join(delimiter) : undefined;
+};
+
+const sanitizeEnvironmentPath = (environment: NodeJS.ProcessEnv, workingDirectory: string): NodeJS.ProcessEnv => {
+  const pathKeys = Object.keys(environment).sort().filter((key) =>
+    process.platform === "win32" ? key.toUpperCase() === "PATH" : key === "PATH",
+  );
+  const pathValue = pathKeys.map((key) => environment[key]).find((value) => value !== undefined);
+  for (const key of pathKeys) delete environment[key];
+  const sanitized = sanitizeExecutablePath(pathValue, workingDirectory);
+  if (sanitized !== undefined) environment.PATH = sanitized;
+  else if (process.platform === "win32") environment.PATH = "";
+  return environment;
 };
 
 export const safeProcessEnvironment = (
@@ -53,7 +65,7 @@ export const gitProcessEnvironment = (
   workingDirectory: string,
   base?: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv => ({
-  ...(base ?? safeProcessEnvironment(workingDirectory)),
+  ...sanitizeEnvironmentPath({ ...(base ?? safeProcessEnvironment(workingDirectory)) }, workingDirectory),
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
   GIT_TERMINAL_PROMPT: "0",
@@ -148,12 +160,5 @@ export const configuredProcessEnvironment = (
         extra[name] = value;
       }
     });
-  const environment = safeProcessEnvironment(workingDirectory, extra);
-  const pathKey = environment.PATH !== undefined ? "PATH" : environment.Path !== undefined ? "Path" : undefined;
-  if (pathKey) {
-    const sanitized = sanitizeExecutablePath(environment[pathKey], workingDirectory);
-    if (sanitized) environment[pathKey] = sanitized;
-    else delete environment[pathKey];
-  }
-  return environment;
+  return sanitizeEnvironmentPath(safeProcessEnvironment(workingDirectory, extra), workingDirectory);
 };

@@ -1,6 +1,6 @@
 const { spawn } = require("node:child_process");
 const { readFileSync, writeFileSync } = require("node:fs");
-const helperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE"]);
+const helperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE", "NODEFAULTCURRENTDIRECTORYINEXEPATH"]);
 
 const [payloadPath, statusPath] = process.argv.slice(2);
 if (!payloadPath || !statusPath) {

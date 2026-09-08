@@ -4,6 +4,10 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { execFileSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
+const { spawnScopedProviderProcess } = require("../dist/process/processScope.js");
+const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
+const { runProcess } = require("../dist/orchestrator/commandRunner.js");
 
 const {
   captureManagedRepositoryBaseline,
@@ -196,7 +200,7 @@ const readInvocations = (logPath) => {
 
 const runProjectChecks = async (root, changedFiles, pathPrefix) => {
   const original = process.env.PATH;
-  process.env.PATH = `${pathPrefix}${path.delimiter}${original ?? ""}`;
+  if (pathPrefix !== undefined) process.env.PATH = `${pathPrefix}${path.delimiter}${original ?? ""}`;
   try {
     const baseline = await captureManagedRepositoryBaseline(root, new AbortController().signal);
     const turn = createTurn(root, changedFiles);
@@ -211,7 +215,7 @@ const runProjectChecks = async (root, changedFiles, pathPrefix) => {
 // The git that inspects a repository must not be a program that repository supplies. The
 // diff-check half of the managed handoff rebuilt its environment from scratch and threw away the
 // PATH sanitization the probe two lines above it had just applied.
-test("the managed diff check never runs a git the workspace put on PATH", async () => {
+test("native managed diff checks never run a git the workspace put on PATH", async () => {
   const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-log-"));
   const logPath = path.join(logRoot, "invocations.log");
   const root = createProject("bachata-handoff-path-");
@@ -223,20 +227,86 @@ test("the managed diff check never runs a git the workspace put on PATH", async 
       true,
       "the workspace-supplied git was not reachable, so this test proves nothing",
     );
+    for (const pathPrefix of [root, undefined]) {
+      fs.writeFileSync(logPath, "");
+      const result = await runProjectChecks(root, ["notes.txt"], pathPrefix);
+      assert.equal(result.status, "passed", result.summary);
+      assert.match(result.summary, /git diff --check passed/u);
+
+      assert.deepEqual(readInvocations(logPath), [], "managed checks must never launch a workspace-supplied git");
+    }
     fs.writeFileSync(logPath, "");
-
-    const result = await runProjectChecks(root, ["notes.txt"], root);
-    assert.equal(result.status, "passed", result.summary);
-    assert.match(result.summary, /git diff --check passed/u);
-
-    for (const invocation of readInvocations(logPath)) {
-      assert.equal(
-        /(?:^|\s)(?:read-tree|add|--check)(?:\s|$)/u.test(invocation.args),
-        false,
-        `the managed diff check ran a workspace-supplied git: ${invocation.args}`,
-      );
+    const originalPath = process.env.PATH;
+    try {
+      process.env.PATH = root;
+      const probe = runProcess("git", ["--version"], {
+        cwd: root,
+        environment: gitProcessEnvironment(root),
+        timeoutMs: 10_000,
+        maxOutputBytes: 1_024,
+      });
+      if (process.platform === "win32") {
+        await assert.rejects(probe, { code: "ENOENT" });
+      } else {
+        const result = await probe;
+        assert.equal(result.cleanupConfirmed, true, result.stderr);
+        assert.equal(result.timedOut, false, result.stderr);
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.match(result.stdout, /^git version /u);
+      }
+      assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
     }
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(logRoot, { recursive: true, force: true });
+  }
+});
+
+test("native provider command lookup excludes implicit cwd but preserves explicit executable and PATH choices", { timeout: 30_000 }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-provider-lookup-"));
+  const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-provider-lookup-log-"));
+  const logPath = path.join(logRoot, "invocations.log");
+  const gitDirectory = path.dirname(realGit());
+  const trustedPath = [gitDirectory, gitProcessEnvironment(root).PATH].filter(Boolean).join(path.delimiter);
+  const explicit = path.join(root, process.platform === "win32" ? "git.exe" : "git");
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"));
+  const input = "provider streaming input\n";
+  const expected = createHash("sha1").update(`blob ${Buffer.byteLength(input)}\0${input}`).digest("hex");
+  let active;
+  try {
+    writeGitShim(root, logPath);
+    for (const [command, searchPath, intercepted] of [
+      ["git", trustedPath, false],
+      [explicit, trustedPath, true],
+      ["git", `${root}${path.delimiter}${trustedPath}`, true],
+    ]) {
+      fs.writeFileSync(logPath, "");
+      active = spawnScopedProviderProcess(command, ["hash-object", "--stdin"], {
+        cwd: root,
+        env: { ...inherited, PATH: searchPath },
+      });
+      const { child } = active;
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      child.stderr.on("data", (chunk) => { stderr += chunk; });
+      const completed = new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", (code) => resolve(code));
+      });
+      child.stdin.end(input);
+      assert.equal(await completed, 0, stderr);
+      assert.equal(stderr, "");
+      assert.equal(stdout.trim(), expected);
+      assert.equal(await active.terminate(1_000), true);
+      active = undefined;
+      assert.equal(readInvocations(logPath).length, intercepted ? 1 : 0);
+    }
+  } finally {
+    if (active) await active.terminate(1_000);
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(logRoot, { recursive: true, force: true });
   }

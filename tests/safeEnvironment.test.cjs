@@ -1,11 +1,32 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const path = require("node:path");
 
 const {
   configuredProcessEnvironment,
+  gitProcessEnvironment,
   providerProcessEnvironment,
   safeProcessEnvironment,
 } = require("../dist/process/safeEnvironment.js");
+
+test("Git environments remove workspace PATH entries without restoring inherited search paths", () => {
+  const workspace = path.resolve("workspace");
+  const trusted = path.resolve("trusted-tools");
+  const base = { PATH: [workspace, path.join(workspace, "bin"), ".", "", trusted].join(path.delimiter) };
+  if (process.platform === "win32") base.Path = workspace;
+  const environment = gitProcessEnvironment(workspace, base);
+  assert.equal(environment.PATH, trusted);
+  assert.equal(environment.Path, undefined);
+  assert.equal(base.PATH.includes(workspace), true, "caller environment must remain unchanged");
+  const emptySearchPath = process.platform === "win32" ? "" : undefined;
+  assert.equal(gitProcessEnvironment(workspace, { PATH: workspace }).PATH, emptySearchPath);
+  assert.equal(gitProcessEnvironment(workspace, {}).PATH, emptySearchPath);
+  assert.equal(gitProcessEnvironment(workspace, { PATH: ` ${trusted}` }).PATH, emptySearchPath);
+  if (process.platform === "win32") {
+    assert.equal(gitProcessEnvironment(workspace, { Path: `"${trusted}"` }).PATH, `"${trusted}"`);
+    assert.equal(gitProcessEnvironment(workspace, { Path: `"${workspace}"` }).PATH, "");
+  }
+});
 
 const withEnvironment = async (values, operation) => {
   const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));

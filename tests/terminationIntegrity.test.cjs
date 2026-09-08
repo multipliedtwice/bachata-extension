@@ -17,13 +17,56 @@ const nodeEnvironment = (cwd) => ({
   ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
 });
 
+test("Windows executable lookup honors only caller PATH and explicit paths", () => {
+  const candidates = new Set([
+    "C:\\workspace\\provider.exe",
+    "C:\\trusted\\provider.exe",
+    "C:\\trusted\\named.bin",
+    "C:\\trusted\\suffix.com",
+    "C:\\tools with spaces\\provider.exe",
+  ]);
+  const inspected = [];
+  const runtimeModule = { exports: {} };
+  const context = vm.createContext({
+    module: runtimeModule,
+    process: { platform: "win32", cwd: () => "C:\\workspace", env: { PATH: "C:\\workspace" } },
+    require: (name) => name === "node:fs" ? {
+      ...fs,
+      statSync: (candidate) => {
+        inspected.push(candidate);
+        return { isFile: () => candidates.has(candidate) };
+      },
+    } : require(name),
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../scripts/process-scope.cjs"), "utf8"), context);
+  const resolve = runtimeModule.exports.resolveProcessExecutable;
+  assert.equal(resolve("provider", { Path: "C:\\trusted" }), "C:\\trusted\\provider.exe");
+  assert.equal(inspected.includes("C:\\workspace\\provider.exe"), false);
+  assert.equal(resolve("provider", { PATH: "C:\\trusted", Path: "C:\\workspace" }), "C:\\trusted\\provider.exe");
+  assert.equal(resolve("provider", { PATH: '"C:\\tools with spaces"' }), "C:\\tools with spaces\\provider.exe");
+  assert.equal(resolve("provider", { PATH: ".;C:\\trusted" }), "C:\\workspace\\provider.exe");
+  assert.equal(resolve("named.bin", { PATH: "C:\\trusted" }), "C:\\trusted\\named.bin");
+  assert.equal(resolve("suffix.", { PATH: "C:\\trusted" }), "C:\\trusted\\suffix.com");
+  for (const environment of [{}, { undefined: "C:\\trusted" }, { PATH: "" }, { PATH: ";;" }, { PATH: " C:\\trusted " }]) {
+    assert.throws(() => resolve("provider", environment), { code: "ENOENT" });
+  }
+  assert.throws(() => resolve("", { PATH: "C:\\trusted" }), { code: "ENOENT" });
+  for (const command of ["C:\\workspace\\provider.exe", ".\\provider.exe", "./provider.exe"]) {
+    assert.equal(resolve(command, {}), command);
+  }
+  assert.throws(() => runtimeModule.exports.spawnProcessScope("provider", [], { env: {} }), { code: "ENOENT" });
+});
+
 test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 90_000 }, async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
   try {
     for (const marker of ["first", "second"]) {
       const environment = nodeEnvironment(cwd);
-      if (marker === "second") environment.PSModulePath = "caller-module-path";
-      const target = `process.stdout.write(JSON.stringify({ marker: ${JSON.stringify(marker)}, modulePath: process.env.PSModulePath ?? null, runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null }))`;
+      if (marker === "second") {
+        environment.PSModulePath = "caller-module-path";
+        environment.NoDefaultCurrentDirectoryInExePath = "caller-search-policy";
+      }
+      const target = `process.stdout.write(JSON.stringify({ marker: ${JSON.stringify(marker)}, modulePath: process.env.PSModulePath ?? null, runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, searchPolicy: process.env.NoDefaultCurrentDirectoryInExePath ?? null }))`;
       const result = await runProcess(process.execPath, ["-e", target], {
         cwd,
         environment,
@@ -32,7 +75,7 @@ test("native process scopes complete sequential commands with confirmed cleanup"
       });
       assert.deepEqual(result, {
         exitCode: 0,
-        stdout: JSON.stringify({ marker, modulePath: environment.PSModulePath ?? null, runAsNode: environment.ELECTRON_RUN_AS_NODE ?? null }),
+        stdout: JSON.stringify({ marker, modulePath: environment.PSModulePath ?? null, runAsNode: environment.ELECTRON_RUN_AS_NODE ?? null, searchPolicy: environment.NoDefaultCurrentDirectoryInExePath ?? null }),
         stderr: "",
         timedOut: false,
         cancelled: false,
@@ -159,11 +202,13 @@ test("Windows process host restores only caller helper settings and rejects othe
     psmodulepath: "helper-lowercase-modules",
     ELECTRON_RUN_AS_NODE: "1",
     electron_run_as_node: "helper-lowercase-node-mode",
+    NoDefaultCurrentDirectoryInExePath: "1",
+    nodefaultcurrentdirectoryinexepath: "helper-lowercase-search-policy",
     BACHATA_TARGET_ONLY: "target",
   };
   for (const [helperEnvironment, valid] of [
     [{}, true],
-    [{ PsModulePath: "caller-modules", Electron_Run_As_Node: "0" }, true],
+    [{ PsModulePath: "caller-modules", Electron_Run_As_Node: "0", NoDefaultCurrentDirectoryInExePath: "caller-search-policy" }, true],
     [{ NODE_OPTIONS: "--require=untrusted.cjs" }, false],
     [{ ELECTRON_RUN_AS_NODE: 1 }, false],
   ]) {
@@ -350,6 +395,60 @@ test("Windows termination stays bounded while its runner never closes", { timeou
   }
 });
 
+test("Windows scope termination resolves taskkill only beneath a valid SystemRoot", async () => {
+  const scriptDirectory = path.resolve(__dirname, "../scripts");
+  const source = fs.readFileSync(path.join(scriptDirectory, "process-scope.cjs"), "utf8");
+  for (const systemRoot of ["D:\\Windows", "relative\\Windows"]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-taskkill-resolution-"));
+    const runner = new EventEmitter();
+    runner.pid = 4_321;
+    const launches = [];
+    const runtimeModule = { exports: {} };
+    const context = vm.createContext({
+      module: runtimeModule,
+      __dirname: scriptDirectory,
+      process: { env: { SystemRoot: systemRoot, PATH: "C:\\workspace" } },
+      setTimeout,
+      clearTimeout,
+      require: (name) => name === "node:child_process"
+        ? {
+            spawn: (executable, args) => {
+              launches.push({ executable, args: Array.from(args) });
+              const helper = new EventEmitter();
+              setImmediate(() => {
+                helper.emit("close", 0);
+                runner.emit("close", 1, "SIGKILL");
+              });
+              return helper;
+            },
+          }
+        : require(name),
+    });
+    vm.runInContext(source, context);
+    const scope = runtimeModule.exports.windowsScopeFromChild(runner, {
+      temporaryDirectory: directory,
+      targetStatusPath: path.join(directory, "target.json"),
+      jobStatusPath: path.join(directory, "job.json"),
+    });
+    try {
+      if (systemRoot === "D:\\Windows") {
+        assert.equal(await scope.terminate(1_000), true);
+        assert.deepEqual(launches, [{
+          executable: "D:\\Windows\\System32\\taskkill.exe",
+          args: ["/PID", "4321", "/T", "/F"],
+        }]);
+      } else {
+        assert.equal(await scope.terminate(10), false);
+        assert.deepEqual(launches, [], "invalid SystemRoot must not fall back to cwd or PATH");
+      }
+    } finally {
+      runner.emit("close", 1, "SIGKILL");
+      await scope.result;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("Windows assembly reuse survives sequential scopes and cleans up only without live runners", async (t) => {
   for (const keepRunnerAlive of [false, true]) {
     await t.test(keepRunnerAlive ? "active runner preserves its assembly" : "completed runners release their assembly at exit", async () => {
@@ -362,6 +461,8 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
         psmodulepath: "C:\\untrusted-lowercase-modules",
         ELECTRON_RUN_AS_NODE: "caller-node-mode",
         electron_run_as_node: "caller-lowercase-node-mode",
+        NoDefaultCurrentDirectoryInExePath: "caller-search-policy",
+        nodefaultcurrentdirectoryinexepath: "caller-lowercase-search-policy",
         BACHATA_TEST_SECRET: "fixture-secret",
       };
       parent.cwd = () => process.cwd();
@@ -402,12 +503,13 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
       };
       let secondScope;
       try {
-        const firstScope = runtimeModule.exports.spawnProcessScope("git", ["--version"]);
+        const firstScope = runtimeModule.exports.spawnProcessScope("C:\\trusted\\git.exe", ["--version"]);
         const first = runners[0];
         assert.deepEqual(JSON.parse(JSON.stringify(first.environment)), {
           SystemRoot: "C:\\Windows",
           PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
           ELECTRON_RUN_AS_NODE: "1",
+          NoDefaultCurrentDirectoryInExePath: "1",
           BACHATA_TEST_SECRET: "fixture-secret",
         });
         assert.deepEqual(first.payload.helperEnvironment, {
@@ -415,6 +517,8 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
           psmodulepath: "C:\\untrusted-lowercase-modules",
           ELECTRON_RUN_AS_NODE: "caller-node-mode",
           electron_run_as_node: "caller-lowercase-node-mode",
+          NoDefaultCurrentDirectoryInExePath: "caller-search-policy",
+          nodefaultcurrentdirectoryinexepath: "caller-lowercase-search-policy",
         }, "the target must retain its caller's helper environment");
         assert.equal(JSON.stringify(first.payload).includes("fixture-secret"), false, "the payload must not persist unrelated environment values");
         assert.equal(parent.env.PSModulePath, "C:\\untrusted-modules", "wrapper setup must not mutate the caller's environment");
@@ -424,7 +528,7 @@ test("Windows assembly reuse survives sequential scopes and cleans up only witho
         fs.writeFileSync(first.assembly, "compiled assembly fixture");
         await finish(first, firstScope);
         assert.equal(fs.existsSync(first.assembly), true, "sequential commands must retain their assembly");
-        secondScope = runtimeModule.exports.spawnProcessScope("git", ["status"]);
+        secondScope = runtimeModule.exports.spawnProcessScope("C:\\trusted\\git.exe", ["status"]);
         assert.equal(runners[1].assembly, first.assembly);
         if (!keepRunnerAlive) await finish(runners[1], secondScope);
         parent.emit("exit", 0);

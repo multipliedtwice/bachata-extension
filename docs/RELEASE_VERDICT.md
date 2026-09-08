@@ -10,6 +10,10 @@ Exact-package graphical acceptance, authenticated-provider smoke, provider-terms
 decisions and compatibility records remain open. No human acceptance inferred
 from automated results. Earlier VSIX acceptance evidence does not cover this build.
 
+This candidate also has a confirmed Windows executable-lookup defect: a workspace
+`git.exe` can run before the filtered PATH is searched. Source correction needs
+native validation and a replacement VSIX. Do not publish the artifact below.
+
 ## Verified candidate evidence
 
 2026-09-08. VSIX source: `ed36658a04ffe3f1f646236e89a3521209b8d493`.
@@ -37,7 +41,8 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 | --- | --- |
 | Paired candidate `npm test` | 3023 tests, 3022 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006); required artifact cases passed. |
 | VSIX prepublish `npm test` | 3023 tests, 3022 passed, 0 failed, 1 skip requiring Windows descendant cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006). |
-| Linux source `npm test` | 3023 tests, 3019 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3006). |
+| Linux source `npm test` | 3027 tests, 3023 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3010). Release run 34234203464 at `0c40cf9`; does not validate the later executable-lookup correction. |
+| macOS source `npm test` | 3027 tests, 3016 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3010). Release run 34234203464 at `0c40cf9`. |
 | Actual Windows VS Code 1.136.1 | Native provider-script, compiler and process checks passed in release run 34228016884. Full suite remains separate. |
 | Browser Bridge `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Hosted `test:source-distribution` (6) plus main suite (1204). |
 | Dependency audit | Zero reported vulnerabilities in both unchanged locked checkouts. Candidate dependency closure verified during packaging. |
@@ -48,6 +53,13 @@ VS Code checks and UI layout, then exposed test-fixture path, permission and
 cleanup assumptions. Its orchestration file exceeded the aggregate ten-minute
 test budget after passing long scenarios. Fixture corrections and finite Windows
 CI budget changes need a complete rerun. No pending gate counted as passed.
+
+[Release gates run 34234203464](https://github.com/multipliedtwice/bachata-extension/actions/runs/34234203464)
+passed all Linux and macOS gates. Windows native process, actual VS Code host and UI layout
+checks passed, then the managed-handoff regression exposed implicit cwd executable
+lookup. Remaining Windows tests were still running when recorded.
+The correction disables that lookup in the isolated Windows launcher and uses an
+absolute system path for its cleanup helper. Native rerun and repackaging remain.
 
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
 Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging

@@ -6,14 +6,37 @@ const {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 
 const scopeEnvironmentKey = "BACHATA_PROCESS_SCOPE_TOKEN";
-const windowsHelperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE"]);
+const windowsHelperEnvironmentKeys = new Set(["PSMODULEPATH", "ELECTRON_RUN_AS_NODE", "NODEFAULTCURRENTDIRECTORYINEXEPATH"]);
 const delay = (durationMs) => new Promise((resolve) => setTimeout(resolve, Math.max(1, durationMs)));
+
+const resolveProcessExecutable = (command, environment = process.env, cwd = process.cwd()) => {
+  if (process.platform !== "win32" || /[\\/:]/u.test(command)) return command;
+  const pathKey = Object.keys(environment).sort().find((key) => key.toUpperCase() === "PATH" && environment[key] !== undefined);
+  const searchPath = pathKey === undefined ? "" : environment[pathKey];
+  const suffixes = command.endsWith(".") ? ["com", "exe"] : [".com", ".exe"];
+  const extensions = path.win32.extname(command) ? ["", ...suffixes] : suffixes;
+  for (const entry of (command ? searchPath : "").split(";")) {
+    if (!entry) continue;
+    const directory = entry.startsWith('"') && entry.endsWith('"') ? entry.slice(1, -1) : entry;
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = path.win32.resolve(cwd, directory, `${command}${extension}`);
+      try {
+        if (statSync(candidate).isFile()) return candidate;
+      } catch {
+        continue;
+      }
+    }
+  }
+  throw Object.assign(new Error(`Executable was not found on PATH: ${command}`), { code: "ENOENT", path: command });
+};
 
 const closeState = (child) => {
   let closed = false;
@@ -51,7 +74,7 @@ const closeState = (child) => {
 
 const taskkill = (pid, timeoutMs) =>
   new Promise((resolve) => {
-    const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+    const child = spawn(windowsSystemPath(process.env, "taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
       env: process.env,
       stdio: "ignore",
       windowsHide: true,
@@ -77,7 +100,7 @@ const taskkill = (pid, timeoutMs) =>
     }, Math.max(1, timeoutMs));
     child.once("error", () => settle(false));
     child.once("close", (code) => settle(code === 0));
-  });
+  }).catch(() => false);
 
 const linuxProcessState = (pid) => {
   try {
@@ -309,7 +332,7 @@ const terminatePosixScope = async (child, token, graceMs) => {
   return drained && (close === undefined || await close.wait(graceMs));
 };
 
-const powershellPath = (environment) => {
+const windowsSystemPath = (environment, ...segments) => {
   const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT ?? environment.WINDIR;
   if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
     throw new Error("Windows SystemRoot is unavailable or invalid");
@@ -317,11 +340,12 @@ const powershellPath = (environment) => {
   return path.win32.join(
     path.win32.normalize(systemRoot),
     "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe",
+    ...segments,
   );
 };
+
+const powershellPath = (environment) =>
+  windowsSystemPath(environment, "WindowsPowerShell", "v1.0", "powershell.exe");
 
 const parseJsonFile = (filePath, label) => {
   try {
@@ -452,11 +476,14 @@ const windowsAssemblyPath = () => {
 
 const spawnWindowsScope = (executable, args, options) => {
   const environment = options.env ?? process.env;
+  const targetExecutable = options.shell ? executable : resolveProcessExecutable(executable, environment, options.cwd);
   const powershell = powershellPath(environment);
   const runnerEnvironment = {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !windowsHelperEnvironmentKeys.has(name.toUpperCase()))),
     PSModulePath: path.win32.join(path.win32.dirname(powershell), "Modules"),
     ELECTRON_RUN_AS_NODE: "1",
+    // libuv consults the spawning host's environment before searching a command's cwd.
+    NoDefaultCurrentDirectoryInExePath: "1",
   };
   const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "bachata-process-scope-"));
   const payloadPath = path.join(temporaryDirectory, "payload.json");
@@ -464,7 +491,7 @@ const spawnWindowsScope = (executable, args, options) => {
   const jobStatusPath = path.join(temporaryDirectory, "job-status.json");
   const hostPath = path.join(__dirname, "windows-process-host.cjs");
   writeFileSync(payloadPath, JSON.stringify({
-    executable,
+    executable: targetExecutable,
     args,
     cwd: options.cwd ?? process.cwd(),
     helperEnvironment: Object.fromEntries(
@@ -580,8 +607,10 @@ const spawnProcessScope = (executable, args, options = {}) =>
     : spawnPosixScope(executable, args, options);
 
 module.exports = {
+  resolveProcessExecutable,
   scopeEnvironmentKey,
   spawnProcessScope,
   terminatePosixScope,
+  terminateWindowsProcessTree: taskkill,
   windowsScopeFromChild,
 };
