@@ -17,6 +17,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as pollDelay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { closeCdpSession, delay, openCdpSession } from "./lib/chromeSession.mjs";
@@ -59,9 +60,10 @@ const resolveChrome = () => {
  * on that number — a VS Code helper, another checkout's run — and the collision would look like a
  * layout failure.
  */
-const readDebugPort = async (profile, child) => {
+const readDebugPort = async (profile, child, signal) => {
   const portFile = path.join(profile, "DevToolsActivePort");
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (;;) {
+    signal.throwIfAborted();
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(`Chrome exited with ${String(child.signalCode ?? child.exitCode)} before it reported a debugging port`);
     }
@@ -69,9 +71,8 @@ const readDebugPort = async (profile, child) => {
       const [port] = readFileSync(portFile, "utf8").split("\n");
       if (port && Number.isInteger(Number(port))) return Number(port);
     }
-    await delay(100);
+    await pollDelay(100, undefined, { signal });
   }
-  throw new Error("Chrome never wrote DevToolsActivePort");
 };
 
 /**
@@ -97,8 +98,8 @@ const connect = (profile) =>
       "--window-size=1280,900",
       "--hide-scrollbars",
       pathToFileURL(fixture).href,
-    ], { stdio: "ignore" }),
-    readPort: (child) => readDebugPort(profile, child),
+    ], { stdio: ["ignore", "ignore", "pipe"] }),
+    readPort: (child, signal) => readDebugPort(profile, child, signal),
   });
 
 // A pointer user arrives at a control by moving onto it, and the move can change what is drawn
