@@ -9,6 +9,38 @@ const vm = require("node:vm");
 
 const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
 const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
+const { runProcess } = require("../dist/orchestrator/commandRunner.js");
+const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
+
+test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 45_000 }, async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
+  try {
+    for (const marker of ["first", "second"]) {
+      const result = await runProcess(process.execPath, ["-e", `process.stdout.write(${JSON.stringify(marker)})`], {
+        cwd,
+        environment: gitProcessEnvironment(cwd),
+        timeoutMs: 10_000,
+        maxOutputBytes: 1_024,
+      });
+      assert.equal(result.timedOut, false, `${marker}: ${result.stderr}`);
+      assert.equal(result.cleanupConfirmed, true, `${marker}: ${result.stderr}`);
+      assert.equal(result.exitCode, 0, `${marker}: ${result.stderr}`);
+      assert.equal(result.stdout, marker);
+    }
+    const git = await runProcess("git", ["--version"], {
+      cwd,
+      environment: gitProcessEnvironment(cwd),
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    });
+    assert.equal(git.timedOut, false, git.stderr);
+    assert.equal(git.cleanupConfirmed, true, git.stderr);
+    assert.equal(git.exitCode, 0, git.stderr);
+    assert.match(git.stdout, /^git version /u);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 const waitForChildExit = (child) =>
   child.exitCode !== null || child.signalCode !== null

@@ -64,6 +64,13 @@ jobs:
       - name: No telemetry
         run: npm run check:no-telemetry
 
+      - name: Native Windows process completion
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        run: |
+          npm run build:emit
+          node --test --test-name-pattern="native process scopes complete" tests/terminationIntegrity.test.cjs
+
       - name: Tests
         run: npm test
 
