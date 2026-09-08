@@ -129,6 +129,15 @@ const pressKey = async (session, key, code, keyCode) => {
   await delay(160);
 };
 
+const waitForState = async (session, expression) => {
+  const deadline = Date.now() + 5_000;
+  while (!await session.evaluate(expression)) {
+    if (Date.now() >= deadline) return false;
+    await delay(50);
+  }
+  return true;
+};
+
 const MENU = ".run-tab.selected .run-action-menu > summary";
 const CREATE = ".run-tab-new";
 
@@ -228,12 +237,12 @@ const run = async () => {
       if (reach.tabs < 2) failures.push(`${String(width)}px: the fixture drew ${String(reach.tabs)} run tabs, so no unselected tab was measured`);
       reach.mismatched.forEach((problem) => { failures.push(`${String(width)}px: ${problem}`); });
       await press(session, '[data-action="composer-options-toggle"]');
-      const advancedOptionsOpen = await session.evaluate('document.querySelector("#pipeline-iterations") !== null');
+      const advancedOptionsOpen = await waitForState(session, 'document.querySelector("#pipeline-iterations") !== null');
       if (!advancedOptionsOpen) failures.push(`${String(width)}px: advanced options did not open before the menu interaction`);
       await session.evaluate("window.__posted.length = 0");
       await press(session, MENU);
       const opened = await session.evaluate(menuState);
-      const advancedOptionsClosed = await session.evaluate('document.querySelector("#pipeline-iterations") === null');
+      const advancedOptionsClosed = await waitForState(session, 'document.querySelector("#pipeline-iterations") === null');
       if (!advancedOptionsClosed) failures.push(`${String(width)}px: pressing the action menu left advanced options open`);
       // Escape closes the menu and gives focus back to the control that opened it, so a keyboard
       // reader is never left inside a panel that is no longer there.
