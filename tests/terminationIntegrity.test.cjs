@@ -9,7 +9,7 @@ const { promisify } = require("node:util");
 const vm = require("node:vm");
 
 const { terminateProcessTree } = require("../dist/process/terminateProcessTree.js");
-const { windowsScopeFromChild } = require("../scripts/process-scope.cjs");
+const { spawnProcessScope, windowsScopeFromChild } = require("../scripts/process-scope.cjs");
 const { runProcess } = require("../dist/orchestrator/commandRunner.js");
 const { gitProcessEnvironment } = require("../dist/process/safeEnvironment.js");
 
@@ -29,6 +29,42 @@ test("native process scopes complete sequential commands with confirmed cleanup"
           assert.equal(result.stdout, "ready");
         });
       }
+      await t.test("the Job Object runner completes a native target", async () => {
+        const scope = spawnProcessScope(process.execPath, ["-e", "process.exit(0)"], {
+          cwd,
+          env: gitProcessEnvironment(cwd),
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        scope.child.stdout.resume();
+        scope.child.stderr.resume();
+        let timeout;
+        try {
+          const result = await Promise.race([
+            scope.result,
+            new Promise((resolve) => { timeout = setTimeout(() => resolve(undefined), 10_000); }),
+          ]);
+          if (!result) {
+            const argument = (name) => scope.child.spawnargs[scope.child.spawnargs.indexOf(name) + 1];
+            const status = (name) => {
+              const file = argument(name);
+              return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "not written";
+            };
+            const state = {
+              compiled: fs.existsSync(path.join(path.dirname(argument("-PayloadPath")), "job-compiled.dll")),
+              cached: fs.existsSync(argument("-AssemblyPath")),
+              target: status("-TargetStatusPath"),
+              job: status("-JobStatusPath"),
+            };
+            await scope.terminate(2_000);
+            assert.fail(`Native runner timed out; existing status files: ${JSON.stringify(state)}`);
+          }
+          assert.equal(result.exitCode, 0, result.error);
+          assert.equal(result.cleanupConfirmed, true, result.error);
+        } finally {
+          clearTimeout(timeout);
+          await scope.terminate(2_000);
+        }
+      });
     }
     for (const marker of ["first", "second"]) {
       const result = await runProcess(process.execPath, ["-e", `process.stdout.write(${JSON.stringify(marker)})`], {

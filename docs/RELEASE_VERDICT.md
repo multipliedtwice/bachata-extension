@@ -40,9 +40,10 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 | Dependency audit | Zero reported vulnerabilities in both locked checkouts; exact VSIX binding in RELEASE_VALIDATION_RECORD.md. |
 
 Extension [release gates run 34206924699](https://github.com/multipliedtwice/bachata-extension/actions/runs/34206924699):
-Linux passed all gates. macOS failed a fixed-delay UI assertion; the harness now waits
-for actual DOM state with a five-second bound and passed locally at all five widths.
-Hosted rerun required. Windows remains in progress; no passing result inferred.
+Linux and macOS passed the corrected layout checks in PR run 34208925507.
+Windows native process completion fails: a trivial scoped Node command times out
+without output. Direct PowerShell startup passes with both inherited and filtered
+Git environments in run 34221382609. Wrapper correction and native proof remain required.
 Bridge [release gates run 34199689556](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34199689556):
 Ubuntu, macOS and Windows passed types, lint, format, tests, coverage, packaging and
 source-drift checks.
