@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "id": "self-improvement",
+  "name": "Self-improvement task",
+  "description": "Codex plans one bounded task from the controller's packet and Claude implements it in the isolated task worktree. The controller owns checks, lead review, revision, integration, and run state.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "acceptEdits",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "roles": [
+    {
+      "id": "lead",
+      "name": "Lead Planner",
+      "instructions": "Inspect the assigned task packet and state concrete implementation constraints, risks, and acceptance criteria. Do not edit files and do not change orchestration state.",
+      "preferredAdapters": ["codex-app-server"],
+      "readOnly": true
+    },
+    {
+      "id": "worker",
+      "name": "Worker",
+      "instructions": "Implement the assigned task completely inside the declared scope, using the Lead plan as input. Do not run acceptance, integration, E2E, database, Docker, browser, or other shared-resource checks. Do not change orchestration state.",
+      "preferredAdapters": ["claude-code"],
+      "commitMode": "never"
+    }
+  ],
+  "steps": [
+    {
+      "id": "assign-roles",
+      "name": "Assign planner and worker",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        { "agentId": "codex", "role": "lead" },
+        { "agentId": "claude", "role": "worker" }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "lead-plan",
+      "name": "Lead plans the assigned task",
+      "enabled": true,
+      "participants": ["lead"],
+      "promptTemplate": "Work only on the assigned task packet below. Inspect the repository and state concrete implementation constraints, risks, and acceptance criteria. Do not edit files. The deterministic controller owns checks, review, and integration.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": { "lead": "read" },
+      "approvalPolicies": { "lead": "onRequest" },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "worker-implementation",
+      "name": "Worker implements the assigned task",
+      "enabled": true,
+      "participants": ["worker"],
+      "promptTemplate": "Work only on the assigned task packet. Implement it completely in the current worktree using the Lead plan below. Do not run acceptance, integration, E2E, database, Docker, browser, or other shared-resource checks. The deterministic controller runs the declared checks and owns the review decision.\n\nTask packet:\n{{userPrompt}}\n\nLead plan:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": { "worker": "write" },
+      "attachments": "none",
+      "type": "agent"
+    }
+  ]
+}

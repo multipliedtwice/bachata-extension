@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "id": "todo-implementation",
+  "name": "TODO implementation pair",
+  "description": "Lead plans one bounded task, Worker implements it, and Lead reviews it. The controller owns scheduling, protected checks, integration, and TODO state.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "acceptEdits",
+      "resourceId": "claude-code:default-account"
+    },
+    {
+      "id": "gpt-lead",
+      "name": "GPT Browser Lead",
+      "adapter": "chatgpt-browser",
+      "resourceId": "chatgpt-browser:default-account"
+    },
+    {
+      "id": "gpt-worker",
+      "name": "GPT Browser Worker",
+      "adapter": "chatgpt-browser",
+      "resourceId": "chatgpt-browser:default-account"
+    },
+    {
+      "id": "generic-lead",
+      "name": "Generic Browser Lead",
+      "adapter": "generic-browser",
+      "resourceId": "generic-browser:default-origin"
+    },
+    {
+      "id": "generic-worker",
+      "name": "Generic Browser Worker",
+      "adapter": "generic-browser",
+      "resourceId": "generic-browser:default-origin"
+    }
+  ],
+  "roles": [
+    {
+      "id": "lead",
+      "name": "Lead Planner",
+      "instructions": "Inspect the assigned task and state concrete implementation constraints, risks, and acceptance criteria. Do not edit files or change TODO state.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "chatgpt-browser",
+        "generic-browser"
+      ],
+      "candidateAgentIds": [
+        "gpt-lead",
+        "generic-lead"
+      ],
+      "readOnly": true
+    },
+    {
+      "id": "worker",
+      "name": "Worker",
+      "instructions": "Implement the assigned task completely inside the declared scope. Use the Lead plan as input. Do not run acceptance, integration, E2E, database, Docker, browser, or other shared-resource checks. Do not change TODO orchestration state.",
+      "preferredAdapters": [
+        "claude-code",
+        "chatgpt-browser",
+        "generic-browser"
+      ],
+      "candidateAgentIds": [
+        "gpt-worker",
+        "generic-worker"
+      ],
+      "managed": true,
+      "managedRole": "worker",
+      "commitMode": "never"
+    },
+    {
+      "id": "reviewer",
+      "name": "Lead Reviewer",
+      "instructions": "Review the Worker result against the original task and Lead plan. Do not edit files and do not run checks: Bachata runs the declared verification itself and hands you its own results. Answer with exactly one JSON object and nothing else. It carries two fields: \"candidate\", the Candidate fingerprint Bachata gave you, copied exactly; and \"review\", an object with \"verdict\" set to either accept or reject, a one-sentence \"summary\", and \"defects\", a list. An accept carries an empty defects list. A reject carries between one and ten defects, each with \"id\", \"severity\" (blocker, major or minor), \"statement\", \"requiredChange\" and \"evidence\", and each naming a change a Worker can make. Bachata restates the exact shape in its own review block. Prose is not a verdict and fails the task.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "chatgpt-browser",
+        "generic-browser"
+      ],
+      "candidateAgentIds": [
+        "gpt-lead",
+        "generic-lead"
+      ],
+      "readOnly": true,
+      "managed": true,
+      "managedRole": "lead",
+      "managedOptional": true,
+      "commitMode": "never"
+    }
+  ],
+  "steps": [
+    {
+      "id": "assign-roles",
+      "name": "Assign planner, worker, and reviewer",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        {
+          "agentId": "codex",
+          "role": "lead"
+        },
+        {
+          "agentId": "claude",
+          "role": "worker"
+        },
+        {
+          "agentId": "codex",
+          "role": "reviewer"
+        }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "lead-plan",
+      "name": "Lead plans assigned task",
+      "enabled": true,
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "Work only on the assigned deterministic TODO task. Inspect it and provide concrete implementation constraints, risks, and acceptance criteria. Do not edit files. The deterministic controller owns protected checks and TODO state.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "lead": "read"
+      },
+      "approvalPolicies": {
+        "lead": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "worker-implementation",
+      "name": "Worker implements assigned task",
+      "enabled": true,
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "Work only on the assigned deterministic TODO task. Implement it completely in the current worktree using the Lead plan below. Do not run acceptance, integration, E2E, database, Docker, browser, or other shared-resource checks, and do not report check results of your own. The deterministic controller owns protected checks. Do not change TODO scheduling or completion state. If Bachata appends a managed revision block, the defects it names are what this turn must repair.\n\nOriginal task:\n{{userPrompt}}\n\nLead plan:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "worker": "write"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "lead-review",
+      "name": "Lead reviews implementation",
+      "enabled": true,
+      "participants": [
+        "reviewer"
+      ],
+      "promptTemplate": "Review the Worker implementation against the original task and Lead plan. Judge only what the repository shows and what Bachata's own verification reports. Do not edit files, do not run checks, and do not change TODO state.\n\nAnswer with exactly one JSON object and nothing else. It carries two fields: \"candidate\", the Candidate fingerprint Bachata gave you, copied exactly; and \"review\", an object with \"verdict\" set to either accept or reject, a one-sentence \"summary\", and \"defects\", a list. An accept carries an empty defects list. A reject carries between one and ten defects, each with \"id\", \"severity\" (blocker, major or minor), \"statement\", \"requiredChange\" and \"evidence\", and each naming a change a Worker can make. Bachata restates the exact shape in its own review block. Prose is not a verdict and fails the task.\n\nOriginal task:\n{{userPrompt}}\n\nLead plan:\n{{answers.lead}}\n\nWorker result:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "reviewer": "read"
+      },
+      "approvalPolicies": {
+        "reviewer": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    }
+  ],
+  "managedPolicy": {
+    "writeScope": "task",
+    "readPaths": [],
+    "commitMode": "never",
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ],
+    "maxRevisionCycles": 1
+  }
+}

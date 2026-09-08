@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "codex-plan",
+  "name": "Plan with Codex",
+  "description": "Read-only implementation plan produced by Codex alone. No second provider is required.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    }
+  ],
+  "steps": [
+    {
+      "id": "plan",
+      "name": "Implementation plan",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": ["codex"],
+      "promptTemplate": "Inspect the current repository and produce a precise implementation plan for this request without changing files. State the files you would change, the order of the changes, the risks, and how the result would be verified.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": { "codex": "readOnly" },
+      "approvalPolicies": { "codex": "onRequest" },
+      "attachments": "selected"
+    }
+  ]
+}

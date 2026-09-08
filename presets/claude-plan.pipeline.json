@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "id": "claude-plan",
+  "name": "Plan with Claude",
+  "description": "Read-only implementation plan produced by Claude Code alone. No second provider is required.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "plan",
+      "name": "Implementation plan",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": [
+        "claude"
+      ],
+      "promptTemplate": "Inspect the current repository and produce a precise implementation plan for this request without changing files. State the files you would change, the order of the changes, the risks, and how the result would be verified.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": {
+        "claude": "plan"
+      },
+      "attachments": "selected"
+    }
+  ]
+}

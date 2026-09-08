@@ -1,0 +1,4769 @@
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:root {
+  color-scheme: light dark;
+  --bachata-green: #2f9d62;
+  --bachata-green-soft: color-mix(in srgb, var(--bachata-green) 18%, var(--vscode-editor-background));
+  --bachata-surface: color-mix(in srgb, var(--vscode-foreground) 6%, var(--vscode-editor-background));
+  --bachata-card: color-mix(in srgb, var(--vscode-foreground) 10%, var(--vscode-editor-background));
+  --bachata-card-strong: color-mix(in srgb, var(--vscode-foreground) 16%, var(--vscode-editor-background));
+  --bachata-border: var(--vscode-contrastBorder, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 22%, transparent)));
+  --bachata-muted: color-mix(in srgb, var(--vscode-descriptionForeground) 72%, var(--vscode-foreground));
+  --bachata-green-text: color-mix(in srgb, var(--bachata-green) 56%, var(--vscode-foreground));
+  --bachata-warn-text: color-mix(in srgb, var(--vscode-notificationsWarningIcon-foreground) 46%, var(--vscode-foreground));
+  --bachata-success-text: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground, var(--bachata-green-text)));
+  --bachata-content-max: 1240px;
+  --bachata-font-xs: max(11px, 0.8em);
+  --bachata-font-sm: max(11px, 0.86em);
+  --bachata-font-md: max(12px, 0.92em);
+  --bachata-danger: color-mix(in srgb, var(--vscode-errorForeground) 56%, var(--vscode-foreground));
+  --bachata-focus-ring: color-mix(in srgb, var(--vscode-focusBorder) 85%, var(--vscode-foreground));
+  --bachata-code-background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  --bachata-code-fg: var(--vscode-editor-foreground, var(--vscode-foreground));
+  --bachata-code-keyword: color-mix(in srgb, #c586c0 35%, var(--bachata-code-fg));
+  --bachata-code-string: color-mix(in srgb, #4ec9a0 35%, var(--bachata-code-fg));
+  --bachata-code-number: color-mix(in srgb, #d99b4a 35%, var(--bachata-code-fg));
+  --bachata-code-property: color-mix(in srgb, #c8a13a 35%, var(--bachata-code-fg));
+  --bachata-code-tag: color-mix(in srgb, #e06c75 35%, var(--bachata-code-fg));
+  --bachata-code-operator: color-mix(in srgb, #3fb8b8 35%, var(--bachata-code-fg));
+  --bachata-code-inserted: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #4ec9a0) 70%, var(--bachata-code-fg));
+  --bachata-code-deleted: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground, #e06c75) 48%, var(--bachata-code-fg));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+button,
+select,
+input,
+textarea {
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 7px;
+  background: var(--vscode-input-background);
+}
+
+button {
+  min-height: 30px;
+  padding: 5px 9px;
+  cursor: pointer;
+  background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
+}
+
+button:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground, var(--bachata-card-strong));
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+pre:focus-visible {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: 1px;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+button.primary,
+button.send-button {
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-border, transparent);
+  background: var(--vscode-button-background);
+  font-weight: 700;
+}
+
+button.primary:disabled,
+button.send-button:disabled {
+  color: var(--bachata-muted);
+  border-color: var(--bachata-border);
+  background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
+  font-weight: 600;
+  opacity: 1;
+}
+
+button.primary:hover:not(:disabled),
+button.send-button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+}
+
+button.danger {
+  color: var(--bachata-danger);
+  border-color: color-mix(in srgb, var(--bachata-danger) 52%, var(--bachata-border));
+}
+
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bachata-danger) 14%, var(--vscode-input-background));
+}
+
+button.caution {
+  color: var(--bachata-warn-text);
+  border-color: color-mix(in srgb, var(--bachata-warn-text) 52%, var(--bachata-border));
+}
+
+button.caution:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bachata-warn-text) 14%, var(--vscode-input-background));
+}
+
+input,
+select {
+  min-height: 31px;
+  padding: 5px 8px;
+  /* A select sizes itself to its longest option, so a long initiative or pipeline name pushed it
+     past a narrow panel at a large editor font. It may not outgrow the column it sits in. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+textarea {
+  padding: 9px 11px;
+  resize: vertical;
+}
+
+summary {
+  min-height: 24px;
+  padding-block: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+
+time,
+small,
+.muted {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+strong + small {
+  margin-left: 8px;
+}
+
+/* Layouts that stack the pair or already space it with a grid or flex gap must not read the
+   inline gap as a left indent. */
+.room-item-text small,
+.browser-binding-bar small,
+.participant-heading small,
+.browser-session small,
+.section-heading small,
+.prompt-preview small,
+.browser-asset-main small,
+.child-run small,
+.workflow-event small,
+.interaction-heading small,
+.interaction-option small,
+.run-tab-all small,
+.run-drawer-select small,
+.recent-activity-item small,
+.orchestration-task small,
+.retained-runs-heading small,
+.retained-run small,
+.result-finding-list small,
+.editor-card-summary small,
+.compare-column header small {
+  margin-left: 0;
+}
+
+.error,
+.system-error,
+.error-banner,
+.global-error {
+  color: var(--bachata-danger);
+}
+
+[aria-invalid="true"] {
+  border-color: var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
+  border-width: 2px;
+  outline: 1px solid var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
+  outline-offset: -3px;
+}
+
+.field-error,
+#app-dialog-error {
+  font-size: var(--bachata-font-sm);
+  overflow-wrap: anywhere;
+}
+
+.field-error:not(:empty),
+#app-dialog-error:not(:empty) {
+  margin: 4px 0 8px;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.room-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--bachata-border);
+  background: var(--vscode-sideBar-background);
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 50px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--bachata-border);
+  letter-spacing: 0.05em;
+}
+
+.brand-row strong {
+  font-size: 16px;
+}
+
+.brand-row button {
+  width: 32px;
+  padding: 0;
+  font-size: 19px;
+}
+
+.room-search {
+  width: calc(100% - 20px);
+  margin: 10px 10px 6px;
+}
+
+.archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 8px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.archive-toggle input {
+  min-height: auto;
+  margin: 0;
+}
+
+.room-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 7px 10px;
+}
+
+.room-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 27px;
+  align-items: stretch;
+  margin: 3px 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+
+.room-item:hover,
+.room-item.selected {
+  border-color: var(--bachata-border);
+  background: var(--bachata-card);
+}
+
+.room-item.selected {
+  box-shadow: inset 3px 0 0 var(--bachata-green);
+}
+
+.room-item.archived {
+  opacity: 0.66;
+}
+
+.room-select,
+.room-menu {
+  border: 0;
+  background: transparent;
+}
+
+.room-select {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 6px 8px 9px;
+  text-align: left;
+}
+
+.room-menu {
+  padding: 0;
+  color: var(--bachata-muted);
+  letter-spacing: -0.08em;
+}
+
+.room-item-text {
+  min-width: 0;
+}
+
+.room-item-text strong,
+.room-item-text small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.room-item-text strong {
+  font-size: var(--bachata-font-md);
+}
+
+.room-item-text small {
+  margin-top: 2px;
+  font-size: var(--bachata-font-sm);
+}
+
+.room-presence {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vscode-disabledForeground);
+}
+
+.status-running,
+.room-presence.status-running,
+.agent-status.status-running {
+  color: var(--bachata-green-text);
+}
+
+.room-presence.status-running {
+  background: var(--bachata-green-text);
+  box-shadow: 0 0 0 3px var(--bachata-green-soft);
+}
+
+.room-presence.status-paused,
+.room-presence.status-error {
+  background: var(--bachata-warn-text);
+}
+
+.room-presence.status-done {
+  background: var(--bachata-success-text);
+}
+
+.room-presence.status-blocked {
+  background: var(--bachata-danger);
+}
+
+/* Not started reads as an empty ring, so the state survives without colour. */
+.room-presence.status-pending {
+  border: 1px solid var(--bachata-muted);
+  background: transparent;
+}
+
+.run-tab-select .unread {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  color: var(--vscode-badge-foreground);
+  border-radius: 10px;
+  background: var(--vscode-badge-background);
+  font-size: var(--bachata-font-sm);
+}
+
+.empty-list {
+  padding: 18px 8px;
+  color: var(--bachata-muted);
+  text-align: center;
+  font-size: var(--bachata-font-sm);
+}
+
+.workspace-shell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.global-error,
+.error-banner {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-inputValidation-errorBorder, var(--bachata-border));
+  background: var(--vscode-inputValidation-errorBackground);
+  font-size: var(--bachata-font-md);
+}
+
+.global-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.global-error-dismiss {
+  flex: 0 0 auto;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.room-empty {
+  display: grid;
+  place-content: center;
+  flex: 1;
+  text-align: center;
+}
+
+.room-empty h1 {
+  font-size: 1.5em;
+}
+
+.room-shell {
+  display: flex;
+  position: relative;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.room-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 5px 10px 5px 14px;
+  border-bottom: 1px solid var(--bachata-border);
+  background: var(--bachata-surface);
+}
+
+.room-title-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.room-title-heading {
+  min-width: 0;
+  /* The optical inset lives on the heading: on the button it was subtracted from the width the
+     flex line reserved, so the title was always 7px narrower than its own text. */
+  margin: 0 0 0 -7px;
+  font-size: 1em;
+  font-weight: inherit;
+}
+
+.room-title {
+  display: block;
+  max-width: min(520px, 100%);
+  min-width: 0;
+  min-height: 24px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 1.08em;
+  font-weight: 700;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-title:hover:not(:disabled) {
+  background: var(--bachata-card);
+}
+
+.room-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 11px;
+  margin-top: 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.room-status {
+  font-weight: 700;
+}
+
+.room-status.status-running {
+  color: var(--bachata-green-text);
+}
+
+.room-status.status-paused,
+.room-status.status-error {
+  color: var(--bachata-warn-text);
+}
+
+.room-actions,
+.compact-actions,
+.decision-actions,
+.send-actions,
+.composer-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.room-actions {
+  justify-content: flex-end;
+}
+
+.room-actions select {
+  max-width: 230px;
+}
+
+.room-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.room-body.with-inspector {
+  grid-template-columns: minmax(0, 1fr) 330px;
+}
+
+.conversation-column {
+  container-type: size;
+  display: grid;
+  /* The implicit column would otherwise be an auto track, floored by the composer's min-content
+     width — every attachment chip widened the whole webview instead of scrolling the strip. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.conversation-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px max(18px, calc((100vw - var(--bachata-content-max)) / 2));
+  scroll-behavior: smooth;
+}
+
+.conversation-scroll[data-restoring] {
+  scroll-behavior: auto;
+}
+
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 8px;
+  z-index: 200;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.skip-link:focus-visible {
+  top: 6px;
+}
+
+.result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 880px;
+  margin: 12px auto 18px;
+  padding: 12px 15px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--bachata-surface);
+}
+
+.result-summary p {
+  margin: 4px 0 0;
+  color: var(--bachata-muted);
+}
+
+.result-summary .decision-label {
+  display: block;
+}
+
+.markdown-table {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.markdown-table table {
+  border-collapse: collapse;
+  font-size: var(--bachata-font-sm);
+}
+
+.markdown-table th,
+.markdown-table td {
+  padding: 4px 9px;
+  border: 1px solid var(--bachata-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-table th {
+  background: var(--bachata-card);
+}
+
+.browser-binding-bar {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+/* At a large editor font in a narrow panel these header rows cannot fit on one line, and their
+   children carry the automatic min-content floor every flex item gets. They wrap instead. */
+.browser-binding-bar,
+.browser-binding-bar > summary {
+  flex-wrap: wrap;
+}
+
+.browser-binding-bar > summary > div,
+.browser-binding-bar > div {
+  min-width: 0;
+}
+
+.browser-binding-bar strong,
+.browser-binding-bar small,
+.browser-binding-controls span {
+  display: block;
+}
+
+.browser-binding-bar small,
+.browser-binding-controls span {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.browser-binding-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.browser-binding-controls label,
+.browser-binding-row {
+  min-width: 190px;
+}
+
+.browser-binding-controls select {
+  width: 100%;
+}
+
+.conversation-scroll.is-empty {
+  display: flex;
+  flex-direction: column;
+  /* `safe` keeps the intro reachable when the empty room is shorter than its content: plain
+     centring overflowed it above the scroll container's top, where no scroll can reach. */
+  justify-content: safe center;
+  gap: 18px;
+}
+
+.conversation-scroll.is-empty > .conversation-intro,
+.conversation-scroll.is-empty > .recent-activity {
+  margin: 0 auto;
+  flex: 0 0 auto;
+}
+
+.conversation-intro {
+  max-width: 650px;
+  margin: 54px auto;
+  color: var(--bachata-muted);
+  text-align: center;
+}
+
+.conversation-intro h2 {
+  color: var(--vscode-foreground);
+}
+
+.bachata-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 14px;
+}
+
+.bachata-mark svg {
+  display: block;
+}
+
+.bachata-mark-solid {
+  fill: color-mix(in srgb, var(--bachata-green) 82%, transparent);
+}
+
+.bachata-mark-outline {
+  fill: none;
+  stroke: var(--bachata-green);
+  stroke-width: 2;
+}
+
+.composer-hint {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  white-space: nowrap;
+}
+
+.load-older {
+  display: block;
+  margin: 0 auto 18px;
+}
+
+.message-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  margin: 15px 0;
+}
+
+.message-row.agent-row.right {
+  flex-direction: row-reverse;
+}
+
+.message-row.user-row {
+  justify-content: center;
+  margin: 22px 0;
+}
+
+.agent-avatar,
+.participant-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--vscode-badge-foreground);
+  border-radius: 50%;
+  background: var(--vscode-badge-background);
+  font-weight: 700;
+}
+
+.agent-avatar {
+  width: 31px;
+  height: 31px;
+}
+
+.participant-avatar {
+  width: 30px;
+  height: 30px;
+}
+
+.message {
+  width: fit-content;
+  /* Flex item holding a code block: min-width auto floors it at the <pre>'s min-content and the
+     bubble outgrows the row below ~420px. */
+  min-width: 0;
+  max-width: min(82%, 820px);
+  padding: 10px 13px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 15px;
+  background: var(--bachata-card);
+}
+
+.agent-row.left .agent-message {
+  border-bottom-left-radius: 4px;
+}
+
+.agent-row.right .agent-message {
+  border-bottom-right-radius: 4px;
+}
+
+.user-message {
+  min-width: 170px;
+  max-width: min(74%, 760px);
+  border-color: color-mix(in srgb, var(--bachata-green) 56%, var(--bachata-border));
+  background: var(--bachata-green-soft);
+  text-align: center;
+}
+
+.message-author,
+.activity-kicker,
+.decision-label {
+  margin-bottom: 5px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.message time,
+.system-message time,
+.action-card time {
+  display: block;
+  margin-top: 7px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  text-align: right;
+}
+
+.message-error {
+  border-color: var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
+}
+
+.live-message {
+  opacity: 0.94;
+}
+
+.typing {
+  margin-left: 4px;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.typing::after {
+  content: "…";
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.markdown {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 0.62em 0;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.6em;
+}
+
+.markdown blockquote {
+  padding: 2px 0 2px 12px;
+  color: var(--bachata-muted);
+  border-left: 3px solid var(--bachata-border);
+}
+
+.markdown code:not([class*="language-"]) {
+  padding: 0.08em 0.32em;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.92em;
+}
+
+.markdown a {
+  color: var(--vscode-textLink-foreground);
+}
+
+.code-block {
+  margin: 9px 0;
+  overflow: hidden;
+  border: 1px solid var(--bachata-border);
+  border-radius: 9px;
+  background: var(--bachata-code-background);
+  text-align: left;
+}
+
+.code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 31px;
+  padding: 3px 5px 3px 10px;
+  color: var(--bachata-muted);
+  border-bottom: 1px solid var(--bachata-border);
+  background: var(--bachata-card);
+  font-size: var(--bachata-font-sm);
+  text-transform: lowercase;
+}
+
+.code-toolbar button {
+  min-height: 24px;
+  padding: 2px 7px;
+  font-size: var(--bachata-font-sm);
+}
+
+.code-block pre[class*="language-"] {
+  max-height: 560px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px 13px;
+  color: var(--bachata-code-fg);
+  border-radius: 0;
+  background: var(--bachata-code-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  line-height: 1.48;
+  white-space: pre;
+}
+
+.code-block code[class*="language-"] {
+  color: var(--bachata-code-fg);
+  font-family: inherit;
+  text-shadow: none;
+}
+
+.code-block pre[class*="language-"],
+.code-block code[class*="language-"] {
+  tab-size: 4;
+  word-break: normal;
+  word-spacing: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+.code-block .token.important,
+.code-block .token.bold {
+  font-weight: 700;
+}
+
+.code-block .token.italic {
+  font-style: italic;
+}
+
+.code-block .token.entity {
+  cursor: help;
+}
+
+.code-block .token.comment,
+.code-block .token.block-comment,
+.code-block .token.prolog,
+.code-block .token.doctype,
+.code-block .token.cdata {
+  color: var(--bachata-muted);
+}
+
+.code-block .token.punctuation {
+  color: var(--bachata-code-fg);
+}
+
+.code-block .token.tag,
+.code-block .token.attr-name,
+.code-block .token.namespace {
+  color: var(--bachata-code-tag);
+}
+
+.code-block .token.function-name,
+.code-block .token.function,
+.code-block .token.boolean,
+.code-block .token.number {
+  color: var(--bachata-code-number);
+}
+
+.code-block .token.property,
+.code-block .token.class-name,
+.code-block .token.constant,
+.code-block .token.symbol {
+  color: var(--bachata-code-property);
+}
+
+.code-block .token.selector,
+.code-block .token.important,
+.code-block .token.atrule,
+.code-block .token.keyword,
+.code-block .token.builtin {
+  color: var(--bachata-code-keyword);
+}
+
+.code-block .token.string,
+.code-block .token.char,
+.code-block .token.attr-value,
+.code-block .token.regex,
+.code-block .token.variable {
+  color: var(--bachata-code-string);
+}
+
+.code-block .token.operator,
+.code-block .token.entity,
+.code-block .token.url {
+  color: var(--bachata-code-operator);
+}
+
+.code-block .token.inserted {
+  color: var(--bachata-code-inserted);
+}
+
+.code-block .token.deleted {
+  color: var(--bachata-code-deleted);
+}
+
+.system-message,
+.action-card,
+.decision-card,
+.queue-panel {
+  max-width: 820px;
+  margin: 15px auto;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--bachata-surface);
+}
+
+.system-message {
+  width: fit-content;
+  min-width: 210px;
+  padding: 9px 12px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  text-align: center;
+}
+
+.system-message .markdown,
+.system-message details {
+  text-align: left;
+}
+
+.system-message.exact-prompt {
+  width: min(100%, 820px);
+}
+
+.exact-prompt-body {
+  margin-top: 10px;
+  color: var(--vscode-foreground);
+}
+
+.action-card {
+  padding: 13px 14px;
+}
+
+.action-card.detected {
+  border-style: dashed;
+}
+
+.action-card.result {
+  border-left: 4px solid var(--bachata-green);
+}
+
+.action-summary .markdown,
+.action-summary p {
+  margin: 0;
+}
+
+.activity-details {
+  margin-top: 8px;
+}
+
+.activity-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.decision-card {
+  padding: 15px;
+  border-color: color-mix(in srgb, var(--bachata-warn-text) 62%, var(--bachata-border));
+  background: var(--bachata-card);
+}
+
+.decision-card h2 {
+  margin: 3px 0 7px;
+  font-size: 1.17em;
+}
+
+.decision-label {
+  color: var(--bachata-green-text);
+}
+
+.decision-card .decision-label {
+  color: var(--bachata-warn-text);
+}
+
+.path-line {
+  overflow-wrap: anywhere;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.queue-panel {
+  padding: 12px;
+}
+
+.queue-heading,
+.recovery-card,
+.queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.queue-heading {
+  margin-bottom: 7px;
+}
+
+.recovery-card {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 9px;
+  background: var(--bachata-card);
+}
+
+.recovery-card strong,
+.recovery-card span {
+  display: block;
+}
+
+.recovery-card span {
+  margin-top: 3px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.queue-item {
+  align-items: flex-start;
+  padding: 8px 0;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.queue-item > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.queue-item p {
+  max-height: 3em;
+  margin: 3px 0;
+  overflow: hidden;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.queue-index {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: var(--bachata-font-sm);
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  /* The composer holds the contract, the strip, the field and the blockers; without a cap it
+     took the whole pane during a run and left the transcript a 44px slit. The contract is the
+     part that scrolls; the field and its controls stay in view. */
+  max-height: calc(100cqh - 140px);
+  min-width: 0;
+  padding: 10px max(14px, calc((100vw - var(--bachata-content-max)) / 2));
+  border-top: 1px solid var(--bachata-border);
+  background: var(--bachata-surface);
+}
+
+.composer > * {
+  flex: 0 0 auto;
+}
+
+.composer > .run-contract {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.composer > textarea {
+  width: 100%;
+  /* The min/max pair is an autosize contract nothing was honouring: the field stayed two rows deep
+     and scrolled its own content. Engines without field-sizing ignore this and keep that behaviour. */
+  field-sizing: content;
+  min-height: 74px;
+  max-height: 240px;
+  border-radius: 12px;
+  background: var(--vscode-input-background);
+}
+
+.composer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  margin-top: 7px;
+}
+
+.composer-options {
+  min-width: 0;
+}
+
+.composer-options select {
+  max-width: 240px;
+}
+
+#pipeline-select {
+  min-width: min(160px, 100%);
+}
+
+.send-actions {
+  justify-content: flex-end;
+}
+
+.attachment-strip {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 7px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: min(260px, 100%);
+  min-height: 35px;
+  padding: 4px 6px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-card);
+  font-size: var(--bachata-font-sm);
+}
+
+.attachment-chip img {
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.attachment-chip input {
+  width: 16px;
+  height: 16px;
+  min-height: auto;
+  margin: 0;
+}
+
+.attachment-chip label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.attachment-chip button {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+}
+
+.attachment-chip img,
+.attachment-chip input,
+.attachment-chip small,
+.attachment-chip button {
+  flex: 0 0 auto;
+}
+
+.attachment-chip span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.attachment-chip.pending {
+  opacity: 0.7;
+}
+
+.inspector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--bachata-border);
+  background: var(--vscode-sideBar-background);
+}
+
+.inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 7px 9px 7px 13px;
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.inspector-header h2 {
+  margin: 0;
+  font-size: 1em;
+}
+
+.inspector-header button {
+  min-height: 25px;
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+}
+
+.inspector-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 18px;
+}
+
+.inspector-scroll > section {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.inspector h3 {
+  margin: 0 0 9px;
+  font-size: var(--bachata-font-md);
+}
+
+.participant-card,
+.browser-session,
+.prompt-preview {
+  margin: 7px 0;
+  padding: 9px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-card);
+}
+
+.participant-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.participant-heading strong,
+.participant-heading small,
+.browser-session strong,
+.browser-session span,
+.browser-session small,
+.section-heading strong,
+.section-heading small,
+.prompt-preview strong,
+.prompt-preview small {
+  display: block;
+}
+
+.participant-heading small,
+.browser-session small,
+.section-heading small,
+.prompt-preview small {
+  margin-top: 2px;
+  font-size: var(--bachata-font-xs);
+}
+
+.agent-status {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.participant-card dl,
+.bridge-details {
+  display: grid;
+  /* The label column was a hard 70px, so a term that outgrew it at a large editor font pushed the
+     list past the inspector. `auto` sizes it to the widest term — still one aligned column — and
+     the minmax lets it give way when the inspector is narrower than the terms want. */
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 3px 7px;
+  margin: 8px 0;
+  font-size: var(--bachata-font-sm);
+}
+
+/* A pairing token is one unbroken base64url run; it wraps rather than widening the inspector. */
+.pairing-token {
+  overflow-wrap: anywhere;
+}
+
+.participant-card dt,
+.bridge-details dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--bachata-muted);
+}
+
+.participant-card dd,
+.bridge-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field > span {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+}
+
+.participant-card .field {
+  margin: 8px 0;
+}
+
+.browser-session span {
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+  font-size: var(--bachata-font-sm);
+}
+
+.section-heading,
+.editor-section-heading,
+.editor-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+
+.pipeline-inspector > p {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.prompt-preview p {
+  margin: 5px 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.prompt-preview .markdown {
+  max-height: 180px;
+  overflow: auto;
+  padding: 7px;
+  border-radius: 6px;
+  background: var(--vscode-textCodeBlock-background);
+  font-size: var(--bachata-font-sm);
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.app-dialog-backdrop {
+  z-index: 1100;
+}
+
+.app-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--vscode-editor-background);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 35%);
+}
+
+.app-dialog > header,
+.app-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-dialog > header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.app-dialog > header button {
+  min-width: 30px;
+  padding: 2px 8px;
+}
+
+.app-dialog > p {
+  margin: 14px 0;
+  white-space: pre-line;
+}
+
+.app-dialog > footer {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.pipeline-editor {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  width: min(1040px, 96vw);
+  height: min(900px, 94vh);
+  overflow: hidden;
+  border: 1px solid var(--bachata-border);
+  border-radius: 13px;
+  background: var(--vscode-editor-background);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.45);
+}
+
+.pipeline-editor > header,
+.pipeline-editor > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--bachata-border);
+  background: var(--bachata-surface);
+}
+
+.pipeline-editor > footer {
+  border-top: 1px solid var(--bachata-border);
+  border-bottom: 0;
+}
+
+.pipeline-editor > header h2,
+.pipeline-editor > header p {
+  margin: 0;
+}
+
+.pipeline-editor > header h2 {
+  font-size: 17px;
+}
+
+.pipeline-editor > header p {
+  margin-top: 3px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.pipeline-editor > header > button {
+  flex: 0 0 auto;
+  width: 32px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.editor-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 7px 12px 0;
+  border-bottom: 1px solid var(--bachata-border);
+  background: var(--bachata-surface);
+}
+
+.editor-tabs button {
+  color: var(--bachata-muted);
+  border-color: transparent;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: transparent;
+}
+
+.editor-tabs button:hover:not(:disabled) {
+  color: var(--vscode-foreground);
+  background: var(--bachata-card);
+}
+
+.editor-tabs button.selected {
+  color: var(--vscode-foreground);
+  border-color: var(--bachata-border);
+  border-bottom-color: var(--vscode-editor-background);
+  border-top: 2px solid var(--bachata-green);
+  background: var(--vscode-editor-background);
+  font-weight: 600;
+}
+
+.editor-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+}
+
+.pipeline-meta {
+  margin-bottom: 18px;
+}
+
+.span-two,
+.span-all {
+  grid-column: 1 / -1;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 31px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.check-field input {
+  min-height: auto;
+  margin: 0;
+}
+
+.editor-section-heading {
+  margin: 17px 0 8px;
+}
+
+.editor-section-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.editor-card {
+  margin: 8px 0;
+  border: 1px solid var(--bachata-border);
+  border-radius: 9px;
+  background: var(--bachata-card);
+}
+
+.editor-card-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.editor-card-summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-card-summary small {
+  color: var(--bachata-muted);
+  text-align: right;
+}
+
+.editor-card-body {
+  padding: 0 11px 11px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.editor-card-actions {
+  justify-content: flex-end;
+  margin: 9px 0;
+}
+
+.drag-handle {
+  color: var(--bachata-muted);
+  letter-spacing: -0.15em;
+  cursor: grab;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.raw-editor,
+.raw-editor textarea {
+  height: 100%;
+}
+
+.raw-editor textarea {
+  min-height: 650px;
+  resize: none;
+  font-family: var(--vscode-editor-font-family);
+  line-height: 1.45;
+}
+
+@media (max-width: 1120px) {
+  .room-body.with-inspector {
+    grid-template-columns: minmax(0, 1fr) 285px;
+  }
+
+}
+
+@media (max-width: 850px) {
+  .app-shell {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .room-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .room-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .room-title-block {
+    width: 100%;
+  }
+
+  .room-actions {
+    justify-content: flex-start;
+  }
+
+  .conversation-scroll {
+    padding: 18px 12px;
+  }
+
+  .composer {
+    padding: 9px 10px;
+  }
+
+  .composer-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .send-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 590px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .room-sidebar {
+    display: none;
+  }
+
+  .message {
+    max-width: 90%;
+  }
+
+  .user-message {
+    max-width: 88%;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .span-two,
+  .span-all {
+    grid-column: auto;
+  }
+
+  .modal-backdrop {
+    padding: 4px;
+  }
+
+  .pipeline-editor {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+}
+
+.browser-assets {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.browser-assets-heading {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.browser-asset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 9px;
+  background: var(--bachata-card);
+}
+
+.browser-asset-main {
+  min-width: 0;
+}
+
+.browser-asset-main strong,
+.browser-asset-main span,
+.browser-asset-main small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.browser-asset-main span,
+.browser-asset-main small,
+.browser-asset-unavailable {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.browser-asset-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.browser-asset-preview {
+  grid-column: 1 / -1;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.run-tabs {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  height: 42px;
+  border-bottom: 1px solid var(--bachata-border);
+  background: var(--vscode-sideBar-background);
+}
+
+.run-tabs-brand {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 0 13px;
+  border-right: 1px solid var(--bachata-border);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.run-tabs-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.run-tab {
+  /* Positioned so the tab's screen-reader spans resolve against it rather than the document:
+     absolutely positioned against the page they escaped the strip and widened the webview. */
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  flex: 1 1 min(240px, 26vw);
+  /* Below this the label box holds an icon and a counter and no title; the strip scrolls instead. */
+  min-width: 200px;
+  max-width: 290px;
+  border-right: 1px solid var(--bachata-border);
+  border-bottom: 2px solid transparent;
+}
+
+.run-tab.selected {
+  border-bottom-color: var(--bachata-green);
+  background: var(--bachata-surface);
+}
+
+.run-tab-select,
+.run-tab-menu,
+.run-tab-new {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.run-tab-select {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 8px 5px 10px;
+  text-align: left;
+}
+
+.run-tab-select > span:nth-child(2) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.run-tab-select small {
+  font-size: var(--bachata-font-xs);
+}
+
+.run-tab-status {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--bachata-muted);
+}
+
+.run-tab-status.status-completed {
+  color: var(--bachata-green-text);
+}
+
+.run-tab-status.status-running {
+  color: var(--bachata-green-text);
+}
+
+.run-tab-status.status-paused {
+  color: var(--bachata-warn-text);
+}
+
+.run-tab-status.status-error {
+  color: var(--bachata-danger);
+}
+
+.run-tab-menu {
+  padding: 0;
+  color: var(--bachata-muted);
+  letter-spacing: -0.08em;
+}
+
+.run-tab-new {
+  flex: 0 0 42px;
+  font-size: 18px;
+}
+
+/*
+ * EX-UI-04. Below 480px the strip's fixed cells — brand, Runs, New run — leave less room than one
+ * tab's minimum width, so the selected tab overflowed its scroller and its action menu sat under
+ * the New-run button: a press on the menu made a run. The brand and the tab give up width first;
+ * the menu column (28px) and the New-run button (42px) keep their size, so both stay distinct,
+ * visible hit regions and nothing is hidden or shrunk below a pointer target.
+ */
+@media (max-width: 480px) {
+  .run-tabs-brand {
+    min-width: 0;
+    padding: 0 8px;
+  }
+
+  .run-tab {
+    flex-basis: min(200px, 44vw);
+    min-width: 124px;
+  }
+}
+
+.workflow-timeline,
+.result-center,
+.child-runs,
+.interaction-card {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--bachata-surface);
+}
+
+.workflow-timeline {
+  padding: 13px 15px;
+}
+
+.result-center {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.result-center > header,
+.result-checks li,
+/* These carry paths and recorded identifiers, which have no break opportunities of their own. */
+.result-worktree,
+.evidence-ledger li {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.result-worktree {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.result-center h2,
+.result-center h3,
+.result-center h4,
+.result-center p {
+  margin: 0;
+}
+
+.result-center > header h2,
+.ruling-trace > h2,
+.provider-history > h2,
+.direction-center {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+/*
+ * The evidence panels carry URLs, worktree paths, check names and recorded identifiers — tokens
+ * with no break opportunity of their own. At a large editor font in a narrow panel they sized
+ * their column past the card. `anywhere` only breaks a word that would not fit the line, so it
+ * changes nothing at comfortable widths, and it is what `.message-text.markdown` already does.
+ */
+.direction-center,
+.result-center,
+.queue-panel,
+.workflow-timeline {
+  overflow-wrap: anywhere;
+}
+
+/* Their list items and paragraphs are flex and grid items, so they carry the automatic
+   min-content floor that keeps a broken word from actually narrowing the column. */
+.direction-center li,
+.direction-center p,
+.result-center li,
+.result-center p,
+.queue-panel li,
+.queue-panel p,
+.workflow-timeline li,
+.workflow-timeline p,
+.recovery-card > div,
+.ruling-list li > span {
+  min-width: 0;
+}
+
+/* A select is sized by its longest option and ignores max-width against a content-sized parent,
+   so inside these panels it is told the width it may use. */
+.direction-center select,
+.result-center select,
+.queue-panel select {
+  width: 100%;
+}
+
+.direction-center > header h2 {
+  font-size: 1.17em;
+}
+
+.result-center > section > h3,
+.result-grid > section > h3,
+.direction-center h3 {
+  font-size: 1em;
+}
+
+.direction-center h4 {
+  margin: 12px 0 6px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.result-grid {
+  display: grid;
+  /* min(240px, 100%) so the last column can shrink below its preferred width instead of
+     overflowing the card, the same floor .compare-grid carried. */
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
+}
+
+.result-grid pre {
+  margin: 8px 0 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.result-files,
+.result-checks,
+.result-gaps ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.result-files button {
+  padding: 2px 0;
+  border: 0;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  text-align: left;
+  /* File paths have no break opportunities, so they push the list past the card at large text
+     sizes; the sibling `pre` already wraps this way. */
+  overflow-wrap: anywhere;
+}
+
+.result-checks li {
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+
+.result-check-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 10px;
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.result-check-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.result-gaps {
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+  background: var(--vscode-inputValidation-warningBackground);
+}
+
+.workflow-timeline > h2,
+.child-runs > h2 {
+  margin: 0 0 10px;
+  font-size: var(--bachata-font-md);
+}
+
+.child-runs {
+  padding: 13px 15px;
+}
+
+.child-run {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 42px;
+  padding: 7px 5px;
+  border: 0;
+  border-top: 1px solid var(--bachata-border);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.child-run:first-of-type {
+  border-top: 0;
+}
+
+.child-run strong,
+.child-run small {
+  display: block;
+}
+
+.child-run > small,
+.child-run span small {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.parent-run {
+  align-self: flex-start;
+  min-height: 24px;
+  padding: 2px 7px;
+  color: var(--bachata-muted);
+  border-color: transparent;
+  background: transparent;
+  font-size: var(--bachata-font-sm);
+}
+
+.workflow-event {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 7px 0;
+}
+
+.workflow-event + .workflow-event {
+  border-top: 1px solid var(--bachata-border);
+}
+
+.workflow-event strong,
+.workflow-event small {
+  display: block;
+}
+
+.workflow-event small {
+  margin-top: 2px;
+  font-size: var(--bachata-font-xs);
+}
+
+.workflow-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 3px;
+  border: 2px solid var(--bachata-border);
+  border-radius: 50%;
+  background: var(--vscode-editor-background);
+}
+
+.workflow-event.status-running .workflow-dot,
+.workflow-event.status-completed .workflow-dot {
+  border-color: var(--bachata-green);
+  background: var(--bachata-green);
+}
+
+.workflow-event.status-failed .workflow-dot,
+.workflow-event.status-error .workflow-dot {
+  border-color: var(--bachata-danger);
+  background: var(--bachata-danger);
+}
+
+.interaction-card {
+  padding: 15px;
+  border-color: color-mix(in srgb, var(--bachata-warn-text) 62%, var(--bachata-border));
+}
+
+.interaction-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.interaction-heading strong,
+.interaction-heading small {
+  display: block;
+}
+
+.interaction-heading small {
+  margin-bottom: 3px;
+  font-size: var(--bachata-font-xs);
+}
+
+.interaction-options {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.interaction-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-card);
+}
+
+.interaction-option input {
+  min-height: auto;
+  margin: 3px 0 0;
+}
+
+.interaction-option small {
+  display: block;
+  margin-top: 3px;
+}
+
+.interaction-text {
+  width: 100%;
+  min-height: 72px;
+  margin-top: 10px;
+}
+
+input.interaction-text {
+  min-height: 34px;
+}
+
+.interaction-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.interaction-timer {
+  flex: 0 0 auto;
+  color: var(--bachata-warn-text);
+  font-size: var(--bachata-font-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.interaction-timer.paused {
+  color: var(--bachata-muted);
+}
+
+.iteration-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.iteration-control input {
+  width: 58px;
+}
+
+@media (max-width: 900px) {
+  .room-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+
+  .room-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .run-tab {
+    flex-basis: min(260px, 58vw);
+  }
+}
+
+.run-tab-all {
+  display: grid;
+  place-content: center;
+  flex: 0 0 auto;
+  min-width: 78px;
+  padding: 3px 10px;
+  border: 0;
+  border-right: 1px solid var(--bachata-border);
+  border-radius: 0;
+  background: transparent;
+  font-weight: 700;
+}
+
+.run-tab-all small {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--bachata-font-xs);
+  font-weight: 400;
+}
+
+.run-action-menu,
+.header-action-menu {
+  position: relative;
+}
+
+.run-action-menu > summary,
+.header-action-menu > summary {
+  display: grid;
+  place-items: center;
+  min-height: 30px;
+  padding: 5px 8px;
+  list-style: none;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 7px;
+  background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
+}
+
+.run-action-menu > summary {
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--bachata-muted);
+  background: transparent;
+  letter-spacing: -0.08em;
+}
+
+.run-action-menu > summary::-webkit-details-marker,
+.header-action-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.run-action-menu:not([open]) > .run-action-menu-items,
+.header-action-menu:not([open]) > div {
+  display: none;
+}
+
+.run-action-menu-items,
+.header-action-menu > div {
+  position: fixed;
+  z-index: 220;
+  top: var(--run-menu-top, 43px);
+  left: var(--run-menu-left, auto);
+  right: auto;
+  display: grid;
+  min-width: 190px;
+  max-width: calc(100vw - 16px);
+  padding: 5px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 9px;
+  background: var(--vscode-menu-background, var(--vscode-editor-background));
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+}
+
+.run-action-menu-items button,
+.header-action-menu > div button {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.run-drawer-backdrop {
+  position: fixed;
+  z-index: 180;
+  inset: 0;
+  display: flex;
+  justify-content: flex-start;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.run-drawer {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  width: min(520px, 92vw);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--bachata-border);
+  background: var(--vscode-sideBar-background);
+  box-shadow: 12px 0 36px rgba(0, 0, 0, 0.3);
+}
+
+.run-drawer > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.run-drawer h2,
+.run-drawer p {
+  margin: 0;
+}
+
+.run-drawer header p {
+  margin-top: 3px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.run-drawer-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 9px 14px;
+}
+
+.run-drawer-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 31px;
+  align-items: stretch;
+  margin: 5px 0;
+  border: 1px solid var(--bachata-border);
+  border-radius: 10px;
+  background: var(--bachata-card);
+}
+
+.run-drawer-item.selected {
+  border-left: 3px solid var(--bachata-green);
+  box-shadow: inset 3px 0 0 var(--bachata-green);
+}
+
+/* Archived runs are selectable here — this drawer is how they are recovered — so they get no
+   inactive-control exemption. Dimming the whole row took its secondary text to 3.71:1; the muted
+   colour the archived run tab already uses reads as recessed and still passes. */
+.run-drawer-item.archived {
+  color: var(--bachata-muted);
+}
+
+.run-drawer-select {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.run-drawer-select strong,
+.run-drawer-select small {
+  display: block;
+}
+
+.run-drawer-select small {
+  margin-top: 2px;
+  font-size: var(--bachata-font-xs);
+}
+
+.run-drawer-select time {
+  white-space: nowrap;
+  font-size: var(--bachata-font-xs);
+}
+
+.recent-activity,
+.orchestration-card {
+  width: min(100%, 880px);
+  margin: 0 auto 18px;
+  padding: 13px 15px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--bachata-surface);
+  text-align: left;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-heading strong,
+.section-heading small {
+  display: block;
+}
+
+.section-heading small {
+  margin-top: 2px;
+  font-size: var(--bachata-font-xs);
+}
+
+.recent-activity-item,
+.orchestration-task {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 4px;
+  border: 0;
+  border-top: 1px solid var(--bachata-border);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+/* The middle column is already minmax(0, 1fr), but a run title with no break opportunity — a path,
+   a URL, a hash — still renders past it. Titles come from prompts and TODO lines, so they break. */
+.recent-activity-item > span,
+.orchestration-task > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recent-activity-item:first-of-type,
+.orchestration-task:first-of-type {
+  margin-top: 8px;
+}
+
+.recent-activity-item strong,
+.recent-activity-item small,
+.orchestration-task strong,
+.orchestration-task small {
+  display: block;
+}
+
+.recent-activity-item small,
+.orchestration-task small {
+  margin-top: 2px;
+  font-size: var(--bachata-font-xs);
+}
+
+.recent-activity-item time {
+  font-size: var(--bachata-font-xs);
+  white-space: nowrap;
+}
+
+.orchestration-tasks {
+  margin-top: 8px;
+}
+
+.orchestration-task {
+  grid-template-columns: 9px minmax(0, 1fr);
+}
+
+/* A task with no chat to open is still a row the reader must read, so it keeps full contrast. */
+.orchestration-task:disabled {
+  opacity: 1;
+}
+
+.room-empty {
+  place-content: initial;
+  align-content: start;
+  gap: 18px;
+  overflow-y: auto;
+  padding: 34px max(18px, calc((100vw - var(--bachata-content-max)) / 2));
+}
+
+.room-empty > div:first-child {
+  text-align: center;
+}
+
+.delivery-control,
+.iteration-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.composer-note {
+  display: block;
+  margin-top: 6px;
+}
+
+.editor-errors,
+.editor-mutation-note {
+  margin: 0 16px 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--bachata-border));
+  border-radius: 8px;
+  background: var(--vscode-inputValidation-errorBackground);
+}
+
+.editor-errors p,
+.editor-mutation-note {
+  margin: 3px 0;
+  color: var(--bachata-danger);
+  font-size: var(--bachata-font-sm);
+}
+
+select[multiple] {
+  padding: 4px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-input-background);
+}
+
+select[multiple] option {
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: var(--vscode-foreground);
+}
+
+select[multiple] option:checked {
+  color: var(--vscode-foreground);
+  background: var(--bachata-green-soft) linear-gradient(0deg, var(--bachata-green-soft) 0%, var(--bachata-green-soft) 100%);
+  font-weight: 600;
+}
+
+/* A switched-off step is data, not an inactive control: its card summary and flow chip stay
+   clickable and focusable, so they get no contrast exemption. Muted colour reads as off and
+   passes where the opacity fade did not. */
+.editor-card.step-disabled > summary strong {
+  color: var(--bachata-muted);
+}
+
+.editor-subsection-note {
+  margin: 0 0 9px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.editor-section {
+  margin: 14px 0 0;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.editor-section > summary.editor-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 34px;
+  margin: 0;
+  padding: 8px 0 6px;
+  list-style: none;
+}
+
+.editor-section > summary small {
+  margin-left: auto;
+}
+
+.editor-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-section > summary h3 {
+  margin: 0;
+  font-size: var(--bachata-font-md);
+}
+
+.editor-section > summary small {
+  overflow: hidden;
+  color: var(--bachata-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-section[open] > summary .disclosure-chevron {
+  transform: rotate(90deg);
+}
+
+.editor-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.editor-section-note {
+  margin: 0 0 10px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.editor-advanced {
+  margin-top: 10px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.editor-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 5px 0 3px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-md);
+  font-weight: 600;
+  list-style: none;
+}
+
+.editor-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-advanced > summary small {
+  color: var(--bachata-muted);
+  font-weight: 400;
+}
+
+.editor-advanced[open] > summary .disclosure-chevron {
+  transform: rotate(90deg);
+}
+
+.editor-advanced-body {
+  padding-bottom: 6px;
+}
+
+.step-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step-flow;
+}
+
+.step-flow li {
+  display: flex;
+  align-items: center;
+  counter-increment: step-flow;
+}
+
+.step-flow-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 999px;
+  background: var(--bachata-card);
+  color: var(--vscode-foreground);
+  font-size: var(--bachata-font-sm);
+}
+
+.step-flow-item:hover:not(:disabled) {
+  border-color: var(--bachata-green-text);
+  background: var(--bachata-green-soft);
+}
+
+.step-flow-item::before {
+  content: counter(step-flow);
+  color: var(--bachata-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-flow li + li::after {
+  content: none;
+}
+
+.step-flow-item .codicon {
+  font-size: 12px;
+  color: var(--bachata-warn-text);
+}
+
+.step-flow-disabled {
+  color: var(--bachata-muted);
+}
+
+.role-unbound {
+  color: var(--bachata-warn-text);
+}
+
+.editor-step-warning {
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--bachata-warn-text) 62%, var(--bachata-border));
+  border-radius: 8px;
+  background: var(--bachata-card);
+  font-size: var(--bachata-font-sm);
+}
+
+.editor-unsupported-step {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--bachata-warn-text) 62%, var(--bachata-border));
+  border-radius: 9px;
+  background: var(--bachata-card);
+}
+
+.editor-unsupported-step > p {
+  margin: 0 0 8px;
+}
+
+.editor-subsection {
+  margin: 12px 0 0;
+  padding: 11px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+}
+
+.editor-subsection legend {
+  padding: 0 5px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  font-weight: 700;
+}
+
+.schema-editor {
+  min-height: 210px;
+  font-family: var(--vscode-editor-font-family);
+  line-height: 1.45;
+}
+
+.editor-progress {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.render-failure {
+  display: grid;
+  place-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+}
+
+.render-failure h1 {
+  font-size: 1.5em;
+}
+
+
+@media (max-width: 900px) {
+  /* The panel is too narrow for a column, so the inspector reads as a sheet over the room body.
+     It is anchored below the header, so the run title, the view switch and the run actions stay
+     reachable, and nothing outside it is dimmed: dimmed chrome that still worked read as
+     disabled controls. */
+  .room-body {
+    position: relative;
+  }
+
+  .inspector {
+    display: grid;
+    position: absolute;
+    z-index: 80;
+    inset: 0;
+    width: auto;
+    border-left: 0;
+  }
+
+  .room-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .recent-activity-item,
+  .run-drawer-select {
+    grid-template-columns: 9px minmax(0, 1fr);
+  }
+
+  .recent-activity-item time,
+  .run-drawer-select time {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 590px) {
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .run-tabs-brand {
+    min-width: 48px;
+    padding: 0 8px;
+  }
+
+  .run-tab-all {
+    min-width: 62px;
+    padding: 2px 6px;
+  }
+
+  .run-tab {
+    flex-basis: min(230px, 65vw);
+  }
+
+  .composer-options {
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .composer-options select {
+    flex: 1;
+    min-width: 120px;
+    max-width: none;
+  }
+
+  .delivery-control,
+  .iteration-control {
+    width: 100%;
+  }
+
+  .delivery-control select,
+  .iteration-control input {
+    flex: 1;
+    width: auto;
+  }
+}
+
+.role-assignment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 590px) {
+  .role-assignment-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.editor-control-group {
+  border: 0;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-control-group:disabled .editor-card {
+  opacity: 0.72;
+}
+
+.archive-readonly-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-textBlockQuote-background, var(--bachata-card));
+}
+
+/* Given a flex-basis it takes a line of its own when the row is cramped, instead of being
+   squeezed into a 47px column beside the heading and the button. */
+.archive-readonly-banner span {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.archive-readonly-banner > strong,
+.blocking-workflow-banner > strong {
+  min-width: 0;
+}
+
+.blocking-workflow-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--vscode-focusBorder);
+  background: var(--vscode-textBlockQuote-background, var(--bachata-card));
+}
+
+/* Same flex-basis rule as the archive banner; this is the declaration that wins for it. */
+.blocking-workflow-banner span {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.final-ruling-card {
+  margin: 12px 0;
+  padding: 15px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 10px;
+  background: var(--bachata-card);
+}
+
+.ruling-heading,
+.retained-run,
+.retained-runs-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ruling-heading h3 {
+  margin: 3px 0 0;
+}
+
+.finding-identity {
+  font-family: var(--vscode-editor-font-family);
+  overflow-wrap: anywhere;
+}
+
+.ruling-heading > small,
+.retained-runs-heading small,
+.retained-run small,
+.retained-run span {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.ruling-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 12px 0;
+}
+
+.ruling-meta dt {
+  color: var(--bachata-muted);
+}
+
+.ruling-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ruling-result {
+  padding: 10px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-surface);
+}
+
+.final-ruling-card h4 {
+  margin: 14px 0 7px;
+  font-size: var(--bachata-font-sm);
+}
+
+.ruling-participants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ruling-participant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 0;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.ruling-participant small {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.ruling-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ruling-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 7px;
+}
+
+.ruling-list.risks li {
+  display: block;
+}
+
+.ruling-disposition {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 999px;
+  font-size: var(--bachata-font-xs);
+}
+
+.ruling-disposition.accepted {
+  border-color: var(--bachata-green);
+}
+
+.ruling-disposition.overruled {
+  border-color: var(--bachata-danger);
+}
+
+.interaction-card.pending,
+.approval-card.pending {
+  opacity: 0.75;
+}
+
+.approval-reason {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pending-label {
+  align-self: center;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.retained-runs {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.retained-runs-heading {
+  margin-bottom: 7px;
+}
+
+.retained-runs-heading strong,
+.retained-runs-heading small,
+.retained-run strong,
+.retained-run small,
+.retained-run span {
+  display: block;
+}
+
+.retained-run {
+  padding: 10px 0;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.retained-run:first-of-type {
+  border-top: 0;
+}
+
+.retained-run > div:first-child {
+  min-width: 0;
+}
+
+.retained-run .path-line {
+  margin: 3px 0;
+}
+
+@media (max-width: 620px) {
+  .browser-binding-bar,
+  .ruling-heading,
+  .retained-run,
+  .retained-runs-heading {
+    flex-direction: column;
+  }
+
+  .retained-run .compact-actions {
+    width: 100%;
+  }
+
+  .retained-run .compact-actions button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-scroll {
+    scroll-behavior: auto;
+  }
+
+  /* codicon.css sets the spin with two-class selectors; a single class loses on specificity. */
+  .codicon-modifier-spin,
+  .codicon-sync.codicon-modifier-spin,
+  .codicon-loading.codicon-modifier-spin,
+  .codicon-gear.codicon-modifier-spin {
+    animation: none;
+  }
+
+  .typing::after {
+    animation: none;
+  }
+}
+
+.guardrail {
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-card);
+  margin-bottom: 6px;
+}
+
+.guardrail summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.guardrail summary::-webkit-details-marker {
+  display: none;
+}
+
+.guardrail-label {
+  font-weight: 600;
+}
+
+.guardrail-state {
+  flex: 1;
+  text-align: right;
+  color: var(--bachata-muted);
+  font-size: 0.92em;
+}
+
+.guardrail-chevron {
+  transition: transform 120ms ease;
+}
+
+.guardrail[open] .guardrail-chevron {
+  transform: rotate(90deg);
+}
+
+.guardrail[open] summary {
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.guardrail-body {
+  padding: 10px 12px;
+  background: var(--bachata-surface);
+}
+
+.editor-section-heading h3 .codicon {
+  vertical-align: -2px;
+  margin-right: 2px;
+  color: var(--bachata-muted);
+}
+
+.composer-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  padding: 8px 10px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-surface);
+}
+
+.icon-button {
+  padding: 4px 8px;
+}
+
+button[data-action="composer-options-toggle"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button[data-action="composer-options-toggle"].open {
+  border-color: var(--bachata-green);
+}
+
+button[data-action="composer-options-toggle"].has-chips span {
+  color: var(--bachata-green-text);
+  font-weight: 600;
+}
+
+.participant-more summary,
+.bridge-advanced summary {
+  cursor: pointer;
+  color: var(--bachata-muted);
+  padding: 4px 0;
+}
+
+.view-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--vscode-input-background);
+}
+
+.view-switch button {
+  min-height: 24px;
+  padding: 3px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: var(--bachata-font-sm);
+}
+
+/*
+ * Dark Modern defines button.secondaryBackground as #00000000, so painting the selected segment
+ * with it left font-weight as the only cue. The ring carries the state instead: --bachata-green
+ * clears 3:1 against the track in both default themes, and it is the accent the selected run tab
+ * already uses.
+ */
+.view-switch button.selected {
+  box-shadow: inset 0 0 0 1px var(--bachata-green);
+  background: var(--bachata-card-strong);
+  font-weight: 600;
+}
+
+.header-action-menu > summary {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--bachata-muted);
+  cursor: pointer;
+}
+
+/* Same transparent-token trap as the view switch: the open state needs a fill of its own. */
+.header-action-menu > summary:hover,
+.header-action-menu[open] > summary {
+  border-color: var(--vscode-input-border, var(--bachata-border));
+  background: var(--bachata-card-strong);
+}
+
+.run-tab .run-action-menu > summary {
+  opacity: 0;
+}
+
+.run-tab:hover .run-action-menu > summary,
+.run-tab.selected .run-action-menu > summary,
+.run-tab .run-action-menu[open] > summary,
+.run-tab .run-action-menu > summary:focus-visible {
+  opacity: 1;
+}
+
+.quiet-control {
+  width: 0;
+  min-width: 0;
+  margin-left: -6px;
+  padding: 0;
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 0.12s ease;
+}
+
+/*
+ * EX-UI-02. A control that is invisible must not be reachable, and a control that is reachable
+ * must not be invisible. `.quiet-control` is drawn at zero width until the composer is hovered or
+ * holds focus; its own focus reveals it too, so a keyboard reader can never land on something the
+ * screen does not show. The per-file Changes button used this class outside the composer, where
+ * nothing ever revealed it: it now draws like the control it is.
+ */
+.composer:hover .quiet-control,
+.composer:focus-within .quiet-control,
+.quiet-control:focus-visible,
+.quiet-control:focus {
+  width: auto;
+  margin-left: 0;
+  padding: 4px 8px;
+  border-width: 1px;
+  opacity: 1;
+}
+
+.composer-options-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The options open in flow beneath the controls rather than as a popover over the field they
+   configure. */
+.composer > .composer-advanced {
+  margin-top: 8px;
+}
+
+.composer-advanced .delivery-control,
+.composer-advanced .iteration-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  align-items: center;
+  gap: 10px;
+}
+
+.orchestration-card,
+.browser-binding-bar {
+  display: block;
+}
+
+.orchestration-card > summary,
+.browser-binding-bar > summary,
+.inspector-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.orchestration-card > summary::-webkit-details-marker,
+.browser-binding-bar > summary::-webkit-details-marker,
+.inspector-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure-chevron {
+  flex: 0 0 auto;
+  color: var(--bachata-muted);
+  transition: transform 0.12s ease;
+}
+
+details[open] > summary .disclosure-chevron {
+  transform: rotate(90deg);
+}
+
+.orchestration-body {
+  margin-top: 11px;
+}
+
+.orchestration-body > .compact-actions {
+  justify-content: flex-end;
+}
+
+.browser-binding-bar {
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.browser-binding-bar > summary .binding-count {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  white-space: nowrap;
+}
+
+.browser-binding-bar > .browser-binding-controls {
+  margin-top: 9px;
+}
+
+.inspector-section > summary {
+  margin: 0 0 4px;
+  font-size: var(--bachata-font-md);
+  font-weight: 600;
+}
+
+.inspector-section[open] > summary {
+  margin-bottom: 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiet-control,
+  .disclosure-chevron,
+  .guardrail-chevron {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .room-body.with-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (forced-colors: active) {
+  button.primary,
+  button.send-button {
+    color: ButtonText;
+    border-color: ButtonText;
+    background: ButtonFace;
+  }
+
+  button.primary:disabled,
+  button.send-button:disabled {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
+  /* A refusal marked with aria-disabled reads as disabled here too; the opacity fade that carries
+     it elsewhere is not a state a forced palette conveys. */
+  [aria-disabled="true"] {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
+  /* These recessed states are carried by a muted colour, which a forced palette overrides. */
+  .run-drawer-item.archived,
+  .step-flow-disabled,
+  .editor-card.step-disabled > summary strong {
+    color: GrayText;
+  }
+
+  .run-tab.selected {
+    border-bottom-color: Highlight;
+  }
+
+  .room-item.selected {
+    box-shadow: inset 3px 0 0 Highlight;
+  }
+
+  .view-switch button.selected {
+    border-color: Highlight;
+    outline: 1px solid Highlight;
+  }
+
+  .room-presence,
+  .workflow-dot {
+    forced-color-adjust: none;
+  }
+
+  [aria-invalid="true"] {
+    border-color: Highlight;
+    outline-color: Highlight;
+  }
+
+  .notification-unread-flag {
+    color: ButtonText;
+    border: 1px solid ButtonText;
+    background: ButtonFace;
+  }
+
+  .notification-list li.unread {
+    border-left-color: Highlight;
+  }
+}
+
+@media (max-width: 590px) {
+  .composer-hint {
+    display: none;
+  }
+}
+
+@media (hover: none) {
+  .quiet-control {
+    width: auto;
+    margin-left: 0;
+    padding: 4px 8px;
+    border-width: 1px;
+    opacity: 1;
+  }
+
+  .run-tab .run-action-menu > summary {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 590px) {
+  .quiet-control {
+    width: auto;
+    margin-left: 0;
+    padding: 4px 8px;
+    border-width: 1px;
+    opacity: 1;
+  }
+}
+
+
+.run-contract {
+  margin-bottom: 8px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 10px;
+  background: var(--bachata-surface);
+}
+
+.run-contract > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: var(--bachata-font-xs);
+}
+
+.run-contract > summary::-webkit-details-marker {
+  display: none;
+}
+
+.contract-badge {
+  font-weight: 600;
+}
+
+.contract-assurance {
+  border: 1px solid var(--vscode-panel-border, transparent);
+  border-radius: 999px;
+  padding: 0 8px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.contract-assurance-statement {
+  grid-column: 1 / -1;
+}
+
+.contract-pipeline {
+  color: var(--bachata-muted);
+}
+
+.contract-blockers {
+  margin-left: auto;
+  color: var(--bachata-warn-text);
+}
+
+.contract-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 16px;
+  padding: 0 10px 10px;
+}
+
+.contract-outbound {
+  grid-column: 1 / -1;
+}
+
+.contract-outbound > details {
+  border-left: 2px solid var(--bachata-border, var(--vscode-panel-border));
+  margin: 4px 0;
+  padding-left: 8px;
+}
+
+.contract-outbound > details > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.contract-outbound h4 {
+  margin: 6px 0 2px;
+  font-size: var(--bachata-font-xs);
+  color: var(--bachata-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.compare-grid {
+  display: grid;
+  /* A bare minmax(240px, …) floors the single track at 240px in a narrower container and the
+     card overflows; min(240px, 100%) lets the last column shrink to the space there is. */
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.compare-column {
+  border: 1px solid var(--bachata-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  padding: 6px 8px;
+  overflow-x: auto;
+}
+
+.compare-column.accepted {
+  border-color: var(--bachata-success-text);
+}
+
+.compare-column header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.compare-column h5 {
+  margin: 6px 0 2px;
+  font-size: var(--bachata-font-xs);
+  color: var(--bachata-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ruling-trace table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--bachata-font-xs);
+}
+
+.ruling-trace th,
+.ruling-trace td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--bachata-border, var(--vscode-panel-border));
+}
+
+.composer-blockers {
+  border: 1px solid var(--vscode-editorWarning-foreground, var(--bachata-border));
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-top: 6px;
+  font-size: var(--bachata-font-xs);
+}
+
+.composer-blockers ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.composer-blockers li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.blocker-requirement {
+  color: var(--bachata-muted);
+}
+
+.editor-advanced-locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  padding: 6px 0;
+}
+
+.result-handoff {
+  border-top: 1px solid var(--bachata-border, var(--vscode-panel-border));
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.handoff-steps {
+  margin: 6px 0 8px;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.contract-inexact {
+  color: var(--bachata-muted);
+  font-style: italic;
+}
+
+.contract-grid h3 {
+  margin: 6px 0 2px;
+  font-size: var(--bachata-font-xs);
+  font-weight: 700;
+  color: var(--bachata-muted);
+}
+
+.contract-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--bachata-font-xs);
+}
+
+.contract-list > li {
+  overflow-wrap: anywhere;
+}
+
+.search-truncated {
+  margin: 0 0 6px;
+  font-size: var(--bachata-font-xs);
+  color: var(--bachata-warn-text);
+}
+
+.result-gaps.evidence-ledger {
+  border-color: var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+}
+
+.evidence-ledger ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.evidence-ledger li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-top: 6px;
+}
+
+.evidence-state {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  font-size: var(--bachata-font-xs);
+  text-transform: uppercase;
+}
+
+.evidence-recorded .evidence-state {
+  border-color: var(--bachata-success-text);
+}
+
+.evidence-recorded .evidence-state .codicon {
+  color: var(--bachata-success-text);
+}
+
+.evidence-missing .evidence-state {
+  border-color: var(--vscode-inputValidation-warningBorder);
+  color: var(--vscode-inputValidation-warningForeground, inherit);
+}
+
+.evidence-notApplicable .evidence-state {
+  color: var(--vscode-descriptionForeground);
+}
+
+.result-assessment p {
+  margin: 4px 0 0;
+}
+
+.result-decision {
+  padding: 12px 14px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background);
+}
+
+.result-decision h3 {
+  margin: 0 0 8px;
+}
+
+.result-decision-grid {
+  display: grid;
+  /* The 110px floor on the label column plus the value column's own min-content floor pushed this
+     list past its card below ~340px. Both columns keep their preferred size and may now shrink. */
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.result-decision-grid dt {
+  color: var(--vscode-descriptionForeground);
+}
+
+.result-decision-grid dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The verdict is already stated in words, so the outcome colour rides on the status icon:
+   errorForeground carries a whole sentence at 3.16:1 on the light theme's card. */
+.result-assessment.outcome-verificationFailed .result-assessment-status .codicon,
+.result-decision.outcome-verificationFailed .result-assessment-status .codicon {
+  color: var(--vscode-errorForeground);
+}
+
+.result-assessment.outcome-completed .result-assessment-status .codicon,
+.result-decision.outcome-completed .result-assessment-status .codicon {
+  color: var(--bachata-success-text);
+}
+
+.result-next-action {
+  font-weight: 600;
+}
+
+.result-assessment-status {
+  margin: 0;
+}
+
+.result-assessment-details {
+  margin-top: 8px;
+}
+
+.result-finding-summary,
+.result-finding-details {
+  margin-top: 8px;
+}
+
+.result-finding-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result-finding-list li {
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+}
+
+.result-finding-list .finding-accepted {
+  border-left: 3px solid var(--bachata-danger);
+}
+
+.result-finding-list .finding-unresolved {
+  border-left: 3px solid var(--vscode-inputValidation-warningBorder);
+}
+
+.result-finding-list small {
+  display: block;
+  color: var(--vscode-descriptionForeground);
+}
+
+.result-finding-list p {
+  margin: 4px 0 0;
+}
+
+.result-verification-currency {
+  margin: 6px 0 0;
+}
+
+.result-apply-override {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+  color: var(--vscode-descriptionForeground);
+}
+
+.result-apply-blocked {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+  background: var(--vscode-inputValidation-warningBackground);
+  color: var(--vscode-inputValidation-warningForeground, inherit);
+}
+
+.result-hunks {
+  margin-top: 10px;
+}
+
+.result-hunk-file {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  margin-top: 6px;
+}
+
+.result-hunk-file > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.result-hunk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+}
+
+.result-hunk-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.result-hunk-header {
+  font-family: var(--vscode-editor-font-family);
+}
+
+.result-hunk-preview {
+  margin: 4px 0 10px 24px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.contract-authority-diff {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+  background: var(--vscode-inputValidation-warningBackground);
+}
+
+/* Widened authority is marked by a rule, not by a text colour: the error red on the warning
+   ground measured 4.2:1 at 11px. */
+.contract-authority-diff .authority-expanded {
+  padding-left: 8px;
+  border-left: 3px solid var(--vscode-errorForeground);
+  font-weight: 600;
+}
+
+.contract-authority-diff button {
+  margin-top: 8px;
+}
+
+.result-file-select {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+
+.result-selection-summary {
+  margin-top: 6px;
+}
+
+.contract-policy-refusals {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-inputValidation-errorBorder);
+  background: var(--vscode-inputValidation-errorBackground);
+}
+
+.notification-center {
+  position: relative;
+}
+
+.notification-center > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.notification-center > summary::-webkit-details-marker {
+  display: none;
+}
+
+.notification-unread {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 11px;
+  text-align: center;
+}
+
+.notification-panel {
+  position: fixed;
+  z-index: 220;
+  top: var(--run-menu-top, 43px);
+  left: var(--run-menu-left, auto);
+  right: auto;
+  width: min(420px, calc(100vw - 16px));
+  margin-top: 0;
+  padding: 12px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 10px;
+  background: var(--bachata-card);
+}
+
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  /* Two non-shrinking chips plus the action button exceed the panel below ~320px. */
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px 8px;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  background: var(--vscode-textBlockQuote-background, var(--bachata-card));
+}
+
+.notification-list li.unread {
+  border-left-color: var(--vscode-focusBorder);
+}
+
+.notification-list li p {
+  margin: 0;
+  flex: 1;
+}
+
+.notification-unread-flag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 9px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  font-size: var(--bachata-font-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.notification-level {
+  flex: none;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.notification-decision .notification-level {
+  color: var(--bachata-danger);
+  font-weight: 700;
+}
+
+.notification-material .notification-level {
+  color: var(--bachata-warn-text);
+  font-weight: 600;
+}
+
+.notification-bubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--vscode-textBlockQuote-background, var(--bachata-card));
+}
+
+.notification-bubble span {
+  flex: 1;
+  color: var(--vscode-descriptionForeground);
+}
+
+.direction-artifact-body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.direction-reconciliation-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.direction-reconciliation-candidates li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.read-only-banner {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, #cca700);
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground, rgba(204, 167, 0, 0.1));
+  color: var(--vscode-foreground);
+}
+
+.read-only-banner strong {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.85em;
+}
+
+.room-empty-promise {
+  max-width: 52ch;
+  margin: 0 auto 12px;
+  color: var(--bachata-muted);
+}
+
+.room-empty-actions {
+  justify-content: center;
+}
+
+.direction-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 10px;
+  background: var(--bachata-surface);
+}
+
+.direction-banner > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.direction-banner small {
+  color: var(--bachata-muted);
+}
+
+.decision-rollback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.decision-card:focus-visible,
+.interaction-card:focus-visible,
+.composer-blockers:focus-visible {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: 2px;
+}
+
+.orchestration-task small.blocker {
+  color: var(--bachata-warn-text);
+}
+
+/*
+ * A control that refuses input looks like it: the control stays reachable, and stays honest.
+ * Read-only mode marks every control aria-disabled rather than disabled, so the treatment has to
+ * cover all of them — otherwise a locked window shows a full-strength primary under a pointer
+ * cursor and swallows the click.
+ */
+button[aria-disabled="true"],
+input[aria-disabled="true"],
+select[aria-disabled="true"],
+textarea[aria-disabled="true"],
+summary[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* The kicker is the composer's heading, so a room with no other h2 still outlines
+   h1 → h2 → h3; it keeps the look of the summary line it sits in. */
+.contract-kicker {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+/* Appended 2026-09-06 after the measured UI review. Each block names the finding it closes. */
+
+/* F2. The Direction view shares the execution view's vocabulary: boxed sections, record rows,
+   headings on the type scale. The no-run room centres its own intro, not the centre. */
+.room-empty .direction-center,
+.room-empty .orchestration-card,
+.room-empty .recent-activity {
+  text-align: left;
+}
+
+.direction-center {
+  display: grid;
+  gap: 14px;
+}
+
+.direction-center > section,
+.direction-center > details,
+.direction-grid > section {
+  padding: 13px 15px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--bachata-surface);
+}
+
+.direction-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.direction-center h3 {
+  margin: 0 0 8px;
+}
+
+.direction-center p {
+  margin: 4px 0 0;
+}
+
+.direction-next {
+  border-color: color-mix(in srgb, var(--bachata-green) 56%, var(--bachata-border));
+}
+
+.direction-next > strong {
+  display: block;
+  font-size: 1.05em;
+}
+
+.direction-center .compact-actions {
+  margin-top: 8px;
+}
+
+.direction-center > section > ul,
+.direction-group > ul,
+.direction-artifacts,
+.direction-evidence-list,
+.direction-merges,
+.direction-cycles,
+.direction-checks,
+.direction-revision-list,
+.direction-resolution-history,
+.direction-reconciliation > ul,
+.direction-stale ul,
+.direction-failures ul {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.direction-center > section > ul > li,
+.direction-group > ul > li,
+.direction-artifacts > li,
+.direction-evidence-list > li,
+.direction-merges > li,
+.direction-reconciliation > ul > li {
+  padding: 10px 12px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 9px;
+  background: var(--bachata-card);
+}
+
+.direction-center li > div > small,
+.direction-center li > strong + small {
+  display: block;
+  margin: 2px 0 0;
+}
+
+.direction-checks li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.direction-revision-list li small,
+.direction-resolution-history li small {
+  display: block;
+}
+
+.direction-current-revision {
+  margin-top: 10px;
+}
+
+details.direction-evidence,
+.direction-revisions {
+  margin-top: 6px;
+}
+
+details.direction-evidence > ul,
+.direction-revision-evidence,
+.direction-evidence-challenges {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.direction-evidence-challenges li small {
+  display: block;
+}
+
+.direction-support {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+}
+
+.direction-support legend {
+  padding: 0 5px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  font-weight: 700;
+}
+
+.direction-center label.field {
+  margin-top: 10px;
+}
+
+.direction-initiative-form {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.direction-drift {
+  color: var(--bachata-warn-text);
+}
+
+.direction-saturated {
+  color: var(--bachata-green-text);
+  font-weight: 600;
+}
+
+.direction-failures {
+  border-color: color-mix(in srgb, var(--bachata-danger) 52%, var(--bachata-border));
+}
+
+.direction-stale {
+  border-color: color-mix(in srgb, var(--bachata-warn-text) 52%, var(--bachata-border));
+}
+
+.direction-semantic-history > summary,
+.direction-initiative > summary,
+.direction-history > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.direction-semantic-history > summary::-webkit-details-marker,
+.direction-initiative > summary::-webkit-details-marker,
+.direction-history > summary::-webkit-details-marker {
+  display: none;
+}
+
+.direction-semantic-history .field {
+  margin: 10px 0;
+}
+
+@media (max-width: 720px) {
+  .direction-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* F4. The contract summary wraps; the pipeline name is the item that gives way. */
+.run-contract > summary {
+  flex-wrap: wrap;
+}
+
+.contract-pipeline {
+  flex: 1 1 140px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 590px) {
+  .contract-pipeline {
+    flex-basis: 100%;
+  }
+
+  .contract-blockers {
+    margin-left: 0;
+  }
+}
+
+/* F6. Inside the composer the contract and the blockers are what scroll; below 560px of room
+   the field gives back its slack so the transcript keeps a readable band. */
+.composer > .composer-blockers {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@container (max-height: 560px) {
+  .composer > textarea {
+    min-height: 44px;
+  }
+}
+
+/* F7. Explicit rows for the editor's optional notes. */
+.pipeline-editor > header {
+  grid-row: 1;
+}
+
+.pipeline-editor > .editor-tabs {
+  grid-row: 2;
+}
+
+.pipeline-editor > .editor-mutation-note {
+  grid-row: 3;
+}
+
+.pipeline-editor > .editor-errors {
+  grid-row: 4;
+}
+
+.pipeline-editor > .editor-scroll {
+  grid-row: 5;
+}
+
+.pipeline-editor > footer {
+  grid-row: 6;
+}
+
+/* F9. */
+.ruling-trace {
+  overflow-x: auto;
+}
+
+/* F13. Under 590px the step name keeps its line and the detail drops beneath it. */
+@media (max-width: 590px) {
+  .editor-card-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .editor-card-summary small {
+    grid-column: 2;
+    text-align: left;
+  }
+}
+
+/* F15. A next-action label is dynamic; the banner stacks before it clips. */
+.direction-banner {
+  flex-wrap: wrap;
+}
+
+.direction-banner .compact-actions button {
+  white-space: normal;
+  text-align: left;
+}
+
+@media (max-width: 620px) {
+  .direction-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* F19. The tab strip says where it continues, and the open archived run keeps a tab. */
+.run-tabs-strip {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.run-tabs-strip::before,
+.run-tabs-strip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 28px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.run-tabs-strip::before {
+  left: 0;
+  background: linear-gradient(to right, var(--vscode-sideBar-background), transparent);
+}
+
+.run-tabs-strip::after {
+  right: 0;
+  background: linear-gradient(to left, var(--vscode-sideBar-background), transparent);
+}
+
+.run-tabs-strip[data-scroll-start]::before,
+.run-tabs-strip[data-scroll-end]::after {
+  opacity: 1;
+}
+
+.run-tab.archived .run-tab-select {
+  color: var(--bachata-muted);
+}
+
+/* F20. Recovery choices are rows of control plus reason, not a bulleted list. */
+.failure-recovery h3 {
+  margin: 0 0 6px;
+  font-size: 1em;
+}
+
+.failure-recovery-choices {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.failure-recovery-choices > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.recovery-choice-plain {
+  font-weight: 600;
+}
+
+/* F22. The notification setting is a field, so it sits in its own section of the menu. */
+.header-action-menu .menu-section {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.header-action-menu .menu-section .field {
+  padding: 4px 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-tabs-strip::before,
+  .run-tabs-strip::after {
+    transition: none;
+  }
+}
+
+/* Appended 2026-09-07 after the second measured UI review. Each block names its finding. */
+
+/* S2. `.result-center` is a grid, so its items carry an automatic min-content floor: at 480px
+   the widest of them held the column open at 662px and the transcript pane scrolled sideways.
+   Measured before and after in headless Chrome; 0px of overflow at 1280, 900, 640, 480 and 360. */
+.result-center > * {
+  min-width: 0;
+}
+
+/* S5. renderMarkdown maps `#` to h3, so h5 and h6 are ordinary third- and fourth-level
+   headings in an answer, not rare ones. Unsized they inherited the browser's 0.83em and
+   0.67em, which resolved to 10.8px and 8.7px. They keep their rank by weight and colour. */
+.markdown h5,
+.markdown h6,
+.action-summary h5,
+.action-summary h6 {
+  font-size: var(--bachata-font-md);
+  font-weight: 700;
+}
+
+.markdown h6,
+.action-summary h6 {
+  color: var(--bachata-muted);
+}
+
+/* S10. The strip is itself the scroller, so the fades sit on a wrapper around it — the same
+   shape `.run-tabs-strip` uses, rather than pseudo-elements that scroll away with the chips. */
+.attachment-strip-shell {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.attachment-strip-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 9px;
+  width: 24px;
+  background: linear-gradient(to left, var(--bachata-surface), transparent);
+  pointer-events: none;
+}
+
+/* S11. The queued prompt is a preview and clamps with an ellipsis; the blocked reason beside it
+   is the explanation of why the queue is stuck and is never cut. */
+.queue-item p.queue-prompt {
+  display: -webkit-box;
+  max-height: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.queue-item p:not(.queue-prompt) {
+  max-height: none;
+}
+
+/* S15. The room header's trigger is an ellipsis glyph and is square; the result centre's is the
+   word "More" and is sized to it. Both keep the same height, so the row still lines up. */
+.header-action-menu.wide-trigger > summary {
+  width: auto;
+  min-width: 30px;
+  padding: 5px 10px;
+  border-color: var(--vscode-input-border, var(--bachata-border));
+  background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
+  color: inherit;
+}
+
+/* S3. An answered approval card takes focus, so its ring must read like the other cards'. */
+.approval-card:focus-visible {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: 2px;
+}
+
+/* S4. The consequence of a passed deadline, shown by the ticker rather than by a snapshot. */
+.interaction-expired {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--bachata-warn-text);
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}

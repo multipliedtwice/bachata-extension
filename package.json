@@ -1,0 +1,1674 @@
+{
+  "name": "bachata-vscode",
+  "displayName": "Bachata",
+  "description": "Review code with several AI agents in VS Code. They challenge each other, repeat the review from a fresh start, and show what they found. You decide what gets fixed.",
+  "version": "0.7.0",
+  "publisher": "todo-release-publisher",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://todo-release.invalid/bachata-vscode.git"
+  },
+  "homepage": "https://todo-release.invalid/bachata-vscode",
+  "bugs": {
+    "url": "https://todo-release.invalid/bachata-vscode/issues"
+  },
+  "qna": "https://todo-release.invalid/bachata-vscode/discussions",
+  "sponsor": {
+    "url": "https://todo-release.invalid/bachata-vscode/support"
+  },
+  "galleryBanner": {
+    "color": "#1f1f1f",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.101.0",
+    "node": ">=22.13.0"
+  },
+  "categories": [
+    "AI",
+    "Linters",
+    "Machine Learning"
+  ],
+  "icon": "media/icon.png",
+  "keywords": [
+    "ai",
+    "agents",
+    "llm",
+    "orchestration",
+    "pipeline",
+    "codex",
+    "claude",
+    "chatgpt",
+    "git",
+    "todo"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:bachata",
+    "onView:bachata.launcher"
+  ],
+  "main": "./dist/extension.js",
+  "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "NO_TELEMETRY.md",
+    "README.md",
+    "dist",
+    "docs/ADAPTER_API.md",
+    "docs/BOUNDED_EXECUTION_STATE.md",
+    "docs/BRANDING.md",
+    "docs/BROWSER_BRIDGE_INSTALL.md",
+    "docs/CONCURRENCY.md",
+    "docs/DEPLOYMENT.md",
+    "docs/DEVELOPMENT.md",
+    "docs/HUMAN_E2E.md",
+    "docs/INTERACTIONS.md",
+    "docs/LANGUAGE_CONTEXT.md",
+    "docs/LIVE_SMOKE_TEST.md",
+    "docs/MANAGED_BROWSER_FALLBACK.md",
+    "docs/MODERATED_VALIDATION.md",
+    "docs/ORCHESTRATION.md",
+    "docs/PIPELINES.md",
+    "docs/PRIVACY.md",
+    "docs/PRODUCT_DOCTRINE.md",
+    "docs/PRODUCT_SPEC.md",
+    "docs/PROVIDERS.md",
+    "docs/RESOURCES.md",
+    "docs/REPOSITORY_POLICY.md",
+    "docs/ROADMAP.md",
+    "docs/SECURITY.md",
+    "docs/SEMANTIC_INTERPRETER.md",
+    "docs/STABLE_RELEASE_GATE.md",
+    "docs/STATE.md",
+    "docs/SUPPORT_MATRIX.md",
+    "docs/VERIFIERS.md",
+    "media/icon.png",
+    "media/icon.svg",
+    "media/readme-header.png",
+    "media/walkthrough-apply.md",
+    "media/walkthrough-compare-rounds.md",
+    "media/walkthrough-doctor.md",
+    "media/walkthrough-evidence.md",
+    "media/walkthrough-fix.md",
+    "media/walkthrough-fresh-review.md",
+    "media/walkthrough-next-action.md",
+    "media/walkthrough-provider.md",
+    "media/walkthrough-resolve.md",
+    "media/walkthrough-run.md",
+    "media/walkthrough-setup.md",
+    "node_modules",
+    "presets",
+    "protocol",
+    "scripts/process-scope.cjs",
+    "scripts/process-scope.mjs",
+    "scripts/windows-job-runner.ps1",
+    "scripts/windows-process-host.cjs",
+    "snippets"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bachata",
+          "title": "Bachata",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "bachata": [
+        {
+          "id": "bachata.launcher",
+          "name": "Bachata"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "bachata.launcher",
+        "contents": "Bachata has not finished starting in this window.\nThe reason is written to the Bachata channel of the Output panel: open the panel, then choose Bachata in its channel list.\n[Open the Output panel](command:workbench.action.output.toggleOutput)\n[Reload window](command:workbench.action.reloadWindow)"
+      },
+      {
+        "view": "bachata.launcher",
+        "contents": "If Bachata did start, it has nothing to show until a provider and a pipeline are chosen.\nSetup installs nothing: it checks which AI CLI you already have and picks the pipeline the review commands will use.\n[Run setup](command:bachata.setup)\n[Open the walkthrough](command:workbench.action.openWalkthrough?%5B%22todo-release-publisher.bachata-vscode%23bachata.gettingStarted%22%5D)"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "markdown",
+        "path": "./snippets/bachata-todo.code-snippets"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "bachata.gettingStarted",
+        "title": "Get started with Bachata",
+        "description": "Make one provider runnable, run one fresh review, and inspect material findings and decisions.",
+        "steps": [
+          {
+            "id": "bachata.provider",
+            "title": "Make a provider runnable",
+            "description": "Install Codex or Claude Code and sign in, then run [Bachata: Doctor](command:bachata.doctor) to check that Bachata can reach it. This step completes when a provider answers.",
+            "media": {
+              "markdown": "media/walkthrough-provider.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.providerAvailable"
+            ]
+          },
+          {
+            "id": "bachata.checkReadiness",
+            "title": "Clear every blocker",
+            "description": "Doctor also lists what still blocks a run: a missing tool, a provider that cannot start, a pipeline that asks for authority you have not granted. Clear each blocker, then run [Bachata: Doctor](command:bachata.doctor) again. This step completes when nothing blocks the selected pipeline.",
+            "media": {
+              "markdown": "media/walkthrough-doctor.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.readinessVerified"
+            ]
+          },
+          {
+            "id": "bachata.setupWorkflow",
+            "title": "Choose a read-only pipeline",
+            "description": "Run [Bachata: Setup](command:bachata.setup), choose Review code, then choose Fast single agent or Cross-checked pair. This step completes when a read-only pipeline is selected.",
+            "media": {
+              "markdown": "media/walkthrough-setup.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.workflowSelected"
+            ]
+          },
+          {
+            "id": "bachata.firstReview",
+            "title": "Run one read-only review",
+            "description": "Use [Bachata: Review File](command:bachata.reviewFile). Read the run contract, which states what this run may read and write, then send. This step completes when the review run finishes.",
+            "media": {
+              "markdown": "media/walkthrough-run.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.reviewCompleted"
+            ]
+          },
+          {
+            "id": "bachata.readEvidence",
+            "title": "See what the review found",
+            "description": "Open the Execution view. It shows the findings the participants challenged and then accepted, the unresolved items that still matter, the decisions behind them, any change of scope, and the next action. Claims that were rejected, or that no participant confirmed, stay in history. This step completes when you open the evidence of a finished run.",
+            "media": {
+              "markdown": "media/walkthrough-evidence.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.evidenceReviewed"
+            ]
+          },
+          {
+            "id": "bachata.resolveFindings",
+            "title": "Resolve what the review produced",
+            "description": "Open the Direction view. It asks you to settle what the participants left unresolved, plus the artifacts and decisions they propose; you may also reject anything else, defer it, replace it with a later decision, or reopen it. This step completes when one item carries a human resolution, or when the review produced nothing to resolve.",
+            "media": {
+              "markdown": "media/walkthrough-resolve.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.resolutionRecorded"
+            ]
+          },
+          {
+            "id": "bachata.fixFinding",
+            "title": "Fix an actionable finding",
+            "description": "Open the Direction view and select Fix this finding on an actionable finding, or run the next action. A finding the pipeline accepted after more than one participant challenged it is already actionable and needs no acceptance from you. This step completes when the fix run finishes, or when the review produced nothing to fix.",
+            "media": {
+              "markdown": "media/walkthrough-fix.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.fixCompleted"
+            ]
+          },
+          {
+            "id": "bachata.applyWork",
+            "title": "Apply the verified work",
+            "description": "Apply the retained fix run to your branch from the Execution view. Bachata stages the work and commits nothing. This step completes when one run is applied, or when there was nothing to apply.",
+            "media": {
+              "markdown": "media/walkthrough-apply.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.workApplied"
+            ]
+          },
+          {
+            "id": "bachata.freshReview",
+            "title": "Run a fresh review",
+            "description": "Start a fresh review from the Direction view. It resets provider sessions and carries no prior confidence into the providers. This step completes when the fresh review round is recorded.",
+            "media": {
+              "markdown": "media/walkthrough-fresh-review.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.freshReviewCompleted"
+            ]
+          },
+          {
+            "id": "bachata.compareRounds",
+            "title": "Compare the round against recorded history",
+            "description": "Run a second fresh review in the same review cycle. This step completes when a round is compared against an earlier round of that cycle.",
+            "media": {
+              "markdown": "media/walkthrough-compare-rounds.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.freshReviewCompared"
+            ]
+          },
+          {
+            "id": "bachata.chooseNext",
+            "title": "Choose the next action",
+            "description": "Read how this round compares with the earlier one, including saturation: repeated fresh review stopped producing material findings. Saturation is not a claim that the code is correct. Close the cycle and choose what comes next. This step completes when one cycle is closed.",
+            "media": {
+              "markdown": "media/walkthrough-next-action.md"
+            },
+            "completionEvents": [
+              "onContext:bachata.onboarding.nextActionChosen"
+            ]
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "bachata.open",
+        "title": "Open",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.doctor",
+        "title": "Doctor",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.setup",
+        "title": "Setup",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.reviewFile",
+        "title": "Review File",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.reviewSelection",
+        "title": "Review Selection",
+        "category": "Bachata",
+        "enablement": "editorHasSelection"
+      },
+      {
+        "command": "bachata.reviewStagedDiff",
+        "title": "Review Staged Diff",
+        "category": "Bachata",
+        "icon": "$(sparkle)",
+        "enablement": "bachata.workspaceIsGitRepository"
+      },
+      {
+        "command": "bachata.reviewUncommitted",
+        "title": "Review Uncommitted Changes",
+        "category": "Bachata",
+        "icon": "$(diff-multiple)",
+        "enablement": "bachata.workspaceIsGitRepository"
+      },
+      {
+        "command": "bachata.reviewBranch",
+        "title": "Review Branch Against Base",
+        "category": "Bachata",
+        "icon": "$(git-compare)",
+        "enablement": "bachata.workspaceIsGitRepository"
+      },
+      {
+        "command": "bachata.reviewCommit",
+        "title": "Review Commit",
+        "category": "Bachata",
+        "enablement": "bachata.workspaceIsGitRepository"
+      },
+      {
+        "command": "bachata.reviewCommitRange",
+        "title": "Review Commit Range",
+        "category": "Bachata",
+        "enablement": "bachata.workspaceIsGitRepository"
+      },
+      {
+        "command": "bachata.publishFindings",
+        "title": "Publish Findings to Problems",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.replayRun",
+        "title": "Replay Run Bundle",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.inspectRunBundle",
+        "title": "Inspect Run Bundle",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.explainPipeline",
+        "title": "Explain Pipeline",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.verifiers",
+        "title": "Repository Verifiers",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.bootstrapConfiguration",
+        "title": "Bootstrap Verifiers and Repository Policy",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.fixDiagnostic",
+        "title": "Fix Diagnostic",
+        "category": "Bachata",
+        "enablement": "bachata.activeEditorHasDiagnostics"
+      },
+      {
+        "command": "bachata.improve",
+        "title": "Improve This Project",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.todo.start",
+        "title": "Run TODO.md",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.todo.resume",
+        "title": "Resume TODO Run",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.todo.stop",
+        "title": "Stop TODO Run",
+        "category": "Bachata",
+        "enablement": "bachata.todoRunLoaded"
+      },
+      {
+        "command": "bachata.todo.abandon",
+        "title": "Abandon TODO Run",
+        "category": "Bachata",
+        "enablement": "bachata.todoRunLoaded"
+      },
+      {
+        "command": "bachata.todo.status",
+        "title": "Show TODO Run Status",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.resources.clearQuarantine",
+        "title": "Clear Resource Quarantine",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.localData",
+        "title": "Local Data",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.todo.preview",
+        "title": "Preview TODO Plan",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.ownership",
+        "title": "Workspace Ownership",
+        "category": "Bachata"
+      },
+      {
+        "command": "bachata.recordExternalEvidence",
+        "title": "Record External Evidence",
+        "category": "Bachata"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "bachata.reviewFile",
+          "when": "resourceScheme == file",
+          "group": "bachata@1"
+        },
+        {
+          "command": "bachata.reviewSelection",
+          "when": "editorHasSelection && resourceScheme == file",
+          "group": "bachata@2"
+        },
+        {
+          "command": "bachata.fixDiagnostic",
+          "when": "resourceScheme == file && bachata.activeEditorHasDiagnostics",
+          "group": "bachata@3"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "bachata.reviewFile",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "bachata@1"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "bachata.reviewFile",
+          "when": "scmProvider == git",
+          "group": "bachata@1"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "bachata.reviewStagedDiff",
+          "when": "scmProvider == git",
+          "group": "navigation@90"
+        },
+        {
+          "command": "bachata.reviewUncommitted",
+          "when": "scmProvider == git",
+          "group": "bachata@1"
+        },
+        {
+          "command": "bachata.reviewBranch",
+          "when": "scmProvider == git",
+          "group": "bachata@2"
+        }
+      ],
+      "problems/context": [
+        {
+          "command": "bachata.fixDiagnostic",
+          "when": "bachata.activeEditorHasDiagnostics",
+          "group": "navigation@90"
+        }
+      ]
+    },
+    "configuration": [
+      {
+        "title": "Bachata",
+        "order": 1,
+        "properties": {
+          "bachata.advancedMode": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show the full pipeline editor: roles, consensus, typed outputs, human gates, capabilities, permission modes, approval policies, prompt templates, and path policy. Off keeps first-run pipeline choices concise.",
+            "order": 1
+          },
+          "bachata.codexCommand": {
+            "type": "string",
+            "default": "codex",
+            "description": "Executable used to start the Codex app server. The process receives only the restricted provider environment.",
+            "scope": "machine",
+            "order": 2
+          },
+          "bachata.claudeCommand": {
+            "type": "string",
+            "default": "claude",
+            "description": "Executable used to start Claude Code. The process receives only the restricted provider environment.",
+            "scope": "machine",
+            "order": 3
+          },
+          "bachata.preferredProvider": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "codex-app-server",
+              "claude-code",
+              "zai-glm",
+              "chatgpt-browser",
+              "claude-browser",
+              "generic-browser"
+            ],
+            "default": "auto",
+            "description": "Provider Bachata prefers when a pipeline offers more than one. A stated preference outranks readiness, so a pipeline never silently runs on a different provider. Setup writes this setting.",
+            "enumDescriptions": [
+              "Let Bachata pick the ready provider the pipeline declares.",
+              "Codex CLI, started as a local app-server process.",
+              "Claude Code, started as a local command-line process.",
+              "Z.AI GLM, reached through its Anthropic-compatible endpoint.",
+              "ChatGPT browser, driven in a signed-in browser tab.",
+              "Claude browser, driven in a signed-in browser tab.",
+              "Generic browser, driven in a signed-in tab of any supported chat site."
+            ],
+            "order": 4
+          },
+          "bachata.notificationMode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "decisions",
+              "material",
+              "all"
+            ],
+            "enumDescriptions": [
+              "Show no notifications.",
+              "Show only what needs your judgment.",
+              "Show decisions and material outcomes.",
+              "Show every recorded state change."
+            ],
+            "default": "material",
+            "description": "Which bubbled-up notifications Bachata shows for this session. Notification text is generated locally from recorded state and never reaches a model.",
+            "order": 5
+          },
+          "bachata.defaultPipelineIterations": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1,
+            "description": "Default number of sequential fresh-chat executions for one pipeline run.",
+            "order": 6
+          },
+          "bachata.codexImplementationPermissionMode": {
+            "type": "string",
+            "enum": [
+              "readOnly",
+              "workspaceWrite"
+            ],
+            "default": "workspaceWrite",
+            "description": "Permission mode Codex starts with for direct implementation turns you run yourself. Unattended TODO pipelines use the modes their pipeline declares instead. Bachata reads this from your user or machine settings only, so a repository you open cannot widen it.",
+            "enumDescriptions": [
+              "Read workspace files without modifying them.",
+              "Allow changes inside the selected workspace under Codex sandbox rules."
+            ],
+            "scope": "machine",
+            "order": 7
+          },
+          "bachata.codexApprovalPolicy": {
+            "type": "string",
+            "enum": [
+              "onRequest",
+              "unlessTrusted"
+            ],
+            "default": "onRequest",
+            "description": "When Codex must ask you before it runs an operation outside its active sandbox policy during a direct turn. Bachata reads this from your user or machine settings only, so a repository you open cannot widen it.",
+            "enumDescriptions": [
+              "Request approval when Codex requires an operation outside the active sandbox policy.",
+              "Skip requests only for operations already covered by a trusted policy; other operations still require approval."
+            ],
+            "scope": "machine",
+            "order": 8
+          },
+          "bachata.claudeReviewPermissionMode": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "default",
+              "manual",
+              "dontAsk"
+            ],
+            "default": "plan",
+            "description": "Permission mode Claude Code starts with for direct review turns. Bachata reads this from your user or machine settings only, so a repository you open cannot widen it.",
+            "enumDescriptions": [
+              "Plan and inspect without applying edits.",
+              "Use Claude Code default permission prompts.",
+              "Require explicit approval for requested tools.",
+              "Do not prompt for allowed tools; denied operations still fail."
+            ],
+            "scope": "machine",
+            "order": 9
+          },
+          "bachata.claudeImplementationPermissionMode": {
+            "type": "string",
+            "enum": [
+              "default",
+              "manual",
+              "acceptEdits",
+              "plan",
+              "auto",
+              "dontAsk",
+              "bypassPermissions"
+            ],
+            "default": "acceptEdits",
+            "description": "Permission mode Claude Code starts with for direct implementation turns you run yourself. bypassPermissions is refused for unattended TODO orchestration. Bachata reads this from your user or machine settings only, so a repository you open cannot turn off its permission checks.",
+            "enumDescriptions": [
+              "Use Claude Code default permission prompts.",
+              "Require explicit approval for requested tools.",
+              "Allow normal edit operations while retaining Claude Code safety checks.",
+              "Plan and inspect without applying edits.",
+              "Allow supported operations automatically under Claude Code policy.",
+              "Do not prompt for allowed tools; denied operations still fail.",
+              "Disable Claude Code permission checks. Unsafe for unattended work and rejected by TODO orchestration."
+            ],
+            "scope": "machine",
+            "order": 10
+          },
+          "bachata.allowExternalWorkingDirectories": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow a run to work in a directory outside the workspace folders you have open. Symlink and path-containment checks still apply. Bachata reads this from your user or machine settings only, so a repository you open cannot grant itself the wider scope.",
+            "scope": "machine",
+            "order": 11
+          },
+          "bachata.localDataRetentionDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3650,
+            "default": 0,
+            "description": "Days of archived-run transcripts and attachments that Bachata: Local Data offers to delete. 0 keeps everything and deletes nothing. Bachata never deletes local data on its own; cleanup is always an explicit confirmed action.",
+            "order": 12
+          }
+        }
+      },
+      {
+        "title": "Bachata: TODO orchestration",
+        "order": 2,
+        "properties": {
+          "bachata.todoGlobalCheckConcurrency": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 1,
+            "description": "Maximum deterministic TODO check processes across all VS Code windows. Repository checks remain exclusive per repository.",
+            "order": 17
+          },
+          "bachata.todoCheckSlotTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 900000,
+            "description": "How long Bachata waits for the machine-wide capacity to start a deterministic TODO check, in milliseconds. Default 900000 (15 minutes). When the wait runs out the task is reported as unverified rather than implemented again.",
+            "order": 18
+          },
+          "bachata.todoStopTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 30000,
+            "description": "How long Bachata waits for TODO orchestration to stop and clean up after you ask it to stop, in milliseconds. Default 30000 (30 seconds). After that Bachata stops waiting and reports the processes and worktrees it left behind so you can remove them yourself.",
+            "order": 20
+          },
+          "bachata.todoOwnerTimeoutMs": {
+            "type": "number",
+            "minimum": 500,
+            "maximum": 2147483647,
+            "default": 2000,
+            "description": "How long Bachata waits to become the single VS Code window driving TODO orchestration for one repository, in milliseconds. Default 2000 (2 seconds). Advanced: raise it only when another window is slow to release the repository.",
+            "order": 21
+          },
+          "bachata.gitAdministrationTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 120000,
+            "description": "How long Bachata waits for exclusive Git worktree, branch, ref, commit, merge, or cleanup access in one repository, in milliseconds. Default 120000 (2 minutes).",
+            "order": 19
+          },
+          "bachata.todoCheckEnvironmentVariables": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "default": [],
+            "description": "Environment variable names explicitly forwarded to controller-owned deterministic checks. Values remain outside persisted configuration.",
+            "scope": "machine",
+            "order": 9
+          },
+          "bachata.todoFile": {
+            "type": "string",
+            "default": "TODO.md",
+            "description": "Path, relative to the workspace folder, of the Markdown task list Bachata TODO orchestration reads and updates.",
+            "scope": "resource",
+            "order": 1
+          },
+          "bachata.todoPipeline": {
+            "type": "string",
+            "default": "todo-implementation",
+            "description": "Default gate-free pipeline used for TODO tasks unless a task declares Pipeline metadata.",
+            "order": 5
+          },
+          "bachata.todoMasterPipeline": {
+            "type": "string",
+            "default": "todo-master",
+            "description": "Pipeline used by the TODO Master execution watchdog.",
+            "order": 6
+          },
+          "bachata.todoMaxConcurrency": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 2,
+            "description": "Maximum TODO task pairs that may run concurrently. Declared path scopes prevent conflicting tasks from overlapping.",
+            "order": 3
+          },
+          "bachata.todoRetries": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10,
+            "default": 1,
+            "description": "Default number of deterministic retry attempts after a task pipeline or acceptance check fails.",
+            "order": 4
+          },
+          "bachata.todoCheckTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 1800000,
+            "description": "Maximum duration of one deterministic TODO acceptance command, in milliseconds. Default 1800000 (30 minutes).",
+            "order": 7
+          },
+          "bachata.todoCheckMaxOutputBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 8388608,
+            "default": 2097152,
+            "description": "Maximum stdout and stderr retained for one TODO acceptance command, in bytes. Default 2097152 (2 MB). Output beyond this is discarded rather than stored.",
+            "order": 8
+          },
+          "bachata.todoRequireChecks": {
+            "type": "boolean",
+            "default": true,
+            "description": "Require every incomplete TODO task to declare Verify metadata. Use Verify: none only when no deterministic acceptance command is appropriate.",
+            "order": 2
+          },
+          "bachata.improvePipeline": {
+            "type": "string",
+            "default": "self-improvement",
+            "description": "Task pipeline Bachata: Improve This Project assigns to every task it generates.",
+            "order": 10
+          },
+          "bachata.improveDiscoveryPipeline": {
+            "type": "string",
+            "default": "self-improvement-discovery",
+            "description": "Pipeline that runs the two independent audits and converges them into one executable plan when no executable TODO exists.",
+            "order": 11
+          },
+          "bachata.improveConvergencePipeline": {
+            "type": "string",
+            "default": "self-improvement-convergence",
+            "description": "Pipeline that cross-checks both independent audits and converges them into one executable plan.",
+            "order": 12
+          },
+          "bachata.improveReviewPipeline": {
+            "type": "string",
+            "default": "self-improvement-review",
+            "description": "Pipeline the controller runs after its own checks to obtain a machine-readable Lead accept or bounded defects.",
+            "order": 13
+          },
+          "bachata.improveRevisionPipeline": {
+            "type": "string",
+            "default": "self-improvement-revision",
+            "description": "Pipeline the controller runs for one bounded Worker revision after a Lead rejection.",
+            "order": 14
+          },
+          "bachata.improveMaxRevisionCycles": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 1,
+            "description": "Bounded Worker revisions allowed per task after a Lead rejection during a self-improvement run.",
+            "order": 15
+          },
+          "bachata.improveBaselineFailures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Known failing checks in this repository, given to every self-improvement worker so it does not attribute them to its own task.",
+            "scope": "resource",
+            "order": 16
+          }
+        }
+      },
+      {
+        "title": "Bachata: Browser and managed execution",
+        "order": 3,
+        "properties": {
+          "bachata.browserOperationTimeoutMs": {
+            "type": "number",
+            "minimum": 10000,
+            "maximum": 2147483647,
+            "default": 1800000,
+            "description": "Maximum wall-clock duration of one complete non-managed browser operation, including all continuation rounds and local controller actions, in milliseconds. Default 1800000 (30 minutes).",
+            "order": 7
+          },
+          "bachata.browserBridgeMaxMessageBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 134217728,
+            "default": 83886080,
+            "description": "Maximum browser bridge protocol message size, in bytes, including base64 image attachments. Default 83886080 (80 MB).",
+            "order": 6
+          },
+          "bachata.browserBridgePort": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 65535,
+            "default": 43127,
+            "description": "Loopback port the experimental Browser Bridge listens on. Default 43127. Set 0 to let the machine choose a free port.",
+            "scope": "machine",
+            "order": 5
+          },
+          "bachata.managedBrowserAutoApprove": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically approve only explicit structured managed-browser reads and guarded patches, after the controller has checked path, hash, read-only and verification policy. Ordinary browser actions keep the approval policies below. Bachata reads this from your user or machine settings only, so a repository you open cannot turn it on.",
+            "scope": "machine",
+            "order": 1
+          },
+          "bachata.browserActionReadOnlyPolicy": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "auto",
+              "disabled"
+            ],
+            "default": "ask",
+            "description": "What happens when the browser asks to read, list, or search files in your workspace. Bachata reads this from your user or machine settings only, so a repository you open cannot widen it.",
+            "enumDescriptions": [
+              "Ask you before each read.",
+              "Run the read without asking.",
+              "Refuse every browser-requested read."
+            ],
+            "scope": "machine",
+            "order": 2
+          },
+          "bachata.browserActionMutationPolicy": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "auto",
+              "disabled"
+            ],
+            "default": "ask",
+            "description": "What happens when the browser asks to write a file or apply a patch in your workspace. Bachata reads this from your user or machine settings only, so a repository you open cannot grant itself write access.",
+            "enumDescriptions": [
+              "Ask you before each write or patch.",
+              "Apply the write without asking.",
+              "Refuse every browser-requested write."
+            ],
+            "scope": "machine",
+            "order": 3
+          },
+          "bachata.browserActionDestructivePolicy": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "auto",
+              "disabled"
+            ],
+            "default": "ask",
+            "description": "What happens when the browser asks to delete or otherwise destructively change files in your workspace. Bachata reads this from your user or machine settings only, so a repository you open cannot grant itself destructive access.",
+            "enumDescriptions": [
+              "Ask you before each destructive operation.",
+              "Run the destructive operation without asking.",
+              "Refuse every browser-requested destructive operation."
+            ],
+            "scope": "machine",
+            "order": 4
+          },
+          "bachata.browserActionMaxRounds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 32,
+            "description": "Maximum browser action and result-reinjection rounds in one agent turn; one additional response may be parsed only as the terminal result.",
+            "order": 10
+          },
+          "bachata.browserManagedConversationMaxBytes": {
+            "type": "number",
+            "minimum": 262144,
+            "maximum": 33554432,
+            "default": 8388608,
+            "description": "Maximum cumulative managed Worker or Lead conversation bytes before Bachata opens a fresh role conversation and rehydrates authoritative controller state.",
+            "order": 15
+          },
+          "bachata.browserActionMaxActions": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 64,
+            "description": "Maximum distinct browser-requested actions in one agent turn.",
+            "order": 11
+          },
+          "bachata.browserActionTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 120000,
+            "description": "Maximum duration of one browser-requested workspace or shell action, in milliseconds. Default 120000 (2 minutes).",
+            "order": 9
+          },
+          "bachata.managedTaskTimeoutMs": {
+            "type": "number",
+            "minimum": 60000,
+            "maximum": 28800000,
+            "default": 7200000,
+            "description": "Absolute wall-clock limit for one managed browser task across Worker, Lead, revisions, context operations and verification, in milliseconds. Default 7200000 (2 hours). It does not override the per-provider bachata.agentTurnTimeoutMs limit.",
+            "order": 8
+          },
+          "bachata.managedContinuationMaxBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 1048576,
+            "default": 524288,
+            "description": "Maximum serialized controller result sent back to a managed browser participant, in bytes. Default 524288 (512 KB).",
+            "order": 16
+          },
+          "bachata.browserHandoffTotalBudgetBytes": {
+            "type": "number",
+            "minimum": 16384,
+            "maximum": 512000,
+            "default": 262144,
+            "description": "Total serialized budget for the managed browser task handoff prompt, in bytes, including the repository diff and code context snippets. Default 262144 (256 KB). Larger values copy more repository code into the browser conversation on the first paste but increase token usage on every later turn of that conversation.",
+            "order": 17
+          },
+          "bachata.browserContextDependencyDepth": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 2,
+            "description": "Transitive import depth followed from task seed files when building managed browser context. Promotion is additionally bounded by a resident byte guard, so higher depths cannot index unbounded file sets.",
+            "order": 18
+          },
+          "bachata.browserContextPromotionMaxBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 8388608,
+            "default": 786432,
+            "description": "Maximum newly indexed file content, in bytes, consumed while promoting transitive import dependencies of task seed files into the managed browser context. Default 786432 (768 KB). Promotion stops expanding once this budget is exhausted.",
+            "order": 19
+          },
+          "bachata.browserActionMaxOutputBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 8388608,
+            "default": 1048576,
+            "description": "Maximum stdout, stderr, or action-result payload retained for one browser action, in bytes. Default 1048576 (1 MB).",
+            "order": 13
+          },
+          "bachata.browserActionMaxReadBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 8388608,
+            "default": 1048576,
+            "description": "Maximum file content returned by one browser-requested read, in bytes. Default 1048576 (1 MB).",
+            "order": 14
+          },
+          "bachata.browserActionMaxSearchResults": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 10000,
+            "default": 500,
+            "description": "Maximum matches returned by one browser-requested workspace search.",
+            "order": 12
+          },
+          "bachata.browserSemanticInterpreterEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Use an optional local OpenAI-compatible model to classify natural-language browser action candidates. Explicit bachata-action blocks stay deterministic and never reach the model. Bachata reads this from your user or machine settings only, so a repository you open cannot turn it on.",
+            "scope": "machine",
+            "order": 20
+          },
+          "bachata.browserSelectorHealingEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Experimental: let built-in and generic browser providers ask a local loopback model to recover a page control, and only after the deterministic locators have failed. Keep this off until the exact backend, endpoint and model pass the documented compatibility fixtures. Bachata reads this from your user or machine settings only, so a repository you open cannot turn it on.",
+            "scope": "machine",
+            "order": 28
+          },
+          "bachata.browserSelectorHealingBackend": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "lmstudio",
+              "ollama"
+            ],
+            "default": "auto",
+            "description": "Which local backend serves selector healing.",
+            "enumDescriptions": [
+              "Try LM Studio first, then Ollama.",
+              "Use LM Studio only.",
+              "Use Ollama only."
+            ],
+            "scope": "machine",
+            "order": 29
+          },
+          "bachata.browserSelectorHealingEndpoint": {
+            "type": "string",
+            "default": "",
+            "description": "Base URL of the local selector-healing model, for example http://127.0.0.1:1234. Leave it empty to auto-discover LM Studio on 127.0.0.1:1234 and Ollama on 127.0.0.1:11434.",
+            "scope": "machine",
+            "order": 30
+          },
+          "bachata.browserSelectorHealingModel": {
+            "type": "string",
+            "default": "prism-ml/Bonsai-27B-mlx-1bit",
+            "description": "Model identifier Bachata asks the selector-healing backend to use. The default prism-ml/Bonsai-27B-mlx-1bit is an MLX build that loads only on Apple Silicon and is a large download; on Windows and Linux set this to a model your LM Studio or Ollama installation already has.",
+            "scope": "machine",
+            "order": 31
+          },
+          "bachata.browserSelectorHealingTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 30000,
+            "description": "Maximum duration of one selector-healing request, in milliseconds. Default 30000 (30 seconds).",
+            "order": 32
+          },
+          "bachata.browserSemanticInterpreterBackend": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "lmstudio",
+              "ollama"
+            ],
+            "default": "auto",
+            "description": "Which local backend serves semantic interpretation.",
+            "enumDescriptions": [
+              "Try LM Studio first, then Ollama.",
+              "Use LM Studio only.",
+              "Use Ollama only."
+            ],
+            "scope": "machine",
+            "order": 21
+          },
+          "bachata.browserSemanticInterpreterEndpoint": {
+            "type": "string",
+            "default": "",
+            "description": "Base URL of the local semantic interpreter model, for example http://127.0.0.1:1234. Leave it empty to auto-discover LM Studio on 127.0.0.1:1234 and Ollama on 127.0.0.1:11434.",
+            "scope": "machine",
+            "order": 22
+          },
+          "bachata.browserSemanticInterpreterModel": {
+            "type": "string",
+            "default": "prism-ml/Bonsai-27B-mlx-1bit",
+            "description": "Model identifier Bachata asks the semantic interpreter backend to use. The default prism-ml/Bonsai-27B-mlx-1bit is an MLX build that loads only on Apple Silicon and is a large download; on Windows and Linux set this to a model your LM Studio or Ollama installation already has.",
+            "scope": "machine",
+            "order": 23
+          },
+          "bachata.browserSemanticInterpreterApiKeyEnvironment": {
+            "type": "string",
+            "default": "",
+            "description": "Optional environment variable containing the semantic interpreter API key. The key itself is not stored in VS Code settings.",
+            "scope": "machine",
+            "order": 24
+          },
+          "bachata.browserSemanticInterpreterTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 30000,
+            "description": "Maximum duration of one semantic interpretation request, in milliseconds. Default 30000 (30 seconds).",
+            "order": 25
+          },
+          "bachata.browserSemanticInterpreterMaxInputBytes": {
+            "type": "number",
+            "minimum": 16384,
+            "maximum": 1048576,
+            "default": 262144,
+            "description": "Maximum captured-response size sent to the semantic interpreter, in bytes. Default 262144 (256 KB).",
+            "order": 26
+          },
+          "bachata.browserSemanticInterpreterAllowRemote": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow a semantic interpretation endpoint outside localhost. Turning this on sends captured model responses to the remote endpoint you configured. Bachata reads this from your user or machine settings only, so a repository you open cannot turn it on.",
+            "scope": "machine",
+            "order": 27
+          },
+          "bachata.browserBridgeOwnerTimeoutMs": {
+            "type": "number",
+            "minimum": 250,
+            "maximum": 2147483647,
+            "default": 2000,
+            "description": "How long Bachata waits to take machine-wide ownership of the Browser Bridge, in milliseconds. Default 2000 (2 seconds). Only one VS Code Extension Host on this machine may own the browser connection.",
+            "order": 40
+          },
+          "bachata.browserBridgeCloseTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 10000,
+            "description": "How long Bachata waits for the Browser Bridge to shut down, in milliseconds. Default 10000 (10 seconds). After that Bachata stops waiting and reports the connection as still open so you can close the browser yourself.",
+            "order": 41
+          },
+          "bachata.browserContextInventoryMaxFiles": {
+            "type": "number",
+            "minimum": 5000,
+            "maximum": 1000000,
+            "default": 100000,
+            "description": "Maximum eligible source/text paths retained in the managed browser context inventory before repository discovery is marked truncated.",
+            "order": 33
+          },
+          "bachata.browserContextInventoryTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 120000,
+            "default": 30000,
+            "description": "Maximum time spent discovering eligible managed-browser paths, in milliseconds. Default 30000 (30 seconds). A partial inventory is marked truncated rather than discarded.",
+            "order": 34
+          },
+          "bachata.browserContextIndexTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 120000,
+            "default": 30000,
+            "description": "Maximum time spent building or validating the resident managed-browser context index after inventory discovery finishes, in milliseconds. Default 30000 (30 seconds).",
+            "order": 35
+          },
+          "bachata.browserContextSearchMaxFiles": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 5000,
+            "description": "Maximum nonresident candidate paths examined by one managed-browser context.search page before returning a continuation cursor.",
+            "order": 36
+          },
+          "bachata.browserContextSearchMaxBytes": {
+            "type": "number",
+            "minimum": 1048576,
+            "maximum": 1073741824,
+            "default": 67108864,
+            "description": "Maximum file content read by one managed-browser context.search page, in bytes, before it returns a continuation cursor. Default 67108864 (64 MB).",
+            "order": 37
+          },
+          "bachata.browserContextSearchMaxFileBytes": {
+            "type": "number",
+            "minimum": 1048576,
+            "maximum": 134217728,
+            "default": 8388608,
+            "description": "Maximum size of one nonresident text or source file eligible for managed-browser context.search, in bytes. Default 8388608 (8 MB). Larger files stay available through a ranged context.readFile.",
+            "order": 38
+          },
+          "bachata.browserContextSearchTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 120000,
+            "default": 15000,
+            "description": "Maximum time spent on one managed-browser context.search page, in milliseconds. Default 15000 (15 seconds), after which the page returns a continuation cursor.",
+            "order": 39
+          }
+        }
+      },
+      {
+        "title": "Bachata: Advanced",
+        "order": 4,
+        "properties": {
+          "bachata.maxPipelineIterations": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10,
+            "description": "Maximum sequential pipeline iterations allowed for one run.",
+            "order": 1
+          },
+          "bachata.maxActiveConversations": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 20,
+            "description": "Maximum number of unarchived runs the sidebar keeps for one workspace before you must archive one. Task conversations started inside a run are part of that run and do not count toward this limit.",
+            "order": 2
+          },
+          "bachata.codexWorkspaceScope": {
+            "type": "string",
+            "enum": [
+              "refuseNarrowedScope",
+              "wholeWorkingDirectory"
+            ],
+            "default": "refuseNarrowedScope",
+            "description": "How Bachata treats a Codex run whose effective policy promises a narrower read scope than the whole working directory. Codex CLI 0.146.0 has no per-path readable-root capability, so Bachata cannot make Codex withhold version-control, credential or bachata-internal paths. Bachata reads this from your user or machine settings only, so a repository you open cannot widen it.",
+            "enumDescriptions": [
+              "Refuse the run and explain the exact protocol limitation.",
+              "Record that Codex may read the entire working directory, including the paths Bachata withholds from other providers."
+            ],
+            "scope": "machine",
+            "order": 21
+          },
+          "bachata.disabledProviders": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "codex-app-server",
+                "claude-code",
+                "zai-glm",
+                "chatgpt-browser",
+                "claude-browser",
+                "generic-browser"
+              ],
+              "enumDescriptions": [
+                "Codex CLI, started as a local app-server process.",
+                "Claude Code, started as a local command-line process.",
+                "Z.AI GLM, reached through its Anthropic-compatible endpoint.",
+                "ChatGPT browser, driven in a signed-in browser tab.",
+                "Claude browser, driven in a signed-in browser tab.",
+                "Generic browser, driven in a signed-in tab of any supported chat site."
+              ]
+            },
+            "uniqueItems": true,
+            "default": [],
+            "description": "Providers Bachata must not run. A pipeline that binds a disabled provider is refused before any turn starts, and setup never selects one.",
+            "order": 3
+          },
+          "bachata.freshReviewPipelineId": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Pipeline Bachata runs for a fresh review when the pipeline you selected does not qualify. It must be a read-only pipeline that produces review findings: every enabled step read-only, no checklist execution, and at least one enabled step that outputs findings. Leave it empty to have Bachata refuse the fresh review rather than substitute a pipeline. `docs/PIPELINES.md` lists the built-in pipeline ids and the exact rules.",
+            "order": 13
+          },
+          "bachata.fixPipelineId": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Pipeline Bachata runs when it opens a bounded fix for an accepted finding. It must be allowed to write and must not be a checklist pipeline. Leave it empty to have Bachata try the selected pipeline first and then the built-in `managed-fix` pipeline. `docs/PIPELINES.md` lists the built-in pipeline ids and the exact rules.",
+            "order": 14
+          },
+          "bachata.commandCheckTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 15000,
+            "description": "Maximum time spent verifying that a configured provider executable is available, in milliseconds. Default 15000 (15 seconds).",
+            "order": 23
+          },
+          "bachata.codexRequestTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 30000,
+            "description": "Maximum wait for one Codex app-server protocol request before it fails, in milliseconds. Default 30000 (30 seconds).",
+            "order": 22
+          },
+          "bachata.agentTurnTimeoutMs": {
+            "type": "number",
+            "minimum": 10000,
+            "maximum": 2147483647,
+            "default": 1800000,
+            "description": "Maximum duration of one provider turn before Bachata interrupts it and escalates to ending the process, in milliseconds. Default 1800000 (30 minutes). This limit applies independently inside managed tasks, so set it above the longest single browser or model response you expect.",
+            "order": 11
+          },
+          "bachata.interruptGraceMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 5000,
+            "description": "Time between asking a provider to stop and forcing its process to exit, in milliseconds. Default 5000 (5 seconds).",
+            "order": 33
+          },
+          "bachata.maxStoredResponseBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "maximum": 33554432,
+            "default": 5242880,
+            "description": "Maximum provider response retained for one turn, in bytes. Default 5242880 (5 MB). A turn that exceeds this fails instead of storing an unbounded response.",
+            "order": 28
+          },
+          "bachata.streamThrottleMs": {
+            "type": "number",
+            "minimum": 16,
+            "default": 40,
+            "description": "Minimum interval between streamed updates to the Bachata panel, in milliseconds. Default 40. Lower values make streaming look smoother and increase UI and Extension Host load.",
+            "maximum": 1000,
+            "order": 10
+          },
+          "bachata.maxAttachmentBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "default": 20971520,
+            "description": "Maximum size of one pasted or attached image, in bytes. Default 20971520 (20 MB).",
+            "maximum": 104857600,
+            "order": 7
+          },
+          "bachata.maxAttachmentCount": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Maximum number of attached images kept for one run.",
+            "order": 6
+          },
+          "bachata.maxAttachmentTotalBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "default": 52428800,
+            "description": "Maximum combined size of all images attached to one run, in bytes. Default 52428800 (50 MB).",
+            "maximum": 524288000,
+            "order": 8
+          },
+          "bachata.maxBrowserAssetBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "default": 52428800,
+            "description": "Maximum size of one browser-generated file or artifact Bachata saves, in bytes. Default 52428800 (50 MB).",
+            "maximum": 524288000,
+            "order": 9
+          },
+          "bachata.transcriptWindowSize": {
+            "type": "number",
+            "minimum": 50,
+            "maximum": 5000,
+            "default": 300,
+            "description": "Number of recent transcript entries kept in memory and shown initially.",
+            "order": 4
+          },
+          "bachata.transcriptMaxEntries": {
+            "type": "number",
+            "minimum": 100,
+            "maximum": 100000,
+            "default": 2000,
+            "description": "Maximum compact transcript preview entries retained for one run.",
+            "order": 29
+          },
+          "bachata.transcriptMaxFileBytes": {
+            "type": "number",
+            "minimum": 65536,
+            "default": 2097152,
+            "description": "Maximum size of the compact transcript preview file kept for one run, in bytes. Default 2097152 (2 MB).",
+            "maximum": 67108864,
+            "order": 30
+          },
+          "bachata.transcriptPreviewBytes": {
+            "type": "number",
+            "minimum": 512,
+            "default": 8192,
+            "description": "Maximum text preview retained locally for one transcript entry, in bytes. Default 8192 (8 KB).",
+            "maximum": 131072,
+            "order": 31
+          },
+          "bachata.transcriptDataBytes": {
+            "type": "number",
+            "minimum": 512,
+            "default": 16384,
+            "description": "Maximum structured preview retained locally for one transcript entry, in bytes. Default 16384 (16 KB).",
+            "maximum": 262144,
+            "order": 32
+          },
+          "bachata.interactionFallbackTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 120000,
+            "description": "How long Bachata waits for your answer before it applies the pipeline fallback, in milliseconds. Default 120000 (2 minutes).",
+            "order": 12
+          },
+          "bachata.maxQueuedMessages": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50,
+            "description": "Maximum queued prompts retained by one run.",
+            "order": 5
+          },
+          "bachata.workspaceOwnerTimeoutMs": {
+            "type": "number",
+            "minimum": 250,
+            "maximum": 2147483647,
+            "default": 1500,
+            "description": "Advanced: how long Bachata waits, in milliseconds, to become the one VS Code window that writes this workspace's Bachata state. Default 1500 (1.5 seconds). Raise it only when a second window is slow to hand the workspace over.",
+            "order": 37
+          },
+          "bachata.pipelineCatalogOwnerTimeoutMs": {
+            "type": "number",
+            "minimum": 250,
+            "maximum": 2147483647,
+            "default": 5000,
+            "description": "Advanced: how long Bachata waits, in milliseconds, for exclusive access to your saved custom pipelines before a change to them fails. Default 5000 (5 seconds).",
+            "order": 38
+          },
+          "bachata.pipelineCatalogFileLockTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 10000,
+            "description": "Advanced: how long Bachata waits, in milliseconds, for the on-disk lock protecting your saved custom pipelines. Default 10000 (10 seconds).",
+            "order": 39
+          },
+          "bachata.pipelineCatalogFileLockStaleMs": {
+            "type": "number",
+            "minimum": 10000,
+            "maximum": 3600000,
+            "default": 60000,
+            "description": "Advanced: age, in milliseconds, after which a leftover lock on your saved custom pipelines is treated as abandoned and reclaimed. Default 60000 (1 minute).",
+            "order": 40
+          },
+          "bachata.maxConcurrentPairRuns": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 4,
+            "description": "Maximum Bachata executions that may hold machine-wide run capacity across VS Code windows.",
+            "order": 24
+          },
+          "bachata.maxConcurrentLocalAgents": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 4,
+            "description": "Maximum Codex and Claude local provider processes reserved by active Bachata work across VS Code windows.",
+            "order": 25
+          },
+          "bachata.maxConcurrentRepositoryTasks": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 4,
+            "description": "Maximum managed TODO worktrees allowed to execute concurrently in one Git repository. Ordinary sessions reserve the full capacity.",
+            "order": 26
+          },
+          "bachata.executionSlotTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 300000,
+            "description": "Maximum time a request waits for Bachata, provider and repository capacity before it fails, in milliseconds. Default 300000 (5 minutes).",
+            "order": 27
+          },
+          "bachata.providerCleanupTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 15000,
+            "description": "Advanced: how long Bachata waits, in milliseconds, for an idle provider to shut down. Default 15000 (15 seconds). After that Bachata stops waiting and reports the process it left running so you can end it yourself.",
+            "order": 34
+          },
+          "bachata.managerInterruptTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 15000,
+            "description": "Advanced: how long Bachata waits, in milliseconds, for one interruption to take effect. Default 15000 (15 seconds). After that Bachata stops waiting and reports what was left running.",
+            "order": 35
+          },
+          "bachata.managerDisposeTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 2147483647,
+            "default": 30000,
+            "description": "Advanced: how long Bachata waits, in milliseconds, for each shutdown stage to finish. Default 30000 (30 seconds). After that Bachata stops waiting and reports anything still running so you can end it yourself.",
+            "order": 36
+          },
+          "bachata.providerEnvironmentVariables": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "default": [],
+            "description": "Additional environment variable names explicitly forwarded to every local provider process.",
+            "scope": "machine",
+            "order": 20
+          },
+          "bachata.zaiCommand": {
+            "type": "string",
+            "default": "claude",
+            "description": "Executable Bachata starts for the Z.AI GLM provider. Z.AI documents Claude Code support through its Anthropic-compatible endpoint, so this is normally the Claude Code CLI.",
+            "scope": "machine",
+            "order": 15
+          },
+          "bachata.zaiBaseUrl": {
+            "type": "string",
+            "default": "https://api.z.ai/api/anthropic",
+            "description": "Z.AI Anthropic-compatible endpoint. Bachata sets it as ANTHROPIC_BASE_URL for the Z.AI process only.",
+            "scope": "machine",
+            "order": 16
+          },
+          "bachata.zaiModel": {
+            "type": "string",
+            "default": "",
+            "description": "GLM model Bachata selects for Z.AI agents that declare no model. Leave empty to let Z.AI choose, in which case recorded evidence cannot name the model.",
+            "order": 17
+          },
+          "bachata.zaiAuthTokenEnvironment": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "default": "ZAI_API_KEY",
+            "description": "Name of the environment variable holding your Z.AI API key. Bachata reads its value, forwards it to the Z.AI process only as ANTHROPIC_AUTH_TOKEN, and never stores, exports, or logs it.",
+            "scope": "machine",
+            "order": 18
+          },
+          "bachata.zaiEnvironmentVariables": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "default": [],
+            "description": "Additional environment variable names forwarded to the Z.AI GLM process only.",
+            "scope": "machine",
+            "order": 19
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "node scripts/lint.mjs",
+    "format:check": "node scripts/format-check.mjs",
+    "check-types": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview-behavior.json && tsc --noEmit -p tsconfig.webview.json",
+    "build:emit": "node scripts/build.mjs",
+    "build": "npm run check-types && npm run build:emit",
+    "watch": "node scripts/build.mjs --watch",
+    "test:unit": "node scripts/run-test-files.mjs tests",
+    "test": "npm run check:no-telemetry && npm run check:managed-fallback && npm run test:source-distribution && npm run build && npm run check:policy-docs && npm run test:webview-layout && npm run check:build-facts && npm run test:managed-modules && npm run test:managed-worktree && npm run test:unit",
+    "vscode:prepublish": "npm run check:lockfile && npm run check:release-metadata:identity && npm run test",
+    "check:lockfile": "node scripts/check-lockfile.mjs",
+    "check:contract-parity": "node scripts/verify-contract-parity.mjs",
+    "check:release-metadata": "node scripts/check-release-metadata.mjs --stage=all",
+    "check:release-metadata:identity": "node scripts/check-release-metadata.mjs --stage=identity",
+    "check:release-metadata:evidence": "node scripts/check-release-metadata.mjs --stage=evidence",
+    "release:bind": "node scripts/bind-release-artifacts.mjs",
+    "release:verify": "node scripts/release-verify.mjs",
+    "package": "node scripts/package.mjs",
+    "test:coverage": "npm run build && npm run test:coverage:source && npm run test:coverage:critical && npm run test:coverage:runtime && npm run test:coverage:adapter-topology && npm run test:coverage:pipeline-catalog && npm run test:coverage:interaction-transport && npm run test:coverage:provider-interaction && npm run test:coverage:conversation-deletion && npm run test:coverage:run-result-projection && npm run test:coverage:catalog-summary && npm run test:coverage:verification-gate && npm run test:coverage:queue-transitions && npm run test:coverage:reset-transition && npm run test:coverage:step-transitions && npm run test:coverage:managed-turn && npm run test:coverage:recovery-transition && npm run test:coverage:runtime-persistence && npm run test:coverage:turn-stream && npm run test:coverage:pipeline-run-plan && npm run test:coverage:webview-dispatch && npm run test:coverage:interaction-lifecycle && npm run test:coverage:human-gate-decision && npm run test:coverage:interaction-requests && npm run test:coverage:iteration-execution && npm run test:coverage:conversation-runtime-options && npm run test:coverage:conversation-lifecycle && npm run test:coverage:pipeline-mutation-policy && npm run test:coverage:asset-naming && npm run test:coverage:browser-action-policy && npm run test:coverage:readiness-report && npm run test:coverage:startup-plan && npm run test:coverage:execution-lease-plan && npm run test:coverage:catalog-coordination && npm run test:coverage:catalog-views && npm run test:coverage:longitudinal-round && npm run test:coverage:notification-source && npm run test:coverage:git-readiness && npm run test:coverage:controller-verification && npm run test:coverage:retained-verification && npm run test:coverage:webview-behavior && npm run test:coverage:webview-dom && npm run test:coverage:export-plan && npm run test:coverage:apply-confirmation",
+    "test:coverage:source": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=2 --test-coverage-exclude=tests/** --test-coverage-exclude=scripts/** --test-coverage-exclude=dist/runtime/createRuntime.js --test-coverage-exclude=dist/webview.js --test-coverage-exclude=dist/webview-behavior.js --test-coverage-lines=78 --test-coverage-functions=80 --test-coverage-branches=73 --test tests/*.test.cjs",
+    "test:coverage:critical": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=2 --test-coverage-include=dist/conversations/**/*.js --test-coverage-include=dist/orchestrator/**/*.js --test-coverage-include=dist/pipeline/**/*.js --test-coverage-include=dist/security/**/*.js --test-coverage-include=dist/state/catalog.js --test-coverage-lines=82 --test-coverage-functions=83 --test-coverage-branches=75 --test tests/*.test.cjs",
+    "check:timeout-reads": "node scripts/check-timeout-reads.mjs",
+    "check:no-telemetry": "node scripts/verify-no-telemetry.mjs",
+    "test:e2e:human": "node scripts/run-human-e2e.mjs",
+    "test:activation-smoke": "node scripts/run-activation-smoke.mjs",
+    "test:webview-layout": "node scripts/run-webview-layout.mjs",
+    "test:coverage:runtime": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/createRuntime.js --test-coverage-lines=71 --test-coverage-functions=75 --test-coverage-branches=68 --test tests/runtimeBehavior.test.cjs tests/runtimeSafety.test.cjs",
+    "test:coverage:provider-interaction": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/providerInteraction.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/providerInteraction.test.cjs",
+    "test:coverage:catalog-summary": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/catalogSummary.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/catalogSummary.test.cjs",
+    "test:coverage:verification-gate": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/verificationGate.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/verificationGate.test.cjs",
+    "test:coverage:queue-transitions": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/queueTransitions.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/queueTransitions.test.cjs",
+    "test:coverage:reset-transition": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/resetTransition.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/resetTransition.test.cjs",
+    "test:coverage:step-transitions": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/pipeline/stepTransitions.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/stepTransitions.test.cjs",
+    "test:coverage:managed-turn": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/managedTurn.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/managedTurn.test.cjs",
+    "test:coverage:recovery-transition": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/recoveryTransition.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/recoveryTransition.test.cjs",
+    "test:coverage:runtime-persistence": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/runtimePersistence.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/runtimePersistence.test.cjs",
+    "test:coverage:turn-stream": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/turnStream.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/turnStream.test.cjs",
+    "test:coverage:pipeline-run-plan": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/pipelineRunPlan.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/pipelineRunPlan.test.cjs",
+    "test:coverage:webview-dispatch": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/webviewDispatch.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/webviewDispatch.test.cjs",
+    "test:coverage:interaction-lifecycle": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/interactionLifecycle.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/interactionLifecycle.test.cjs",
+    "test:coverage:human-gate-decision": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/humanGateDecision.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/humanGateDecision.test.cjs",
+    "test:coverage:interaction-requests": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/interactionRequests.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/interactionRequests.test.cjs",
+    "test:coverage:iteration-execution": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/iterationExecution.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/iterationExecution.test.cjs",
+    "test:coverage:conversation-runtime-options": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/conversationRuntimeOptions.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/conversationRuntimeOptions.test.cjs",
+    "test:coverage:conversation-lifecycle": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/conversationLifecycle.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/conversationLifecycle.test.cjs",
+    "test:coverage:pipeline-mutation-policy": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/pipelineMutationPolicy.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/pipelineMutationPolicy.test.cjs",
+    "test:coverage:export-plan": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/export/exportPlan.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/exportPlan.test.cjs",
+    "test:coverage:apply-confirmation": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/applyConfirmation.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/applyConfirmation.test.cjs",
+    "test:coverage:asset-naming": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/assetNaming.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/assetNaming.test.cjs",
+    "test:coverage:browser-action-policy": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/browserActionPolicy.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/browserActionPolicy.test.cjs",
+    "test:coverage:readiness-report": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/readiness/readinessReport.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/readinessReport.test.cjs",
+    "test:coverage:startup-plan": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/startupPlan.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/startupPlan.test.cjs",
+    "test:coverage:execution-lease-plan": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/executionLeasePlan.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/executionLeasePlan.test.cjs",
+    "test:coverage:catalog-views": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/catalogViews.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/catalogViews.test.cjs",
+    "test:coverage:longitudinal-round": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/longitudinalRound.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/longitudinalRound.test.cjs",
+    "test:coverage:catalog-coordination": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/pipelineCatalogCoordination.js --test-coverage-include=dist/state/serialQueue.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/pipelineCatalogCoordination.test.cjs",
+    "test:coverage:notification-source": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/notifications/source.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/notifications.test.cjs",
+    "test:coverage:git-readiness": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/readiness/gitReadiness.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/gitReadiness.test.cjs",
+    "test:coverage:controller-verification": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/controllerVerification.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/controllerVerification.test.cjs",
+    "test:coverage:retained-verification": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/orchestrator/retainedVerification.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/retainedVerification.test.cjs",
+    "test:coverage:webview-behavior": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/webview-behavior.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=95 --test tests/webviewBehavior.test.cjs",
+    "test:coverage:webview-dom": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/webview.js --test-coverage-lines=58 --test-coverage-functions=67 --test-coverage-branches=62 --test tests/webviewDom.test.cjs",
+    "check:managed-fallback": "node scripts/verify-managed-fallback.mjs",
+    "test:managed-modules": "node scripts/test-managed-modules.mjs",
+    "test:managed-worktree": "node scripts/test-managed-worktree.mjs",
+    "source:export": "node scripts/source-distribution.mjs export",
+    "source:verify": "node scripts/source-distribution.mjs verify",
+    "test:source-distribution": "node --test tests/sourceDistribution.test.cjs",
+    "docs:policy": "node scripts/generate-policy-docs.mjs",
+    "check:policy-docs": "node scripts/generate-policy-docs.mjs --check",
+    "docs:build-facts": "node scripts/build-facts.mjs",
+    "check:build-facts": "node scripts/build-facts.mjs --check",
+    "check:codex-protocol": "node scripts/generate-codex-protocol.mjs --check",
+    "validate:local": "node scripts/validate-local.mjs",
+    "worktree:unlock": "node scripts/worktree-unlock.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
+    "test:coverage:adapter-topology": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/adapterTopology.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=88 --test tests/adapterTopology.test.cjs",
+    "test:coverage:pipeline-catalog": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/pipeline/pipelineCatalog.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=96 --test tests/pipelineCatalog.test.cjs",
+    "test:coverage:interaction-transport": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/runtime/interactionTransport.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/interactionTransport.test.cjs",
+    "test:coverage:conversation-deletion": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/conversationDeletion.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/conversationDeletion.test.cjs",
+    "test:coverage:run-result-projection": "node scripts/run-bounded-command.mjs 600000 node --experimental-test-coverage --test-concurrency=1 --test-coverage-include=dist/conversations/runResultProjection.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 --test tests/runResultProjection.test.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "@types/vscode": "1.101.0",
+    "@vscode/codicons": "0.0.46-24",
+    "@vscode/vsce": "3.9.2",
+    "prismjs": "1.30.0",
+    "yauzl": "3.4.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Bachata starts AI command-line tools and repository commands against the files of this workspace, and those tools can be steered by the files they read. Until you trust this workspace, Bachata will not start an agent, and settings that grant write access, destructive actions, or a working directory outside the workspace are read from user settings only. Reading findings, decisions, and past runs still works.",
+      "restrictedConfigurations": [
+        "bachata.zaiCommand",
+        "bachata.zaiBaseUrl",
+        "bachata.zaiAuthTokenEnvironment",
+        "bachata.zaiEnvironmentVariables",
+        "bachata.providerEnvironmentVariables",
+        "bachata.todoCheckEnvironmentVariables",
+        "bachata.codexImplementationPermissionMode",
+        "bachata.codexApprovalPolicy",
+        "bachata.codexWorkspaceScope",
+        "bachata.claudeReviewPermissionMode",
+        "bachata.claudeImplementationPermissionMode",
+        "bachata.allowExternalWorkingDirectories",
+        "bachata.todoRequireChecks",
+        "bachata.todoPipeline",
+        "bachata.todoMasterPipeline",
+        "bachata.improvePipeline",
+        "bachata.improveDiscoveryPipeline",
+        "bachata.improveConvergencePipeline",
+        "bachata.improveReviewPipeline",
+        "bachata.improveRevisionPipeline",
+        "bachata.freshReviewPipelineId",
+        "bachata.fixPipelineId",
+        "bachata.managedBrowserAutoApprove",
+        "bachata.browserActionReadOnlyPolicy",
+        "bachata.browserActionMutationPolicy",
+        "bachata.browserActionDestructivePolicy",
+        "bachata.browserSemanticInterpreterAllowRemote",
+        "bachata.browserSemanticInterpreterEndpoint",
+        "bachata.browserSemanticInterpreterApiKeyEnvironment",
+        "bachata.browserSelectorHealingEndpoint"
+      ]
+    }
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "types": "./dist/extension.d.ts",
+  "dependencies": {
+    "ajv": "8.20.0",
+    "fast-glob": "3.3.3",
+    "ignore": "7.0.5",
+    "jsonrepair": "3.13.1",
+    "ts-morph": "26.0.0",
+    "typescript": "5.8.3"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "id": "self-improvement-revision",
+  "name": "Self-improvement revision",
+  "description": "Claude performs one bounded revision of a rejected task candidate in the same task worktree. The controller supplies the lead review and reruns the declared checks afterwards.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "acceptEdits",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "steps": [
+    {
+      "id": "worker-revision",
+      "name": "Worker revises the rejected candidate",
+      "enabled": true,
+      "participants": ["claude"],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": { "claude": "acceptEdits" },
+      "attachments": "none",
+      "type": "agent"
+    }
+  ]
+}

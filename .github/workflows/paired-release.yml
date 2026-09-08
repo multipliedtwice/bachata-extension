@@ -1,0 +1,276 @@
+# BACHATA-AUD-01 / EX-AUD-08. The release-gates workflow deliberately does not run artifact
+# binding, because a clean checkout of this repository has no Browser Bridge archive. That
+# left `release:bind`, `release:verify` and the evidence gate exercised by nothing, and left
+# the three archive-dependent tests skipping in every run.
+#
+# This job is where those run. It needs the exact archive the Browser Bridge repository
+# published, so it takes that run's id as an input rather than rebuilding a lookalike.
+#
+# It retains verified artifacts for the separate marketplace deployment workflow. `release:verify` reports whether the evidence
+# and binding hold; the SHIP or NO-SHIP verdict stays human and stays in
+# docs/RELEASE_VERDICT.md. Owner identity and human artifact evidence are separate gates and
+# this job does not stand in for either.
+name: Paired release verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Build a candidate for acceptance, or verify an already tested candidate
+        required: true
+        type: choice
+        options: [candidate, verify]
+        default: candidate
+      candidate_run_id:
+        description: Successful candidate-phase run ID; required for verify
+        required: false
+        type: string
+      candidate_run_attempt:
+        description: Candidate run attempt; required for verify
+        required: false
+        type: string
+      bridge_run_id:
+        description: >-
+          The Browser Bridge "Release artifact" run id whose archive this verifies.
+        required: true
+        type: string
+      bridge_repository:
+        description: The Browser Bridge repository, as owner/name.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: extension-paired-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the paired artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install from the lockfile only
+        run: npm ci
+
+      - name: Read the pinned Browser Bridge version
+        id: pinned
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./protocol/browser-bridge.compatibility.json').browserBridgeVersion")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Pinned Browser Bridge version: ${version}"
+
+      # `secrets.GITHUB_TOKEN` is minted for this repository alone. `download-artifact`
+      # reaching into another repository needs `actions: read` there, which that token cannot
+      # carry, so every cross-repository fetch below would have failed before any verification
+      # ran. A dedicated fine-grained PAT or GitHub App token is required, and its absence is
+      # reported here rather than as an opaque 404 three steps later.
+      - name: Require the Browser Bridge artifact read token
+        env:
+          BRIDGE_ARTIFACT_READ_TOKEN: ${{ secrets.BRIDGE_ARTIFACT_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${BRIDGE_ARTIFACT_READ_TOKEN}" ]; then
+            echo "BRIDGE_ARTIFACT_READ_TOKEN is not set."
+            echo
+            echo "This job reads Actions artifacts from the Browser Bridge repository."
+            echo "GITHUB_TOKEN is scoped to this repository and cannot do that."
+            echo "Provision a fine-grained PAT or GitHub App token with Actions: read on"
+            echo "the Browser Bridge repository and store it as BRIDGE_ARTIFACT_READ_TOKEN."
+            exit 1
+          fi
+          echo "A Browser Bridge artifact read token is present."
+
+      # The run id is an operator-supplied input. Downloading from it without checking what
+      # it is would let a failed run — one the drift gate rejected — supply artifacts, and
+      # would let any run in any repository do so. The check lives in a module because it has
+      # real logic and has to be testable against the shape the API actually returns: GitHub
+      # reports a run's `path` with its ref appended, so an exact comparison against the bare
+      # path rejects every legitimate run.
+      #
+      # Inputs reach it through the environment, never through `${{ }}` interpolation inside a
+      # script, which bash would never see as data.
+      - name: Refuse a run that is not a successful Bridge release build
+        env:
+          BRIDGE_ARTIFACT_READ_TOKEN: ${{ secrets.BRIDGE_ARTIFACT_READ_TOKEN }}
+          BRIDGE_REPOSITORY: ${{ inputs.bridge_repository }}
+          BRIDGE_RUN_ID: ${{ inputs.bridge_run_id }}
+          EXPECTED_WORKFLOW_PATH: .github/workflows/release-artifact.yml
+        run: node scripts/verify-bridge-run.mjs
+
+      # Downloaded from the Bridge run, not rebuilt here. A rebuild would verify bytes this
+      # release does not ship.
+      - name: Fetch the Browser Bridge archive
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-bridge-${{ steps.pinned.outputs.version }}
+          path: ${{ runner.temp }}/bridge-artifact
+          github-token: ${{ secrets.BRIDGE_ARTIFACT_READ_TOKEN }}
+          repository: ${{ inputs.bridge_repository }}
+          run-id: ${{ inputs.bridge_run_id }}
+
+      - name: Fetch the Browser Bridge protocol contract and shared fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-protocol-contract-${{ steps.pinned.outputs.version }}
+          path: ${{ runner.temp }}/bridge-contract
+          github-token: ${{ secrets.BRIDGE_ARTIFACT_READ_TOKEN }}
+          repository: ${{ inputs.bridge_repository }}
+          run-id: ${{ inputs.bridge_run_id }}
+
+      # `verifyBridgeArchive` compares the archive entry by entry against the build it was
+      # packaged from, and `bridgeSourceRoot` looks for that build in a `dist` directory
+      # beside the archive. Without it every archive-dependent test fails on "the Browser
+      # Bridge build directory was not found", so the build is fetched, not rebuilt: a
+      # rebuild here would verify bytes this release does not ship.
+      - name: Fetch the packaged Browser Bridge build
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-bridge-dist-${{ steps.pinned.outputs.version }}
+          path: ${{ runner.temp }}/bridge-dist
+          github-token: ${{ secrets.BRIDGE_ARTIFACT_READ_TOKEN }}
+          repository: ${{ inputs.bridge_repository }}
+          run-id: ${{ inputs.bridge_run_id }}
+
+      - name: Confirm the downloaded digest matches the published digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/bridge-artifact"
+          name="bachata-browser-bridge-${{ steps.pinned.outputs.version }}.zip"
+          test -f "${name}" || { echo "No ${name} in the downloaded artifact"; ls -la; exit 1; }
+          test -f "${name}.sha256" || { echo "No published digest beside ${name}"; exit 1; }
+          shasum -a 256 -c "${name}.sha256"
+
+      # Stage the archive where resolvePinnedBridgeArchive looks — beside this checkout — and
+      # the build beside the archive, where bridgeSourceRoot looks for it.
+      - name: Stage the archive and its build beside the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="$(dirname "${GITHUB_WORKSPACE}")"
+          cp "${RUNNER_TEMP}/bridge-artifact/bachata-browser-bridge-${{ steps.pinned.outputs.version }}.zip" \
+             "${staging}/"
+          rm -rf "${staging}/dist"
+          cp -R "${RUNNER_TEMP}/bridge-dist" "${staging}/dist"
+          test -d "${staging}/dist" || { echo "The Browser Bridge build was not staged"; exit 1; }
+          ls -la "${staging}"
+
+      # Compares the contract and both shared fixture tables against the Bridge's own build.
+      # Each repository otherwise checked its fixtures against a digest in its own suite, so
+      # editing a fixture and that constant together passed on both sides.
+      - name: Browser protocol and shared boundary parity
+        run: >-
+          node scripts/verify-contract-parity.mjs
+          "${RUNNER_TEMP}/bridge-contract/browser-protocol-v9.contract.json"
+          "${RUNNER_TEMP}/bridge-contract"
+
+      - name: Types
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      # BACHATA_REQUIRE_RELEASE_ARTIFACTS turns an absent archive from a skip into a failure, so
+      # this job cannot report a verified release while its artifact half never ran.
+      - name: Tests with release artifacts required
+        env:
+          BACHATA_REQUIRE_RELEASE_ARTIFACTS: "1"
+        run: npm test
+
+      - name: Coverage gates
+        run: npm run test:coverage
+
+      - name: Build the candidate VSIX
+        if: inputs.phase == 'candidate'
+        run: npm run package
+
+      # Binding updates the repository's release records by design. Refuse unexpected source
+      # drift before that intentional write; running this gate afterward would reject every
+      # otherwise-valid release because the bound records must differ from the checkout.
+      - name: Refuse source drift from the gates
+        shell: bash
+        run: |
+          git status --porcelain -- . ':!*.vsix' > /tmp/drift
+          if [ -s /tmp/drift ]; then
+            echo "A gate modified tracked source:"
+            cat /tmp/drift
+            exit 1
+          fi
+
+      - name: Retain candidate bytes for artifact acceptance
+        if: inputs.phase == 'candidate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-vsix-${{ github.run_attempt }}
+          path: '*.vsix'
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Verify the candidate workflow provenance
+        if: inputs.phase == 'verify'
+        env:
+          BRIDGE_ARTIFACT_READ_TOKEN: ${{ github.token }}
+          BRIDGE_REPOSITORY: ${{ github.repository }}
+          BRIDGE_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_WORKFLOW_PATH: .github/workflows/paired-release.yml
+          EXPECTED_RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+          EXPECTED_EVENT: workflow_dispatch
+        run: node scripts/verify-bridge-run.mjs
+
+      - name: Download the already tested VSIX
+        if: inputs.phase == 'verify'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ inputs.candidate_run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ && "$CANDIDATE_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "candidate-vsix-${CANDIDATE_RUN_ATTEMPT}" --dir "$GITHUB_WORKSPACE"
+
+      - name: Bind the measured artifact hashes into the release records
+        if: inputs.phase == 'verify'
+        run: npm run release:bind
+
+      # This is the gate. It checks identity, evidence and binding together against the exact
+      # artifacts staged above, and fails if any of them is missing or unbound. Owner identity
+      # and human evidence are expected to block it until a human supplies them; that failure
+      # is the correct result, not something to work around.
+      - name: Release verification
+        if: inputs.phase == 'verify'
+        run: npm run release:verify
+
+      - name: Assemble the approved release set
+        if: inputs.phase == 'verify'
+        run: node scripts/release-bundle.mjs create "${RUNNER_TEMP}/release-set"
+
+      - name: Retain the exact approved artifacts for deployment
+        if: inputs.phase == 'verify'
+        uses: actions/upload-artifact@v4
+        with:
+          name: approved-release-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-set
+          if-no-files-found: error
+          retention-days: 90

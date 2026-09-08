@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "id": "self-improvement-convergence",
+  "name": "Self-improvement convergence",
+  "description": "Codex and Claude cross-check both first-pass audits against the checked-out candidate and converge on one executable task plan. Codex rules when they still disagree. Nothing is edited.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "steps": [
+    {
+      "id": "plan-convergence",
+      "name": "Converge on one executable plan",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "arbiter",
+        "arbiter": "codex",
+        "maxRounds": 2,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "requestArbiterRuling",
+        "candidateShape": "selfImprovementTaskPlan"
+      },
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none"
+    }
+  ]
+}

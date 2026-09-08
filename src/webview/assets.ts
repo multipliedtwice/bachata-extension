@@ -1,0 +1,30 @@
+export const prismComponents = [
+  "typescript",
+  "jsx",
+  "tsx",
+  "json",
+  "bash",
+  "powershell",
+  "python",
+  "java",
+  "c",
+  "cpp",
+  "csharp",
+  "go",
+  "rust",
+  "sql",
+  "yaml",
+  "markdown",
+  "diff",
+  "git",
+] as const;
+
+export const webviewRuntimeAssets = (): string[] => [
+  "dist/webview.js",
+  "dist/webview-behavior.js",
+  "dist/webview.css",
+  "dist/vendor/codicons/codicon.css",
+  "dist/vendor/codicons/codicon.ttf",
+  "dist/vendor/prism/prism.js",
+  ...prismComponents.map((component) => `dist/vendor/prism/components/prism-${component}.js`),
+];

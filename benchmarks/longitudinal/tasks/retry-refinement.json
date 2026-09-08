@@ -1,0 +1,123 @@
+{
+  "id": "retry-refinement",
+  "title": "Repeated refinement of the retry helper",
+  "fixture": "fixtures/review-retry",
+  "initiative": {
+    "goal": "src/retry.ts retries a bounded number of times, backs off, and is cancellable",
+    "desiredOutcome": "Every retry path is bounded and every unbounded path is either removed or explicitly accepted",
+    "acceptanceCriteria": [
+      "No retry helper runs more attempts than the caller asked for",
+      "No delay runs after the final failed attempt",
+      "No unbounded retry loop remains without a recorded human decision"
+    ],
+    "constraints": [
+      "Do not change the public signature of retry",
+      "Do not add a dependency"
+    ]
+  },
+  "rounds": [
+    {
+      "index": 1,
+      "kind": "freshReview",
+      "prompt": "Review src/retry.ts for correctness and unbounded work. Report findings with file and line. Do not change files."
+    },
+    {
+      "index": 2,
+      "kind": "correction",
+      "prompt": "Apply the accepted findings from the previous round. Change nothing that was rejected or deferred."
+    },
+    {
+      "index": 3,
+      "kind": "freshReview",
+      "prompt": "Review src/retry.ts again against the current repository state. Carry no prior confidence and no prior conclusion into this review."
+    },
+    {
+      "index": 4,
+      "kind": "validation",
+      "prompt": "Run the declared checks against the current candidate and report only what the checks prove."
+    }
+  ],
+  "arms": {
+    "single": {
+      "pipelineIds": [
+        "codex-review",
+        "claude-review"
+      ],
+      "requiredVerification": []
+    },
+    "paired": {
+      "pipelineIds": [
+        "review-only",
+        "debug"
+      ],
+      "requiredVerification": []
+    }
+  },
+  "metrics": [
+    "newSupportedFindings",
+    "falsePositives",
+    "dispositions",
+    "resolvedStayResolved",
+    "regressions",
+    "humanVisibleCoreDecisions",
+    "routineCollapsed"
+  ],
+  "answerKey": {
+    "requiredFindings": [
+      {
+        "id": "retry.off-by-one",
+        "file": "src/retry.ts",
+        "line": 12,
+        "statement": "attempts is used as an inclusive bound, so the operation runs attempts + 1 times"
+      },
+      {
+        "id": "retry.sleep-after-last",
+        "file": "src/retry.ts",
+        "line": 18,
+        "statement": "the delay runs after the final failed attempt, delaying the thrown error for no benefit"
+      },
+      {
+        "id": "retry.unbounded",
+        "file": "src/retry.ts",
+        "line": 23,
+        "statement": "retryForever has no attempt bound, no backoff, and no cancellation"
+      }
+    ],
+    "forbiddenFindings": [
+      {
+        "id": "retry.await-in-loop",
+        "statement": "await inside the loop is required here; reporting it as a defect is a false positive"
+      },
+      {
+        "id": "retry.generic-unsafe",
+        "statement": "the generic parameter is sound; reporting it as unsafe is a false positive"
+      }
+    ],
+    "routineInformation": [
+      {
+        "id": "retry.style-naming",
+        "statement": "naming and formatting remarks about retry repeat every round and must collapse to one tracked item"
+      },
+      {
+        "id": "retry.no-tests",
+        "statement": "the observation that the fixture ships no test repeats every round and must collapse to one tracked item"
+      }
+    ],
+    "coreDecisions": [
+      {
+        "id": "retry.decision.unbounded-policy",
+        "subject": "Unbounded retry policy",
+        "statement": "whether retryForever is removed, bounded, or explicitly accepted is a human decision, not a model verdict"
+      },
+      {
+        "id": "retry.decision.backoff-shape",
+        "subject": "Backoff shape",
+        "statement": "constant, linear, or exponential backoff changes caller behaviour and needs a human decision"
+      }
+    ],
+    "expectedResolvedByRound": {
+      "retry.off-by-one": 3,
+      "retry.sleep-after-last": 3
+    }
+  }
+}

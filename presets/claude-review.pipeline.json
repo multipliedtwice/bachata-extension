@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "id": "claude-review",
+  "name": "Review with Claude",
+  "description": "Read-only repository review with Claude Code.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "review",
+      "name": "Repository review",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": ["claude"],
+      "promptTemplate": "Review this scope. Do not modify files. Return JSON only with findings. Each finding needs stable id, subject, message, disposition proposed, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. A single model cannot mark a finding accepted.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": { "claude": "plan" },
+      "attachments": "selected",
+      "output": {
+        "name": "modelFindings",
+        "format": "json",
+        "shape": "proposedModelFindingSet"
+      }
+    }
+  ]
+}

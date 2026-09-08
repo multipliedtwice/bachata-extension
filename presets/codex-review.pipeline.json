@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "codex-review",
+  "name": "Review with Codex",
+  "description": "Read-only repository review with Codex.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    }
+  ],
+  "steps": [
+    {
+      "id": "review",
+      "name": "Repository review",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": ["codex"],
+      "promptTemplate": "Review this scope. Do not modify files. Return JSON only with findings. Each finding needs stable id, subject, message, disposition proposed, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. A single model cannot mark a finding accepted.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": { "codex": "readOnly" },
+      "approvalPolicies": { "codex": "onRequest" },
+      "attachments": "selected",
+      "output": {
+        "name": "modelFindings",
+        "format": "json",
+        "shape": "proposedModelFindingSet"
+      }
+    }
+  ]
+}

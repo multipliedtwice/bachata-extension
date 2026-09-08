@@ -1,0 +1,65 @@
+{
+  "id": "protocol-boundary",
+  "kind": "review",
+  "title": "Review a Codex app-server payload builder against the installed protocol",
+  "fixture": "fixtures/protocol-boundary",
+  "prompt": "Review src/codexPayload.ts. Decide whether the payloads it builds are the payloads the Codex CLI installed on this machine accepts, and whether the readiness check proves the provider can run. Every claim must name the protocol evidence it rests on. Do not change files.",
+  "externalAccess": [
+    "codex app-server generate-json-schema --out <dir>",
+    "codex app-server (a non-billing initialize handshake and parameter probe)"
+  ],
+  "boundary": "The fixture alone cannot settle any required finding: the enum spellings, the removed readable-root fields and the readiness gap are properties of the installed Codex CLI, not of the committed files. Both arms receive exactly the same external access, listed above, and neither may make a billable provider call.",
+  "arms": {
+    "single": {
+      "pipelineIds": [
+        "codex-review",
+        "claude-review"
+      ],
+      "requiredVerification": []
+    },
+    "paired": {
+      "pipelineIds": [
+        "review-only"
+      ],
+      "requiredVerification": []
+    }
+  },
+  "answerKey": {
+    "requiredFindings": [
+      {
+        "id": "codexPayload.sandbox-mode-casing",
+        "file": "src/codexPayload.ts",
+        "line": 11,
+        "statement": "thread/start sends a camelCase sandbox mode; the installed protocol accepts only read-only, workspace-write and danger-full-access"
+      },
+      {
+        "id": "codexPayload.approval-policy-casing",
+        "file": "src/codexPayload.ts",
+        "line": 19,
+        "statement": "the approval policy is forwarded verbatim; the installed protocol accepts only untrusted, on-request, granular and never"
+      },
+      {
+        "id": "codexPayload.readable-roots-removed",
+        "file": "src/codexPayload.ts",
+        "line": 29,
+        "statement": "readOnly.access and workspaceWrite.readOnlyAccess were removed from the protocol, so the readable-root promise this builds is not enforced"
+      },
+      {
+        "id": "codexPayload.version-readiness",
+        "file": "src/codexPayload.ts",
+        "line": 61,
+        "statement": "a --version answer proves the executable exists, not that its app-server accepts these payloads"
+      }
+    ],
+    "forbiddenFindings": [
+      {
+        "id": "codexPayload.record-return-type",
+        "statement": "returning Record<string, unknown> is a deliberate wire-shaped boundary; reporting it as a typing defect is a false positive"
+      },
+      {
+        "id": "codexPayload.missing-network-enum",
+        "statement": "networkAccess as a boolean is accepted by the installed protocol; reporting it as a defect without probing is a false positive"
+      }
+    ]
+  }
+}

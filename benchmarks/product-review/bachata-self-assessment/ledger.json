@@ -1,0 +1,993 @@
+{
+  "schemaVersion": 2,
+  "subject": "Bachata product review, manual two-model convergence",
+  "recordedOn": "2026-08-27",
+  "repositoryCandidate": {
+    "branch": "alpha-hardening",
+    "baseCommit": "ae72c8d",
+    "note": "written from an isolated worktree; rounds 1-6 reviewed an earlier tree at d53fedb"
+  },
+  "investigators": [
+    "claude",
+    "gpt"
+  ],
+  "rounds": 10,
+  "counts": {
+    "withdrawn": 13,
+    "accepted": 22,
+    "unresolved": 3,
+    "withdrawnByInvestigator": {
+      "claude": 13,
+      "gpt": 0
+    },
+    "absenceSearchFailures": 3,
+    "absenceSearchFailureIds": [
+      "W-01",
+      "W-02",
+      "W-11"
+    ]
+  },
+  "withdrawnFigureCorrection": "An earlier round stated 9 of 13 withdrawals were absence-search failures. Row-by-row tagging supports 3. That figure is withdrawn.",
+  "freezeBoundary": {
+    "independentFirstPass": "rounds 1-2",
+    "permittedReconciliation": "round 3, matching presets/review-only.pipeline.json: independent discovery, then cross-reference with peer answers exposed",
+    "contaminatedMetaRounds": "rounds 4-8, each inheriting everything before it with no freeze; not a valid fresh longitudinal cycle"
+  },
+  "entries": [
+    {
+      "id": "W-01",
+      "subject": "native-diff",
+      "claim": "Bachata does not use the native VS Code diff editor for retained work",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "low",
+      "affectedScope": "ui",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "src/conversations/createConversationManager.ts:6500 invokes git.openChange with a vscode.open fallback"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "absence-search",
+      "supersessionHistory": [
+        {
+          "round": 2,
+          "state": "proposed"
+        },
+        {
+          "round": 5,
+          "state": "withdrawn",
+          "reason": "single grep for vscode.diff; the real call is git.openChange"
+        }
+      ]
+    },
+    {
+      "id": "W-02",
+      "subject": "regression-watch",
+      "claim": "Bachata has no regression detection for a finding resolved then reintroduced",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "longitudinal",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "src/longitudinal/lifecycle.ts:381 marks a resolved entry regressed when observed again",
+        "folded at lifecycle.ts:490 and rendered in the Direction comparison"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "absence-search"
+    },
+    {
+      "id": "W-03",
+      "subject": "state-loss",
+      "claim": "finding history dies with the laptop",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "high",
+      "affectedScope": "state",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "docs/STATE.md:30 export carries initiative, cycles, artifacts, decisions, finding history, rounds, merges and fix-run links"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "partial-read",
+      "supersessionHistory": [
+        {
+          "round": 2,
+          "state": "proposed"
+        },
+        {
+          "round": 3,
+          "state": "withdrawn",
+          "reason": "continuity is manual, lossy and non-merging, not total loss"
+        }
+      ]
+    },
+    {
+      "id": "W-04",
+      "subject": "market-uniqueness",
+      "claim": "no competitor ships this epistemic contract",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "medium",
+      "affectedScope": "positioning",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "no market research was performed by claude in this session; no network access"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "gpt"
+        ],
+        "notReproducedBy": [
+          "claude"
+        ]
+      },
+      "failureMode": "unsourced-assertion"
+    },
+    {
+      "id": "W-05",
+      "subject": "privacy-positioning",
+      "claim": "Bachata suits regulated buyers who cannot send a repository to a hosted reviewer",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "medium",
+      "affectedScope": "positioning",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "provider CLIs and browser sessions still receive code and prompts; Bachata is not on-premise inference"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "reasoning",
+      "supersessionHistory": [
+        {
+          "round": 3,
+          "state": "superseded",
+          "reason": "replaced by the vendor-count argument: Bachata adds no new data processor"
+        }
+      ]
+    },
+    {
+      "id": "W-06",
+      "subject": "continuity-priority",
+      "claim": "repository-backed initiative state should be the first structural change",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "high",
+      "affectedScope": "state",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "committed state becomes repository content a fresh reviewer can read, trading fresh-review isolation for portability"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "reasoning"
+    },
+    {
+      "id": "W-07",
+      "subject": "team-cost",
+      "claim": "repository-backed state makes team and PR support a small step",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 3
+      },
+      "materiality": "medium",
+      "affectedScope": "roadmap",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "publishing evidence is small; multi-user semantic merging and authority are not"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "reasoning"
+    },
+    {
+      "id": "W-08",
+      "subject": "funnel-cost",
+      "claim": "the core mechanism requires two paid subscriptions",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "onboarding",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "single-provider workflows and same-provider independent conversations exist; presets/claude-pair.pipeline.json"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "overstatement",
+      "supersessionHistory": [
+        {
+          "round": 4,
+          "state": "superseded",
+          "reason": "restated as funnel friction for the flagship cross-provider pair"
+        }
+      ]
+    },
+    {
+      "id": "W-09",
+      "subject": "serialization-cost",
+      "claim": "writing state to .bachata is cheap because the schema is typed and hash-canonical",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 4
+      },
+      "materiality": "high",
+      "affectedScope": "state",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "serialization is solved; stable ids, merge semantics, branch histories, migrations and evidence locality are not"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "reasoning"
+    },
+    {
+      "id": "W-10",
+      "subject": "bachata-dir-status",
+      "claim": "the .bachata directory is already committed in this repository",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 4
+      },
+      "materiality": "low",
+      "affectedScope": "state",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "src/policy/repositoryPolicy.ts:6 declares a supported path; the directory did not exist and was not tracked in that checkout"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "unverified-presence"
+    },
+    {
+      "id": "W-11",
+      "subject": "patch-export",
+      "claim": "Bachata cannot export a patch file or a branch",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 5
+      },
+      "materiality": "medium",
+      "affectedScope": "export",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "the orchestration.patch message; the Export patch button at src/webview-ui/main.ts:3303; the Git patch save-dialog filter at src/conversations/createConversationManager.ts:6632"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "absence-search"
+    },
+    {
+      "id": "W-12",
+      "subject": "ledger-attribution",
+      "claim": "gpt claimed the .bachata read exclusion was already enforced",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 5
+      },
+      "materiality": "low",
+      "affectedScope": "process",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "gpt specified the exclusion as a layer-two prerequisite, never as current state"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "misattribution"
+    },
+    {
+      "id": "W-13",
+      "subject": "contamination",
+      "claim": "rounds 2 and 3 of this session were contaminated by cross-reading",
+      "disposition": "withdrawn",
+      "provenance": {
+        "author": "claude",
+        "round": 5
+      },
+      "materiality": "medium",
+      "affectedScope": "process",
+      "supportingEvidence": [],
+      "refutingEvidence": [
+        "presets/review-only.pipeline.json runs independent discovery, then cross-references with peer answers exposed; that is the designed mechanism"
+      ],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "failureMode": "partial-read",
+      "supersessionHistory": [
+        {
+          "round": 6,
+          "state": "withdrawn",
+          "reason": "contamination applies only to the later meta-rounds, which inherited everything with no freeze"
+        }
+      ]
+    },
+    {
+      "id": "A-01",
+      "subject": "run-economics",
+      "claim": "Bachata captures no provider usage, token count or elapsed time for a finished run",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "high",
+      "affectedScope": "observability",
+      "supportingEvidence": [
+        "no usage capture in src/adapters; only a quota-exhaustion regex at src/adapters/providerFailure.ts:25"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Blocked by the project telemetry restriction. Pre-run ceilings from the execution contract are in scope; post-run facts need an owner-authored exception."
+    },
+    {
+      "id": "A-02",
+      "subject": "funnel-friction",
+      "claim": "the flagship cross-provider pair expects both Codex and Claude Code",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "high",
+      "affectedScope": "onboarding",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-03",
+      "subject": "browser-flank",
+      "claim": "the browser bridge carries provider terms exposure, DOM drift and permanent maintenance",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "medium",
+      "affectedScope": "scope",
+      "supportingEvidence": [
+        "bachata.browserSelectorHealingEnabled and the semantic interpreter exist because selectors drift"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-04",
+      "subject": "engineering-shape",
+      "claim": "the largest modules tax delivery velocity",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "medium",
+      "affectedScope": "engineering",
+      "supportingEvidence": [
+        "createRuntime.ts 9765 lines, createConversationManager.ts 7289 lines, webview-ui/main.ts 6535 lines"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-05",
+      "subject": "true-competitor",
+      "claim": "the strongest competitor is two fresh agent sessions compared by hand",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 3
+      },
+      "materiality": "high",
+      "affectedScope": "positioning",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-06",
+      "subject": "readme-accuracy",
+      "claim": "the README says cross-run core-decision compression remains roadmap while it ships",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "documentation",
+      "supportingEvidence": [
+        "README.md:266 against src/longitudinal/types.ts:8-26 and src/longitudinal/decisionCandidates.ts:206"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-07",
+      "subject": "positioning",
+      "claim": "the public promise leads with mechanism and jargon, not outcome",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 2
+      },
+      "materiality": "high",
+      "affectedScope": "positioning",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-08",
+      "subject": "competing-implementations",
+      "claim": "antagonism is applied to critique only, never to two complete competing patches",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 2
+      },
+      "materiality": "high",
+      "affectedScope": "product",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-09",
+      "subject": "risk-based-recommendation",
+      "claim": "Bachata asks single or paired instead of recommending by consequence",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "product",
+      "supportingEvidence": [
+        "the five assurance labels already encode consequence"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-10",
+      "subject": "workflow-interop",
+      "claim": "custom pipeline JSON has no sharing channel and there is no skills, repository-instruction or MCP interop",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "ecosystem",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-11",
+      "subject": "evidence-intake",
+      "claim": "no intake for CI results, issue requirements, test artifacts or security findings",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "product",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-12",
+      "subject": "headless",
+      "claim": "no headless or CI entry point exists",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 2
+      },
+      "materiality": "medium",
+      "affectedScope": "distribution",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-13",
+      "subject": "unproven-claim",
+      "claim": "the central quality claim has no recorded benchmark arm",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 1
+      },
+      "materiality": "critical",
+      "affectedScope": "evidence",
+      "supportingEvidence": [
+        "benchmarks/README.md and README.md:267"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-14",
+      "subject": "read-exclusion",
+      "claim": "the outbound manifest promised universal .bachata exclusion while enforcement was adapter-dependent",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 5
+      },
+      "materiality": "critical",
+      "affectedScope": "security",
+      "supportingEvidence": [
+        "the disclosure at src/contract/outboundContext.ts:158 and a test asserting only that sentence",
+        "the Codex sandbox granted the working directory as a readable root when no read paths were declared",
+        "the Claude shell branch was not path-gated"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Read-only Codex and Claude are fixed. Write-capable Codex is unfixed and now disclosed truthfully."
+    },
+    {
+      "id": "A-15",
+      "subject": "conceptual-load",
+      "claim": "the ontology and 104 exposed settings stand between a new user and first value",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "high",
+      "affectedScope": "ux",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-16",
+      "subject": "language-context",
+      "claim": "managed context covers TypeScript and JavaScript only",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "medium",
+      "affectedScope": "product",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-17",
+      "subject": "distribution",
+      "claim": "placeholder marketplace identity, no screenshots, a stale VSIX and unrecorded human validation",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 1
+      },
+      "materiality": "critical",
+      "affectedScope": "distribution",
+      "supportingEvidence": [
+        "package.json publisher todo-release-publisher; docs/RELEASE_VERDICT.md records NO-SHIP"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-18",
+      "subject": "product-review-preset",
+      "claim": "no shipped preset produces a product-review artifact, so Bachata cannot run this session about itself",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 6
+      },
+      "materiality": "high",
+      "affectedScope": "product",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      }
+    },
+    {
+      "id": "A-19",
+      "subject": "claude-shell-regression",
+      "claim": "denying Claude shell removes model-owned command execution from every workflow",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 8
+      },
+      "materiality": "medium",
+      "affectedScope": "product",
+      "supportingEvidence": [
+        "src/adapters/claudeCode.ts denies the shell category whenever a workspace policy exists",
+        "no built-in preset asks a model to run commands; claude-fix and paired-managed-fix forbid it in their prompts"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Accepted for public alpha. A custom pipeline that assumes model-owned shell will refuse, and the outbound manifest states this before the run."
+    },
+    {
+      "id": "O-01",
+      "subject": "economics-policy",
+      "claim": "whether local run economics may be displayed under the project telemetry restriction",
+      "disposition": "unresolved",
+      "provenance": {
+        "author": "both",
+        "round": 6
+      },
+      "materiality": "high",
+      "affectedScope": "policy",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Owner ruling required. No implementation until ruled."
+    },
+    {
+      "id": "O-02",
+      "subject": "audience",
+      "claim": "whether the public-alpha audience is the individual local builder or a team",
+      "disposition": "unresolved",
+      "provenance": {
+        "author": "both",
+        "round": 6
+      },
+      "materiality": "high",
+      "affectedScope": "strategy",
+      "supportingEvidence": [],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Owner ruling required. Decides whether shared mutable state is ever built."
+    },
+    {
+      "id": "O-03",
+      "subject": "codex-readable-roots-unsupported",
+      "claim": "per-path readable roots are not expressible in the Codex CLI 0.146.0 app-server protocol",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 7
+      },
+      "materiality": "high",
+      "affectedScope": "security",
+      "supportingEvidence": [
+        "generated bindings for CLI 0.146.0 define SandboxPolicy without any readable-root, access or readOnlyAccess field",
+        "the readOnly variant carries only networkAccess; only workspaceWrite carries roots, and those are writable",
+        "an externalSandbox variant exists and is the only place an external enforcement mechanism could attach"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Public-alpha blocker. Codex read isolation needs an externally enforced sandbox or another verified protocol. The readable-root list Bachata computes is currently inert for this CLI version.",
+      "supersessionHistory": [
+        {
+          "round": 7,
+          "state": "unresolved",
+          "reason": "recorded as unverified because codex debug exposed no sandbox entry point"
+        },
+        {
+          "round": 9,
+          "state": "accepted",
+          "reason": "generated protocol bindings show the capability does not exist, so it was never a verification gap"
+        }
+      ]
+    },
+    {
+      "id": "O-04",
+      "subject": "write-capable-exclusion",
+      "claim": "whether a write-capable Codex turn can carry a read exclusion at all",
+      "disposition": "unresolved",
+      "provenance": {
+        "author": "gpt",
+        "round": 8
+      },
+      "materiality": "high",
+      "affectedScope": "security",
+      "supportingEvidence": [
+        "a writable root is also readable and the sandbox shape carries no exclusion list"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Would need a sanitized execution snapshot. Out of scope for public alpha; disclosed rather than disguised."
+    },
+    {
+      "id": "A-20",
+      "subject": "codex-wire-compatibility",
+      "claim": "Bachata's Codex app-server integration is incompatible with Codex CLI 0.146.0 in two ways: kebab-case enums are sent camelCase, and the turn sandbox policy carries a readable-root shape the protocol does not define",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "claude",
+        "round": 8
+      },
+      "materiality": "critical",
+      "affectedScope": "providers",
+      "supportingEvidence": [
+        "live turn refused: unknown variant `onRequest`, expected one of `untrusted`, `on-request`, `granular`, `never`",
+        "live turn refused: unknown variant `readOnly`, expected one of `read-only`, `workspace-write`, `danger-full-access`",
+        "codex app-server generate-ts --out <dir> --experimental, CLI 0.146.0: AskForApproval is untrusted | on-request | granular | never; SandboxMode is read-only | workspace-write | danger-full-access",
+        "same bindings: SandboxPolicy is dangerFullAccess | readOnly{networkAccess} | externalSandbox{networkAccess} | workspaceWrite{writableRoots, networkAccess, excludeTmpdirEnvVar, excludeSlashTmp}; there is no readableRoots, access or readOnlyAccess field",
+        "src/adapters/codexAppServer.ts:341 sends readOnlyAccess and :349 sends access; the readOnly variant also omits the required networkAccess field",
+        "mock-based tests pass because the fixture accepts any variant",
+        "tests/readExclusion.test.cjs records the mismatch directly: the readOnly payload carries an access field the protocol does not define and omits the networkAccess it requires, thread/start sends readOnly where SandboxMode expects read-only, and turn/start sends onRequest where AskForApproval expects on-request"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Two separate decisions: the enum serialization is a straight fix once a supported Codex version range is chosen; the readable-root shape has no equivalent in this protocol and needs a different mechanism."
+    },
+    {
+      "id": "A-21",
+      "subject": "disclosure-accuracy",
+      "claim": "the outbound disclosure carried four further inaccuracies after the first rewrite",
+      "disposition": "accepted",
+      "provenance": {
+        "author": "gpt",
+        "round": 10
+      },
+      "materiality": "high",
+      "affectedScope": "security",
+      "supportingEvidence": [
+        "role assignments were read from a final map rather than sequentially, so a reassigned or disabled assignRoles step produced the wrong participant permission",
+        "aggregate run writablePaths were described as one participant's bounded roots",
+        "credentials were said never to leave the machine, which is false for remote provider authentication",
+        "provider configuration was implied to be listed in the manifest when only attachments are"
+      ],
+      "refutingEvidence": [],
+      "verificationState": {
+        "verifiedBy": [
+          "claude",
+          "gpt"
+        ],
+        "notReproducedBy": []
+      },
+      "ownerDecision": "Fixed. Disclosure now walks steps in order, states write capability without claiming per-participant roots, and describes credential handling in terms of what Bachata does with them."
+    }
+  ],
+  "unreproducedClaims": [
+    {
+      "claim": "first-party competitor documentation for Codex, Copilot, Cursor and Claude Code",
+      "author": "gpt",
+      "notReproducedBy": [
+        "claude"
+      ],
+      "reason": "no network access in the claude session"
+    },
+    {
+      "claim": "the managed-worktree gate passed and a focused 14-test rerun passed after a catalog-lock timeout",
+      "author": "gpt",
+      "notReproducedBy": [
+        "claude"
+      ],
+      "reason": "claude ran the suite separately"
+    },
+    {
+      "claim": "usability and comprehension judgments about the pair user interface",
+      "author": "both",
+      "notReproducedBy": [
+        "claude",
+        "gpt"
+      ],
+      "reason": "neither investigator ran the extension; media/screenshots is empty"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "id": "claude-fix",
+  "name": "Fix with Claude",
+  "description": "Claude Code diagnoses and implements the fix inside a declared write scope. Verification is controller-owned, not model-reviewed. No commit is created.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "acceptEdits"
+    }
+  ],
+  "steps": [
+    {
+      "id": "diagnose",
+      "name": "Diagnose the defect",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": [
+        "claude"
+      ],
+      "promptTemplate": "Diagnose the reported defect from the current repository and supplied evidence. Identify the reproducible cause before proposing changes. Do not modify files in this step.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": {
+        "claude": "plan"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "fix",
+      "name": "Implement the fix",
+      "enabled": true,
+      "humanGate": "before",
+      "type": "agent",
+      "participants": [
+        "claude"
+      ],
+      "promptTemplate": "Implement the root-cause fix you diagnosed. Stay inside the declared write scope. Do not run repository commands: the controller owns verification.\n\nDiagnosis:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": {
+        "claude": "acceptEdits"
+      },
+      "attachments": "none"
+    }
+  ],
+  "managedPolicy": {
+    "writeScope": "workspace",
+    "commitMode": "never",
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ]
+  }
+}

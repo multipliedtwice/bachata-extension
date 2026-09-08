@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "id": "cross-reference-development",
+  "name": "Review and prepare checklist",
+  "description": "Codex and Claude review in parallel, converge on one result, and prepare a selectable execution checklist without modifying the repository.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "review",
+      "name": "Review",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "converge",
+      "name": "Converge",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Cross-reference the complete peer answer with repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswer}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 10,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "execution-checklist",
+      "name": "Prepare execution checklist",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "checklist",
+      "participants": [
+        "codex"
+      ],
+      "promptTemplate": "Convert the accepted result into concise execution issues. Keep only confirmed work inside the original request. Preserve dependencies and paths. Do not produce commands. Do not add new scope.\n\n{{previousStepAnswers}}",
+      "outputName": "executionChecklist",
+      "timeoutMs": 120000,
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none"
+    }
+  ]
+}

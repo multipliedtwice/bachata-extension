@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "id": "plan",
+  "name": "Plan",
+  "description": "Codex and Claude inspect and cross-check one implementation plan without modifying the repository. Requires both providers.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-plans",
+      "name": "Independent plans",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Inspect the current repository and produce a precise implementation plan for this request without changing files.\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "plan-consensus",
+      "name": "Converge on plan",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Cross-reference the other plan against the repository. Resolve omissions and unsupported assumptions. Return JSON only with fields candidate, accepted, objections, and unresolvedRisks. candidate is the plan itself: an object with title, summary, scope, steps, risks, acceptanceCriteria, and evidence. steps is a non-empty array of objects with id, intent, optional files, and optional verification. accepted is boolean. objections and unresolvedRisks are string arrays. Accept only the candidate you are returning.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 10,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "initiativePlan"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "core-decisions",
+      "name": "Surface material decisions",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Name only the material judgments this work leaves to the human. A judgment is material when the repository evidence cannot settle it, or when settling it commits the project to a direction a human owns.\n\nReturn JSON only: {\"decisions\": [...]}. Return an empty list when the work raised no such judgment; an empty list is the correct and common answer. Do not restate findings, operational blockers, provider errors, or choices this work already made on its own authority.\n\nEvery decision needs a stable subject, the actual question, the affected scope, and the evidence you are relying on. Supply options, trade-offs, and a recommendation only when the work genuinely produced them. Never invent an option, a trade-off, evidence, a scope, or a recommendation to fill a field.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "output": {
+        "name": "coreDecisions",
+        "format": "json",
+        "shape": "longitudinalDecisionSet"
+      },
+      "coreDecisionOutput": {
+        "field": "decisions",
+        "producedBy": "codex"
+      }
+    }
+  ]
+}

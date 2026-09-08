@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "id": "review-only",
+  "name": "Review only",
+  "description": "Codex and Claude independently inspect the repository, cross-reference findings, and stop before implementation.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-review",
+      "name": "Independent review",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "review-consensus",
+      "name": "Cross-reference findings",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Carefully cross-reference the other participant's complete answer with repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 10,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "core-decisions",
+      "name": "Surface material decisions",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Name only the material judgments this work leaves to the human. A judgment is material when the repository evidence cannot settle it, or when settling it commits the project to a direction a human owns.\n\nReturn JSON only: {\"decisions\": [...]}. Return an empty list when the work raised no such judgment; an empty list is the correct and common answer. Do not restate findings, operational blockers, provider errors, or choices this work already made on its own authority.\n\nEvery decision needs a stable subject, the actual question, the affected scope, and the evidence you are relying on. Supply options, trade-offs, and a recommendation only when the work genuinely produced them. Never invent an option, a trade-off, evidence, a scope, or a recommendation to fill a field.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "output": {
+        "name": "coreDecisions",
+        "format": "json",
+        "shape": "longitudinalDecisionSet"
+      },
+      "coreDecisionOutput": {
+        "field": "decisions",
+        "producedBy": "codex"
+      }
+    }
+  ]
+}

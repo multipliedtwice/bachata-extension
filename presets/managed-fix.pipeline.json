@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "id": "managed-fix",
+  "name": "Managed fix",
+  "description": "A bounded fix with an explicit write scope, no commit authority, and controller-owned verification. Fork this pipeline into .bachata/pipelines to point verification at a repository verifier declared in .bachata/verifiers.json.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "workspaceWrite",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "acceptEdits",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "roles": [
+    {
+      "id": "worker",
+      "name": "Worker",
+      "instructions": "Implement the requested fix completely inside the declared write scope. Do not run repository commands, acceptance suites, or shared-resource checks. The controller owns verification and Git.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "claude-code"
+      ],
+      "candidateAgentIds": [
+        "codex",
+        "claude"
+      ],
+      "managed": true,
+      "managedRole": "worker",
+      "commitMode": "never"
+    }
+  ],
+  "steps": [
+    {
+      "id": "assign-roles",
+      "name": "Assign the worker",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "assignRoles",
+      "roleAssignments": [
+        {
+          "agentId": "codex",
+          "role": "worker"
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "name": "Implement the bounded fix",
+      "enabled": true,
+      "humanGate": "before",
+      "type": "agent",
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "Diagnose and implement the fix for this request. Stay inside the declared write scope. Do not create commits and do not run repository commands: the controller owns verification and Git.\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": {
+        "worker": "write"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "core-decisions",
+      "name": "Surface material decisions",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "Name only the material judgments this work leaves to the human. A judgment is material when the repository evidence cannot settle it, or when settling it commits the project to a direction a human owns.\n\nReturn JSON only: {\"decisions\": [...]}. Return an empty list when the work raised no such judgment; an empty list is the correct and common answer. Do not restate findings, operational blockers, provider errors, or choices this work already made on its own authority.\n\nEvery decision needs a stable subject, the actual question, the affected scope, and the evidence you are relying on. Supply options, trade-offs, and a recommendation only when the work genuinely produced them. Never invent an option, a trade-off, evidence, a scope, or a recommendation to fill a field.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "output": {
+        "name": "coreDecisions",
+        "format": "json",
+        "shape": "longitudinalDecisionSet"
+      },
+      "coreDecisionOutput": {
+        "field": "decisions"
+      }
+    }
+  ],
+  "managedPolicy": {
+    "writeScope": "configured",
+    "allowedPaths": [
+      "src",
+      "tests"
+    ],
+    "protectedPaths": [
+      ".git",
+      ".bachata"
+    ],
+    "commitMode": "never",
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ]
+  }
+}

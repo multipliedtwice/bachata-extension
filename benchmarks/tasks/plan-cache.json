@@ -1,0 +1,54 @@
+{
+  "id": "plan-cache",
+  "kind": "plan",
+  "title": "Plan a bounded cache",
+  "fixture": "fixtures/plan-cache",
+  "prompt": "Plan a bounded change that gives src/cache.ts a maximum entry count and removes expired entries. Do not change files. State the steps, the risk, and the verification.",
+  "arms": {
+    "single": {
+      "pipelineIds": [
+        "codex-plan",
+        "claude-plan"
+      ],
+      "requiredVerification": []
+    },
+    "paired": {
+      "pipelineIds": [
+        "plan"
+      ],
+      "requiredVerification": []
+    }
+  },
+  "answerKey": {
+    "requiredFindings": [
+      {
+        "id": "cache.unbounded-growth",
+        "file": "src/cache.ts",
+        "line": 5,
+        "statement": "the plan states that the map grows without bound and needs a maximum entry count"
+      },
+      {
+        "id": "cache.expired-retained",
+        "file": "src/cache.ts",
+        "line": 11,
+        "statement": "the plan states that get hides expired entries but never deletes them, so size stays wrong"
+      },
+      {
+        "id": "cache.eviction-order",
+        "file": "src/cache.ts",
+        "line": 5,
+        "statement": "the plan names the eviction order it will use when the maximum is reached"
+      }
+    ],
+    "forbiddenFindings": [
+      {
+        "id": "cache.rewrite-module",
+        "statement": "replacing the module with an external cache library is outside the declared bounded change"
+      },
+      {
+        "id": "cache.persist-to-disk",
+        "statement": "persisting the cache to disk is outside the declared bounded change"
+      }
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "id": "browser-pair",
+  "name": "ChatGPT + Claude browser pair",
+  "description": "Run independent bound ChatGPT and Claude browser conversations, execute approved workspace actions, reinject results, and cross-review their augmented answers.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT Browser",
+      "adapter": "chatgpt-browser"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Browser",
+      "adapter": "claude-browser"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-work",
+      "name": "Independent browser work",
+      "enabled": true,
+      "participants": [
+        "chatgpt",
+        "claude"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    },
+    {
+      "id": "cross-review",
+      "name": "Cross-review evidence and conclusions",
+      "enabled": true,
+      "participants": [
+        "chatgpt",
+        "claude"
+      ],
+      "promptTemplate": "Carefully cross-reference the other participant's complete augmented answer, including executed actions and results, against your own findings. Resolve every confirmed discrepancy. Return JSON only with fields candidate, accepted, objections, and unresolvedRisks. candidate is the exact proposed result. accepted is boolean. objections and unresolvedRisks are string arrays. Accept only the candidate you are returning.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 10,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate"
+      },
+      "humanGate": "after",
+      "attachments": "none",
+      "type": "agent",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    }
+  ]
+}

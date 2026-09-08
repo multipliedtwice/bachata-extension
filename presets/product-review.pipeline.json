@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "id": "product-review",
+  "name": "Product review",
+  "description": "Codex and Claude review the product decision this work embodies, converge on recommendations with explicit dispositions, and record the recommendations as durable initiative artifacts. Nothing is implemented.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-product-review",
+      "name": "Review the product decision independently",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Review what this work commits the product to, not how the code is written. Read the repository and the supplied evidence. State what the product currently promises the user, where that promise is unsupported by what ships, and what a user would be unable to do. Cite repository evidence for every claim. Do not edit files and do not propose an implementation.\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "recommendation-consensus",
+      "name": "Converge on the recommendations",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Cross-reference the other participant's review against repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"recommendations\":[...]} and may also carry title, summary, and evidence. Each recommendation needs a stable id, subject, statement, rationale, an explicit disposition of accepted, rejected or unresolved, evidence and challenges string arrays, and optional impact and confidence of high, medium or low. Mark a recommendation unresolved rather than accepted when the evidence does not settle it. accepted is a boolean about this exact candidate.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 6,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "productRecommendationSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "recommendation-record",
+      "name": "Record the recommendations",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex"
+      ],
+      "promptTemplate": "Write the agreed recommendations as the durable record of this review. Return JSON only: {\"title\": ..., \"summary\": ..., \"evidence\": [...], \"recommendations\": [...]}. Carry over exactly the recommendations the previous step agreed, with the same ids and dispositions. Add nothing that step did not agree.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "output": {
+        "name": "productRecommendations",
+        "format": "json",
+        "shape": "productRecommendationSet"
+      },
+      "artifactPromotion": {
+        "type": "recommendation",
+        "titleField": "title",
+        "evidenceField": "evidence"
+      }
+    },
+    {
+      "id": "core-decisions",
+      "name": "Surface material decisions",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Name only the material judgments this review leaves to the human. A judgment is material when the repository evidence cannot settle it, or when settling it commits the product to a direction a human owns.\n\nReturn JSON only: {\"decisions\": [...]}. Return an empty list when the review raised no such judgment; an empty list is the correct and common answer. Do not restate recommendations, operational blockers, provider errors, or choices this review already made on its own authority.\n\nEvery decision needs a stable subject, the actual question, the affected scope, and the evidence you are relying on. Supply options, trade-offs, and a recommendation only when the review genuinely produced them. Never invent an option, a trade-off, evidence, a scope, or a recommendation to fill a field.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "output": {
+        "name": "coreDecisions",
+        "format": "json",
+        "shape": "longitudinalDecisionSet"
+      },
+      "coreDecisionOutput": {
+        "field": "decisions",
+        "producedBy": "codex"
+      }
+    }
+  ]
+}

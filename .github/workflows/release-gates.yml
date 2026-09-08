@@ -1,0 +1,87 @@
+# This workflow must stay inside this repository. GitHub only discovers workflows under a
+# repository root, and extension is its own repository: a workflow held in the parent working
+# directory is tracked by nothing and never runs.
+name: Release gates
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-release-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install from the lockfile only
+        run: npm ci
+
+      - name: Refuse an unclean checkout
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The checkout was dirty before any gate ran:"
+            git status --porcelain
+            exit 1
+          fi
+
+      - name: Lockfile
+        run: npm run check:lockfile
+
+      - name: Types
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: No telemetry
+        run: npm run check:no-telemetry
+
+      - name: Tests
+        run: npm test
+
+      - name: Coverage gates
+        run: npm run test:coverage
+
+      # The pinned Bridge archive is produced by the browser-bridge repository, so artifact
+      # binding and release verification are not run here. They belong to a release job that
+      # can fetch that archive; claiming them from this checkout would assert evidence this
+      # workflow does not hold.
+      - name: Release metadata identity
+        run: npm run check:release-metadata:identity
+
+      - name: Refuse source drift from the gates
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "A gate modified tracked source:"
+            git status --porcelain
+            exit 1
+          fi

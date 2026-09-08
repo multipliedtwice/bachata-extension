@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "id": "chatgpt-browser-spike",
+  "name": "ChatGPT browser agent",
+  "description": "Use one explicitly bound ChatGPT conversation with image attachments, deterministic workspace actions, approvals, and result reinjection.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT Browser",
+      "adapter": "chatgpt-browser"
+    }
+  ],
+  "steps": [
+    {
+      "id": "browser-turn",
+      "name": "ChatGPT browser turn",
+      "enabled": true,
+      "participants": [
+        "chatgpt"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "after",
+      "attachments": "selected",
+      "type": "agent",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    }
+  ]
+}

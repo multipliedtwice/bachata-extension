@@ -1,0 +1,179 @@
+{
+  "source": {
+    "schema": "codex app-server generate-json-schema --out <dir>",
+    "probe": "node scripts/generate-codex-protocol.mjs --probe",
+    "generator": "scripts/generate-codex-protocol.mjs"
+  },
+  "cliVersion": "codex-cli 0.146.0",
+  "generated": {
+    "fileChangeApprovalParams": [
+      "grantRoot",
+      "itemId",
+      "reason",
+      "startedAtMs",
+      "threadId",
+      "turnId"
+    ],
+    "fileChangeItemRequired": [
+      "changes",
+      "id",
+      "status",
+      "type"
+    ],
+    "fileUpdateChangeRequired": [
+      "diff",
+      "kind",
+      "path"
+    ],
+    "patchChangeKinds": {
+      "add": {
+        "properties": [
+          "type"
+        ],
+        "required": [
+          "type"
+        ]
+      },
+      "delete": {
+        "properties": [
+          "type"
+        ],
+        "required": [
+          "type"
+        ]
+      },
+      "update": {
+        "properties": [
+          "move_path",
+          "type"
+        ],
+        "required": [
+          "type"
+        ]
+      }
+    },
+    "sandboxMode": [
+      "danger-full-access",
+      "read-only",
+      "workspace-write"
+    ],
+    "askForApproval": {
+      "strings": [
+        "never",
+        "on-request",
+        "untrusted"
+      ],
+      "objectVariants": [
+        "granular"
+      ]
+    },
+    "sandboxPolicy": {
+      "dangerFullAccess": {
+        "properties": [
+          "type"
+        ],
+        "required": [
+          "type"
+        ]
+      },
+      "readOnly": {
+        "properties": [
+          "networkAccess",
+          "type"
+        ],
+        "required": [
+          "type"
+        ]
+      },
+      "externalSandbox": {
+        "properties": [
+          "networkAccess",
+          "type"
+        ],
+        "required": [
+          "type"
+        ]
+      },
+      "workspaceWrite": {
+        "properties": [
+          "excludeSlashTmp",
+          "excludeTmpdirEnvVar",
+          "networkAccess",
+          "type",
+          "writableRoots"
+        ],
+        "required": [
+          "type"
+        ]
+      }
+    },
+    "networkAccess": [
+      "enabled",
+      "restricted"
+    ],
+    "initializeCapabilities": [
+      "experimentalApi",
+      "mcpServerOpenaiFormElicitation",
+      "optOutNotificationMethods",
+      "requestAttestation"
+    ],
+    "clientInfoRequired": [
+      "name",
+      "version"
+    ],
+    "threadStartParams": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "baseInstructions",
+      "config",
+      "cwd",
+      "developerInstructions",
+      "ephemeral",
+      "model",
+      "modelProvider",
+      "personality",
+      "sandbox",
+      "serviceName",
+      "serviceTier",
+      "sessionStartSource",
+      "threadSource"
+    ],
+    "turnStartParams": [
+      "approvalPolicy",
+      "approvalsReviewer",
+      "clientUserMessageId",
+      "cwd",
+      "effort",
+      "input",
+      "model",
+      "outputSchema",
+      "personality",
+      "sandboxPolicy",
+      "serviceTier",
+      "summary",
+      "threadId"
+    ]
+  },
+  "observed": {
+    "initializeResponseFields": [
+      "codexHome",
+      "platformFamily",
+      "platformOs",
+      "userAgent"
+    ],
+    "acceptedReadOnly": "invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `p` at 1",
+    "acceptedWorkspaceWrite": "invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `p` at 1",
+    "rejectedCamelCaseApproval": "Invalid request: unknown variant `onRequest`, expected one of `untrusted`, `on-request`, `granular`, `never`",
+    "rejectedKebabSandboxPolicyType": "Invalid request: unknown variant `read-only`, expected one of `dangerFullAccess`, `readOnly`, `externalSandbox`, `workspaceWrite`",
+    "rejectedReadOnlyAccessField": "Invalid request: readOnly.access is no longer supported; use permissionProfile for restricted reads",
+    "rejectedWorkspaceWriteReadOnlyAccessField": "Invalid request: workspaceWrite.readOnlyAccess is no longer supported; use permissionProfile for restricted reads",
+    "acceptedReadOnlySandboxMode": "invalid session id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `p` at 1",
+    "acceptedWorkspaceWriteSandboxMode": "invalid session id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `p` at 1",
+    "rejectedCamelCaseSandboxMode": "Invalid request: unknown variant `workspaceWrite`, expected one of `read-only`, `workspace-write`, `danger-full-access`",
+    "permissionProfiles": [
+      ":danger-full-access",
+      ":read-only",
+      ":workspace"
+    ]
+  }
+}

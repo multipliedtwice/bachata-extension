@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "None",
+    "outFile": "dist/webview.js",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "types": [
+      "node"
+    ],
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "useUnknownInCatchVariables": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "src/webview-ui/types.ts",
+    "src/webview-ui/optionalProperty.ts",
+    "src/webview-ui/render.ts",
+    "src/webview-ui/readOnlyRender.ts",
+    "src/webview-ui/state.ts",
+    "src/webview-ui/markdownRender.ts",
+    "src/webview-ui/notificationsRender.ts",
+    "src/webview-ui/directionRender.ts",
+    "src/webview-ui/executionRender.ts",
+    "src/webview-ui/pipelineEditor.ts",
+    "src/webview-ui/dialogs.ts",
+    "src/webview-ui/roomRender.ts",
+    "src/webview-ui/protocolReducer.ts",
+    "src/webview-ui/actions.ts",
+    "src/webview-ui/main.ts"
+  ]
+}

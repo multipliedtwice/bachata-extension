@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "id": "specialist-browser-review",
+  "name": "Builder + lead + QA + UX",
+  "description": "Coordinate four independent browser conversations with first-class builder, lead, QA, and UX roles.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "gpt-builder",
+      "name": "GPT Builder",
+      "adapter": "chatgpt-browser"
+    },
+    {
+      "id": "claude-lead",
+      "name": "Claude Lead",
+      "adapter": "claude-browser"
+    },
+    {
+      "id": "gpt-qa",
+      "name": "GPT QA",
+      "adapter": "chatgpt-browser"
+    },
+    {
+      "id": "claude-ux",
+      "name": "Claude UX",
+      "adapter": "claude-browser"
+    }
+  ],
+  "roles": [
+    {
+      "id": "builder",
+      "name": "Builder",
+      "instructions": "Implement the requested change in the repository and verify the result with concrete evidence.",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    },
+    {
+      "id": "lead",
+      "name": "Lead",
+      "instructions": "Own technical coherence, cross-reference all specialist findings, and reject unsupported conclusions.",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    },
+    {
+      "id": "qa",
+      "name": "Quality assurance",
+      "instructions": "Reproduce behavior, inspect edge cases, distinguish implementation defects from test defects, and report exact verification evidence.",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    },
+    {
+      "id": "ux",
+      "name": "User experience",
+      "instructions": "Review interaction flow, clarity, accessibility, empty and error states, and visual consistency against the current implementation.",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "assign-specialists",
+      "name": "Assign specialist roles",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        {
+          "agentId": "gpt-builder",
+          "role": "builder"
+        },
+        {
+          "agentId": "claude-lead",
+          "role": "lead"
+        },
+        {
+          "agentId": "gpt-qa",
+          "role": "qa"
+        },
+        {
+          "agentId": "claude-ux",
+          "role": "ux"
+        }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "initial-analysis",
+      "name": "Independent specialist analysis",
+      "enabled": true,
+      "participants": [
+        "builder",
+        "lead",
+        "qa",
+        "ux"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "implementation",
+      "name": "Builder implementation",
+      "enabled": true,
+      "participants": [
+        "builder"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nImplement the agreed change after considering the specialist findings.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "specialist-verification",
+      "name": "QA and UX verification",
+      "enabled": true,
+      "participants": [
+        "qa",
+        "ux"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nVerify the current repository and the builder's augmented answer from your specialty.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "final-consensus",
+      "name": "Final specialist consensus",
+      "enabled": true,
+      "participants": [
+        "builder",
+        "lead",
+        "qa",
+        "ux"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nCross-reference every augmented answer against repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 16,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "humanGate": "after",
+      "attachments": "none",
+      "type": "agent"
+    }
+  ]
+}

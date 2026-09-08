@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "id": "self-improvement-discovery",
+  "name": "Self-improvement discovery",
+  "description": "Codex and Claude audit the same checked-out repository candidate independently and in parallel. Each returns what it actually read before what it found; an agent that could not read the candidate says so. Nothing is edited and nothing is converged here.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-audit",
+      "name": "Audit the candidate independently",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "output": {
+        "name": "repositoryAudit",
+        "format": "json",
+        "shape": "repositoryAudit"
+      }
+    }
+  ]
+}

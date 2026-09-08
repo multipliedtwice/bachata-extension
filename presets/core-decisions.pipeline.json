@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "id": "core-decisions",
+  "name": "Surface core decisions",
+  "description": "Codex and Claude independently inspect the repository and converge on the decisions that need human judgment, without proposing an answer the evidence does not support.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-analysis",
+      "name": "Independent analysis",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "{{userPrompt}}\n\nIdentify the choices that this work cannot make on its own authority. A choice qualifies only when the repository evidence is insufficient to settle it, or when settling it commits the project to a direction a human owns. Do not invent options that the evidence does not support.",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "decision-consensus",
+      "name": "Converge on core decisions",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Cross-reference the other participant's complete answer against repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"decisions\":[...]}. Each decision needs subject naming the choice, question stating exactly what a human must decide, affectedScope as a non-empty list of files, modules, or areas, and evidence as a non-empty list of concrete repository observations. Include options only when the analysis actually produced them; each option needs id, summary, and tradeOffs. Include tradeOffs and recommendation only when they are supported by the evidence. Omit a field rather than filling it with a guess. A blocker, a provider error, an evidence gap, or a generic risk is not a decision: leave it in unresolvedRisks. If nothing needs human judgment, return an empty decisions array. accepted is boolean for this exact candidate.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 10,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "longitudinalDecisionSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    }
+  ]
+}

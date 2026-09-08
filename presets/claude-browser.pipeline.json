@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "id": "claude-browser-agent",
+  "name": "Claude browser agent",
+  "description": "Use one explicitly bound Claude conversation with image attachments, deterministic workspace actions, approvals, and result reinjection.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "claude-browser",
+      "name": "Claude Browser",
+      "adapter": "claude-browser"
+    }
+  ],
+  "steps": [
+    {
+      "id": "browser-turn",
+      "name": "Claude browser turn",
+      "enabled": true,
+      "participants": [
+        "claude-browser"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "after",
+      "attachments": "selected",
+      "type": "agent",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ]
+    }
+  ]
+}

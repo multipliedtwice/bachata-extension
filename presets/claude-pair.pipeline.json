@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "id": "claude-browser-pair",
+  "name": "Claude + Claude browser pair",
+  "description": "Use two independent Claude browser conversations as managed worker and lead, with bounded controller context, typed workspace actions, and evidence-based review.",
+  "longitudinalIntent": "runLocal",
+  "managedPolicy": {
+    "writeScope": "task",
+    "commitMode": "never",
+    "allowedPaths": [],
+    "maxRevisionCycles": 1,
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "id": "claude-worker",
+      "name": "Claude Browser Worker",
+      "adapter": "claude-browser",
+      "resourceId": "claude-browser:default-account"
+    },
+    {
+      "id": "claude-lead",
+      "name": "Claude Browser Lead",
+      "adapter": "claude-browser",
+      "resourceId": "claude-browser:default-account"
+    }
+  ],
+  "roles": [
+    {
+      "id": "worker",
+      "name": "Worker",
+      "instructions": "Inspect the repository, implement the requested change, verify it, and report concrete evidence.\n\nDo not create commits, merges, rebases, tags, or pushes. Use only bachata-managed context and workspace actions.",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ],
+      "preferredAdapters": [
+        "claude-browser"
+      ],
+      "managed": true,
+      "resourceId": "claude-browser:default-account",
+      "readOnly": false,
+      "managedRole": "worker"
+    },
+    {
+      "id": "lead",
+      "name": "Lead reviewer",
+      "instructions": "Independently inspect the repository, challenge unsupported assumptions, and require reproducible evidence before accepting the implementation.\n\nYou are read-only. Return accept, revise, or blocked with concrete evidence.\n\nDo not create commits, merges, rebases, tags, or pushes. Use only bachata-managed context and workspace actions.",
+      "requiredCapabilities": [
+        "browserSessionSelection",
+        "passiveActionLoop"
+      ],
+      "preferredAdapters": [
+        "claude-browser"
+      ],
+      "managed": true,
+      "resourceId": "claude-browser:default-account",
+      "readOnly": true,
+      "managedRole": "lead"
+    }
+  ],
+  "steps": [
+    {
+      "id": "assign-roles",
+      "name": "Assign worker and lead",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        {
+          "agentId": "claude-worker",
+          "role": "worker"
+        },
+        {
+          "agentId": "claude-lead",
+          "role": "lead"
+        }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "worker-turn",
+      "name": "Worker implementation",
+      "enabled": true,
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\n{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "lead-review",
+      "name": "Lead review",
+      "enabled": true,
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "Original task and immutable constraints:\n{{userPrompt}}\n\n{{roleInstructions}}\n\nReview the worker's augmented answer and the current repository state.\n\n{{peerAnswersTagged}}\n\nYou are read-only. Return accept, revise, or blocked with concrete evidence.",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "worker-revision",
+      "name": "Worker bounded revision",
+      "enabled": true,
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nOriginal task:\n{{userPrompt}}\n\nThe Lead review is below. Resolve only confirmed objections. If there are no valid objections, do not change files and finish.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "lead-final-review",
+      "name": "Lead final review",
+      "enabled": true,
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nOriginal task:\n{{userPrompt}}\n\nPerform the final read-only review after the single allowed Worker revision. Put concrete unresolved problems in objections/unresolved. Do not request further edits.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    }
+  ]
+}

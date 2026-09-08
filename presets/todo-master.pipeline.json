@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "id": "todo-master",
+  "name": "TODO Master watchdog",
+  "description": "Checks TODO execution state only. It does not review implementation choices.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    }
+  ],
+  "roles": [
+    {
+      "id": "master",
+      "name": "Master",
+      "instructions": "Watch TODO execution state. Flag only skipped, wrongly assigned, stalled, incomplete, retry-policy, or TODO-state deviations. Do not inspect code or implementation choices.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "claude-code"
+      ],
+      "readOnly": true,
+      "writeScope": "workspace"
+    }
+  ],
+  "steps": [
+    {
+      "id": "assign-master",
+      "name": "Assign Master",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        {
+          "agentId": "codex",
+          "role": "master"
+        }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "watch-execution",
+      "name": "Master progress check",
+      "enabled": true,
+      "participants": [
+        "master"
+      ],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "master": "read"
+      },
+      "approvalPolicies": {
+        "master": "onRequest"
+      },
+      "attachments": "none",
+      "output": {
+        "name": "masterDecision",
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "continue",
+                "deviation"
+              ]
+            },
+            "deviations": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "taskId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "skippedTask",
+                      "wrongTask",
+                      "missingCompletion",
+                      "stalledTask",
+                      "retryPolicy",
+                      "todoState"
+                    ]
+                  },
+                  "details": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "taskId",
+                  "kind",
+                  "details"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "status",
+            "deviations"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "type": "agent"
+    }
+  ]
+}

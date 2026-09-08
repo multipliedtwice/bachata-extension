@@ -1,0 +1,273 @@
+{
+  "version": 1,
+  "id": "feature-delivery",
+  "name": "Feature delivery",
+  "description": "Codex and Claude converge on the requirements a feature must meet, record them and the chosen design as durable initiative artifacts, then a managed Worker implements inside a declared write scope while a read-only Lead reviews. The controller owns verification and Git.",
+  "longitudinalIntent": "initiativeRequired",
+  "managedPolicy": {
+    "writeScope": "configured",
+    "allowedPaths": [
+      "src",
+      "tests"
+    ],
+    "protectedPaths": [
+      ".git",
+      ".bachata"
+    ],
+    "commitMode": "never",
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "workspaceWrite",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "acceptEdits",
+      "resourceId": "claude-code:default-account"
+    }
+  ],
+  "roles": [
+    {
+      "id": "worker",
+      "name": "Worker",
+      "instructions": "Implement the agreed requirements inside the declared write scope, following the recorded design. Do not run repository commands, acceptance suites, or shared-resource checks. The controller owns verification and Git.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "claude-code"
+      ],
+      "candidateAgentIds": [
+        "codex",
+        "claude"
+      ],
+      "managed": true,
+      "managedRole": "worker",
+      "commitMode": "never"
+    },
+    {
+      "id": "lead",
+      "name": "Lead",
+      "instructions": "Review the Worker's change against the agreed requirements and the recorded design. Judge only what the repository shows and what Bachata's own verification reports. Do not edit files and do not run repository commands: Bachata runs the declared verification itself and hands you its own results. Answer with exactly one JSON object and nothing else. It carries two fields: \"candidate\", the Candidate fingerprint Bachata gave you, copied exactly; and \"review\", an object with \"verdict\" set to either accept or reject, a one-sentence \"summary\", and \"defects\", a list. An accept carries an empty defects list. A reject carries between one and ten defects, each with \"id\", \"severity\" (blocker, major or minor), \"statement\", \"requiredChange\" and \"evidence\", and each naming a change a Worker can make. Bachata restates the exact shape in its own review block. Prose is not a verdict and fails the task.",
+      "preferredAdapters": [
+        "claude-code",
+        "codex-app-server"
+      ],
+      "candidateAgentIds": [
+        "claude",
+        "codex"
+      ],
+      "managed": true,
+      "managedRole": "lead",
+      "readOnly": true,
+      "commitMode": "never"
+    }
+  ],
+  "steps": [
+    {
+      "id": "requirements",
+      "name": "State the requirements independently",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "State what this feature must do for it to be finished, from the repository and the supplied evidence. Separate what the request asks for from what the repository already provides. Name the acceptance criteria a reviewer could check. Do not edit files and do not propose an implementation yet.\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "requirement-consensus",
+      "name": "Converge on the requirements",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Cross-reference the other participant's requirements against repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"requirements\":[...]} and may also carry title, summary, and evidence. Each requirement needs a stable id, statement, a non-empty acceptanceCriteria array, an explicit disposition of accepted, rejected or unresolved, evidence and challenges string arrays, and optional priority of must, should or could and an outOfScope array. Mark a requirement unresolved rather than accepted when the evidence does not settle it. accepted is a boolean about this exact candidate.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 6,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "featureRequirementSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "requirement-record",
+      "name": "Record the requirements",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex"
+      ],
+      "promptTemplate": "Write the agreed requirements as the durable record for this feature. Return JSON only: {\"title\": ..., \"summary\": ..., \"evidence\": [...], \"requirements\": [...]}. Carry over exactly the requirements the previous step agreed, with the same ids and dispositions. Add nothing that step did not agree.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "output": {
+        "name": "featureRequirements",
+        "format": "json",
+        "shape": "featureRequirementSet"
+      },
+      "artifactPromotion": {
+        "type": "requirement",
+        "titleField": "title",
+        "evidenceField": "evidence"
+      }
+    },
+    {
+      "id": "design-record",
+      "name": "Record the design",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "codex"
+      ],
+      "promptTemplate": "Write the design the implementation will follow, bounded by the agreed requirements. Return JSON only: {\"title\": ..., \"summary\": ..., \"scope\": [...], \"risks\": [...], \"acceptanceCriteria\": [...], \"evidence\": [...], \"steps\": [{\"id\": ..., \"intent\": ..., \"files\": [...], \"verification\": ...}]}. Every step must name the files it changes. Name a risk only when the repository shows it.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "output": {
+        "name": "featureDesign",
+        "format": "json",
+        "shape": "initiativePlan"
+      },
+      "artifactPromotion": {
+        "type": "design",
+        "titleField": "title",
+        "evidenceField": "evidence"
+      }
+    },
+    {
+      "id": "assign-roles",
+      "name": "Assign the Worker and the Lead",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "assignRoles",
+      "roleAssignments": [
+        {
+          "agentId": "codex",
+          "role": "worker"
+        },
+        {
+          "agentId": "claude",
+          "role": "lead"
+        }
+      ]
+    },
+    {
+      "id": "implement",
+      "name": "Implement the feature",
+      "enabled": true,
+      "humanGate": "before",
+      "type": "agent",
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "Implement the recorded design so the agreed requirements are met. Stay inside the declared write scope. Do not create commits and do not run repository commands: the controller owns verification and Git.\n\n{{outputs.featureDesign}}\n\n{{outputs.featureRequirements}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": {
+        "worker": "write"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "lead-review",
+      "name": "Review the implementation",
+      "enabled": true,
+      "humanGate": "none",
+      "type": "agent",
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "Review the Worker's change against the recorded requirements and design. State which acceptance criteria the repository now satisfies and which it does not. Judge only what the repository shows and what Bachata's own verification reports.\n\nAnswer with exactly one JSON object and nothing else. It carries two fields: \"candidate\", the Candidate fingerprint Bachata gave you, copied exactly; and \"review\", an object with \"verdict\" set to either accept or reject, a one-sentence \"summary\", and \"defects\", a list. An accept carries an empty defects list. A reject carries between one and ten defects, each with \"id\", \"severity\" (blocker, major or minor), \"statement\", \"requiredChange\" and \"evidence\", and each naming a change a Worker can make. Bachata restates the exact shape in its own review block. Prose is not a verdict and fails the task.\n\n{{outputs.featureRequirements}}\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "permissionModes": {
+        "lead": "read"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "core-decisions",
+      "name": "Surface material decisions",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "Name only the material judgments this delivery leaves to the human. A judgment is material when the repository evidence cannot settle it, or when settling it commits the project to a direction a human owns.\n\nReturn JSON only: {\"decisions\": [...]}. Return an empty list when the work raised no such judgment; an empty list is the correct and common answer. Do not restate requirements, operational blockers, provider errors, or choices this work already made on its own authority.\n\nEvery decision needs a stable subject, the actual question, the affected scope, and the evidence you are relying on. Supply options, trade-offs, and a recommendation only when the work genuinely produced them. Never invent an option, a trade-off, evidence, a scope, or a recommendation to fill a field.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "none",
+      "output": {
+        "name": "coreDecisions",
+        "format": "json",
+        "shape": "longitudinalDecisionSet"
+      },
+      "coreDecisionOutput": {
+        "field": "decisions"
+      }
+    }
+  ]
+}

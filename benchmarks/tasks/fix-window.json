@@ -1,0 +1,47 @@
+{
+  "id": "fix-window",
+  "kind": "fix",
+  "title": "Fix the sliding-window bound",
+  "fixture": "fixtures/fix-window",
+  "prompt": "src/window.ts drops the last window. Fix it inside src/window.ts only and prove it with the declared verification.",
+  "arms": {
+    "single": {
+      "pipelineIds": [
+        "codex-fix",
+        "claude-fix",
+        "managed-fix"
+      ],
+      "requiredVerification": [
+        "bachata:project-checks"
+      ]
+    },
+    "paired": {
+      "pipelineIds": [
+        "paired-managed-fix"
+      ],
+      "requiredVerification": [
+        "bachata:project-checks"
+      ]
+    }
+  },
+  "answerKey": {
+    "requiredFindings": [
+      {
+        "id": "window.exclusive-bound",
+        "file": "src/window.ts",
+        "line": 3,
+        "statement": "start + window < values.length excludes the final window; the bound must be <="
+      }
+    ],
+    "forbiddenFindings": [
+      {
+        "id": "window.spread-limit",
+        "statement": "the argument-count limit of Math.max spread is not the reported defect and is out of scope here"
+      }
+    ],
+    "expectedChangedFiles": [
+      "src/window.ts"
+    ],
+    "referenceFile": "src/window.expected.ts"
+  }
+}

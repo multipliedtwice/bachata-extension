@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bachata webview layout fixture</title>
+<link rel="stylesheet" href="../../../dist/vendor/codicons/codicon.css">
+<link rel="stylesheet" href="../../../dist/webview.css">
+<style>
+/*
+ * EX-UI-04. Only the variables the stylesheet reads for layout. Colours are irrelevant to a
+ * hit-region check and inventing a palette here would be a second, drifting source of theme truth.
+ */
+:root {
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: "SF Mono", Menlo, monospace;
+  --vscode-editor-font-size: 12px;
+}
+html, body { margin: 0; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+</style>
+</head>
+<body>
+<div id="bachata-live-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="root"></div>
+<script>
+window.__posted = [];
+window.acquireVsCodeApi = function () {
+  return {
+    postMessage: function (message) { window.__posted.push(message); },
+    getState: function () { return window.__vsState; },
+    setState: function (value) { window.__vsState = value; return value; },
+  };
+};
+</script>
+<script src="../../../dist/vendor/prism/prism.js"></script>
+<script src="../../../dist/webview-behavior.js"></script>
+<script src="../../../dist/webview.js"></script>
+<script src="fixture.js"></script>
+</body>
+</html>

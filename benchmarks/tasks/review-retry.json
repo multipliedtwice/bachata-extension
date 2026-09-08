@@ -1,0 +1,54 @@
+{
+  "id": "review-retry",
+  "kind": "review",
+  "title": "Review the retry helper",
+  "fixture": "fixtures/review-retry",
+  "prompt": "Review src/retry.ts for correctness and unbounded work. Report findings with file and line. Do not change files.",
+  "arms": {
+    "single": {
+      "pipelineIds": [
+        "codex-review",
+        "claude-review"
+      ],
+      "requiredVerification": []
+    },
+    "paired": {
+      "pipelineIds": [
+        "review-only"
+      ],
+      "requiredVerification": []
+    }
+  },
+  "answerKey": {
+    "requiredFindings": [
+      {
+        "id": "retry.off-by-one",
+        "file": "src/retry.ts",
+        "line": 12,
+        "statement": "attempts is used as an inclusive bound, so the operation runs attempts + 1 times"
+      },
+      {
+        "id": "retry.sleep-after-last",
+        "file": "src/retry.ts",
+        "line": 18,
+        "statement": "the delay runs after the final failed attempt, delaying the thrown error for no benefit"
+      },
+      {
+        "id": "retry.unbounded",
+        "file": "src/retry.ts",
+        "line": 23,
+        "statement": "retryForever has no attempt bound, no backoff, and no cancellation"
+      }
+    ],
+    "forbiddenFindings": [
+      {
+        "id": "retry.await-in-loop",
+        "statement": "await inside the loop is required here; reporting it as a defect is a false positive"
+      },
+      {
+        "id": "retry.generic-unsafe",
+        "statement": "the generic parameter is sound; reporting it as unsafe is a false positive"
+      }
+    ]
+  }
+}

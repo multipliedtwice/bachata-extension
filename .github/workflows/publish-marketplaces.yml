@@ -1,0 +1,101 @@
+name: Publish marketplaces
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Paired release verification run at this exact commit
+        required: true
+        type: string
+      release_run_attempt:
+        description: Attempt number of that successful run
+        required: true
+        type: string
+        default: "1"
+      target:
+        description: Publish both, or resume only the marketplace that has not succeeded
+        required: true
+        type: choice
+        options: [both, vscode, bridge]
+        default: both
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-marketplaces
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: marketplace
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      RELEASE_RUN_ATTEMPT: ${{ inputs.release_run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Verify the release workflow provenance
+        env:
+          BRIDGE_ARTIFACT_READ_TOKEN: ${{ github.token }}
+          BRIDGE_REPOSITORY: ${{ github.repository }}
+          BRIDGE_RUN_ID: ${{ inputs.release_run_id }}
+          EXPECTED_WORKFLOW_PATH: .github/workflows/paired-release.yml
+          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_RUN_ATTEMPT: ${{ inputs.release_run_attempt }}
+          EXPECTED_EVENT: workflow_dispatch
+        run: node scripts/verify-bridge-run.mjs
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: approved-release-${{ inputs.release_run_attempt }}
+          path: ${{ runner.temp }}/release-set
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.release_run_id }}
+
+      - name: Verify artifact hashes and human verdict
+        run: node scripts/release-bundle.mjs verify "${RUNNER_TEMP}/release-set"
+
+      - name: Install the locked publisher
+        if: inputs.target != 'bridge'
+        run: npm ci
+
+      - name: Sign in to the VS Code publisher with workload identity
+        if: inputs.target != 'bridge'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Submit the verified Bridge ZIP
+        if: inputs.target != 'vscode'
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/publish-chrome-store.mjs "${RUNNER_TEMP}/release-set"
+
+      - name: Publish the verified VSIX without rebuilding
+        if: inputs.target != 'bridge'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-bundle.mjs verify "${RUNNER_TEMP}/release-set"
+          node node_modules/@vscode/vsce/vsce publish --azure-credential --packagePath "${RUNNER_TEMP}"/release-set/*.vsix

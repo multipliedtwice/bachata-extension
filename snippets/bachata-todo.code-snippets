@@ -1,0 +1,53 @@
+{
+  "Bachata TODO task": {
+    "scope": "markdown",
+    "prefix": "bachata-task",
+    "description": "One Bachata TODO task with scope and controller-owned verification",
+    "body": [
+      "- [ ] [${1:API-1}] ${2:What this task must achieve}",
+      "  - Paths: ${3:src/api}",
+      "  - Verify: ${4|bachata:project-checks,bachata:workspace-integrity,none|}",
+      "  - Verify Final: ${5|bachata:workspace-integrity,bachata:project-checks,none|}",
+      "  - Priority: ${6:0}",
+      "  - Retries: ${7:1}",
+      "$0"
+    ]
+  },
+  "Bachata TODO task with dependency": {
+    "scope": "markdown",
+    "prefix": "bachata-task-depends",
+    "description": "A Bachata TODO task that waits for another task",
+    "body": [
+      "- [ ] [${1:API-2}] ${2:What this task must achieve}",
+      "  - Depends on: ${3:API-1}",
+      "  - Paths: ${4:src/api}",
+      "  - Verify: ${5|bachata:project-checks,bachata:workspace-integrity,none|}",
+      "$0"
+    ]
+  },
+  "Bachata TODO task with exclusive resources": {
+    "scope": "markdown",
+    "prefix": "bachata-task-resources",
+    "description": "A Bachata TODO task whose checks need exclusive shared resources",
+    "body": [
+      "- [ ] [${1:API-3}] ${2:What this task must achieve}",
+      "  - Paths: ${3:src/api}",
+      "  - Verify: bachata:project-checks",
+      "  - Resources: ${4:database:api-test}",
+      "  - Verify Final: bachata:workspace-integrity",
+      "  - Final Resources: ${5:global:database:verification}",
+      "$0"
+    ]
+  },
+  "Bachata repository verifier": {
+    "scope": "markdown",
+    "prefix": "bachata-task-verifier",
+    "description": "A Bachata TODO task verified by a repository-declared verifier descriptor",
+    "body": [
+      "- [ ] [${1:API-4}] ${2:What this task must achieve}",
+      "  - Paths: ${3:src/api}",
+      "  - Verify: bachata:verifier:${4:unit-tests}",
+      "$0"
+    ]
+  }
+}

@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "id": "debug",
+  "name": "Debug",
+  "description": "Codex and Claude diagnose a defect independently, converge on the cause, implement the fix, and model-review the result. Verification here is a second model review, not a controller-owned check.",
+  "longitudinalIntent": "initiativeRequired",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "diagnose",
+      "name": "Diagnose independently",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Diagnose the reported defect from the current repository and supplied evidence. Identify the reproducible cause before proposing changes.\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "diagnosis-consensus",
+      "name": "Converge on root cause",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Cross-reference the other diagnosis against repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 10,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "assign-roles",
+      "name": "Assign implementation roles",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        {
+          "agentId": "claude",
+          "role": "worker"
+        },
+        {
+          "agentId": "codex",
+          "role": "reviewer"
+        }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "fix",
+      "name": "Implement the fix",
+      "enabled": true,
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "Implement the agreed root-cause fix and verify the relevant behavior.",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "worker": "write"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "verify",
+      "name": "Model-review the fix",
+      "enabled": true,
+      "participants": [
+        "reviewer",
+        "worker"
+      ],
+      "promptTemplate": "Inspect the current repository and the other participant's answer. Verify the fix against repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 15,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "reviewer": "read",
+        "worker": "write"
+      },
+      "approvalPolicies": {
+        "reviewer": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    }
+  ]
+}

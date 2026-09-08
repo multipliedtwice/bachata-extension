@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "id": "self-improvement-review",
+  "name": "Self-improvement lead review",
+  "description": "Codex reviews one exact task candidate after the controller has run its declared checks, and returns a machine-readable accept or bounded actionable defects. Nothing is edited.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    }
+  ],
+  "steps": [
+    {
+      "id": "lead-review",
+      "name": "Lead reviews the exact candidate",
+      "enabled": true,
+      "participants": ["codex"],
+      "promptTemplate": "{{userPrompt}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": { "codex": "readOnly" },
+      "approvalPolicies": { "codex": "onRequest" },
+      "attachments": "none",
+      "type": "agent",
+      "output": {
+        "name": "taskReview",
+        "format": "json",
+        "shape": "taskReviewVerdict"
+      }
+    }
+  ]
+}
