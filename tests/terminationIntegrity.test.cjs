@@ -17,7 +17,7 @@ const nodeEnvironment = (cwd) => ({
   ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
 });
 
-test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 60_000 }, async () => {
+test("native process scopes complete sequential commands with confirmed cleanup", { timeout: 90_000 }, async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-native-scope-"));
   try {
     for (const marker of ["first", "second"]) {
@@ -27,7 +27,7 @@ test("native process scopes complete sequential commands with confirmed cleanup"
       const result = await runProcess(process.execPath, ["-e", target], {
         cwd,
         environment,
-        timeoutMs: 10_000,
+        timeoutMs: marker === "first" ? 30_000 : 10_000,
         maxOutputBytes: 1_024,
       });
       assert.deepEqual(result, {

@@ -3681,7 +3681,7 @@ test("an editor that moves after approval does not change which repository Impro
     const improved = await controller.improve({ workspaceRoot: repositoryA });
     assert.ok(trustReads >= 2, "the move never landed inside the startup window");
     assert.equal(editorRoot, repositoryB, "the test never moved the editor");
-    const canonical = (value) => realpathSync(value);
+    const canonical = (value) => realpathSync.native(value);
     assert.equal(
       canonical(improved.ledger.workspaceRoot),
       canonical(repositoryA),

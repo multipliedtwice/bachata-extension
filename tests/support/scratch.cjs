@@ -173,7 +173,7 @@ const removeScratch = async (target, remove = (entry) => rm(entry, { recursive: 
  * SAFETY. The synchronous counterpart, for suites whose fixtures are built synchronously. Same
  * rules, same owned set: a synchronous cleanup is exactly as destructive as an asynchronous one.
  */
-const scratchBaseSync = () => realpathSync(os.tmpdir());
+const scratchBaseSync = () => realpathSync.native(os.tmpdir());
 
 const scratchRootSync = (prefix) => {
   const prefixProblem = scratchPrefixProblem(prefix);

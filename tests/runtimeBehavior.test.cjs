@@ -893,10 +893,10 @@ test("clean persisted selections adopt the active root scope even when definitio
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const canonicalSecondRoot = fs.realpathSync(secondRoot);
+    const canonicalSecondRoot = fs.realpathSync.native(secondRoot);
     const snapshot = harness.runtime.getSelectedPipelineSnapshot();
     assert.equal(snapshot.scopeRoot, secondRoot);
-    assert.equal(snapshot.scopeKey, `workspace:${canonicalSecondRoot}`);
+    assert.equal(snapshot.scopeKey, `workspace:${process.platform === "win32" ? canonicalSecondRoot.toLowerCase() : canonicalSecondRoot}`);
     assert.equal(harness.runtime.getState().pipelineScopeRoot, secondRoot);
   } finally {
     harness.adapterControls.forEach((control) => control.release.resolve());
@@ -1415,7 +1415,7 @@ test("failed queue persistence publishes no work and cannot execute it after a d
     );
 
     await harness.runtime.handleMessage({ type: "workingDirectory.pick" });
-    assert.equal(harness.runtime.getState().workingDirectory, fs.realpathSync(targetDirectory));
+    assert.equal(harness.runtime.getState().workingDirectory, fs.realpathSync.native(targetDirectory));
     assert.equal(executions, 0);
   } finally {
     harness.adapterControlHistory.forEach((control) => control.release.resolve());
@@ -2907,7 +2907,7 @@ test("browser asset default filenames are normalized and contained", async () =>
       assetId: "asset-unsafe-name",
     });
 
-    assert.equal(path.dirname(defaultPath), fs.realpathSync(harness.workspaceDirectory));
+    assert.equal(path.dirname(defaultPath), fs.realpathSync.native(harness.workspaceDirectory));
     assert.equal(path.basename(defaultPath).startsWith("."), false);
     assert.ok(path.basename(defaultPath).length <= 180);
     assert.doesNotMatch(path.basename(defaultPath), /[\\/:*?"<>|\u0000-\u001f\u007f]/u);
@@ -3614,7 +3614,7 @@ test("working directory reset prepares replacement adapters for the target direc
 
     await harness.runtime.configure({ workingDirectory: targetDirectory });
 
-    const canonicalTarget = fs.realpathSync(targetDirectory);
+    const canonicalTarget = fs.realpathSync.native(targetDirectory);
     assert.equal(harness.runtime.getState().workingDirectory, canonicalTarget);
     assert.equal(harness.adapterContexts.get("codex").environment.PWD, canonicalTarget);
     assert.equal(harness.adapterContexts.get("claude").environment.PWD, canonicalTarget);
@@ -3659,7 +3659,7 @@ test("history-preserving directory change stages replacement adapters before com
       preserveHistory: true,
     });
 
-    const canonicalTarget = fs.realpathSync(targetDirectory);
+    const canonicalTarget = fs.realpathSync.native(targetDirectory);
     assert.equal(harness.runtime.getState().workingDirectory, canonicalTarget);
     assert.equal(harness.runtime.getState().transcript[0].text, entry.text);
     assert.equal(harness.transcript[0].text, entry.text);
@@ -4434,9 +4434,9 @@ test("checklist Git preflight runs before provider work and receives only the ac
     );
     assert.equal(preflightRequests.length, 1);
     assert.deepEqual(preflightRequests[0], {
-      workingDirectory: fs.realpathSync(workspaceRoot),
+      workingDirectory: fs.realpathSync.native(workspaceRoot),
       allowedDirtyPaths: [
-        path.join(fs.realpathSync(workspaceRoot), ".bachata", "pipelines"),
+        path.join(fs.realpathSync.native(workspaceRoot), ".bachata", "pipelines"),
       ],
     });
     assert.equal(harness.adapterControls.get("codex").sendCount, 0);

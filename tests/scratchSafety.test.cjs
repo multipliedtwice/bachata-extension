@@ -357,7 +357,7 @@ test("a scratch prefix that would create a directory somewhere else is refused",
 
 test("a directory this module never created cannot be removed even inside the temporary root", () => {
   const strayRoot = scratchRootSync("bachata-scratch-stray-");
-  const base = require("node:fs").realpathSync(require("node:os").tmpdir());
+  const base = require("node:fs").realpathSync.native(require("node:os").tmpdir());
   // Built the same way a scratch directory is, but presented as a bare path the guard has no
   // record of: the ownership check, not the prefix check, is what refuses it.
   assert.equal(scratchProblem(strayRoot, base, new Set()), `a scratch target must be a directory this run created: ${strayRoot}`);

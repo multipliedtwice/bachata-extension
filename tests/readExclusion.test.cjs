@@ -15,7 +15,7 @@ const { validateClaudeWorkspaceToolUse } = require("../dist/adapters/claudeCode.
 const mockCodex = path.join(__dirname, "fixtures", "mock-codex.cjs");
 
 const createWorkspace = () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-read-exclusion-")));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-read-exclusion-")));
   fs.mkdirSync(path.join(root, ".bachata"));
   fs.writeFileSync(path.join(root, ".bachata", "policy.json"), "{\"secret\":true}");
   fs.mkdirSync(path.join(root, ".git"));
@@ -432,7 +432,7 @@ test("no built-in preset prompt tells a Claude participant to run repository com
 });
 
 const createBudgetWorkspace = (fileCount) => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-read-budget-")));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-read-budget-")));
   const wide = path.join(root, "wide");
   fs.mkdirSync(wide);
   // One excluded file keeps the directory unclean, so every sibling becomes its own root
@@ -540,7 +540,7 @@ test("an unopenable directory inside a within-budget workspace still fails close
 });
 
 test("a clean workspace still collapses to directory roots without spending the budget", async () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-read-clean-")));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-read-clean-")));
   try {
     fs.mkdirSync(path.join(root, "src", "nested"), { recursive: true });
     for (let index = 0; index < 2_000; index += 1) {
