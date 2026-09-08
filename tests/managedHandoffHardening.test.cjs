@@ -113,14 +113,14 @@ const realGit = () => {
   return found;
 };
 
-const writeWindowsGitShim = (directory, logPath, executable) => {
+const writeWindowsGitShim = (directory, logDirectory, executable) => {
   const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
   const compiler = ["Framework64", "Framework"].map((framework) =>
     path.join(systemRoot, "Microsoft.NET", framework, "v4.0.30319", "csc.exe"),
   ).find((candidate) => fs.existsSync(candidate));
   assert.ok(compiler, "The Windows Git shim requires the bundled .NET Framework C# compiler");
   const literal = (value) => `@"${value.replaceAll('"', '""')}"`;
-  const source = path.join(path.dirname(logPath), "git-shim.cs");
+  const source = path.join(path.dirname(logDirectory), "git-shim.cs");
   const runner = fs.readFileSync(path.join(__dirname, "..", "scripts", "windows-job-runner.ps1"), "utf8");
   const quote = runner.match(/    private static string Quote\(string value\)[\s\S]*?(?=    private static uint ActiveProcesses)/u)?.[0];
   assert.ok(quote, "The Windows process runner's argument quotation function is unavailable");
@@ -140,7 +140,7 @@ ${quote}
         record.Append(entry.Key).Append('=').Append(entry.Value).Append('\\n');
     }
     record.Append("END\\n");
-    File.AppendAllText(${literal(logPath)}, record.ToString());
+    File.WriteAllText(Path.Combine(${literal(logDirectory)}, Guid.NewGuid().ToString("N") + ".log"), record.ToString());
     ProcessStartInfo start = new ProcessStartInfo(${literal(executable)}, String.Join(" ", Array.ConvertAll(args, Quote)));
     start.UseShellExecute = false;
     using (Process child = Process.Start(start)) {
@@ -159,22 +159,24 @@ ${quote}
 
 // A stand-in for git that records the argument vector and the GIT_* environment it was handed,
 // then hands the work to the real one so the verification still reaches its real conclusion.
-const writeGitShim = (directory, logPath) => {
+const writeGitShim = (directory, logDirectory) => {
+  fs.mkdirSync(logDirectory, { recursive: true });
   const executable = realGit();
   if (process.platform === "win32") {
-    writeWindowsGitShim(directory, logPath, executable);
+    writeWindowsGitShim(directory, logDirectory, executable);
     return;
   }
   fs.writeFileSync(
     path.join(directory, "git"),
     [
       "#!/bin/sh",
+      `record=$(mktemp ${JSON.stringify(path.join(logDirectory, "invocation.XXXXXX"))}) || exit 1`,
       "{",
       "  printf 'BEGIN\\n'",
       "  printf 'ARGS %s\\n' \"$*\"",
       "  env | grep '^GIT_' | sort",
       "  printf 'END\\n'",
-      `} >> ${JSON.stringify(logPath)}`,
+      '} > "$record"',
       `exec ${JSON.stringify(executable)} "$@"`,
       "",
     ].join("\n"),
@@ -182,21 +184,24 @@ const writeGitShim = (directory, logPath) => {
   );
 };
 
-const readInvocations = (logPath) => {
-  if (!fs.existsSync(logPath)) return [];
-  return fs.readFileSync(logPath, "utf8")
-    .split("BEGIN\n")
-    .filter((block) => block.includes("END"))
-    .map((block) => {
-      const lines = block.split("\n").filter((line) => line.length > 0 && line !== "END");
-      const args = (lines.find((line) => line.startsWith("ARGS ")) ?? "ARGS ").slice(5);
-      const environment = Object.fromEntries(
-        lines
-          .filter((line) => line.startsWith("GIT_"))
-          .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-      );
-      return { args, environment };
-    });
+const clearInvocations = (logDirectory) => {
+  for (const entry of fs.readdirSync(logDirectory)) fs.unlinkSync(path.join(logDirectory, entry));
+};
+
+const readInvocations = (logDirectory) => {
+  if (!fs.existsSync(logDirectory)) return [];
+  return fs.readdirSync(logDirectory).map((entry) => {
+    const record = fs.readFileSync(path.join(logDirectory, entry), "utf8");
+    assert.ok(record.startsWith("BEGIN\n") && record.endsWith("END\n"), `incomplete Git invocation record: ${entry}`);
+    const lines = record.split("\n").filter((line) => line.length > 0 && line !== "BEGIN" && line !== "END");
+    const args = (lines.find((line) => line.startsWith("ARGS ")) ?? "ARGS ").slice(5);
+    const environment = Object.fromEntries(
+      lines
+        .filter((line) => line.startsWith("GIT_"))
+        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+    );
+    return { args, environment };
+  });
 };
 
 const runProjectChecks = async (root, changedFiles, pathPrefix) => {
@@ -218,7 +223,7 @@ const runProjectChecks = async (root, changedFiles, pathPrefix) => {
 // PATH sanitization the probe two lines above it had just applied.
 test("native managed diff checks never run a git the workspace put on PATH", async (context) => {
   const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-log-"));
-  const logPath = path.join(logRoot, "invocations.log");
+  const logDirectory = path.join(logRoot, "invocations");
   const root = createProject("bachata-handoff-path-");
   const processScope = require("../dist/process/processScope.js");
   const spawnScope = processScope.spawnProcessScope;
@@ -264,22 +269,22 @@ test("native managed diff checks never run a git the workspace put on PATH", asy
     assert.equal(bodyCompleted, true, "the native managed Git assertions did not complete");
   });
   try {
-    writeGitShim(root, logPath);
+    writeGitShim(root, logDirectory);
     execFileSync("git", ["--version"], { env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}` } });
     assert.equal(
-      readInvocations(logPath).some((invocation) => invocation.args === "--version"),
+      readInvocations(logDirectory).some((invocation) => invocation.args === "--version"),
       true,
       "the workspace-supplied git was not reachable, so this test proves nothing",
     );
     for (const pathPrefix of [root, undefined]) {
-      fs.writeFileSync(logPath, "");
+      clearInvocations(logDirectory);
       const result = await runProjectChecks(root, ["notes.txt"], pathPrefix);
       assert.equal(result.status, "passed", result.summary);
       assert.match(result.summary, /git diff --check passed/u);
 
-      assert.deepEqual(readInvocations(logPath), [], "managed checks must never launch a workspace-supplied git");
+      assert.deepEqual(readInvocations(logDirectory), [], "managed checks must never launch a workspace-supplied git");
     }
-    fs.writeFileSync(logPath, "");
+    clearInvocations(logDirectory);
     const originalPath = process.env.PATH;
     try {
       process.env.PATH = root;
@@ -303,7 +308,7 @@ test("native managed diff checks never run a git the workspace put on PATH", asy
           assert.match(result.stdout, /^git version /u);
         }
       }
-      assert.deepEqual(readInvocations(logPath), [], "removing every PATH entry must not enable implicit workspace lookup");
+      assert.deepEqual(readInvocations(logDirectory), [], "removing every PATH entry must not enable implicit workspace lookup");
     } finally {
       if (originalPath === undefined) delete process.env.PATH;
       else process.env.PATH = originalPath;
@@ -318,7 +323,7 @@ test("native managed diff checks never run a git the workspace put on PATH", asy
 test("native provider command lookup excludes implicit cwd but preserves explicit executable and PATH choices", { timeout: 30_000 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-provider-lookup-"));
   const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-provider-lookup-log-"));
-  const logPath = path.join(logRoot, "invocations.log");
+  const logDirectory = path.join(logRoot, "invocations");
   const gitDirectory = path.dirname(realGit());
   const trustedPath = [gitDirectory, gitProcessEnvironment(root).PATH].filter(Boolean).join(path.delimiter);
   const explicit = path.join(root, process.platform === "win32" ? "git.exe" : "git");
@@ -327,13 +332,13 @@ test("native provider command lookup excludes implicit cwd but preserves explici
   const expected = createHash("sha1").update(`blob ${Buffer.byteLength(input)}\0${input}`).digest("hex");
   let active;
   try {
-    writeGitShim(root, logPath);
+    writeGitShim(root, logDirectory);
     for (const [command, searchPath, intercepted] of [
       ["git", trustedPath, false],
       [explicit, trustedPath, true],
       ["git", `${root}${path.delimiter}${trustedPath}`, true],
     ]) {
-      fs.writeFileSync(logPath, "");
+      clearInvocations(logDirectory);
       active = spawnScopedProviderProcess(command, ["hash-object", "--stdin"], {
         cwd: root,
         env: { ...inherited, PATH: searchPath },
@@ -353,7 +358,7 @@ test("native provider command lookup excludes implicit cwd but preserves explici
       assert.equal(stdout.trim(), expected);
       assert.equal(await active.terminate(1_000), true);
       active = undefined;
-      assert.equal(readInvocations(logPath).length, intercepted ? 1 : 0);
+      assert.equal(readInvocations(logDirectory).length, intercepted ? 1 : 0);
     }
   } finally {
     if (active) await active.terminate(1_000);
@@ -368,14 +373,14 @@ test("native provider command lookup excludes implicit cwd but preserves explici
 // silently narrow what the check covered.
 test("every git the managed handoff runs carries the git hardening", async () => {
   const shimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-"));
-  const logPath = path.join(shimRoot, "invocations.log");
+  const logDirectory = path.join(shimRoot, "invocations");
   const root = createProject("bachata-handoff-hardening-");
   try {
-    writeGitShim(shimRoot, logPath);
+    writeGitShim(shimRoot, logDirectory);
     const result = await runProjectChecks(root, ["notes.txt"], shimRoot);
     assert.equal(result.status, "passed", result.summary);
 
-    const invocations = readInvocations(logPath);
+    const invocations = readInvocations(logDirectory);
     assert.ok(invocations.length > 0, "no git invocation was observed");
     for (const invocation of invocations) {
       assert.equal(invocation.environment.GIT_CONFIG_NOSYSTEM, "1", invocation.args);
@@ -392,5 +397,37 @@ test("every git the managed handoff runs carries the git hardening", async () =>
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(shimRoot, { recursive: true, force: true });
+  }
+});
+
+test("Git shim records concurrent invocations separately and delegates every command", { timeout: 30_000 }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-concurrent-"));
+  const logDirectory = path.join(root, "invocations");
+  try {
+    writeGitShim(root, logDirectory);
+    const executable = path.join(root, process.platform === "win32" ? "git.exe" : "git");
+    const cases = Array.from({ length: 8 }, (_, index) => `case-${index}`);
+    const results = await Promise.allSettled(cases.map((value) => runProcess(executable, ["-c", `bachata.fixture=${value}`, "--version"], {
+      cwd: root,
+      environment: { ...gitProcessEnvironment(root), GIT_BACHATA_SHIM_CASE: value },
+      timeoutMs: 10_000,
+      maxOutputBytes: 1_024,
+    })));
+    for (const outcome of results) {
+      if (outcome.status === "rejected") throw outcome.reason;
+      const result = outcome.value;
+      assert.equal(result.cleanupConfirmed, true, result.stderr);
+      assert.equal(result.timedOut, false, result.stderr);
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.match(result.stdout, /^git version /u);
+    }
+    const invocations = readInvocations(logDirectory);
+    assert.equal(invocations.length, cases.length);
+    assert.deepEqual(invocations.map(({ environment }) => environment.GIT_BACHATA_SHIM_CASE).sort(), cases);
+    for (const { args, environment } of invocations) {
+      assert.equal(args, `-c bachata.fixture=${environment.GIT_BACHATA_SHIM_CASE} --version`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

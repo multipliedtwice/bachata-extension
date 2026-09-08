@@ -2,7 +2,7 @@
 
 One file, one release. It records the exact artifacts and the human validation that automated tests cannot replace. `Not performed` blocks the release metadata gate.
 
-Artifacts under test: Bachata VSIX `75f1c873a210b48ac373081d17c9ed655e829815542fea2bb628d3d3395ef59a`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
+Artifacts under test: Bachata VSIX `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d`, Browser Bridge ZIP `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b`.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 
@@ -11,7 +11,7 @@ Every record in this file is void unless it names one of those hashes. A record 
 
 | Artifact | Version | SHA-256 | Recorded |
 | --- | --- | --- | --- |
-| Bachata VSIX | 0.7.0 | `75f1c873a210b48ac373081d17c9ed655e829815542fea2bb628d3d3395ef59a` | yes |
+| Bachata VSIX | 0.7.0 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | yes |
 | Browser Bridge ZIP | 0.6.7 | `e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b` | yes |
 
 ## 1. Graphical Extension Host validation
@@ -62,8 +62,8 @@ Run the full release suite from `docs/STABLE_RELEASE_GATE.md` on each clean envi
 
 | OS | Node version | Git version | VSIX SHA-256 | Suite result | Skipped tests | Graphical checklist | Date | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS | — | — | — | — | — | — | — | Not performed |
-| Linux | — | — | — | — | — | — | — | Not performed |
+| macOS | 22.13.0 | 2.55.0 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | Automated gates passed at candidate source `be015c4`, run 34251412987; 3040 tests, 3029 passed, 0 failed | 11: seven Linux-only descendant cases, three archive cases passed in candidate run 34251453740, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
+| Linux | 22.13.0 | 2.55.0 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | Automated gates passed at candidate source `be015c4`, run 34251412987; 3040 tests, 3036 passed, 0 failed | 4: three archive cases passed in candidate run 34251453740, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
 | Windows | — | — | — | — | — | — | — | Not performed |
 
 ## 5. Responsiveness under synchronous state access
@@ -81,4 +81,4 @@ Unconfirmed risk, not a defect. The state store is synchronous and waits on a lo
 
 | Check | Date | VSIX SHA-256 | Result | Notes |
 | --- | --- | --- | --- | --- |
-| Network-backed dependency audit | 2026-09-08 | `75f1c873a210b48ac373081d17c9ed655e829815542fea2bb628d3d3395ef59a` | Pass | Authorized npm audits report zero vulnerabilities in both packages. Package manifests and locks unchanged since audit; candidate run 34245180082 verified locked production dependency closure. |
+| Network-backed dependency audit | 2026-09-08 | `ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d` | Pass | Authorized npm audits report zero vulnerabilities in both packages. Manifests and locks unchanged since audit; candidate run 34251453740 verified locked production dependency closure. |

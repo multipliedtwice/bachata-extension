@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.6.7 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 621 |
-| Maintained source manifest SHA-256 (Git-tracked) | fa513316886b039265d45e443aeb9be042ffc7d8f36c2e4990b6f8a8bce70768 |
+| Maintained source manifest SHA-256 (Git-tracked) | ae8745963da171a3e5fe6799b26fb6d8dda0acd7d7b2190d21c41c4eb63ebf5e |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "Bachata: TODO orchestration" | 21 |
@@ -38,17 +38,17 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 50379bca168c3b1ea39d5ca6b222e3a46cf851dc.
+The working tree was modified, so these values describe the working tree and not commit be015c4058f5cfed31d24dd6343f3f3138ae1d34.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 50379bca168c3b1ea39d5ca6b222e3a46cf851dc |
+| Revision | be015c4058f5cfed31d24dd6343f3f3138ae1d34 |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 621 |
 | Platform | Darwin 24.5.0 arm64 |
 | Node | v22.13.1 |
-| Git | git version 2.15.0 |
-| dist | 7.63 MB |
+| Git | git version 2.55.0 |
+| dist | 7.64 MB |
 | node_modules/typescript | 22.87 MB |
 | node_modules/ts-morph | 1.46 MB |
 | node_modules/@ts-morph | 11.69 MB |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | bachata-vscode-0.7.0.vsix, 11.95 MB, SHA-256 75f1c873a210b48ac373081d17c9ed655e829815542fea2bb628d3d3395ef59a |
+| Staged VSIX | bachata-vscode-0.7.0.vsix, 11.95 MB, SHA-256 ce1e4b6753d2d877a78b617e7b4308789500d6051695a0cc358c9ac2cb42b97d |
 | Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.7.zip, 1.05 MB, SHA-256 e50b147fd1eab3dd1e277e7211d75c347cb965d29d4670414bbd01dd2c71b80b |
 | Test run | not collected in this generation |
 
