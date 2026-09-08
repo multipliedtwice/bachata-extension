@@ -177,8 +177,8 @@ test("product doctrine fixes problem-general refinement, software focus, human d
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.equal(
     packageJson.description,
-    "Review code with several AI agents in VS Code. They challenge each other, repeat the review "
-      + "from a fresh start, and show what they found. You decide what gets fixed.",
+    "Build your own AI workflow in VS Code: choose assistants, give each a job, "
+      + "and arrange planning, coding, review, and revision steps.",
     "the marketplace description no longer states the documented product claim",
   );
   assert.ok(

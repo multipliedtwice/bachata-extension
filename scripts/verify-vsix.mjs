@@ -556,7 +556,7 @@ export const verifyVsix = async (file) => {
   if (verificationError) throw verificationError;
 };
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const file = process.argv[2];
   if (!file) throw new Error("Expected VSIX path");
   await verifyVsix(path.resolve(file));

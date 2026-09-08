@@ -2,7 +2,7 @@
 
 Remediation baseline: 2026-09-08 source regression gates passed for both packages.
 Extension full source and critical coverage each pass 2,972 tests with zero skips/failures;
-Bridge package verification passes 1,205 tests. Identity, compatibility, native ignored-write
+Bridge package verification passes 1,205 tests. Compatibility, native ignored-write
 policy and applicable artifact acceptance remain open.
 Measurements below remain historical, bound to their stated date and artifact. They do not
 prove this modified candidate. Current source checks and open gates: [stable gate](STABLE_RELEASE_GATE.md),
@@ -25,7 +25,8 @@ verdict below is authored by a human and no generator may set it.
 
 **NO-SHIP as a stable release. The source tree is a closed-alpha candidate.**
 
-Automated source gates pass. No 0.7.0 VSIX exists. Owner inputs block packaging.
+Identity validation passes. Current cross-platform source gates are being verified.
+No 0.7.0 VSIX is staged; candidate packaging is in progress.
 
 Packaging is no longer circular, in both directions:
 
@@ -36,7 +37,7 @@ Packaging is no longer circular, in both directions:
 - Every record table names its artifact per column: `VSIX SHA-256` and, where the Browser Bridge is involved, `Bridge SHA-256`. Which artifacts each table must name is fixed in `scripts/lib/releaseMetadata.mjs`, not by the document: removing a column or a whole table fails the gate. Every artifact a table declares must be named in every recorded row; there is no way to excuse one.
 - `npm run release:verify` is one command, not two: it fingerprints the artifact, validates identity, evidence, and binding, verifies the packaged bytes, and fingerprints again. An archive replaced or repacked between the two checks is refused rather than half-verified.
 
-The order is therefore: build the candidate, validate it by hand, bind, verify. What still blocks a release is that every human-only record is unrecorded and every public-distribution identity field is a placeholder. Both are owner inputs; no change to the source can supply them. No gate was weakened or bypassed to produce an artifact.
+The order is therefore: build the candidate, validate it by hand, bind, verify. Human-only records remain unrecorded. Publisher `Rememo` and canonical GitHub URLs are configured; public identity no longer blocks candidate packaging. No gate was weakened or bypassed to produce an artifact.
 
 ## Environment of these measurements
 
@@ -164,7 +165,7 @@ Neither source digest is a substitute for the staged VSIX hash used by the relea
 
 ## What must happen before a stable claim
 
-1. Record the public distribution identity in `package.json`, `src/readiness/providerDocs.ts`, and `docs/BROWSER_BRIDGE_INSTALL.md`.
+1. Complete current automated gates and retain the verified candidate artifacts.
 2. Capture screenshots from the exact packaged build into `media/screenshots/`.
 3. Keep the exact tested VSIX, then bind every human record to its hash. A rebuild needs fresh artifact acceptance. `docs/RELEASE_VALIDATION_RECORD.md`, `docs/PROVIDER_TERMS.md`, and `docs/COMPATIBILITY_MATRIX.md` each carry an `Artifacts under test:` line that the gate compares against the staged artifacts; a record produced from any other artifact is void.
 4. Complete `docs/HUMAN_E2E.md` and `docs/LIVE_SMOKE_TEST.md` against that artifact on macOS, Linux, and Windows.

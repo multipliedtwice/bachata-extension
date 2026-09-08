@@ -62,6 +62,18 @@ test("evaluateGitVersionSupport accepts the exact minimum boundary", () => {
   assert.equal(support.parsable, true);
 });
 
+test("evaluateGitVersionSupport handles Git for Windows without changing the minimum", () => {
+  for (const [reported, supported] of [
+    ["git version 2.55.0.windows.5", true],
+    ["git version 2.32.0.windows.1", true],
+    ["git version 2.31.9.windows.1", false],
+  ]) {
+    const support = evaluateGitVersionSupport(reported);
+    assert.equal(support.parsable, true);
+    assert.equal(support.supported, supported);
+  }
+});
+
 test("evaluateGitVersionSupport rejects below-minimum versions with the recorded message", () => {
   const support = evaluateGitVersionSupport("git version 2.15.0");
   assert.equal(support.supported, false);

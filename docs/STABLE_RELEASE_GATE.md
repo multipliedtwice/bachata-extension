@@ -136,18 +136,11 @@ They do not yet record human attention compression or longitudinal review satura
 
 ### What is still open in this tree
 
-These are owner inputs. Nothing in the source can supply them, and the gate stays red until a human records them.
+Publisher `Rememo` and canonical GitHub URLs are configured. Identity validation passes.
+Remaining evidence inputs follow; publication stays blocked until applicable records are complete.
 
 | Item | Where | Current value |
 | --- | --- | --- |
-| Marketplace publisher identity | `package.json` `publisher` | `todo-release-publisher` |
-| Repository URL | `package.json` `repository.url` | `https://todo-release.invalid/bachata-vscode.git` |
-| Homepage | `package.json` `homepage` | `https://todo-release.invalid/bachata-vscode` |
-| Issue tracker | `package.json` `bugs.url` | `https://todo-release.invalid/bachata-vscode/issues` |
-| Q&A | `package.json` `qna` | `https://todo-release.invalid/bachata-vscode/discussions` |
-| Support | `package.json` `sponsor.url` | `https://todo-release.invalid/bachata-vscode/support` |
-| Provider documentation URLs | `src/readiness/providerDocs.ts` | Bridge acquisition URL placeholder remains |
-| Browser Bridge acquisition URL | `docs/BROWSER_BRIDGE_INSTALL.md` | no public URL |
 | Screenshots of the packaged build | `media/screenshots/` | none present, and `README.md` references none |
 | Graphical, live-provider, Bridge, cross-platform, and contention evidence | `docs/RELEASE_VALIDATION_RECORD.md` | every row `Not performed` |
 | Provider terms review | `docs/PROVIDER_TERMS.md` | every row `Not reviewed` |

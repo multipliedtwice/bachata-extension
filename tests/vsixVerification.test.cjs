@@ -1,9 +1,17 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const test = require("node:test");
+const { spawnSync } = require("node:child_process");
 
 const verifierPath = path.join(__dirname, "..", "scripts", "verify-vsix.mjs");
 const { webviewRuntimeAssets } = require("../dist/webview/assets.js");
+
+test("the VSIX verifier CLI refuses invocation without an artifact on every platform", () => {
+  const result = spawnSync(process.execPath, [verifierPath], { encoding: "utf8" });
+  assert.ifError(result.error);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Expected VSIX path/u);
+});
 
 const crcTable = Array.from({ length: 256 }, (_, value) => {
   let crc = value;

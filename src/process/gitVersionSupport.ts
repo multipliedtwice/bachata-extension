@@ -9,7 +9,7 @@ export type GitVersionSupport = {
 };
 
 export const evaluateGitVersionSupport = (reported: string): GitVersionSupport => {
-  const parts = /^git version (\d+)\.(\d+)(?:\.(\d+))?(?:\s.*)?$/u.exec(reported.trim());
+  const parts = /^git version (\d+)\.(\d+)(?:\.(\d+))?(?:\.windows\.\d+)?(?:\s.*)?$/u.exec(reported.trim());
   if (!parts) {
     return {
       supported: false,
