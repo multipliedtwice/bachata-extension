@@ -290,12 +290,11 @@ const drainPosixScope = async (pid, token, signal, timeoutMs, observed) => {
 };
 
 const terminatePosixScope = async (child, token, graceMs) => {
+  const close = child.exitCode !== null || child.signalCode !== null ? undefined : closeState(child);
   const observed = new Set();
   const graceful = await drainPosixScope(child.pid, token, "SIGTERM", graceMs, observed);
-  if (graceful) {
-    return true;
-  }
-  return drainPosixScope(child.pid, token, "SIGKILL", graceMs, observed);
+  const drained = graceful || await drainPosixScope(child.pid, token, "SIGKILL", graceMs, observed);
+  return drained && (close === undefined || await close.wait(graceMs));
 };
 
 const powershellPath = (environment) => {
