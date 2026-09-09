@@ -5082,7 +5082,7 @@ test("a fresh run records the settings it started with and never records a secre
   }
 });
 
-test("a Codex workflow is blocked until whole-working-directory reads are accepted", async () => {
+test("a normal Codex workflow uses whole-working-directory reads by default", async () => {
   const harness = loadRuntimeHarness({
     configuration: { codexCommand: path.join(__dirname, "fixtures", "mock-codex.cjs") },
     onCommandCheck: ({ command, args }) => {
@@ -5095,12 +5095,8 @@ test("a Codex workflow is blocked until whole-working-directory reads are accept
     await harness.runtime.handleMessage({ type: "ready" });
     const report = await harness.runtime.inspectReadiness(["codex-review"]);
     assert.equal(report.adapters.find((adapter) => adapter.type === "codex-app-server").available, true);
-    assert.equal(report.pipelines[0].status, "blocked");
-    assert.equal(
-      report.pipelines[0].findings.find((finding) => finding.status === "blocked").remediationId,
-      "provider.readScope",
-    );
-    assert.equal(report.codexWorkspaceScope, "refuseNarrowedScope");
+    assert.equal(report.pipelines[0].status, "ready");
+    assert.equal(report.codexWorkspaceScope, "wholeWorkingDirectory");
   } finally {
     await harness.runtime.dispose();
     harness.cleanup();
@@ -6491,3 +6487,98 @@ test("a failed approval-cancellation audit does not destroy the answer the turn 
     removeScratchSync(extensionRoot);
   }
 });
+
+test("opening a chat checks its providers without Doctor or setup", async () => {
+  const commands = [];
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command, args }) => {
+      commands.push(command);
+      if (command === "git") return args[0] === "--version" ? "git version 2.39.5" : " M src/existing.ts\n";
+      return `${command} test-version`;
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(harness.runtime.getState().readiness.status, "ready");
+    assert.ok(commands.includes("claude"));
+    assert.ok(commands.includes("codex"));
+    for (const pipeline of harness.runtime.getState().pipelines) {
+      assert.equal(pipeline.participantNames.length, pipeline.participantCount);
+      assert.ok(pipeline.stepCount > 0);
+    }
+    const count = commands.length;
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(commands.length, count, "reattaching a chat must reuse its completed checks");
+    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "claude-review" });
+    assert.equal(harness.runtime.getState().readiness.status, "ready");
+    assert.equal(commands.slice(count).includes("codex"), false, "only the selected pipeline's providers are checked");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("retrying availability replaces failed startup checks and clears stale provider errors", async () => {
+  let available = false;
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command, args }) => {
+      if (command === "git") return args[0] === "--version" ? "git version 2.39.5" : "";
+      throw new Error(`${command} unavailable`);
+    },
+    onCheckAvailability: () => {
+      if (!available) throw new Error("Provider not installed");
+      return "installed-version";
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(harness.runtime.getState().readiness.status, "needsSetup");
+    await harness.runtime.handleMessage({ type: "availability.check" });
+    assert.equal(harness.runtime.getState().agents.claude.error, "Provider not installed");
+    available = true;
+    await harness.runtime.handleMessage({ type: "availability.check" });
+    assert.equal(harness.runtime.getState().readiness.status, "ready");
+    assert.equal(harness.runtime.getState().agents.claude.error, undefined);
+    assert.equal(harness.runtime.getState().executionContract.providers[0].runtimeVersion, "installed-version");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+for (const [override, unavailable] of [[undefined, false], ["/configured/claude", false], [undefined, true]]) {
+  test(`pipeline executable honors user override ${String(override)} and availability ${String(!unavailable)}`, async () => {
+    const definition = singleAgentPipelineDefinition();
+    definition.agents = [{ id: "codex", name: "Opus", adapter: "claude-code", command: "/pipeline/claude", permissionMode: "plan" }];
+    const extensionRoot = createSingleAgentPipelineRoot(definition);
+    const created = [];
+    const commands = [];
+    const harness = loadRuntimeHarness({
+      extensionRoot,
+      configuration: override === undefined ? {} : { claudeCommand: override },
+      configurationDefaults: { claudeCommand: "claude" },
+      onAdapterCreate: ({ definition: agent }) => created.push(agent.command),
+      onCommandCheck: ({ command, args }) => {
+        commands.push(command);
+        if (command === (unavailable ? "/pipeline/claude" : "claude")) throw new Error(`spawn ${command} ENOENT`);
+        if (command === "git") return args[0] === "--version" ? "git version 2.39.5" : "";
+        return "Claude Code test-version";
+      },
+    });
+    try {
+      await harness.runtime.handleMessage({ type: "ready" });
+      await harness.runtime.configure({ pipelineId: definition.id });
+      const report = await harness.runtime.inspectReadiness([definition.id]);
+      const expected = override ?? "/pipeline/claude";
+      assert.ok(created.includes(expected), JSON.stringify(created));
+      assert.ok(commands.includes(expected), JSON.stringify(commands));
+      assert.equal(report.pipelines[0].status, unavailable ? "needsSetup" : "ready");
+      assert.ok(report.pipelines[0].findings.some((entry) => entry.id === "adapter.codex" && entry.detail.includes(expected)));
+      assert.equal(harness.runtime.getState().executionContract.providers[0].runtimeVersion, unavailable ? undefined : "Claude Code test-version");
+    } finally {
+      await harness.runtime.dispose();
+      harness.cleanup();
+      removeScratchSync(extensionRoot);
+    }
+  });
+}

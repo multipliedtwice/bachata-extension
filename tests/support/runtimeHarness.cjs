@@ -62,6 +62,7 @@ const installHostDoubles = (options = {}) => {
   const adapterControlHistory = [];
   const adapterContexts = new Map();
   const configuration = new Map(Object.entries(options.configuration ?? {}));
+  const configurationDefaults = new Map(Object.entries(options.configurationDefaults ?? {}));
 
   const checkCommandPath = require.resolve("../../dist/process/checkCommand.js");
   injectModule(checkCommandPath, {
@@ -70,6 +71,18 @@ const installHostDoubles = (options = {}) => {
       return `${command} mock-1.0.0`;
     },
   });
+
+  const codexModulePath = require.resolve("../../dist/adapters/codexAppServer.js");
+  delete require.cache[codexModulePath];
+  if (!options.realProviderProbes) {
+    injectModule(codexModulePath, {
+      ...require(codexModulePath),
+      probeCodexAppServer: async (probeOptions) =>
+        options.onCodexProbe?.(probeOptions) ??
+        options.onCommandCheck?.({ command: probeOptions.command, args: ["app-server"], commandOptions: probeOptions }) ??
+        "codex mock-1.0.0",
+    });
+  }
 
   const createControl = (agentId) => {
     const started = deferred();
@@ -307,7 +320,11 @@ const installHostDoubles = (options = {}) => {
       },
       getConfiguration: () => ({
         get: (key, defaultValue) =>
-          configuration.has(key) ? configuration.get(key) : defaultValue,
+          configuration.has(key) ? configuration.get(key) : configurationDefaults.get(key) ?? defaultValue,
+        inspect: (key) => ({
+          defaultValue: configurationDefaults.get(key),
+          globalValue: configuration.get(key),
+        }),
       }),
       onDidChangeWorkspaceFolders: (listener) => {
         workspaceFolderListeners.add(listener);

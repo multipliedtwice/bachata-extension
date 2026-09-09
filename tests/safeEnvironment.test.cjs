@@ -50,3 +50,19 @@ test("safe process environments exclude arbitrary Extension Host secrets", async
     assert.equal(check.BACHATA_UNRELATED_SECRET, undefined);
   });
 });
+
+test("GUI-launched providers find user-installed CLIs without changing other process environments", async () => {
+  const path = require("node:path");
+  const os = require("node:os");
+  const originalPath = process.platform === "win32" ? "C:\\Windows\\System32" : "/usr/bin:/bin";
+  await withEnvironment({ PATH: originalPath, Path: undefined }, async () => {
+    const localBin = path.join(os.homedir(), ".local", "bin");
+    const provider = providerProcessEnvironment(path.join(os.tmpdir(), "bachata-workspace"));
+    assert.ok(provider.PATH.split(path.delimiter).includes(localBin));
+    assert.ok(provider.PATH.startsWith(originalPath + path.delimiter), "existing executable precedence is preserved");
+    assert.equal(safeProcessEnvironment("/workspace").PATH, originalPath);
+    assert.equal(process.env.PATH, originalPath);
+    const homeWorkspace = providerProcessEnvironment(os.homedir());
+    assert.equal(homeWorkspace.PATH.split(path.delimiter).includes(localBin), false, "discovery must not add workspace-owned executables");
+  });
+});

@@ -24,7 +24,7 @@ import { closeCdpSession, delay, openCdpSession } from "./lib/chromeSession.mjs"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(root, "tests", "fixtures", "webview-layout", "index.html");
 const bundle = path.join(root, "dist", "webview.js");
-const WIDTHS = [320, 360, 400, 480, 1280];
+const WIDTHS = [320, 360, 400, 480, 700, 900, 1280];
 
 const resolveChrome = () => {
   const configured = process.env.BACHATA_CHROME_BINARY?.trim();
@@ -187,6 +187,60 @@ const reachability = `(() => {
   };
 })()`;
 
+// Check the shared input surface and toolbar at every supported pane width.
+const composerMeasure = `(() => {
+  const toolbar = document.querySelector(".composer-toolbar");
+  const send = document.querySelector(".composer-send .send-button");
+  const picker = document.querySelector(".pipeline-picker-button");
+  const settings = document.querySelector('[data-action="composer-settings-toggle"]');
+  const attach = document.querySelector('[data-action="attachment-pick"]');
+  const surface = document.querySelector(".composer-surface");
+  const prompt = document.querySelector("#composer-prompt");
+  const nativeSelect = document.querySelector("#pipeline-select");
+  if (!toolbar || !send || !picker || !settings || !attach || !surface || !prompt) return { present: false };
+  const t = toolbar.getBoundingClientRect();
+  const s = send.getBoundingClientRect();
+  const p = picker.getBoundingClientRect();
+  const card = surface.getBoundingClientRect();
+  const gear = settings.getBoundingClientRect();
+  return {
+    present: true,
+    width: document.documentElement.clientWidth,
+    nativeSelect: nativeSelect !== null,
+    sendVisible: s.width > 0 && s.height > 0,
+    sendRightOfPicker: Math.round(s.left) >= Math.round(p.right),
+    sendOnFirstRow: [attach, picker, settings, send].every((control) => {
+      const r = control.getBoundingClientRect();
+      return Math.abs(r.top + r.height / 2 - t.top - t.height / 2) <= 1;
+    }),
+    surfaceContainsInput: [prompt, toolbar].every((element) => {
+      const r = element.getBoundingClientRect();
+      return r.left >= card.left && r.right <= card.right + 1 && r.top >= card.top && r.bottom <= card.bottom + 1;
+    }),
+    settingsBox: [gear.left, gear.top, gear.width, gear.height],
+    sendSquare: Math.abs(s.width - s.height) <= 1,
+    horizontalScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  };
+})()`;
+
+// The rich pipeline picker opens as a floating listbox above the toolbar; it must not be clipped by
+// the composer surface or a scroll container, so its box sits above the toolbar and inside the
+// viewport at every width.
+const pickerMeasure = `(() => {
+  const pop = document.querySelector(".pipeline-picker-popover");
+  const toolbar = document.querySelector(".composer-toolbar");
+  if (!pop || !toolbar) return { present: false };
+  const p = pop.getBoundingClientRect();
+  const t = toolbar.getBoundingClientRect();
+  return {
+    present: true,
+    aboveToolbar: p.bottom <= t.top + 1,
+    topVisible: p.top >= -1,
+    withinViewport: p.left >= -1 && p.right <= document.documentElement.clientWidth + 1 && p.bottom <= document.documentElement.clientHeight + 1,
+    visibleAtTop: pop.contains(document.elementFromPoint(p.left + p.width / 2, p.top + 8)),
+  };
+})()`;
+
 const menuState = `(() => {
   const menu = document.querySelector(${JSON.stringify(MENU)});
   const details = menu ? menu.closest("details") : null;
@@ -227,6 +281,37 @@ const run = async () => {
       if (reach.renderFailure) failures.push(`${String(width)}px: the fixture rendered the failure banner, not a room`);
       if (reach.tabs < 2) failures.push(`${String(width)}px: the fixture drew ${String(reach.tabs)} run tabs, so no unselected tab was measured`);
       reach.mismatched.forEach((problem) => { failures.push(`${String(width)}px: ${problem}`); });
+      const composer = await session.evaluate(composerMeasure);
+      if (!composer.present) {
+        failures.push(`${String(width)}px: the composer toolbar did not render`);
+      } else {
+        if (composer.nativeSelect) failures.push(`${String(width)}px: the native pipeline select is still in the composer`);
+        if (!composer.sendVisible) failures.push(`${String(width)}px: Send was drawn at zero size`);
+        if (!composer.sendRightOfPicker) failures.push(`${String(width)}px: Send is not aligned to the end of the toolbar`);
+        if (composer.horizontalScroll) failures.push(`${String(width)}px: the composer forced the page to scroll horizontally`);
+        if (!composer.sendOnFirstRow) failures.push(`${String(width)}px: the composer controls do not share one row`);
+        if (!composer.surfaceContainsInput) failures.push(`${String(width)}px: input and toolbar escape their shared surface`);
+        if (!composer.sendSquare) failures.push(`${String(width)}px: the Send control is not circular`);
+        const [left, top, gearWidth, gearHeight] = composer.settingsBox;
+        await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: left + gearWidth / 2, y: top + gearHeight / 2 });
+        await delay(160);
+        const hovered = await session.evaluate(composerMeasure);
+        if (!hovered.present || hovered.settingsBox.some((value, index) => Math.abs(value - composer.settingsBox[index]) > 0.5)) {
+          failures.push(`${String(width)}px: the settings control moves on hover`);
+        }
+      }
+      // The pipeline picker opens above the toolbar and must clear it without being clipped.
+      await press(session, "#pipeline-picker-button");
+      await delay(160);
+      const picker = await session.evaluate(pickerMeasure);
+      if (!picker.present) {
+        failures.push(`${String(width)}px: the pipeline picker did not open above the toolbar`);
+      } else {
+        if (!picker.aboveToolbar) failures.push(`${String(width)}px: the pipeline listbox overlapped the toolbar instead of opening above it`);
+        if (!picker.topVisible || !picker.withinViewport || !picker.visibleAtTop) failures.push(`${String(width)}px: the pipeline listbox was clipped by the viewport or a scroll container`);
+      }
+      if (picker.present) await pressKey(session, "Escape", "Escape", 27);
+      await delay(120);
       await session.evaluate("window.__posted.length = 0");
       await press(session, MENU);
       const opened = await session.evaluate(menuState);

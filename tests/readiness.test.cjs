@@ -11,9 +11,6 @@ const pipeline = (id, adapter) => ({
   agents: [{ id: "agent", name: "Agent", adapter }],
   steps: [],
 });
-// Codex cannot withhold the paths Bachata excludes, so every Codex pipeline is blocked until a
-// human records that whole-working-directory reads are acceptable. Tests that are about
-// something else record that acknowledgement; the ones below assert the default.
 const base = (selectedPipelineId, catalog, adapters = []) => ({
   workspace: { trusted: true, roots: ["/work"], gitAvailable: true },
   adapters,
@@ -530,15 +527,11 @@ test("unavailable local providers explain themselves without capability jargon",
   assert.match(finding.detail, /Codex \(codex-app-server\) cannot provide image attachments/u);
 });
 
-test("a Codex pipeline is blocked until whole-working-directory reads are accepted", () => {
+test("ordinary Codex workspace access is ready without a separate opt-in", () => {
   const catalog = [pipeline("codex-review", "codex-app-server")];
   const input = base("codex-review", catalog, [{ type: "codex-app-server", available: true }]);
   delete input.codexWorkspaceScope;
-  const result = evaluateReadiness(input);
-  assert.equal(result.status, "blocked");
-  const blocker = result.findings.find((finding) => finding.status === "blocked");
-  assert.equal(blocker.remediationId, "provider.readScope");
-  assert.match(blocker.detail, /no per-path readable-root capability/u);
+  assert.equal(evaluateReadiness(input).status, "ready");
 });
 
 test("an explicitly refused scope is not silently upgraded", () => {
@@ -565,3 +558,17 @@ test("disabling one provider leaves another provider's pipeline ready", () => {
   input.disabledProviders = ["codex-app-server"];
   assert.equal(evaluateReadiness(input).status, "ready");
 });
+
+for (const writeScope of ["workspace", "configured", "readOnly"]) {
+  test(`in-place managed ${writeScope} runs allow tracked and untracked edits`, () => {
+    const definition = { ...pipeline("in-place", "claude-code"), managedPolicy: { writeScope, commitMode: "never" } };
+    const input = base(definition.id, [definition], [{ type: "claude-code", available: true }]);
+    input.workspace.gitClean = false;
+    input.workspace.dirtyPaths = ["src/current-edit.ts", "new-file.txt"];
+    assert.equal(evaluateReadiness(input).status, "ready");
+    definition.steps.push({ id: "disabled", type: "executeChecklist", enabled: false });
+    assert.equal(evaluateReadiness(input).status, "ready");
+    definition.steps[0].enabled = true;
+    assert.equal(evaluateReadiness(input).status, "blocked");
+  });
+}

@@ -23,6 +23,22 @@ const doesNotExist = async (candidate) => {
   await assert.rejects(access(candidate));
 };
 
+test("custom pipeline definitions are source; Bachata run state is excluded", async () => {
+  const source = await mkdtemp(path.join(os.tmpdir(), "bachata-pipeline-source-"));
+  const { collectMaintainedSourceFiles } = await import(`file://${exporter}`);
+  try {
+    await mkdir(path.join(source, ".bachata", "pipelines", "backup"), { recursive: true });
+    for (const file of ["package.json", "UI-ITERATION.md", ".bachata/session.json", ".bachata/pipelines/ui.pipeline.json", ".bachata/pipelines/catalog.lock", ".bachata/pipelines/backup/old.pipeline.json"]) {
+      await writeFile(path.join(source, file), file === "package.json" ? JSON.stringify({ name: "bachata-vscode" }) : "{}\n");
+    }
+    assert.deepEqual(await collectMaintainedSourceFiles(source), [
+      ".bachata/pipelines/ui.pipeline.json", "UI-ITERATION.md", "package.json",
+    ]);
+  } finally {
+    await rm(source, { recursive: true, force: true });
+  }
+});
+
 test("source exporter emits maintained source only and validator rejects artifacts", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-vscode-source-"));
   const output = path.join(parent, "export");

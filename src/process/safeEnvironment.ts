@@ -1,4 +1,6 @@
 import * as path from "node:path";
+import * as os from "node:os";
+
 const sanitizeExecutablePath = (value: string | undefined, workingDirectory: string): string | undefined => {
   if (!value) return undefined;
   const delimiter = process.platform === "win32" ? ";" : ":";
@@ -81,7 +83,21 @@ export const providerProcessEnvironment = (
       extra[name] = value;
     }
   });
-  return safeProcessEnvironment(workingDirectory, extra);
+  const environment = safeProcessEnvironment(workingDirectory, extra);
+  const homeDirectory = os.homedir();
+  const installationPaths = [
+    path.join(homeDirectory, ".local", "bin"),
+    ...(process.platform === "win32"
+      ? [path.join(homeDirectory, "AppData", "Roaming", "npm")]
+      : ["/usr/local/bin", ...(process.platform === "darwin" ? ["/opt/homebrew/bin"] : [])]),
+  ];
+  const additions = sanitizeExecutablePath(installationPaths.join(path.delimiter), workingDirectory);
+  const pathKey = environment.Path !== undefined && environment.PATH === undefined ? "Path" : "PATH";
+  environment[pathKey] = [...new Set([
+    ...(environment[pathKey]?.split(path.delimiter) ?? []),
+    ...(additions?.split(path.delimiter) ?? []),
+  ])].join(path.delimiter);
+  return environment;
 };
 
 export type ProviderEnvironmentProfile = {

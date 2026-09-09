@@ -576,6 +576,14 @@ const bootWebview = (manager = managerState(), panel = panelState()) => {
   return harness;
 };
 
+// Pipeline editing lives inside the composer's settings panel. A person opens that panel before
+// reaching Edit/New/Fork, so the tests do too; the toggle is idempotent, so this is safe to call
+// even when the panel is already open.
+const openComposerSettings = (harness) => {
+  if (harness.document.getElementById("composer-settings")) return;
+  harness.document.root.querySelector('[data-action="composer-settings-toggle"]').click();
+};
+
 test("composer controls have accessible names", () => {
   const harness = bootWebview();
   try {
@@ -584,7 +592,7 @@ test("composer controls have accessible names", () => {
       harness.document.root.querySelector('[data-action="attachment-pick"]').getAttribute("aria-label"),
       "Attach image, text, log, or specification",
     );
-    assert.equal(harness.document.getElementById("pipeline-select").getAttribute("aria-label"), "Pipeline");
+    assert.equal(harness.document.getElementById("pipeline-picker-button").getAttribute("aria-label"), "Pipeline");
   } finally {
     harness.restore();
   }
@@ -656,6 +664,7 @@ test("pipeline editor preserves omitted attachment defaults and uses one checkli
     panelState({ selectedPipelineDefinition: checklist, advancedMode: true }),
   );
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const participant = harness.document.root.querySelector('[data-editor-step="0"][data-field="participants"]');
     assert.ok(participant);
@@ -705,6 +714,18 @@ test("a disabled Send states every blocking condition with a direct fix", () => 
     const send = harness.document.root.querySelector('[data-action="submit-message"]');
     assert.equal(send.getAttribute("aria-disabled"), "true");
     assert.equal(send.getAttribute("aria-describedby"), "composer-blockers");
+    // Blockers live outside the rounded input surface, after its toolbar.
+    assert.ok(
+      html.indexOf('id="composer-blockers"') > html.indexOf('class="composer-toolbar"'),
+      "the blockers are inside the composer surface",
+    );
+    const disclosure = harness.document.getElementById("composer-blockers");
+    assert.ok(disclosure);
+    assert.equal(disclosure.open, false, "blockers should stay compact until requested");
+    const beforeSend = harness.messages.length;
+    send.click();
+    assert.equal(disclosure.open, true, "blocked Send should reveal the actionable reasons");
+    assert.equal(harness.messages.length, beforeSend, "revealing blockers must not start a run");
 
     harness.document.root.querySelector('[data-action="readiness-remediate"]').click();
     assert.deepEqual(harness.messages.at(-1), {
@@ -720,6 +741,7 @@ test("a disabled Send states every blocking condition with a direct fix", () => 
 test("advanced pipeline settings stay hidden until advanced mode is on", () => {
   const harness = bootWebview(managerState(), panelState());
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     assert.equal(
       harness.document.root.querySelector('[data-editor-step="0"][data-field="attachments"]'),
@@ -754,6 +776,7 @@ test("checklist execution selects a scoped immutable task pipeline", () => {
   }];
   const harness = bootWebview(managerState(), panelState({ selectedPipelineDefinition: checklist }));
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const selector = harness.document.root.querySelector('[data-editor-step="0"][data-field="pipelineId"]');
     assert.ok(selector);
@@ -772,11 +795,13 @@ test("checklist execution selects a scoped immutable task pipeline", () => {
 test("new pipeline cannot delete the selected custom pipeline", () => {
   const harness = bootWebview();
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-new"]').click();
     assert.match(harness.document.root.innerHTML, /Pipeline editor/);
     assert.equal(harness.document.root.querySelector('[data-action="pipeline-delete"]'), null);
 
     harness.document.root.querySelector('[data-action="pipeline-editor-close"]').click();
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const pipelineId = harness.document.root.querySelector('[data-editor-meta="id"]');
     assert.equal(pipelineId.disabled, true);
@@ -800,6 +825,7 @@ test("new pipeline cannot delete the selected custom pipeline", () => {
 test("pipeline editor sends revision-aware create and update mutations", () => {
   const updateHarness = bootWebview();
   try {
+    openComposerSettings(updateHarness);
     updateHarness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     updateHarness.document.root.querySelector('[data-action="pipeline-save"]').click();
     const update = updateHarness.messages.at(-1);
@@ -814,6 +840,7 @@ test("pipeline editor sends revision-aware create and update mutations", () => {
 
   const createHarness = bootWebview();
   try {
+    openComposerSettings(createHarness);
     createHarness.document.root.querySelector('[data-action="pipeline-new"]').click();
     createHarness.document.root.querySelector('[data-action="pipeline-save"]').click();
     const create = createHarness.messages.at(-1);
@@ -858,6 +885,7 @@ test("legacy blocked queue requests expose cancellation without a misleading res
 test("pending pipeline editor operations cannot be dismissed with Escape", () => {
   const harness = bootWebview();
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-new"]').click();
     harness.document.root.querySelector('[data-action="pipeline-import"]').click();
     const request = harness.messages.at(-1);
@@ -876,14 +904,38 @@ test("pending pipeline editor operations cannot be dismissed with Escape", () =>
   }
 });
 
+for (const changed of [false, true]) {
+  test(`choosing the selected pipeline switches only when its definition changed: ${String(changed)}`, () => {
+    const panel = panelState();
+    if (changed) panel.pipelines.find((pipeline) => pipeline.id === panel.selectedPipelineId).hash = "c".repeat(64);
+    const harness = bootWebview(managerState(), panel);
+    try {
+      harness.document.root.querySelector('[data-action="pipeline-picker-toggle"]').click();
+      const before = harness.messages.length;
+      harness.document.root.querySelector('[data-action="pipeline-picker-select"][data-pipeline-id="custom-a"]').click();
+      assert.equal(harness.messages.length, before + (changed ? 1 : 0));
+      if (changed) {
+        assert.equal(harness.messages.at(-1).message.type, "pipeline.select");
+        assert.equal(harness.messages.at(-1).message.pipelineId, "custom-a");
+      }
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
 test("pipeline selection locks editing until the selected definition is confirmed", () => {
   const harness = bootWebview();
   try {
-    const select = harness.document.getElementById("pipeline-select");
-    select.value = "custom-b";
-    harness.document.root.dispatch("change", { target: select });
+    harness.document.root.querySelector('[data-action="pipeline-picker-toggle"]').click();
+    harness.document.root.querySelector('[data-action="pipeline-picker-select"][data-pipeline-id="custom-b"]').click();
     const request = harness.messages.at(-1);
     assert.equal(request.message.type, "pipeline.select");
+    assert.equal(request.message.pipelineId, "custom-b");
+    // The picker button is locked while the switch is pending, and so is the editing behind the
+    // settings panel.
+    assert.equal(harness.document.root.querySelector('[data-action="pipeline-picker-toggle"]').disabled, true);
+    openComposerSettings(harness);
     assert.equal(harness.document.root.querySelector('[data-action="pipeline-edit"]').disabled, true);
     assert.equal(harness.document.root.querySelector('[data-action="pipeline-new"]').disabled, true);
     assert.match(harness.document.root.innerHTML, /Switching pipeline/);
@@ -909,6 +961,7 @@ test("pipeline selection locks editing until the selected definition is confirme
         status: "completed",
       },
     });
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     assert.equal(harness.document.root.querySelector('[data-editor-meta="id"]').value, "custom-b");
     assert.match(harness.document.root.innerHTML, /Delete Custom B/);
@@ -920,6 +973,7 @@ test("pipeline selection locks editing until the selected definition is confirme
 test("pipeline import replaces only the draft until the user saves it", () => {
   const harness = bootWebview();
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-new"]').click();
     harness.document.root.querySelector('[data-action="pipeline-import"]').click();
     const request = harness.messages.at(-1);
@@ -1228,6 +1282,7 @@ test("active run and pipeline editor modes expose semantic selection state", () 
     );
     assert.equal(activeRun.getAttribute("aria-current"), "page");
 
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const structured = harness.document.root.querySelector(
       '[data-action="editor-mode"][data-mode="form"]',
@@ -1438,6 +1493,7 @@ test("webview announces run and capacity transitions without making the transcri
 test("pipeline editor renders managed policy as guardrail summaries with working fields", () => {
   const harness = bootWebview(managerState(), panelState({ selectedPipelineDefinition: pipelineDefinition() }));
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const html = harness.document.root.innerHTML;
     assert.match(html, /data-guardrail="reads"[\s\S]*?codicon-eye[\s\S]*?Can read[\s\S]*?Whole workspace/u);
@@ -1458,22 +1514,147 @@ test("pipeline editor renders managed policy as guardrail summaries with working
   }
 });
 
-test("composer hides iteration and delivery controls behind an options toggle with chip summary", () => {
+test("composer hides run options behind the settings control and flags active options", () => {
   const harness = bootWebview(managerState(), panelState({ selectedPipelineDefinition: pipelineDefinition() }));
   try {
     assert.doesNotMatch(harness.document.root.innerHTML, /id="pipeline-iterations"/u);
-    assert.match(harness.document.root.innerHTML, /data-action="composer-options-toggle"[^>]*><i class="codicon codicon-settings-gear[^>]*><\/i><span>Options<\/span>/u);
-    harness.document.root.querySelector('[data-action="composer-options-toggle"]').click();
+    // The settings control is a fixed-size icon button, not a labelled Options control that grows
+    // with its chip text.
+    const settings = harness.document.root.querySelector('[data-action="composer-settings-toggle"]');
+    assert.ok(settings, "the composer settings control was not rendered");
+    assert.doesNotMatch(settings.className, /has-chips/u);
+    harness.document.root.querySelector('[data-action="composer-settings-toggle"]').click();
     assert.match(harness.document.root.innerHTML, /class="composer-advanced"/u);
     assert.match(harness.document.root.innerHTML, /id="pipeline-iterations"/u);
+    // The run options are stated as run-local, not as edits to the saved pipeline.
+    assert.match(harness.document.root.innerHTML, /do not change the saved pipeline/u);
     const delivery = harness.document.root.querySelector("#message-delivery");
     delivery.value = "queue";
     harness.document.root.dispatch("change", { target: delivery });
-    assert.match(
-      harness.document.root.innerHTML,
-      /<span>Options · queued<\/span>/u,
-    );
+    // An active option is marked on the settings control without changing its size.
+    assert.match(harness.document.root.querySelector('[data-action="composer-settings-toggle"]').className, /has-chips/u);
     assert.match(harness.document.root.innerHTML, /data-action="submit-message" data-delivery="queue"/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the composer is one rounded surface with a compact icon-send toolbar", () => {
+  const harness = bootWebview();
+  try {
+    const html = harness.document.root.innerHTML;
+    // The native pipeline select is gone from the composer entirely.
+    assert.equal(harness.document.getElementById("pipeline-select"), null, "the native pipeline select is still in the composer");
+    // A single surface encloses the prompt and the toolbar: attach, picker, settings, then the send
+    // group, all on one row. The send group is inside the same toolbar rather than a row of its own.
+    assert.match(html, /class="composer-surface">[\s\S]*id="composer-prompt"[\s\S]*class="composer-toolbar">[\s\S]*data-action="attachment-pick"[\s\S]*class="pipeline-picker"[\s\S]*data-action="composer-settings-toggle"[\s\S]*class="composer-send"[\s\S]*data-action="submit-message"/u);
+    // Send is an icon carrying its accessible label, with no permanent shortcut text eating a row.
+    const send = harness.document.root.querySelector('[data-action="submit-message"]');
+    assert.equal(send.getAttribute("aria-label"), "Send");
+    assert.match(send.getAttribute("class"), /icon-send/u);
+    assert.doesNotMatch(html, /class="composer-hint"/u, "a permanent shortcut hint consumes toolbar width");
+    // No standalone contract row above the prompt.
+    const beforePrompt = html.slice(0, html.indexOf('id="composer-prompt"'));
+    assert.doesNotMatch(beforePrompt, /class="run-contract"/u, "a standalone contract row sits above the prompt");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the pipeline picker is a keyboard combobox that selects a pipeline", () => {
+  const harness = bootWebview();
+  try {
+    const button = harness.document.getElementById("pipeline-picker-button");
+    assert.equal(button.getAttribute("role"), "combobox");
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null, "the listbox is drawn while the picker is closed");
+    button.click();
+    const opened = harness.document.getElementById("pipeline-picker-button");
+    assert.equal(opened.getAttribute("aria-expanded"), "true");
+    assert.equal(opened.getAttribute("aria-controls"), "pipeline-picker-list");
+    const list = harness.document.getElementById("pipeline-picker-list");
+    assert.equal(list.getAttribute("role"), "listbox");
+    const selectedOption = harness.document.root.querySelector('[data-action="pipeline-picker-select"][data-pipeline-id="custom-a"]');
+    assert.equal(selectedOption.getAttribute("role"), "option");
+    assert.equal(selectedOption.getAttribute("aria-selected"), "true");
+    // ArrowDown moves the active option, Enter commits it, and the runtime is asked to switch.
+    harness.document.root.dispatch("keydown", { key: "ArrowDown", target: opened, preventDefault: () => undefined });
+    harness.document.root.dispatch("keydown", { key: "Enter", target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
+    const request = harness.messages.at(-1);
+    assert.equal(request.message.type, "pipeline.select");
+    assert.equal(request.message.pipelineId, "custom-b");
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null, "committing left the picker open");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Escape closes the pipeline picker and restores focus to its button", () => {
+  const harness = bootWebview();
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.ok(harness.document.getElementById("pipeline-picker-list"), "the picker did not open");
+    harness.document.root.dispatch("keydown", { key: "Escape", target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null, "Escape left the picker open");
+    assert.equal(harness.document.activeElement.id, "pipeline-picker-button", "Escape did not return focus to the picker button");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Enter in the prompt never selects a pipeline when a picker popover was left open", () => {
+  const harness = bootWebview();
+  try {
+    // Open the picker, then move focus into the prompt without closing it explicitly.
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.ok(harness.document.getElementById("pipeline-picker-list"), "the picker did not open");
+    const prompt = harness.document.getElementById("composer-prompt");
+    prompt.focus();
+    const before = harness.messages.length;
+    // Enter is the prompt's key now — the combobox keyboard is scoped to the picker's own focus, so
+    // a stale popover cannot hijack it into selecting a pipeline.
+    harness.document.root.dispatch("keydown", { key: "Enter", target: prompt, preventDefault: () => undefined });
+    assert.equal(
+      harness.messages.slice(before).filter((message) => message.message?.type === "pipeline.select").length,
+      0,
+      "Enter in the prompt selected a pipeline through a left-open popover",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Tab out of the pipeline picker closes it and lets focus move on", () => {
+  const harness = bootWebview();
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.ok(harness.document.getElementById("pipeline-picker-list"), "the picker did not open");
+    harness.document.root.dispatch("keydown", { key: "Tab", target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null, "Tab left the picker open");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the picker trigger stays compact and the rich options carry names and step counts", () => {
+  const harness = bootWebview(managerState(), panelState({
+    pipelines: [
+      { id: "custom-a", name: "Custom A", editable: true, hash: customAHash, scopeKey: "workspace:/workspace", scopeRoot: "/workspace" },
+      { id: "custom-b", name: "Custom B", editable: true, hash: customBHash, scopeKey: "workspace:/workspace", scopeRoot: "/workspace", participantCount: 3, participantNames: ["Alpha", "Beta", "Gamma"], stepCount: 5 },
+    ],
+  }));
+  try {
+    // At rest the trigger is name + chevron only — no metadata crowding the closed composer.
+    assert.doesNotMatch(harness.document.root.innerHTML, /pipeline-picker-meta/u);
+    harness.document.getElementById("pipeline-picker-button").click();
+    const html = harness.document.root.innerHTML;
+    // The selected pipeline derives its shape from the definition on hand.
+    assert.match(html, /Custom A<\/span>[\s\S]*?class="pipeline-picker-option-meta">1 step · 1 participant</u);
+    assert.match(html, /class="pipeline-picker-option-participants">Lead</u);
+    // A non-selected pipeline shows the names and counts the host supplied on its summary — the
+    // metadata does not disappear for pipelines other than the selected one.
+    assert.match(html, /Custom B<\/span>[\s\S]*?5 steps · 3 participants/u);
+    assert.match(html, /class="pipeline-picker-option-participants">Alpha, Beta, Gamma</u);
   } finally {
     harness.restore();
   }
@@ -1623,6 +1804,9 @@ test("the composer shows the execution contract before a run starts", () => {
   };
   const harness = bootWebview(managerState(), panelState({ executionContract: contract }));
   try {
+    // Run details live inside the composer's settings panel now, so it is opened the way a person
+    // would before the contract is on screen.
+    openComposerSettings(harness);
     const html = harness.document.root.innerHTML;
     assert.match(html, /Managed implementation/u);
     assert.match(html, /Lead · Codex CLI · model gpt-5-codex/u);
@@ -4220,6 +4404,7 @@ test("a captured asset discloses its linked source origin before the save action
 test("reopening the editor fresh drops the source pipeline revision from the save request", () => {
   const harness = bootWebview();
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     harness.document.root.querySelector('[data-action="pipeline-save"]').click();
     const update = harness.messages.at(-1);
@@ -4227,6 +4412,7 @@ test("reopening the editor fresh drops the source pipeline revision from the sav
     assert.equal(Object.hasOwn(update.message, "expectedHash"), true);
 
     harness.document.root.querySelector('[data-action="pipeline-editor-close"]').click();
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-new"]').click();
     harness.document.root.querySelector('[data-action="pipeline-save"]').click();
     const create = harness.messages.at(-1);
@@ -4298,6 +4484,7 @@ test("the result center names the exact verifier that ran, not a summary of it",
 // could not leave JSON mode shipped.
 const editorJourney = () => {
   const harness = bootWebview();
+  openComposerSettings(harness);
   harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
   harness.document.root.querySelector('[data-action="editor-mode"][data-mode="json"]').click();
   return harness;
@@ -4655,6 +4842,7 @@ for (const [label, selector] of [
 test("saving a pipeline keeps focus in the editor and announces the save", () => {
   const harness = bootWebview();
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const save = harness.document.root.querySelector('[data-action="pipeline-save"]');
     assert.ok(save, "the editor did not open with a save control");
@@ -5009,6 +5197,7 @@ test("the pipeline editor never traps the author in one mode", () => {
   // place that text can be repaired, was locked behind the very text that needed repairing.
   const harness = bootWebview();
   try {
+    openComposerSettings(harness);
     harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
     const raw = harness.document.getElementById("pipeline-raw");
     assert.equal(raw, null, "the editor did not open in Structured mode");
@@ -5122,6 +5311,9 @@ test("a refused policy blocks Send once and the contract lists it under one head
   });
   const harness = bootWebview(managerState(), panelState({ executionContract: contract }));
   try {
+    // The contract's own listing lives in the settings panel's run details; the blockers list is
+    // always in the composer. Opening the panel is what puts both on screen at once.
+    openComposerSettings(harness);
     const html = harness.document.root.innerHTML;
     assert.equal((html.match(/<li>Shell access is disabled by policy\.<\/li>/gu) ?? []).length, 1, "the contract states the refusal under two headings");
     assert.match(html, /<h3>Repository policy refuses this run<\/h3>/u);
@@ -5168,23 +5360,23 @@ test("a skip link is the first control and lands on the run input", () => {
   }
 });
 
-test("run options open in flow with their toggle pointing at them", () => {
+test("the settings panel opens in flow with its control pointing at it", () => {
   const harness = bootWebview();
   try {
-    const toggle = harness.document.root.querySelector('[data-action="composer-options-toggle"]');
-    // Closed, the panel is not rendered, so the toggle names nothing. An aria-controls pointing at
+    const toggle = harness.document.root.querySelector('[data-action="composer-settings-toggle"]');
+    // Closed, the panel is not rendered, so the control names nothing. An aria-controls pointing at
     // an absent id is an ARIA error, and assistive technology drops the relationship outright.
     assert.equal(toggle.getAttribute("aria-expanded"), "false");
-    assert.equal(toggle.getAttribute("aria-controls"), null, "the closed toggle points at an element that does not exist");
-    assert.equal(harness.document.getElementById("composer-advanced"), null);
+    assert.equal(toggle.getAttribute("aria-controls"), null, "the closed control points at an element that does not exist");
+    assert.equal(harness.document.getElementById("composer-settings"), null);
     toggle.click();
-    const opened = harness.document.root.querySelector('[data-action="composer-options-toggle"]');
+    const opened = harness.document.root.querySelector('[data-action="composer-settings-toggle"]');
     assert.equal(opened.getAttribute("aria-expanded"), "true");
-    assert.equal(opened.getAttribute("aria-controls"), "composer-advanced");
-    assert.ok(harness.document.getElementById("composer-advanced"), "aria-controls names an element that exists");
-    assert.match(harness.document.root.innerHTML, /<\/div>\n    <div class="composer-advanced" id="composer-advanced">/u, "the options are still a popover inside the anchor");
+    assert.equal(opened.getAttribute("aria-controls"), "composer-settings");
+    assert.ok(harness.document.getElementById("composer-settings"), "aria-controls names an element that exists");
+    assert.ok(harness.document.getElementById("composer-advanced"), "the run options live inside the settings panel");
     harness.document.root.dispatch("keydown", { key: "Escape", target: harness.document.getElementById("pipeline-iterations"), preventDefault: () => undefined });
-    assert.equal(harness.document.activeElement.dataset.action, "composer-options-toggle", "Escape left focus on the body");
+    assert.equal(harness.document.activeElement.dataset.action, "composer-settings-toggle", "Escape left focus on the body");
   } finally {
     harness.restore();
   }
@@ -5232,7 +5424,8 @@ test("discarding the recovery checkpoint asks first", () => {
 test("a dialog refusal survives the next background render", () => {
   const harness = bootWebview();
   try {
-    harness.document.root.querySelector('[data-action="rename-conversation"]').click();
+    // Rename lives in the run tab's action menu now, not on a room title.
+    harness.document.root.querySelector('[data-action="run-rename"]').click();
     const input = harness.document.getElementById("app-dialog-input");
     input.value = "";
     harness.document.root.querySelector('[data-action="dialog-confirm"]').click();
@@ -5358,23 +5551,28 @@ test("a later full snapshot still resets the transcript to the host window", () 
   }
 });
 
-test("a toggle that only echoes the render is not recorded as the reader's choice", () => {
+test("run details stay closed until requested and the reader's choice survives re-renders", () => {
   const harness = bootWebview(managerState(), panelState({ executionContract: reviewContract() }));
   try {
-    const contract = harness.document.root.querySelector('[data-disclosure-key="run-1:composer:contract"]');
-    assert.equal(contract.open, true, "an empty room does not open the contract");
-    harness.document.root.dispatch("toggle", { target: contract });
+    openComposerSettings(harness);
+    const details = harness.document.root.querySelector('[data-disclosure-key="run-1:composer:contract"]');
+    assert.ok(details, "the run details disclosure was not rendered inside the settings panel");
+    assert.equal(details.open, false, "run details opened before the reader asked for them");
+    // The reader opens it; a genuine toggle differs from what was drawn, so it is recorded.
+    details.open = true;
+    harness.document.root.dispatch("toggle", { target: details });
     harness.sendWindowMessage({
       type: "conversation.message",
       conversationId: "run-1",
       message: { type: "state.snapshot", state: panelState({ executionContract: reviewContract(), transcript: [{ id: "a", kind: "answer", agentId: "lead", text: "Hi", createdAt: timestamp }], transcriptTotal: 1 }) },
     });
-    const started = harness.document.root.querySelector('[data-disclosure-key="run-1:composer:contract"]');
-    assert.equal(started.open, false, "the parser's toggle pinned the contract open for the whole run");
-    started.open = true;
-    harness.document.root.dispatch("toggle", { target: started });
+    const reopened = harness.document.root.querySelector('[data-disclosure-key="run-1:composer:contract"]');
+    assert.equal(reopened.open, true, "the reader's choice to open run details was lost");
+    // A toggle that only echoes the rendered-open state is not a fresh choice and must not clear it.
+    reopened.open = true;
+    harness.document.root.dispatch("toggle", { target: reopened });
     harness.sendWindowMessage({ type: "manager.snapshot", state: managerState() });
-    assert.equal(harness.document.root.querySelector('[data-disclosure-key="run-1:composer:contract"]').open, true, "the reader's choice was lost");
+    assert.equal(harness.document.root.querySelector('[data-disclosure-key="run-1:composer:contract"]').open, true, "an echo overwrote the reader's choice");
   } finally {
     harness.restore();
   }
@@ -5387,7 +5585,10 @@ test("switching runs opens the next run on its chat", () => {
     harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
     assert.match(harness.document.root.innerHTML, /data-view="direction" class="selected"/u);
     harness.document.root.querySelector('[data-action="select-conversation"][data-conversation="run-2"]').click();
-    assert.match(harness.document.root.innerHTML, /data-view="chat" class="selected"/u, "the previous run's view followed the reader");
+    // The next run opens on its chat — the composer only renders in the chat view — and the
+    // previous run's Direction view does not follow the reader.
+    assert.ok(harness.document.getElementById("composer-prompt"), "the next run did not open on its chat");
+    assert.doesNotMatch(harness.document.root.innerHTML, /data-view="direction" class="selected"/u, "the previous run's view followed the reader");
   } finally {
     harness.restore();
   }
@@ -5450,7 +5651,7 @@ test("a press outside a run menu dismisses it", () => {
   try {
     const root = harness.document.root;
     openRunMenu(harness);
-    const outside = root.querySelector('[data-action="rename-conversation"]');
+    const outside = root.querySelector('[data-action="composer-settings-toggle"]');
     assert.ok(outside, "the room has no control outside the menu to press");
     outside.click();
     assert.equal(

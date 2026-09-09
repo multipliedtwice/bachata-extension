@@ -444,7 +444,7 @@ test("a transient failure keeps its existing fallback eligibility", () => {
 
 test("a refused run never starts a provider process", async () => {
   await withRecording(async (records) => {
-    const adapter = createAdapter();
+    const adapter = createAdapter({ workspaceScope: "refuseNarrowedScope" });
     try {
       await assert.rejects(
         drain(adapter, workspaceRequest({

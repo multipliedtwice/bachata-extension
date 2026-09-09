@@ -480,51 +480,32 @@ strong + small {
   background: var(--bachata-surface);
 }
 
-.room-title-block {
+/* One compact utility row. The run tab already carries the title and status, so this row holds only
+   what the tab does not: parent navigation, an actionable status echo, view switching when there is
+   more than one view, notifications and the run actions menu. */
+.room-utility {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
+  width: 100%;
 }
 
-.room-title-heading {
+.room-utility-lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  /* The optical inset lives on the heading: on the button it was subtracted from the width the
-     flex line reserved, so the title was always 7px narrower than its own text. */
-  margin: 0 0 0 -7px;
-  font-size: 1em;
-  font-weight: inherit;
-}
-
-.room-title {
-  display: block;
-  max-width: min(520px, 100%);
-  min-width: 0;
-  min-height: 24px;
   overflow: hidden;
-  padding: 3px 7px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-size: 1.08em;
-  font-weight: 700;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.room-title:hover:not(:disabled) {
-  background: var(--bachata-card);
-}
-
-.room-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 11px;
-  margin-top: 0;
+.room-context {
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .room-status {
@@ -542,9 +523,7 @@ strong + small {
 
 .room-actions,
 .compact-actions,
-.decision-actions,
-.send-actions,
-.composer-options {
+.decision-actions {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -744,12 +723,6 @@ strong + small {
   fill: none;
   stroke: var(--bachata-green);
   stroke-width: 2;
-}
-
-.composer-hint {
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-xs);
-  white-space: nowrap;
 }
 
 .load-older {
@@ -1209,59 +1182,111 @@ strong + small {
 .composer {
   display: flex;
   flex-direction: column;
-  /* The composer holds the contract, the strip, the field and the blockers; without a cap it
-     took the whole pane during a run and left the transcript a 44px slit. The contract is the
-     part that scrolls; the field and its controls stay in view. */
+  /* The composer holds the surface, the settings panel and the blockers; without a cap it took the
+     whole pane during a run and left the transcript a 44px slit. The settings panel is the part
+     that scrolls; the surface and its toolbar stay in view. */
   max-height: calc(100cqh - 140px);
   min-width: 0;
   padding: 10px max(14px, calc((100vw - var(--bachata-content-max)) / 2));
-  border-top: 1px solid var(--bachata-border);
-  background: var(--bachata-surface);
+  background: var(--vscode-editor-background);
 }
 
 .composer > * {
   flex: 0 0 auto;
 }
 
-.composer > .run-contract {
+/* One rounded input surface enclosing attachments, the borderless prompt and the toolbar. Overflow
+   stays visible so the pipeline listbox can open above the toolbar without being clipped. */
+.composer-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 16px;
+  background: var(--vscode-input-background, var(--bachata-card));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.composer-surface:focus-within {
+  border-color: var(--vscode-focusBorder, var(--bachata-green));
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, var(--bachata-green));
+}
+
+.composer > .composer-settings {
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
 
-.composer > textarea {
+.composer-surface > textarea {
   width: 100%;
-  /* The min/max pair is an autosize contract nothing was honouring: the field stayed two rows deep
-     and scrolled its own content. Engines without field-sizing ignore this and keep that behaviour. */
+  /* Bounded autosize: the field grows with its content between a generous floor and a cap, and
+     manual resize is disabled so a drag can never wreck the composer. Engines without field-sizing
+     keep the min-height and scroll their own content. */
   field-sizing: content;
-  min-height: 74px;
+  min-height: 60px;
   max-height: 240px;
-  border-radius: 12px;
-  background: var(--vscode-input-background);
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  resize: none;
 }
 
-.composer-controls {
+.composer-surface > textarea:focus,
+.composer-surface > textarea:focus-visible {
+  outline: none;
+}
+
+/* One row: attach, the pipeline picker, the settings control, then the send group pushed to the
+   end. It stays on one line down to 320px; the picker truncates rather than overflowing, and the
+   send group never takes a row of its own. */
+.composer-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  margin-top: 7px;
-}
-
-.composer-options {
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin-top: 4px;
   min-width: 0;
 }
 
-.composer-options select {
-  max-width: 240px;
+.composer-send {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
-#pipeline-select {
-  min-width: min(160px, 100%);
+/* Quiet, integrated toolbar controls — no boxed form widgets inside the surface. */
+.composer-toolbar .icon-button,
+.composer-toolbar .pipeline-picker-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--bachata-muted);
 }
 
-.send-actions {
-  justify-content: flex-end;
+.composer-toolbar .icon-button:hover,
+.composer-toolbar .pipeline-picker-button:hover,
+.composer-toolbar .icon-button:focus-visible,
+.composer-toolbar .pipeline-picker-button:focus-visible {
+  background: var(--bachata-card-strong);
+  color: var(--vscode-foreground, inherit);
+}
+
+.send-button.icon-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 30px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
 }
 
 .attachment-strip {
@@ -1770,10 +1795,6 @@ strong + small {
     flex-direction: column;
   }
 
-  .room-title-block {
-    width: 100%;
-  }
-
   .room-actions {
     justify-content: flex-start;
   }
@@ -1786,13 +1807,11 @@ strong + small {
     padding: 9px 10px;
   }
 
-  .composer-controls {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .send-actions {
-    justify-content: flex-end;
+  /* The toolbar keeps its single row; only the pipeline picker gives up width so the attach,
+     settings and send controls stay on the same line as the panel narrows. */
+  .composer-toolbar .pipeline-picker {
+    flex: 1 1 120px;
+    min-width: 0;
   }
 }
 
@@ -2980,14 +2999,9 @@ select[multiple] option:checked {
     flex-basis: min(230px, 65vw);
   }
 
-  .composer-options {
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .composer-options select {
-    flex: 1;
-    min-width: 120px;
+  .pipeline-picker,
+  .pipeline-picker-button {
+    flex: 1 1 auto;
     max-width: none;
   }
 
@@ -3343,19 +3357,182 @@ select[multiple] option:checked {
   padding: 4px 8px;
 }
 
-button[data-action="composer-options-toggle"] {
+/*
+ * EX-UI redesign. The composer toolbar's controls hold their size and place regardless of hover:
+ * the settings gear is a fixed-size icon button, not a pencil that appears on hover and shoves the
+ * row. Its open and active states are drawn with colour and a dot, never with a change in width.
+ */
+.composer-toolbar .icon-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 30px;
+}
+
+.composer-settings-button {
+  position: relative;
+}
+
+.composer-settings-button.open {
+  border-color: var(--bachata-green);
+  background: var(--bachata-card-strong);
+}
+
+.composer-settings-button.has-chips::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bachata-green);
+}
+
+/* The custom pipeline picker: a combobox trigger and the listbox it opens. */
+.pipeline-picker {
+  display: flex;
+  min-width: 0;
+  /* Takes the toolbar's spare width and truncates its own label rather than pushing the icons off
+     the row, so the toolbar holds one line down to 320px. */
+  flex: 1 1 auto;
+}
+
+.pipeline-picker-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  text-align: left;
 }
 
-button[data-action="composer-options-toggle"].open {
-  border-color: var(--bachata-green);
-}
-
-button[data-action="composer-options-toggle"].has-chips span {
-  color: var(--bachata-green-text);
+.pipeline-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 600;
+}
+
+.pipeline-picker-caret {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--bachata-muted);
+}
+
+/* Anchor to the toolbar so a growing prompt does not push the picker above the pane. */
+.pipeline-picker-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: min(400px, 100%);
+  z-index: 30;
+  min-width: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 10px;
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+
+.pipeline-picker-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.pipeline-picker-option:hover,
+.pipeline-picker-option.active {
+  background: var(--bachata-card-strong);
+}
+
+.pipeline-picker-option.active {
+  box-shadow: inset 0 0 0 1px var(--bachata-green);
+}
+
+.pipeline-picker-option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pipeline-picker-option-name {
+  font-weight: 600;
+}
+
+.pipeline-picker-option.selected .pipeline-picker-option-name {
+  color: var(--bachata-green-text);
+}
+
+.pipeline-picker-option-meta {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.pipeline-picker-option-participants {
+  color: var(--vscode-foreground, inherit);
+  font-size: var(--bachata-font-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.pipeline-picker-option-desc {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* The settings panel opens in flow beneath the toolbar it belongs to. */
+.composer-settings {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 10px;
+  background: var(--bachata-surface);
+}
+
+.composer-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.composer-settings-section h3 {
+  margin: 0;
+  font-size: var(--bachata-font-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bachata-muted);
+}
+
+.composer-settings-hint {
+  margin: 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.composer-settings .run-contract {
+  margin: 0;
 }
 
 .participant-more summary,
@@ -3415,48 +3592,6 @@ button[data-action="composer-options-toggle"].has-chips span {
 
 .run-tab .run-action-menu > summary {
   opacity: 1;
-}
-
-.quiet-control {
-  width: 0;
-  min-width: 0;
-  margin-left: -6px;
-  padding: 0;
-  border-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  transition: opacity 0.12s ease;
-}
-
-/*
- * EX-UI-02. A control that is invisible must not be reachable, and a control that is reachable
- * must not be invisible. `.quiet-control` is drawn at zero width until the composer is hovered or
- * holds focus; its own focus reveals it too, so a keyboard reader can never land on something the
- * screen does not show. The per-file Changes button used this class outside the composer, where
- * nothing ever revealed it: it now draws like the control it is.
- */
-.composer:hover .quiet-control,
-.composer:focus-within .quiet-control,
-.quiet-control:focus-visible,
-.quiet-control:focus {
-  width: auto;
-  margin-left: 0;
-  padding: 4px 8px;
-  border-width: 1px;
-  opacity: 1;
-}
-
-.composer-options-anchor {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-/* The options open in flow beneath the controls rather than as a popover over the field they
-   configure. */
-.composer > .composer-advanced {
-  margin-top: 8px;
 }
 
 .composer-advanced .delivery-control,
@@ -3534,7 +3669,6 @@ details[open] > summary .disclosure-chevron {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .quiet-control,
   .disclosure-chevron,
   .guardrail-chevron {
     transition: none;
@@ -3609,32 +3743,9 @@ details[open] > summary .disclosure-chevron {
   }
 }
 
-@media (max-width: 590px) {
-  .composer-hint {
-    display: none;
-  }
-}
-
 @media (hover: none) {
-  .quiet-control {
-    width: auto;
-    margin-left: 0;
-    padding: 4px 8px;
-    border-width: 1px;
-    opacity: 1;
-  }
 
   .run-tab .run-action-menu > summary {
-    opacity: 1;
-  }
-}
-
-@media (max-width: 590px) {
-  .quiet-control {
-    width: auto;
-    margin-left: 0;
-    padding: 4px 8px;
-    border-width: 1px;
     opacity: 1;
   }
 }
@@ -3766,11 +3877,19 @@ details[open] > summary .disclosure-chevron {
 }
 
 .composer-blockers {
-  border: 1px solid var(--vscode-editorWarning-foreground, var(--bachata-border));
-  border-radius: 4px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   margin-top: 6px;
   font-size: var(--bachata-font-xs);
+}
+
+.composer-blockers > summary {
+  cursor: pointer;
+  color: var(--bachata-muted);
+  padding: 4px 0;
+}
+
+.composer-blockers > summary > strong {
+  font-weight: 500;
 }
 
 .composer-blockers ul {
@@ -4529,7 +4648,7 @@ details.direction-evidence > ul,
 }
 
 @container (max-height: 560px) {
-  .composer > textarea {
+  .composer-surface > textarea {
     min-height: 44px;
   }
 }

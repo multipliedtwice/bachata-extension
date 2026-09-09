@@ -142,7 +142,7 @@ export const remediationPlan = (
         ?? "The installed Codex app-server protocol has no per-path readable-root capability.",
       steps: [
         "Bachata withholds version-control, credential and bachata-internal paths from every other provider. Codex cannot be told to withhold them, so a Codex turn reads the whole working directory.",
-        "Set bachata.codexWorkspaceScope to wholeWorkingDirectory to record that you accept that, or leave it at refuseNarrowedScope and run this work on another provider.",
+        "Use wholeWorkingDirectory for normal Codex workspace access. Keep refuseNarrowedScope if you require read exclusions, and choose a provider that supports them. Explicit pipeline read restrictions remain enforced in either setting.",
         "Recheck readiness. A full Doctor run is not required.",
       ],
       actions: [
@@ -182,12 +182,12 @@ export const remediationPlan = (
   if (remediationId === "doctor.run") {
     return {
       id: remediationId,
-      title: "The repository must be clean before managed execution",
-      condition: detail ?? "The workspace has uncommitted changes outside the paths this run may touch.",
+      title: "Check Git for this pipeline",
+      condition: detail ?? "Verify Git availability and any checklist worktree requirements.",
       steps: [
-        "Open Source Control and review every listed change.",
-        "Commit, stash, or discard the changes that this run must not carry.",
-        "Only the active root-scoped custom pipeline catalog may stay dirty; every other tracked, staged, untracked, copied, or renamed path blocks execution.",
+        "Run Doctor to verify Git availability.",
+        "Checklist steps create worktrees from HEAD. Before running a checklist, review changes in Source Control and commit or stash them. The active custom pipeline catalog may stay dirty.",
+        "Pipelines that work in the current checkout can start with uncommitted changes.",
         "Recheck the Git workspace state.",
       ],
       actions: [

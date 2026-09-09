@@ -149,12 +149,12 @@ const filesystemAccessStatements = (input: {
       return [
         "This participant has at least one write-capable step. Its exact writable roots are resolved when that step executes, not here.",
         writeScopeStatement(input.writeScope, input.writablePaths),
-        `A writable root is also readable, so anything under it is reachable by this participant, including ${excluded} where they fall inside it.`,
+        `Codex can read the whole working directory, including ${excluded}. Writable roots limit edits, not reads.`,
       ];
     }
     return [
-      `This participant is read-only. Bachata resolves an explicit readable-root list that leaves out ${excluded}, symbolic links, and anything resolving outside the working directory, and sends it with the turn.`,
-      "Bachata does not verify that the provider applied that list, and the installed Codex protocol may not carry per-path read restriction at all. Treat everything in the working directory as reachable by this participant until a live provider run proves otherwise.",
+      "This participant is read-only: it cannot edit workspace files.",
+      `Codex can read the whole working directory, including ${excluded}. Its protocol does not support per-path read exclusions; pipelines that explicitly require them are refused.`,
     ];
   }
   return [

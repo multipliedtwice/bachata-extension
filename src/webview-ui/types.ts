@@ -201,6 +201,9 @@ type PipelineSummary = {
   hash: string;
   scopeKey: string;
   scopeRoot?: string;
+  participantCount?: number;
+  participantNames?: string[];
+  stepCount?: number;
 };
 type BrowserSessionStatus =
   | "disconnected"

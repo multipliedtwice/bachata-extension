@@ -27,6 +27,7 @@ const profiles = {
       "NO_TELEMETRY.md",
       "README.md",
       "TODO.md",
+      "UI-ITERATION.md",
       "package-lock.json",
       "package.json",
       "tsconfig.json",
@@ -34,6 +35,7 @@ const profiles = {
       "tsconfig.webview.json",
     ]),
     directories: new Set([
+      ".bachata",
       ".github",
       ".vscode",
       "benchmarks",
@@ -175,6 +177,12 @@ const isForbiddenRelativePath = (relativePath) => {
   const normalized = normalizeRelative(relativePath);
   const segments = normalized.split("/").filter(Boolean);
   const name = segments.at(-1) ?? "";
+  if (segments[0] === ".bachata") {
+    if (segments.length === 1) return false;
+    if (segments[1] !== "pipelines") return true;
+    if (segments.length === 2) return false;
+    if (segments.length !== 3 || !name.endsWith(".pipeline.json")) return true;
+  }
   if (segments.length === 1 && rootOnlyFileNames.has(name)) {
     return false;
   }

@@ -52,9 +52,10 @@ provider. It cannot make Codex withhold them, and it will not pretend otherwise:
 
 - A run that declares its own read paths or its own protected paths is refused for Codex,
   whatever the settings say. That promise is made per run and Bachata cannot keep it.
-- Every other Codex run is refused until `bachata.codexWorkspaceScope` is set to
-  `wholeWorkingDirectory`, which records that you accept Codex reading the entire working
-  directory. The default, `refuseNarrowedScope`, refuses and explains.
+- Ordinary Codex runs use `wholeWorkingDirectory` by default, matching the CLI:
+  Codex can read the entire working directory. The run shows that scope.
+- Set `bachata.codexWorkspaceScope` to `refuseNarrowedScope` to require the narrower
+  default read exclusions. Codex then remains blocked; an explicit refusal is preserved.
 
 Write scope is expressible: Bachata sends the exact writable roots, and excludes the
 temporary directories the protocol would otherwise make writable.

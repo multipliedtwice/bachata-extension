@@ -142,7 +142,9 @@ const state: {
   showArchived: boolean;
   runDrawerOpen: boolean;
   inspectorOpen: boolean;
-  composerOptionsOpen: boolean;
+  composerSettingsOpen: boolean;
+  pipelinePickerOpen: boolean;
+  pipelinePickerActiveId?: string;
   roomView: "chat" | "execution" | "direction";
   historyFilter: string;
   directionRationale: string;
@@ -217,7 +219,8 @@ const state: {
   showArchived: false,
   runDrawerOpen: false,
   inspectorOpen: false,
-  composerOptionsOpen: false,
+  composerSettingsOpen: false,
+  pipelinePickerOpen: false,
   roomView: "chat",
   historyFilter: "",
   directionRationale: "",
@@ -393,7 +396,9 @@ const resetViewState = (): void => {
   state.roomView = "chat";
   state.runDrawerOpen = false;
   state.inspectorOpen = false;
-  state.composerOptionsOpen = false;
+  state.composerSettingsOpen = false;
+  state.pipelinePickerOpen = false;
+  delete state.pipelinePickerActiveId;
   state.roomSearch = "";
   state.historyFilter = "";
   state.expandedEditorCards.clear();

@@ -60,13 +60,13 @@ test("a review provider manifest names the prompt, the steps, and the attachment
     /0\.5 KiB/u,
   );
   assert.ok(manifest.exclusions.some((line) => line.includes("/work/repo")));
-  assert.ok(manifest.exclusions.some((line) => /This participant is read-only/u.test(line) && line.includes(".bachata")));
-  assert.ok(manifest.exclusions.some((line) => /does not verify that the provider applied that list/u.test(line)));
+  assert.ok(manifest.exclusions.some((line) => /This participant is read-only/u.test(line)));
+  assert.ok(manifest.exclusions.some((line) => /Codex can read the whole working directory/u.test(line) && line.includes(".bachata")));
   assert.equal(manifest.exclusions.some((line) => /sandbox enforces/u.test(line)), false);
   assert.equal(manifest.exclusions.some((line) => /never read or sent/u.test(line)), false);
 });
 
-test("a read-only participant is told the exclusion is resolved before the run", () => {
+test("a read-only Codex participant is told that explicit read exclusions cannot be enforced", () => {
   const [manifest] = buildOutboundContext({
     pipeline: reviewPipeline(),
     workingDirectory: "/work/repo",
@@ -76,10 +76,10 @@ test("a read-only participant is told the exclusion is resolved before the run",
     attachments: [],
     promptBytes: 0,
   });
-  const statement = manifest.exclusions.find((line) => /read-only/u.test(line));
-  assert.match(statement, /explicit readable-root list/u);
+  const statement = manifest.exclusions.find((line) => /whole working directory/u.test(line));
   assert.match(statement, /your protected paths/u);
-  assert.match(statement, /symbolic links/u);
+  assert.match(statement, /pipelines that explicitly require them are refused/u);
+  assert.equal(manifest.exclusions.some((line) => /sends it with the turn/u.test(line)), false);
   assert.ok(manifest.exclusions.some((line) => line.includes("Protected paths declared for this run: infra")));
 });
 
@@ -98,7 +98,7 @@ test("a write-capable participant is told its writable root is also readable", (
   });
   assert.ok(manifest.exclusions.some((line) => /at least one write-capable step/u.test(line)));
   assert.ok(manifest.exclusions.some((line) => /declares workspace write scope/u.test(line)));
-  assert.ok(manifest.exclusions.some((line) => /writable root is also readable/u.test(line)));
+  assert.ok(manifest.exclusions.some((line) => /Writable roots limit edits, not reads/u.test(line)));
   assert.equal(manifest.exclusions.some((line) => /This participant is read-only/u.test(line)), false);
 });
 

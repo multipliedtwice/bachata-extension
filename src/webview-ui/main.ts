@@ -107,7 +107,9 @@ const restoreDialogFocus = (selector: string | undefined): void => {
     const reachable = collapsed ? collapsed.querySelector<HTMLElement>("summary") ?? target : target;
     (reachable
       ?? (layer ? reachableControls(layer)[0] : undefined)
-      ?? root.querySelector<HTMLElement>('[data-action="pipeline-edit"]')
+      // The pipeline edit control lives inside the settings panel and may be closed; the settings
+      // control that opens it is always in the composer, so it is the stable landing place.
+      ?? root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')
       ?? document.getElementById("composer-prompt")
       ?? root.querySelector<HTMLElement>('[data-action="run-drawer-toggle"]'))?.focus();
   });
@@ -939,175 +941,10 @@ const contractList = (values: string[], empty: string): string => values.length 
   ? `<ul class="contract-list">${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul>`
   : `<p class="muted">${escapeHtml(empty)}</p>`;
 
-const runContractHtml = (panel: PanelState, draft: ConversationDraft): string => {
-  const contract = panel.executionContract;
-  if (!contract) return "";
-  const limits = [
-    draft.iterationMode === "untilClean"
-      ? `Iterations: until clean ×${String(draft.requiredCleanPasses)}, at most ${String(draft.iterationCount)}`
-      : `Iterations: ${String(draft.iterationCount)} (maximum ${String(contract.limits.maxIterations)})`,
-    ...(contract.limits.agentTurnTimeoutMs === undefined
-      ? []
-      : [`Provider turn limit: ${durationLabel(contract.limits.agentTurnTimeoutMs)}`]),
-    ...(contract.limits.managedTaskTimeoutMs === undefined
-      ? []
-      : [`Managed task limit: ${durationLabel(contract.limits.managedTaskTimeoutMs)}`]),
-    ...(contract.limits.browserOperationTimeoutMs === undefined
-      ? []
-      : [`Browser operation limit: ${durationLabel(contract.limits.browserOperationTimeoutMs)}`]),
-    ...(contract.limits.maxRevisionCycles === undefined
-      ? []
-      : [`Revision cycles: ${String(contract.limits.maxRevisionCycles)}`]),
-    ...(contract.limits.checklistRetries === undefined
-      ? []
-      : [`Task retries: ${String(contract.limits.checklistRetries)}`]),
-    ...(contract.limits.checklistConcurrency === undefined
-      ? []
-      : [`Task concurrency: ${String(contract.limits.checklistConcurrency)}`]),
-    ...(contract.limits.consensusSteps ?? []).map((step) =>
-      `Consensus rounds, ${step.stepName}: at most ${String(step.maxRounds)} before a human decision. Retrying an invalid round grants one more${step.roundLimitRetryable ? `, and retrying at the round limit grants another ${String(step.maxRounds)}` : "; at the round limit this step does not offer a retry"}`),
-    ...(contract.limits.maxParticipantTurns === undefined
-      ? []
-      : [contract.limits.participantTurnsBounded === false
-          ? `Participant turns: at most ${String(contract.limits.maxParticipantTurns)} without a further human decision${contract.limits.executesChecklist ? "; each checklist task adds one bounded sub-run" : ""}`
-          : `Participant turns: at most ${String(contract.limits.maxParticipantTurns)} for the whole run`]),
-  ];
-  const provenance = [
-    ...(contract.provenance === undefined
-      ? []
-      : [
-          `Extension version: ${contract.provenance.extensionVersion}`,
-          `Pipeline hash: ${contract.provenance.pipelineHash.slice(0, 12)}…`,
-        ]),
-    ...contract.providers.map((provider) =>
-      `${provider.name}: ${provider.model ? `model ${provider.model}` : "model not reported"}, ${provider.runtimeVersion ? `runtime ${provider.runtimeVersion}` : "runtime not detected"}`),
-  ];
-  const scope = [
-    `Working directory: ${contract.scope.workingDirectory ?? "not selected"}`,
-    `Writes: ${writeScopeLabels[contract.scope.writeScope]}`,
-    ...(contract.scope.writablePaths.length > 0
-      ? [`Writable paths: ${contract.scope.writablePaths.join(", ")}`]
-      : []),
-    ...(contract.scope.readablePaths.length > 0
-      ? [`Readable paths: ${contract.scope.readablePaths.join(", ")}`]
-      : []),
-    ...(contract.scope.protectedPaths.length > 0
-      ? [`Protected paths: ${contract.scope.protectedPaths.join(", ")}`]
-      : []),
-    `Commits: ${contract.commitPolicy === "allow" ? "the controller may create commits" : "no commits are created"}`,
-  ];
-  const providers = contract.providers.map((provider) => {
-    const roles = provider.roles.length > 0 ? ` · ${provider.roles.join(", ")}` : "";
-    const model = provider.model === undefined ? " · model not reported" : ` · model ${provider.model}`;
-    return `${provider.name} · ${provider.adapterLabel ?? provider.adapter}${model}${roles} · ${contractStatusLabels[provider.status]}`;
-  });
-  const gates = contract.humanGates.map((gate) => `${gate.stepName} · ${contractGateLabels[gate.gate] ?? gate.gate}`);
-  const roles = (contract.roles ?? []).map((role) => [
-    `${role.name}${role.managed ? " · managed" : ""}${role.optional ? " · optional" : ""}`,
-    role.readOnly ? "read-only" : `writes ${writeScopeLabels[role.writeScope]}`,
-    ...(role.writablePaths.length > 0 ? [`paths ${role.writablePaths.join(", ")}`] : []),
-    role.commitPolicy === "allow" ? "commits allowed" : "no commits",
-    ...(role.verification.length > 0 ? [`checks ${role.verification.join(", ")}`] : []),
-  ].join(" · "));
-  const outbound = (contract.outboundContext ?? []).length === 0
-    ? ""
-    : `<section class="contract-outbound"><h3>What each provider receives</h3>${(contract.outboundContext ?? []).map((manifest) => `<details ${disclosureAttributes(`composer:outbound:${manifest.agentId}`)}>
-      <summary>${escapeHtml(manifest.name)} · ${escapeHtml(manifest.adapterLabel)}</summary>
-      <p class="muted">${escapeHtml(manifest.transport)}</p>
-      <ul class="contract-list">${manifest.entries.map((entry) => `<li><strong>${escapeHtml(entry.label)}</strong> · ${escapeHtml(entry.detail)}${entry.exact ? "" : ` <span class="contract-inexact">selected at run time</span>`}</li>`).join("")}</ul>
-      <h4>Never sent</h4>${contractList(manifest.exclusions, "")}
-      <h4>Redaction</h4>${contractList(manifest.redactions, "")}
-    </details>`).join("")}</section>`;
-  const acknowledgement = panel.contractAcknowledgement;
-  // EX-UI-02. What changed is evidence and belongs inside the contract; asking for the
-  // acknowledgement is an action and belongs beside Send, where it is what holds the run. Both
-  // used to be drawn twice inside this one footer, with two buttons that do the same thing.
-  const authorityDiffHtml = acknowledgement && acknowledgement.diff.changes.length > 0
-    ? `<section class="contract-authority-diff"><h3>Authority change since you last acknowledged this contract</h3><ul class="contract-list">${acknowledgement.diff.changes.map((change) => `<li class="${change.expands ? "authority-expanded" : "authority-narrowed"}"><strong>${escapeHtml(change.label)}</strong> ${escapeHtml(change.expands ? "widened" : "changed")} from ${escapeHtml(authorityChangeValue(change.label, change.from))} to ${escapeHtml(authorityChangeValue(change.label, change.to))}</li>`).join("")}</ul></section>`
-    : "";
-  // A policy refusal is already stated under its own heading; the blockers list repeats it only
-  // because the host folds refusals into blockers, so it is filtered back out here.
-  const refusals = new Set(contract.policyRefusals ?? []);
-  const unresolved = contract.blockers.filter((blocker) => !refusals.has(blocker));
-  // Open while the room is empty and the contract is what there is to read; once a run has
-  // started, the transcript is, and a closed card gives it the height back.
-  const openByDefault = acknowledgement?.open ?? panel.transcript.length === 0;
-  return `<details class="run-contract" ${disclosureAttributes("composer:contract", openByDefault)}>
-    <summary><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i><h2 class="contract-kicker">Run contract</h2><span class="contract-badge">${escapeHtml(safetyLevelLabels[contract.safetyLevel])}</span>${contract.assuranceLabel ? `<span class="contract-assurance">${escapeHtml(contract.assuranceLabel)}</span>` : ""}<span class="contract-pipeline" title="${escapeAttribute(contract.pipelineName)}">${escapeHtml(contract.pipelineName)}</span>${contract.blockers.length > 0 ? `<span class="contract-blockers">${String(contract.blockers.length)} unresolved</span>` : ""}</summary>
-    <div class="contract-grid">
-      ${contract.assuranceStatement ? `<section class="contract-assurance-statement"><h3>Assurance</h3><p>${escapeHtml(contract.assuranceStatement)}</p></section>` : ""}
-      <section><h3>Providers</h3>${contractList(providers, "No providers are declared.")}</section>
-      <section><h3>Scope and commits</h3>${contractList(scope, "No scope was resolved.")}</section>
-      <section><h3>Role authority</h3>${contractList(roles, "This pipeline declares no roles; every provider runs with the scope above.")}</section>
-      <section><h3>Verification</h3>${contractList(contract.verification, "No controller verification runs.")}${contract.verificationResources.length > 0 ? `<p class="muted">Shared resources: ${escapeHtml(contract.verificationResources.join(", "))}</p>` : ""}</section>
-      <section><h3>Run limits</h3>${contractList(limits, "No limits were resolved.")}</section>
-      <section><h3>Human decisions</h3>${contractList(gates, "No human gate interrupts this run.")}</section>
-      <section><h3>Fallback</h3>${contractList(contract.fallbacks, "No provider fallback is declared.")}</section>
-      <section><h3>Completion</h3>${contractList(contract.completion, "No completion criteria were resolved.")}</section>
-      <section><h3>Provenance</h3>${contractList(provenance, "No provenance was resolved.")}</section>
-      ${outbound}
-      ${authorityDiffHtml}
-      ${refusals.size > 0 ? `<section class="contract-policy-refusals"><h3>Repository policy refuses this run</h3>${contractList(contract.policyRefusals ?? [], "")}<p class="muted">Change the pipeline, or edit the repository policy file, before this run can start.</p></section>` : ""}
-      ${unresolved.length > 0 ? `<section><h3>Unresolved before running</h3>${contractList(unresolved, "")}</section>` : ""}
-    </div>
-  </details>`;
-};
-
-const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
-  const conversationId = activeId();
-  const blockers = sendBlockers(conversationId, panel, draft);
-  const canSubmit = blockers.length === 0;
-  const selection = pendingPipelineSelection(conversationId);
-  const pipelineControlsDisabled = !panel.pipelineMutable || selection !== undefined;
-  const pipelineControlTitle = selection
-    ? `Switching to ${selection.pipelineId}…`
-    : panel.pipelineMutationReason ?? "Select pipeline";
-  const waitingForResources = conversationById(conversationId)?.waitingForResources === true;
-  const sendLabel = draft.delivery === "queue" ? "Queue" : draft.delivery === "interrupt" ? "Interrupt and send" : "Send";
-  const deliveryLabel = draft.delivery === "queue" ? "queued" : draft.delivery === "interrupt" ? "interrupt" : "";
-  const optionChips: string[] = [];
-  if (draft.iterationCount !== 1) {
-    optionChips.push(`${String(draft.iterationCount)}×`);
-  }
-  if (draft.iterationMode !== "fixed") {
-    optionChips.push(draft.requiredCleanPasses > 1 ? `until clean ×${String(draft.requiredCleanPasses)}` : "until clean");
-  }
-  if (deliveryLabel) {
-    optionChips.push(deliveryLabel);
-  }
-  const optionsLabel = optionChips.length > 0 ? `Options · ${optionChips.join(" · ")}` : "Options";
-  const pipelineOptions = panel.pipelines.length > 0
-    ? panel.pipelines.map((pipeline) => `<option value="${escapeAttribute(pipeline.id)}" ${(selection?.pipelineId ?? panel.selectedPipelineId) === pipeline.id ? "selected" : ""}>${escapeHtml(pipeline.name)}</option>`).join("")
-    : `<option value="" disabled selected>${state.panels.has(conversationId) ? "No pipeline available" : "Loading pipelines…"}</option>`;
-  const advancedControls = `<div class="composer-advanced" id="composer-advanced"><label class="iteration-control"><span>Max iterations</span><input id="pipeline-iterations" type="number" min="1" max="${String(state.manager.maxPipelineIterations)}" value="${String(draft.iterationCount)}" ${panel.running && draft.delivery === "immediate" ? "disabled" : ""}></label>
-        <label class="iteration-control"><span>Mode</span><select id="pipeline-iteration-mode" ${panel.running && draft.delivery === "immediate" ? "disabled" : ""}><option value="fixed" ${draft.iterationMode === "fixed" ? "selected" : ""}>Fixed</option><option value="untilClean" ${draft.iterationMode === "untilClean" ? "selected" : ""}>Until clean</option></select></label>
-        ${draft.iterationMode === "untilClean" ? `<label class="iteration-control"><span>Clean passes</span><input id="pipeline-clean-passes" type="number" min="1" max="10" value="${String(draft.requiredCleanPasses)}" ${panel.running && draft.delivery === "immediate" ? "disabled" : ""}></label>` : ""}
-        <label class="delivery-control"><span>Delivery</span><select id="message-delivery"><option value="immediate" ${draft.delivery === "immediate" ? "selected" : ""}>Run now</option><option value="queue" ${draft.delivery === "queue" ? "selected" : ""}>Queue</option><option value="interrupt" ${draft.delivery === "interrupt" ? "selected" : ""}>Interrupt current run</option></select></label></div>`;
-  return `<footer class="composer">
-    ${runContractHtml(panel, draft)}
-    ${attachmentStripHtml(panel, draft)}
-    <textarea id="composer-prompt" aria-label="Run input" placeholder="Describe the job for the selected pipeline…">${escapeHtml(draft.prompt)}</textarea>
-    <div class="composer-controls">
-      <div class="composer-options">
-        <button data-action="attachment-pick" class="icon-button" aria-label="Attach image, text, log, or specification" title="Attach image, text, log, or specification"><i class="codicon codicon-add" aria-hidden="true"></i></button>
-        <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>
-        <select id="pipeline-select" aria-label="Pipeline" ${pipelineControlsDisabled ? "disabled" : ""} title="${escapeAttribute(pipelineControlTitle)}">${pipelineOptions}</select>
-        <button data-action="pipeline-edit" class="icon-button quiet-control" ${pipelineControlsDisabled ? "disabled" : ""} title="${escapeAttribute(selection ? pipelineControlTitle : panel.pipelineMutationReason ?? "Edit pipeline")}" aria-label="Edit pipeline"><i class="codicon codicon-edit" aria-hidden="true"></i></button>
-        <div class="composer-options-anchor">
-          <button data-action="composer-options-toggle" class="${state.composerOptionsOpen ? "open" : ""} ${optionChips.length > 0 ? "has-chips" : ""}" title="Run options" ${expandedControlAttributes(state.composerOptionsOpen, "composer-advanced")}><i class="codicon codicon-settings-gear" aria-hidden="true"></i><span>${escapeHtml(optionsLabel)}</span></button>
-        </div>
-      </div>
-      <div class="send-actions">
-        <small class="composer-hint">${escapeHtml(submitShortcutLabel)} to send</small>
-        ${panel.running || waitingForResources ? `<button data-action="interrupt-run">${waitingForResources ? "Cancel wait" : "Stop"}</button>` : ""}
-        <button class="send-button" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(`${sendLabel} · ${submitShortcutLabel}`)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(canSubmit, blockers)}>${escapeHtml(sendLabel)}</button>
-      </div>
-    </div>
-    ${state.composerOptionsOpen ? advancedControls : ""}
-    ${canSubmit ? "" : sendBlockersHtml(blockers)}
-    ${waitingForResources && canSubmit ? `<small class="composer-note">Waiting for shared capacity. No provider or verification command has started.</small>` : selection ? `<small class="composer-note">Switching pipeline. Editing and creating pipelines are locked until the selected pipeline is ready.</small>` : panel.pipelineMutationReason ? `<small class="composer-note">${escapeHtml(panel.pipelineMutationReason)}</small>` : ""}
-  </footer>`;
-};
+// The composer's rendering — the surface, the pipeline picker, the settings panel and the run
+// contract — and the pipeline-picker control functions live in composerRender.ts; the contract
+// label maps above are consumed there. The picker functions are called from the action dispatch
+// and the document keydown handler below.
 
 const refreshInteractionSubmitState = (interactionRef: string): void => {
   const interaction = state.manager.interactions.find((item) => item.interactionRef === interactionRef);
@@ -1303,6 +1140,7 @@ const render = (): void => {
   refreshVisibleCountdowns();
   revealSelectedTab();
   updateTabStripEdges();
+  scrollPickerActiveOptionIntoView();
 };
 
 // Set by the reducer when older entries are prepended, so the next render keeps the reader's
@@ -1727,11 +1565,21 @@ const dismissTransientMenus = (origin: Element | null): void => {
     }
   });
   if (
-    state.composerOptionsOpen &&
-    !origin?.closest(".composer-options-anchor, .composer-advanced") &&
-    origin?.closest<HTMLElement>("[data-action]")?.dataset.action !== "composer-options-toggle"
+    state.composerSettingsOpen &&
+    !origin?.closest(".composer-settings, .composer-settings-button") &&
+    origin?.closest<HTMLElement>("[data-action]")?.dataset.action !== "composer-settings-toggle"
   ) {
-    state.composerOptionsOpen = false;
+    state.composerSettingsOpen = false;
+    scheduleRender();
+  }
+  if (
+    state.pipelinePickerOpen &&
+    !origin?.closest(".pipeline-picker") &&
+    origin?.closest<HTMLElement>("[data-action]")?.dataset.action !== "pipeline-picker-toggle" &&
+    origin?.closest<HTMLElement>("[data-action]")?.dataset.action !== "pipeline-picker-select"
+  ) {
+    state.pipelinePickerOpen = false;
+    delete state.pipelinePickerActiveId;
     scheduleRender();
   }
 };
@@ -1750,7 +1598,55 @@ root.addEventListener("compositionend", () => {
   }
 });
 
+// Focus leaving the picker closes it, so a popover is never left open behind the prompt or another
+// control. Focus is already elsewhere, so this does not steal it back.
+document.addEventListener("focusin", (event) => {
+  if (!state.pipelinePickerOpen) {
+    return;
+  }
+  const target = event.target instanceof Element ? event.target : null;
+  const insidePicker = target && typeof target.closest === "function" ? target.closest(".pipeline-picker") : null;
+  if (!insidePicker) {
+    state.pipelinePickerOpen = false;
+    delete state.pipelinePickerActiveId;
+    scheduleRender();
+  }
+});
+
 document.addEventListener("keydown", (event) => {
+  // The combobox keyboard is scoped to the picker's own focus. If focus has moved on — Tab into the
+  // prompt, say — these keys are the prompt's again, so Enter there can never select a pipeline
+  // because a popover was left open.
+  const onPickerButton = event.target instanceof HTMLElement && event.target.id === "pipeline-picker-button";
+  if (state.pipelinePickerOpen && onPickerButton) {
+    if (event.key === "Tab") {
+      // Tab is left to move focus; the picker closes behind it rather than trapping.
+      closePipelinePicker(false);
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape"].includes(event.key)) {
+      event.preventDefault();
+      if (event.key === "Escape") {
+        closePipelinePicker();
+      } else if (event.key === "Enter") {
+        commitPipelinePickerActive();
+      } else {
+        movePipelinePickerActive(event.key);
+      }
+      return;
+    }
+  }
+  if (
+    !state.pipelinePickerOpen &&
+    onPickerButton &&
+    event.target instanceof HTMLElement &&
+    event.target.getAttribute("aria-disabled") !== "true" &&
+    (event.key === "ArrowDown" || event.key === "ArrowUp")
+  ) {
+    event.preventDefault();
+    openPipelinePicker();
+    return;
+  }
   if (
     event.target instanceof HTMLTextAreaElement &&
     bachataWebviewBehavior.shouldSubmitComposer(event.target.id, event.key, event.ctrlKey, event.metaKey)
@@ -1789,11 +1685,11 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape" && state.runDrawerOpen) {
     event.preventDefault();
     setRunDrawerOpen(false);
-  } else if (event.key === "Escape" && state.composerOptionsOpen) {
+  } else if (event.key === "Escape" && state.composerSettingsOpen) {
     event.preventDefault();
-    state.composerOptionsOpen = false;
+    state.composerSettingsOpen = false;
     scheduleRender();
-    requestAnimationFrame(() => root.querySelector<HTMLElement>('[data-action="composer-options-toggle"]')?.focus());
+    requestAnimationFrame(() => root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.focus());
   } else if (event.key === "Escape") {
     const open = Array.from(root.querySelectorAll<HTMLDetailsElement>(transientMenuSelector))
       .filter((menu) => menu.open);
@@ -1922,30 +1818,36 @@ const runHumanE2eUiScenario = async (
   await settleUi();
 
   // The catalog this window actually loaded, read before anything is added to it, and every entry
-  // selected in turn through the real select. A default that did not validate is simply not here.
+  // selected in turn through the rendered picker. A default that did not validate is simply not here.
   const catalogPipelineIds = activePanel().pipelines.map((pipeline) => pipeline.id);
-  // What the picker actually offers, read off the rendered options rather than off the state that
-  // produced them: a catalog held in state and never drawn is not a catalog a person can use.
+  // What the picker actually offers, read off the rendered options while the listbox is open
+  // rather than off the state that produced them: a catalog held in state and never drawn is not a
+  // catalog a person can use.
+  root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]:not([disabled])')?.click();
+  await settleUi();
   const renderedPipelineIds = Array.from(
-    root.querySelectorAll<HTMLOptionElement>("#pipeline-select option"),
-  ).map((option) => option.value).filter((value) => value.length > 0);
+    root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-select"]'),
+  ).map((option) => option.dataset.pipelineId ?? "").filter((value) => value.length > 0);
   let everyCatalogPipelineSelectable = catalogPipelineIds.length > 0;
   for (const pipelineId of catalogPipelineIds) {
-    // A natively disabled select is a control the person cannot touch, so the scenario waits for
-    // it the way they would rather than dispatching through it.
+    // A disabled picker button is a control the person cannot touch, so the scenario waits for it
+    // the way they would rather than forcing a selection through it.
     if (!await waitForUi(() =>
-      root.querySelector<HTMLSelectElement>("#pipeline-select")?.disabled === false
+      root.querySelector<HTMLButtonElement>('[data-action="pipeline-picker-toggle"]')?.disabled === false
     )) {
       everyCatalogPipelineSelectable = false;
       break;
     }
-    const select = root.querySelector<HTMLSelectElement>("#pipeline-select");
-    if (!select) {
+    if (!state.pipelinePickerOpen) {
+      root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
+      await settleUi();
+    }
+    const option = root.querySelector<HTMLElement>(`[data-action="pipeline-picker-select"][data-pipeline-id="${pipelineId}"]`);
+    if (!option) {
       everyCatalogPipelineSelectable = false;
       break;
     }
-    select.value = pipelineId;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    option.click();
     // The runtime's own answer. The pending entry is cleared on `failed` exactly as on
     // `completed`, and the optimistic write happens before the message is even posted, so
     // neither of those is evidence that the selection was accepted.
@@ -1958,6 +1860,10 @@ const runHumanE2eUiScenario = async (
   }
   await settleUi();
 
+  // Pipeline editing lives inside the composer's settings panel now, so it is opened the way a
+  // person would before the New-pipeline control can be reached.
+  root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
+  await settleUi();
   root.querySelector<HTMLElement>('[data-action="pipeline-new"]:not([disabled])')?.click();
   await settleUi();
   const newDraftDeleteHidden =
@@ -2062,11 +1968,18 @@ const runHumanE2eUiScenario = async (
   }
 
   const prompt = root.querySelector<HTMLTextAreaElement>("#composer-prompt");
-  // Read before the disclosure is opened: the advanced run options are not on screen until the
-  // person asks for them. Driving `#pipeline-iterations` without opening it found nothing at all
-  // and left the iteration count reporting whatever the default already was.
+  // The pipeline editing above was reached through the settings panel; it is closed again so the
+  // "hidden until requested" check reads a composer at rest rather than one still holding the
+  // panel open from an earlier step.
+  if (state.composerSettingsOpen) {
+    root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
+    await settleUi();
+  }
+  // Read before the panel is opened: the run options are not on screen until the person asks for
+  // them. Driving `#pipeline-iterations` without opening it found nothing at all and left the
+  // iteration count reporting whatever the default already was.
   const advancedOptionsHiddenByDefault = root.querySelector("#pipeline-iterations") === null;
-  root.querySelector<HTMLElement>('[data-action="composer-options-toggle"]')?.click();
+  root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
   await settleUi();
   const iterations = root.querySelector<HTMLInputElement>("#pipeline-iterations");
   if (prompt) {

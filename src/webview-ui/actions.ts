@@ -56,9 +56,17 @@ const reportFieldErrors = (
  */
 const declineDisabledControl = (target: HTMLElement): boolean => {
   if (target.getAttribute("aria-disabled") !== "true") return false;
-  const described = (target.getAttribute("aria-describedby") ?? "")
+  const describedIds = (target.getAttribute("aria-describedby") ?? "")
     .split(" ")
-    .filter((token) => token.length > 0)
+    .filter((token) => token.length > 0);
+  if (describedIds.includes("composer-blockers")) {
+    const disclosure = document.getElementById("composer-blockers");
+    if (disclosure instanceof HTMLDetailsElement) {
+      disclosure.open = true;
+      if (disclosure.dataset.disclosureKey) recordDisclosure(disclosure.dataset.disclosureKey, true);
+    }
+  }
+  const described = describedIds
     .map(describedText)
     .find((text) => text.trim().length > 0);
   const reason = (described ?? target.getAttribute("title") ?? "").trim();
@@ -147,7 +155,7 @@ root.addEventListener("click", (event) => {
     // failures if another remains, and otherwise on the run this room is about.
     requestAnimationFrame(() => {
       (root.querySelector<HTMLElement>(".global-error-dismiss")
-        ?? root.querySelector<HTMLElement>('[data-action="rename-conversation"]'))?.focus();
+        ?? document.getElementById("composer-prompt"))?.focus();
     });
   } else if (action === "render-editor-close") {
     closePipelineEditor();
@@ -504,9 +512,16 @@ root.addEventListener("click", (event) => {
         ? document.getElementById("inspector-title")
         : root.querySelector<HTMLElement>(".header-action-menu > summary"))?.focus();
     });
-  } else if (action === "composer-options-toggle") {
-    state.composerOptionsOpen = !state.composerOptionsOpen;
+  } else if (action === "composer-settings-toggle") {
+    state.composerSettingsOpen = !state.composerSettingsOpen;
     scheduleRender();
+  } else if (action === "pipeline-picker-toggle") {
+    if (state.pipelinePickerOpen) closePipelinePicker();
+    else openPipelinePicker();
+  } else if (action === "pipeline-picker-select" && target.dataset.pipelineId) {
+    const pipelineId = target.dataset.pipelineId;
+    closePipelinePicker();
+    selectPipeline(pipelineId);
   } else if (action === "availability-check") postRuntime({ type: "availability.check" });
   else if (action === "working-directory") postRuntime({ type: "workingDirectory.pick" });
   else if (action === "contract-acknowledge") {
@@ -966,13 +981,7 @@ root.addEventListener("change", (event) => {
     vscode.postMessage({ type: "notifications.setMode", mode: target.value });
     return;
   }
-  if (target.id === "pipeline-select") {
-    const id = requestId();
-    const conversationId = activeId();
-    state.pendingPipelineSelections.set(id, { conversationId, pipelineId: target.value });
-    postRuntime({ type: "pipeline.select", pipelineId: target.value, requestId: id }, conversationId);
-    scheduleRender();
-  } else if (
+  if (
     target.dataset.action === "result-file-select" &&
     target instanceof HTMLInputElement &&
     target.dataset.conversation &&

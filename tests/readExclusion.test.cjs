@@ -88,13 +88,14 @@ test("ordinary generated directories stay readable", () => {
   assert.equal(isDisclosedReadExclusion("config/credentials.json"), true);
 });
 
-test("a policy-bearing Codex run is refused instead of promising a read scope Codex cannot keep", async () => {
+test("an explicitly refused Codex scope is rejected before a provider starts", async () => {
   const root = createWorkspace();
   const recordPath = path.join(os.tmpdir(), `mock-codex-read-exclusion-${process.pid}.jsonl`);
   const previous = process.env.MOCK_RECORD_PATH;
   process.env.MOCK_RECORD_PATH = recordPath;
   const adapter = createCodexAppServerAdapter({
     command: mockCodex,
+    workspaceScope: "refuseNarrowedScope",
     commandCheckTimeoutMs: 5000,
     requestTimeoutMs: 5000,
     turnTimeoutMs: 5000,

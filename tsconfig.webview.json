@@ -36,6 +36,7 @@
     "src/webview-ui/executionRender.ts",
     "src/webview-ui/pipelineEditor.ts",
     "src/webview-ui/dialogs.ts",
+    "src/webview-ui/composerRender.ts",
     "src/webview-ui/roomRender.ts",
     "src/webview-ui/protocolReducer.ts",
     "src/webview-ui/actions.ts",

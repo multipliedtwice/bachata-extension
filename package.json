@@ -1203,8 +1203,8 @@
               "refuseNarrowedScope",
               "wholeWorkingDirectory"
             ],
-            "default": "refuseNarrowedScope",
-            "description": "How Bachata treats a Codex run whose effective policy promises a narrower read scope than the whole working directory. Codex CLI 0.146.0 has no per-path readable-root capability, so Bachata cannot make Codex withhold version-control, credential or bachata-internal paths. Bachata reads this from your user or machine settings only, so a repository you open cannot widen it.",
+            "default": "wholeWorkingDirectory",
+            "description": "Codex reads the whole working directory by default, including version-control, credential and Bachata-internal paths. Its protocol cannot exclude individual paths from reads. Choose refuseNarrowedScope to require those exclusions. Pipelines with explicit read restrictions are refused in either mode. Bachata reads this from your user or machine settings only.",
             "enumDescriptions": [
               "Refuse the run and explain the exact protocol limitation.",
               "Record that Codex may read the entire working directory, including the paths Bachata withholds from other providers."

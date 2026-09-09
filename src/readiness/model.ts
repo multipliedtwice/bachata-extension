@@ -158,7 +158,8 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
       findings,
     };
   }
-  const requiresGit = pipeline.steps.some((step) => step.type === "executeChecklist") || pipeline.managedPolicy !== undefined;
+  const requiresCleanGit = pipeline.steps.some((step) => step.enabled && step.type === "executeChecklist");
+  const requiresGit = requiresCleanGit || pipeline.managedPolicy !== undefined;
   findings.push(input.workspace.gitAvailable === true
     ? finding("git", "Git", "ready", input.workspace.gitDetail ?? "Available")
     : requiresGit && input.workspace.gitAvailable === false
@@ -171,12 +172,12 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
       input.workspace.dirtyPaths.some(
         (candidate) => !dirtyPathAllowed(candidate, input.allowedDirtyPaths ?? []),
       ));
-  if (requiresGit && input.workspace.gitAvailable === true && blockingDirtyPaths) {
+  if (requiresCleanGit && input.workspace.gitAvailable === true && blockingDirtyPaths) {
     findings.push(finding(
       "git.clean",
       "Git workspace",
       "blocked",
-      "Commit, stash, or remove workspace changes before managed execution",
+      "Checklist execution creates worktrees from HEAD; commit or stash changes before running that step",
       "doctor.run",
     ));
   }
@@ -216,7 +217,7 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
     }
     if (
       agent.adapter === "codex-app-server"
-      && (input.codexWorkspaceScope ?? "refuseNarrowedScope") !== "wholeWorkingDirectory"
+      && (input.codexWorkspaceScope ?? "wholeWorkingDirectory") !== "wholeWorkingDirectory"
     ) {
       findings.push(finding(
         `adapter.${agent.id}`,

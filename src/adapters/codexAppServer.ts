@@ -402,7 +402,7 @@ export const createCodexAppServerAdapter = (
   options: CodexAdapterOptions,
 ): AgentAdapter => {
   const log = (message: string): void => options.log(redactText(message));
-  const workspaceScope: CodexWorkspaceScope = options.workspaceScope ?? "refuseNarrowedScope";
+  const workspaceScope: CodexWorkspaceScope = options.workspaceScope ?? "wholeWorkingDirectory";
   let child: ChildProcessWithoutNullStreams | undefined;
   let requestId = 1;
   let initialized = false;

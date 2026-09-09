@@ -257,7 +257,6 @@ import {
   pipelineNameIndex,
   pipelineProviderIndex,
   providerReadinessFrom,
-  providerVersionsAfter,
   requestedPipelineIds,
 } from "../readiness/readinessReport";
 import type { ProviderProbeOutcome } from "../readiness/readinessReport";
@@ -1303,6 +1302,9 @@ const pipelineSummary = (
   editable,
   hash,
   scopeKey: editable ? scope.key : "builtin",
+  participantCount: pipeline.agents.length,
+  participantNames: pipeline.agents.map((agent) => agent.name),
+  stepCount: pipeline.steps.filter((step) => step.enabled).length,
   ...(editable && scope.root ? { scopeRoot: scope.root } : {}),
 });
 
@@ -1480,7 +1482,7 @@ export const createRuntime = (
   let queueStartClaim = persisted?.queueStart;
   let selectedPipelineSnapshot = persisted?.selectedPipelineSnapshot;
   let readinessAdapterProbes: AdapterReadiness[] = [];
-  let providerRuntimeVersions: Record<string, string> = {};
+  const readinessCommandProbes = new Map<string, ReturnType<typeof providerReadinessFrom>>();
   let readinessGit: RuntimeReadinessReport["git"] = {
     available: false,
     detail: "Git has not been checked",
@@ -1868,18 +1870,48 @@ export const createRuntime = (
     setOptionalProperty(state, "pipelineScopeRoot", activePipelineScope.root);
   };
 
-  const currentAdapterReadiness = (): AdapterReadiness[] => [
-    ...readinessAdapterProbes,
-    ...Object.entries(state.agents).map(([agentId, agent]) => ({
+  const agentProbeKey = (definition: AgentDefinition): string => {
+    const effective = effectiveDefinition(definition);
+    return JSON.stringify([
+      effective.adapter,
+      effective.command,
+      effective.workingDirectory ?? state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory,
+    ]);
+  };
+
+  const currentAdapterReadiness = (pipelineId?: string): AdapterReadiness[] => {
+    const agentReadiness = Object.entries(state.agents).map(([agentId, agent]) => ({
       agentId,
       type: agent.adapterType,
       available: ["available", "idle", "running"].includes(agent.status),
       capabilities: Object.entries(adapters[agentId]?.capabilities ?? {})
         .filter(([, enabled]) => enabled)
         .map(([capability]) => capability),
-      ...(agent.error === undefined ? {} : { detail: agent.error }),
-    })),
-  ];
+      ...(agent.error === undefined
+        ? { detail: agent.version ?? "Provider availability has not been checked yet" }
+        : { detail: agent.error }),
+    }));
+    const pipelineProbes = (pipelines.get(pipelineId ?? "")?.agents ?? []).flatMap((agent) => {
+      const probe = readinessCommandProbes.get(agentProbeKey(agent))?.readiness;
+      if (!probe) return [];
+      const current = agentReadiness.find((entry) => entry.agentId === agent.id && entry.type === agent.adapter);
+      return [{ ...current, ...probe, agentId: agent.id }];
+    });
+    return [...readinessAdapterProbes, ...pipelineProbes, ...agentReadiness];
+  };
+
+  const pipelineProviderVersions = (pipeline: PipelineDefinition): Record<string, string> => {
+    const versions: Record<string, string> = {};
+    for (const type of new Set(pipeline.agents.map((agent) => agent.adapter))) {
+      const agentVersions = pipeline.agents.filter((agent) => agent.adapter === type)
+        .map((agent) => readinessCommandProbes.get(agentProbeKey(agent))?.version);
+      const version = agentVersions[0];
+      if (version !== undefined && agentVersions.every((candidate) => candidate === version)) {
+        versions[type] = version;
+      }
+    }
+    return versions;
+  };
 
   const readinessAllowedDirtyPaths = (pipelineId?: string): string[] => {
     if (!pipelineId || !customPipelineIds.has(pipelineId)) return [];
@@ -1897,7 +1929,7 @@ export const createRuntime = (
     configuration().get<string>("preferredProvider", "auto");
 
   const configuredCodexWorkspaceScope = (): CodexWorkspaceScope =>
-    configuration().get<CodexWorkspaceScope>("codexWorkspaceScope", "refuseNarrowedScope");
+    configuration().get<CodexWorkspaceScope>("codexWorkspaceScope", "wholeWorkingDirectory");
 
   const evaluatePipelineReadiness = (pipelineId?: string): PipelineReadiness =>
     evaluateReadiness({
@@ -1912,7 +1944,7 @@ export const createRuntime = (
         gitClean: readinessGit.clean,
         dirtyPaths: readinessGit.dirtyPaths,
       },
-      adapters: currentAdapterReadiness(),
+      adapters: currentAdapterReadiness(pipelineId),
       bridge: state.browserBridge,
       remoteName: vscode.env.remoteName,
       selectedRoot: state.workingDirectory,
@@ -1965,7 +1997,7 @@ export const createRuntime = (
       ...(repositoryPolicy === undefined ? {} : { repositoryPolicy }),
       ...(repositoryPolicyErrors.length === 0 ? {} : { repositoryPolicyErrors }),
       runSettings: effectiveRunSettings(),
-      providerRuntimeVersions,
+      providerRuntimeVersions: pipelineProviderVersions(pipeline),
     });
   };
 
@@ -2757,9 +2789,12 @@ export const createRuntime = (
     });
 
   const effectiveDefinition = (definition: AgentDefinition): AgentDefinition =>
-    effectiveAgentDefinition(definition, (settingKey, fallback) =>
-      configuration().get<string>(settingKey, fallback)
-    );
+    effectiveAgentDefinition(definition, (settingKey, fallback) => {
+      const config = configuration();
+      return typeof config.inspect === "function"
+        ? config.inspect<string>(settingKey)?.globalValue ?? fallback
+        : config.get<string>(settingKey, fallback);
+    });
 
   const currentTopology = (): AdapterTopology => ({
     adapters,
@@ -2946,21 +2981,22 @@ export const createRuntime = (
       .map((checkpoint) => structuredClone(checkpoint)),
   });
 
-  const inspectReadiness = async (pipelineIds?: string[]): Promise<RuntimeReadinessReport> => {
+  const inspectReadiness = async (pipelineIds?: string[], selectedOnly = false): Promise<RuntimeReadinessReport> => {
     await awaitInitialization();
     const config = configuration();
     const workingDirectory = state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory;
     const timeoutMs = readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "commandCheckTimeoutMs", 15_000);
-    const providerCandidates = [
+    const providerCandidates: Array<readonly [string, string]> = selectedOnly ? [] : [
       ["codex-app-server", config.get<string>("codexCommand", "codex")],
       ["claude-code", config.get<string>("claudeCommand", "claude")],
       ["zai-glm", config.get<string>("zaiCommand", "claude")],
-    ] as const;
+    ];
     const probeProvider = async (
       type: string,
       command: string,
+      directory = workingDirectory,
     ): Promise<ProviderProbeOutcome> => {
-      const environment = scopedProviderEnvironment(type, workingDirectory);
+      const environment = scopedProviderEnvironment(type, directory);
       if (type === "zai-glm" && environment[ZAI_TOKEN_TARGET_VARIABLE] === undefined) {
         return {
           outcome: "missingToken",
@@ -2978,11 +3014,11 @@ export const createRuntime = (
               requestTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "codexRequestTimeoutMs", 30_000),
               interruptGraceMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "interruptGraceMs", 5_000),
               environment,
-              workingDirectory,
+              workingDirectory: directory,
               log: logOutput,
             })
           : await checkCommand(command, ["--version"], {
-              workingDirectory,
+              workingDirectory: directory,
               environment,
               timeoutMs,
             });
@@ -2996,14 +3032,31 @@ export const createRuntime = (
         providerReadinessFrom(type, await probeProvider(type, command)),
       ),
     );
-    for (const [index, [type]] of providerCandidates.entries()) {
-      providerRuntimeVersions = providerVersionsAfter(
-        providerRuntimeVersions,
-        type,
-        providerReadiness[index]?.version,
-      );
+    if (!selectedOnly) readinessAdapterProbes = providerReadiness.map((entry) => entry.readiness);
+    const requested = requestedPipelineIds(pipelineIds, pipelines.keys());
+    const pendingProbes = new Map<string, Promise<ReturnType<typeof providerReadinessFrom>>>();
+    for (const pipelineId of requested) {
+      for (const agent of pipelines.get(pipelineId)?.agents ?? []) {
+        const effective = effectiveDefinition(agent);
+        if (!effective.command || effective.adapter.endsWith("-browser")) continue;
+        const key = agentProbeKey(agent);
+        if (!pendingProbes.has(key)) {
+          const directory = effective.workingDirectory ?? workingDirectory;
+          const matchingDefault = directory === workingDirectory
+            ? providerCandidates.findIndex(([type, command]) =>
+                type === effective.adapter && command === effective.command)
+            : -1;
+          const matched = providerReadiness[matchingDefault];
+          pendingProbes.set(key, matched
+            ? Promise.resolve(matched)
+            : probeProvider(effective.adapter, effective.command, directory)
+              .then((outcome) => providerReadinessFrom(effective.adapter, outcome)));
+        }
+      }
     }
-    readinessAdapterProbes = providerReadiness.map((entry) => entry.readiness);
+    for (const [key, pending] of pendingProbes) {
+      readinessCommandProbes.set(key, await pending);
+    }
     try {
       const environment = gitProcessEnvironment(workingDirectory);
       const version = await checkCommand("git", ["--version"], {
@@ -3035,7 +3088,6 @@ export const createRuntime = (
       readinessGit = gitReadinessFrom({ outcome: "versionFailed", error });
     }
     refreshReadiness();
-    const requested = requestedPipelineIds(pipelineIds, pipelines.keys());
     const maxIterations = Math.max(1, configuration().get<number>("maxPipelineIterations", 10));
     const pipelineFacts = requested.map((pipelineId) => {
       const readiness = evaluatePipelineReadiness(pipelineId);
@@ -3050,7 +3102,7 @@ export const createRuntime = (
           readiness,
           ...(state.workingDirectory === undefined ? {} : { workingDirectory: state.workingDirectory }),
           maxIterations,
-          providerRuntimeVersions,
+          providerRuntimeVersions: pipelineProviderVersions(pipeline),
         })),
       };
     });
@@ -7458,21 +7510,30 @@ export const createRuntime = (
     checkingAvailability = true;
     try {
       const checkAgent = async (agentId: string): Promise<void> => {
+        const definition = definitions[agentId];
+        const effective = definition ? effectiveDefinition(definition) : undefined;
+        const recordProbe = (outcome: ProviderProbeOutcome): void => {
+          if (definition && effective?.command && !effective.adapter.endsWith("-browser")) {
+            readinessCommandProbes.set(agentProbeKey(definition), providerReadinessFrom(effective.adapter, outcome));
+          }
+        };
         try {
           const version = await adapterFor(agentId).checkAvailability(
             agentStateFor(agentId).sessionId,
             agentStateFor(agentId).browserBinding,
           );
+          recordProbe({ outcome: "version", command: effective?.command ?? "", version });
           patchAgent(
             agentId,
             {
               status: agentStateFor(agentId).sessionId ? "idle" : "available",
               version,
-              ...(undefined === undefined ? {} : { error: undefined }),
+              error: undefined,
             },
             true,
           );
         } catch (error) {
+          recordProbe({ outcome: "failed", command: effective?.command ?? "", error });
           patchAgent(
             agentId,
             {
@@ -7511,6 +7572,7 @@ export const createRuntime = (
       ]);
     } finally {
       checkingAvailability = false;
+      if (!disposed) emitSnapshot();
     }
   };
 
@@ -8637,11 +8699,37 @@ export const createRuntime = (
     emitSnapshot();
   };
 
+  let automaticReadinessKey: string | undefined;
+  let automaticReadinessCheck: Promise<void> | undefined;
+  const checkSelectedReadiness = async (): Promise<void> => {
+    const pipeline = selectedPipelineSnapshot?.definition;
+    if (!pipeline || !state.trusted || state.workspaceRoots.length === 0 ||
+        workflowActive || activeWorkflow || activeForegroundOperations > 0 || checkingAvailability ||
+        pickingWorkingDirectory || gateDecisionActive || queueDraining ||
+        hostCallbacks.unattendedOrchestration || disposed) return;
+    const key = JSON.stringify([pipeline.id, pipeline.agents.map(agentProbeKey)]);
+    if (automaticReadinessKey === key) return;
+    if (automaticReadinessCheck) {
+      await automaticReadinessCheck;
+      return checkSelectedReadiness();
+    }
+    automaticReadinessCheck = inspectReadiness([pipeline.id], true).then(() => {
+      automaticReadinessKey = key;
+    });
+    try {
+      await automaticReadinessCheck;
+    } finally {
+      automaticReadinessCheck = undefined;
+    }
+  };
+
   const handleSessionMessage = async (
     message: Extract<WebviewToExtensionMessage, { type: "ready" | "availability.check" | "contract.acknowledge" | "session.reset" | "task.reset" | "workingDirectory.pick" }>,
   ): Promise<void> => {
     if (message.type === "ready") {
       emitSnapshot();
+      await checkSelectedReadiness();
+      if (!disposed) emitSnapshot();
       return;
     }
     if (message.type === "availability.check") {
@@ -8855,6 +8943,8 @@ export const createRuntime = (
   ): Promise<void> => {
     if (message.type === "pipeline.select") {
       await selectPipeline(message.pipelineId);
+      await checkSelectedReadiness();
+      if (!disposed) emitSnapshot();
       postOperationResult(message.requestId, "pipeline.select", "completed");
       return;
     }
@@ -9833,6 +9923,7 @@ export const createRuntime = (
           pendingGateInterventions = [];
           activeCodexInput?.cancel();
           await initializePromise;
+          await automaticReadinessCheck?.catch(() => undefined);
           // Recording a shutdown must not be able to prevent one. A failed audit write is held
           // and rethrown once the providers, the bridge and the persisted state are dealt with.
           try {

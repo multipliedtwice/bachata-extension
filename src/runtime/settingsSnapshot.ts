@@ -261,7 +261,7 @@ export const authorityRunSettings: readonly RunSettingDeclaration[] = [
   {
     key: "codexWorkspaceScope",
     kind: "string",
-    fallback: "refuseNarrowedScope",
+    fallback: "wholeWorkingDirectory",
     allowed: ["refuseNarrowedScope", "wholeWorkingDirectory"],
   },
   { key: "allowExternalWorkingDirectories", kind: "boolean", fallback: false },
