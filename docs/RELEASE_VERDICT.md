@@ -12,10 +12,10 @@ for this publication on 2026-09-09. No human acceptance inferred from automated
 results. Earlier VSIX acceptance evidence does not cover this build. This exception
 does not certify the deferred checks or authorize Chrome publication.
 
-The named artifacts are the current verified candidates. Keep these exact bytes;
-deferred acceptance remains open. Final automated paired verification must pass
-before publication. Identity, integrity, source-byte equivalence and provenance
-checks remain required. Other artifacts and releases retain the strict evidence gate.
+The named artifact pair passed final automated verification. Existing VSIX published
+to VS Code only; keep these exact bytes. Deferred acceptance remains open. Identity,
+integrity, source-byte equivalence and provenance checks passed. Other artifacts
+and releases retain the strict evidence gate.
 
 ## Owner publication authorization
 
@@ -36,6 +36,18 @@ checks remain required. Other artifacts and releases retain the strict evidence 
   }
 }
 ```
+
+## Publication evidence
+
+VS Code Marketplace: [Rememo.bachata-vscode 0.7.0](https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode).
+Public gallery query confirmed version 0.7.0 on 2026-09-09 after publication.
+
+- [Paired verification 34331946308, attempt 1](https://github.com/multipliedtwice/bachata-extension/actions/runs/34331946308): passed at `5b1cf15010bca1d79fe6a3355a71e5117fe1e9cc`.
+- Automated test/coverage invocations: 10,054 total, 10,051 passed, zero failed or cancelled. Three skips: Windows-only descendant cleanup, once in each full suite on Linux; native Windows evidence remains below.
+- Exact VSIX: 1,885 files, 11,955,251 bytes, 793 build-equivalent runtime files. Bridge: all 58 entries compared byte for byte.
+- Bundle `approved-release-1`, artifact `10096649852`; outer artifact SHA-256 `bcfa1873c761e0b7ac81d7d5a8a3922426746a6f8637585ad7e8a5a8b3496550`. Allowed publication target: VS Code only.
+- [Publication 34333386778, attempt 2](https://github.com/multipliedtwice/bachata-extension/actions/runs/34333386778/attempts/2): passed at the same commit. VSCE confirmed publication at 2026-09-09 09:18:01 UTC. Existing VSIX uploaded without rebuild.
+- First publication attempt: Marketplace API discovery timed out before upload. Deployment-only retry succeeded; artifacts unchanged. No Chrome submission performed by this release.
 
 ## Current candidate evidence
 
@@ -66,7 +78,7 @@ replacement removes only the redundant `activeTab` permission from the prior ZIP
 Protocol contract and both shared fixture tables remain unchanged and match the
 extension's compatibility pin, so the verified VSIX remains applicable. The VSIX
 candidate run used the prior Bridge archive; local byte and contract verification
-covers the replacement. Final paired verification must check this new pair.
+covers the replacement. Final paired verification checked this pair; see publication evidence.
 
 Test counts: every `node --test` invocation the package's `npm test` chain
 runs, summed, with contributing commands named. Platform skips are not passes.
@@ -90,8 +102,8 @@ tests and four early native gates passed. Source coverage failed one fixture in
 The fixture expected a completed run but received another status; the underlying
 run error was not printed. Coverage completed normally, without a
 timeout; critical and later coverage gates did not run. No skipped gate counted
-as passed. Final paired verification must compare the accepted
-VSIX with the final checkout and the new Bridge archive before deployment.
+as passed. Final paired verification compared the accepted
+VSIX with the final checkout and Bridge archive; see publication evidence.
 
 [Focused Windows coverage run 34293903164](https://github.com/multipliedtwice/bachata-extension/actions/runs/34293903164)
 passed on 2026-09-09 at source `da916e5`: 61 preflight tests, three isolated
@@ -131,7 +143,7 @@ critical 88.07 / 82.03 / 89.33 percent. These measurements describe this run onl
 The original retained-run fixture passed in both complete suites. Its earlier
 unprinted status error remains unexplained; passing reruns do not establish its
 cause. No runtime or dependency changes followed candidate source `eb489e2`;
-candidate bytes remain unchanged. Human and final paired acceptance remain open.
+candidate bytes remain unchanged. Deferred human acceptance remains open; final automated paired verification passed.
 
 [Bridge release gates 34266259840](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34266259840)
 passed on all three platforms at artifact source `6081387`.
@@ -145,7 +157,7 @@ Chrome publisher/item variables match the supplied draft item
 `pkjbokfimenacagphechjmlogogghaip`. Publisher reported Chrome Store submission
 for review on 2026-09-09. Google review outcome and live publication remain
 unverified. Submission does not establish exact-artifact acceptance or a
-stable-release verdict. VS Code deployment and final paired verification remain open.
+stable-release verdict. VS Code deployment and final paired verification passed; see publication evidence.
 
 Coverage policy: the floors, not these percentages, are the claim. Enforced floors
 live in package.json. Source floors: 78 / 73 / 80 lines / branches / functions.
@@ -159,7 +171,6 @@ Maintained-source distribution: `npm run source:export` then `npm run source:ver
 - Complete deferred provider-terms review in PROVIDER_TERMS.md.
 - Capture deferred screenshots from this packaged build.
 - Await Chrome review outcome and confirm live publication; keep publishing credentials valid.
-- Run final paired verification with `publication_target=vscode`, then publish the verified bundle to VS Code only.
 
 Moderated validation and benchmark claims remain unproved. Unclaimed future
 features follow STABLE_RELEASE_GATE.md and TODO.md; no completion inferred.
