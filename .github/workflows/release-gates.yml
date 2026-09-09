@@ -17,6 +17,7 @@ on:
         options:
           - full
           - windows-coverage-regression
+          - windows-complete-coverage
 
 permissions:
   contents: read
@@ -27,7 +28,7 @@ concurrency:
 
 jobs:
   validate:
-    if: inputs.scope != 'windows-coverage-regression'
+    if: inputs.scope != 'windows-coverage-regression' && inputs.scope != 'windows-complete-coverage'
     name: Validate on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -182,3 +183,66 @@ jobs:
           --test-coverage-exclude=dist/webview.js
           --test-coverage-exclude=dist/webview-behavior.js
           --test tests/orchestratedFeatureDelivery.test.cjs tests/orchestrator.test.cjs
+
+  windows-complete-coverage:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'windows-complete-coverage'
+    name: Windows complete coverage gates
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install from the lockfile only
+        run: npm ci
+      - name: Refuse an unclean checkout
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The checkout was dirty before any gate ran:"
+            git status --porcelain
+            exit 1
+          fi
+      - name: Lockfile
+        run: npm run check:lockfile
+      - name: Types
+        run: npm run check-types
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: No telemetry
+        run: npm run check:no-telemetry
+      - name: Build source and validate evidence
+        run: |
+          npm run build:emit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check:build-facts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-concurrency=1 tests/bridgeRunValidation.test.cjs tests/documentation.test.cjs tests/buildFacts.test.cjs tests/releaseMetadata.test.cjs
+      - name: Native verification sequencing and timeout coverage
+        timeout-minutes: 5
+        run: >-
+          node --experimental-test-coverage --test
+          --test-name-pattern="^(native verification commands stop at the first deterministic failure|command runner terminates timed-out checks)$"
+          tests/orchestrator.test.cjs
+      - name: Coverage gates
+        env:
+          BACHATA_COMMAND_TIMEOUT_MS: "3600000"
+        run: npm run test:coverage
+      - name: Release metadata identity
+        run: npm run check:release-metadata:identity
+      - name: Refuse source drift from the gates
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "A gate modified tracked source:"
+            git status --porcelain
+            exit 1
+          fi

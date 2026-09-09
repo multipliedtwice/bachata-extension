@@ -75,6 +75,15 @@ retained-case repetitions, and all 19 feature-delivery tests. Zero failures,
 cancellations or skips. Original full-suite failure remains unreproduced;
 this focused result does not clear the remaining Windows gates.
 
+[Concurrent Windows coverage run 34297997079](https://github.com/multipliedtwice/bachata-extension/actions/runs/34297997079)
+failed on 2026-09-09 at source `6175f43`: 122 tests, 119 passed, one failed,
+two platform-specific skips, zero cancellations. Original retained-run case passed.
+The verification-command sequencing fixture exceeded its five-second deadline
+after printing `ok`; cleanup was confirmed. Its Windows-only allowance is now
+30 seconds, with explicit output and cleanup assertions. Production deadlines
+and the separate intentional-timeout test remain unchanged. Native verification
+of this fixture change and complete Windows coverage remain open.
+
 [Bridge release gates 34266259840](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34266259840)
 passed on all three platforms at artifact source `6081387`.
 

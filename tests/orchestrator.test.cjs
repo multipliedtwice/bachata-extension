@@ -382,11 +382,14 @@ test("native verification commands stop at the first deterministic failure", asy
       `${shellNodeExecutable} -e "require('node:fs').writeFileSync('must-not-run.txt', 'ran')"`,
     ], {
       cwd,
-      timeoutMs: 5_000,
+      timeoutMs: process.platform === "win32" ? 30_000 : 5_000,
       maxOutputBytes: 10_000,
     });
     assert.deepEqual(results.map((value) => value.status), ["passed", "failed"], JSON.stringify(results));
+    assert.equal(results[0].stdout, "ok");
+    assert.equal(results[1].stderr, "bad");
     assert.equal(results[1].exitCode, 3);
+    assert.equal(results.every((value) => value.cleanupConfirmed), true, JSON.stringify(results));
     assert.equal(existsSync(path.join(cwd, "must-not-run.txt")), false);
   } finally {
     await rm(cwd, { recursive: true, force: true });
