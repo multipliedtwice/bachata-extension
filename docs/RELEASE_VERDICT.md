@@ -81,8 +81,18 @@ two platform-specific skips, zero cancellations. Original retained-run case pass
 The verification-command sequencing fixture exceeded its five-second deadline
 after printing `ok`; cleanup was confirmed. Its Windows-only allowance is now
 30 seconds, with explicit output and cleanup assertions. Production deadlines
-and the separate intentional-timeout test remain unchanged. Native verification
-of this fixture change and complete Windows coverage remain open.
+and the separate intentional-timeout test remain unchanged.
+
+[Complete Windows coverage run 34300890741](https://github.com/multipliedtwice/bachata-extension/actions/runs/34300890741)
+failed on 2026-09-09 at source `39872fd`. Preflight passed 61 tests; early native
+sequencing and intentional-timeout coverage passed both tests, zero failures,
+cancellations or skips. Source coverage then exceeded the aggregate 3,600,000 ms
+command limit while tests were still completing. Partial output: 2,472 passed,
+24 skipped, no observed assertion failures; no completed suite summary. Original
+retained-run, sequencing and intentional-timeout cases passed in that source run.
+Critical and subsequent coverage, identity and drift gates did not run. Windows
+CI coverage commands now allow 7,200,000 ms; production deadlines, individual
+test deadlines and coverage floors remain unchanged. Complete verification is open.
 
 [Bridge release gates 34266259840](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34266259840)
 passed on all three platforms at artifact source `6081387`.

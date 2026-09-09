@@ -126,7 +126,7 @@ jobs:
 
       - name: Coverage gates
         env:
-          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '' }}
+          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '7200000' || '' }}
         run: npm run test:coverage
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact
@@ -234,7 +234,7 @@ jobs:
           tests/orchestrator.test.cjs
       - name: Coverage gates
         env:
-          BACHATA_COMMAND_TIMEOUT_MS: "3600000"
+          BACHATA_COMMAND_TIMEOUT_MS: "7200000"
         run: npm run test:coverage
       - name: Release metadata identity
         run: npm run check:release-metadata:identity
