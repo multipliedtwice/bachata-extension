@@ -509,6 +509,19 @@ test("work that was never verified stays inspectable, and discarding is what rem
   });
   try {
     assert.equal(session.error, undefined, String(session.error?.message ?? ""));
+    assert.equal(session.run.status, "completed", JSON.stringify({
+      error: session.run.error,
+      tasks: Object.values(session.run.tasks).map(({ spec, status, lastError, result }) => ({
+        id: spec.id,
+        status,
+        lastError,
+        result,
+      })),
+      finalChecks: session.run.finalChecks,
+      output: session.harness.outputLines.slice(-20),
+      failures: session.harness.transcript.filter((entry) =>
+        /error|failed|interrupt/iu.test(`${entry.eventType} ${entry.message}`)).slice(-10),
+    }, null, 2));
     const runId = session.run.runId;
     await assert.rejects(session.controller.applyRetained(runId), /Required verification/u);
     // Refused, and still there to read: the retained worktree, its changed paths and its patch.

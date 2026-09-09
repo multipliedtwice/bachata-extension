@@ -64,7 +64,7 @@ Run the full release suite from `docs/STABLE_RELEASE_GATE.md` on each clean envi
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | macOS | 22.13.0 | 2.55.0 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | Automated gates passed at source `eb489e2`, run 34263466590; 3061 tests, 3050 passed, 0 failed | 11: seven Linux-only descendant cases, three archive cases covered by the paired candidate, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
 | Linux | 22.13.0 | 2.55.0 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | Automated gates passed at source `eb489e2`, run 34263466590; 3061 tests, 3057 passed, 0 failed | 4: three archive cases covered by the paired candidate, one Windows-only cleanup case | Not performed | 2026-09-08 | Not performed |
-| Windows | — | — | — | — | — | — | — | Not performed |
+| Windows | 22.13.0 | 2.55.0.windows.5 | `b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03` | Full tests passed at source `eb489e2`, run 34263466590: 3061 tests, 3028 passed, 0 failed. Source coverage failed one retained-work fixture; later coverage gates did not run | 33: three archive cases covered by paired candidate and 30 platform-specific cases | Not performed | 2026-09-08 | Not performed |
 
 ## 5. Responsiveness under synchronous state access
 

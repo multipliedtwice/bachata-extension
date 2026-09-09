@@ -9,16 +9,25 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Validation scope
+        type: choice
+        default: full
+        options:
+          - full
+          - windows-coverage-regression
 
 permissions:
   contents: read
 
 concurrency:
-  group: extension-release-gates-${{ github.ref }}
+  group: extension-release-gates-${{ github.ref }}-${{ inputs.scope || 'full' }}
   cancel-in-progress: true
 
 jobs:
   validate:
+    if: inputs.scope != 'windows-coverage-regression'
     name: Validate on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -134,3 +143,43 @@ jobs:
             git status --porcelain
             exit 1
           fi
+
+  windows-coverage-regression:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'windows-coverage-regression'
+    name: Windows retained-run coverage regression
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install and build
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:emit
+      - name: Validate focused run source and evidence
+        run: |
+          npm run lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run format:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check:build-facts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-concurrency=1 tests/bridgeRunValidation.test.cjs tests/documentation.test.cjs tests/buildFacts.test.cjs tests/releaseMetadata.test.cjs
+      - name: Repeated retained-run coverage regression
+        timeout-minutes: 10
+        run: |
+          foreach ($attempt in 1..3) {
+            Write-Output "Retained-run coverage attempt $attempt"
+            node --experimental-test-coverage --test --test-name-pattern="work that was never verified" tests/orchestratedFeatureDelivery.test.cjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Complete feature-delivery coverage
+        timeout-minutes: 30
+        run: node --experimental-test-coverage --test --test-concurrency=2 tests/orchestratedFeatureDelivery.test.cjs

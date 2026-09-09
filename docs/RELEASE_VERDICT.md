@@ -53,16 +53,20 @@ runs, summed, with contributing commands named. Platform skips are not passes.
 | VSIX prepublish `npm test` | 3061 tests, 3060 passed, 0 failed, 1 skip: Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3044). |
 | Linux source `npm test` | 3061 tests, 3057 passed, 0 failed, 4 skips: three archive cases covered by paired candidate plus Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3044). All release gates passed. |
 | macOS source `npm test` | 3061 tests, 3050 passed, 0 failed, 11 skips: seven Linux-only descendant cases, three archive cases covered by paired candidate and Windows-only cleanup. Commands: `test:source-distribution` (17) plus `test:unit` (3044). All release gates passed. |
-| Windows source suite | Full suite and coverage remain pending in run 34263466590. All four early native Windows gates passed; they do not establish a full-suite pass. |
+| Windows source `npm test` | 3061 tests, 3028 passed, 0 failed, 33 skips: three archive cases covered by paired candidate and 30 platform-specific cases. Commands: `test:source-distribution` (17) plus `test:unit` (3044). |
+| Windows source coverage (failed) | 3044 tests, 3010 passed, 1 failed, 0 cancelled, 33 skips. Retained-work inspection fixture failed before its expected verification refusal. Critical and subsequent coverage gates did not run. |
 | Browser Bridge packaging `npm test` | 1210 tests, 1210 passed, 0 failed, 0 skips. Artifact run 34266310785: `test:source-distribution` (6) plus main suite (1204). All three platform gates also passed in run 34266259840 at source `6081387`. |
 | Packaged macOS activation | Exact VSIX installed in a fresh VS Code 1.135.0 profile. Existing `e2e/activation/index.cjs` passed against installed files: all 29 pipelines rendered/selectable, custom pipeline creation and JSON round-trip, invalid-JSON recovery, menu hit/focus checks, zero global alerts. Automated smoke only; human checklist remains open. |
 | Dependency audit | 2026-09-08 authorized registry audits reported zero vulnerabilities in both packages. Package manifests and lockfiles remain unchanged since those audits; candidate dependency closure verified during packaging. No fresh audit claimed. |
 
 [Extension release gates 34263466590](https://github.com/multipliedtwice/bachata-extension/actions/runs/34263466590)
 passed all gates on Linux and macOS at candidate source `eb489e2`. Windows full
-suite and coverage remain pending. No pending or skipped gate counted as passed.
-The early native checks cover the corrected safety boundaries; complete platform
-validation remains required. Final paired verification must compare the accepted
+tests and four early native gates passed. Source coverage failed one fixture in
+`orchestratedFeatureDelivery.test.cjs`; investigation and a corrected run remain
+open. The fixture expected a completed run but received another status; the underlying
+run error was not printed. Coverage completed normally, without a
+timeout; critical and later coverage gates did not run. No skipped gate counted
+as passed. Final paired verification must compare the accepted
 VSIX with the final checkout and the new Bridge archive before deployment.
 
 [Bridge release gates 34266259840](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34266259840)
@@ -82,7 +86,7 @@ Maintained-source distribution: `npm run source:export` then `npm run source:ver
 
 ## Publication still blocked
 
-- Finish the extension Windows full suite and coverage.
+- Resolve the Windows retained-work coverage failure; pass remaining Windows gates.
 - Complete applicable RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
 - Complete provider-terms review in PROVIDER_TERMS.md.
 - Capture screenshots from this packaged build.
