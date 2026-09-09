@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { mkdtemp, writeFile, rm } = require("node:fs/promises");
+const { mkdtemp, readFile, writeFile, rm } = require("node:fs/promises");
 const { createHash } = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
@@ -50,6 +50,34 @@ test("publication never treats NO-SHIP or an unrelated SHIP mention as approval"
   await withBundle(async (directory) => {
     await writeFile(path.join(directory, "RELEASE_VERDICT.md"), "## Verdict\n\n**SHIP**\nchanged");
     await assert.rejects(verifyReleaseBundle(directory, expected), /verdict digest/u);
+  });
+});
+
+test("an owner-approved verdict cannot authorize Chrome, both stores, or a different bundle", async () => {
+  const { verifyReleaseBundle } = await import("../scripts/release-bundle.mjs");
+  const verdict = await readFile(path.join(__dirname, "../docs/RELEASE_VERDICT.md"), "utf8");
+  await withBundle(async (directory, manifest) => {
+    manifest.verdictSha256 = digest(verdict);
+    manifest.allowedTargets = ["vscode", "bridge"];
+    await writeFile(path.join(directory, "RELEASE_VERDICT.md"), verdict);
+    await writeFile(path.join(directory, "release-set.json"), JSON.stringify(manifest));
+    for (const target of ["bridge", "both", undefined]) {
+      await assert.rejects(verifyReleaseBundle(directory, { ...expected, target }), /VS Code only/u);
+    }
+    await assert.rejects(verifyReleaseBundle(directory, { ...expected, target: "vscode" }), /does not cover the staged vsix/u);
+  });
+});
+
+test("strict release bundles preserve supported targets and reject forged target declarations", async () => {
+  const { verifyReleaseBundle } = await import("../scripts/release-bundle.mjs");
+  await withBundle(async (directory, manifest) => {
+    for (const target of ["vscode", "bridge", "both"]) {
+      assert.ok(await verifyReleaseBundle(directory, { ...expected, target }));
+    }
+    await assert.rejects(verifyReleaseBundle(directory, { ...expected, target: "other" }), /Invalid publication target/u);
+    manifest.allowedTargets = ["vscode"];
+    await writeFile(path.join(directory, "release-set.json"), JSON.stringify(manifest));
+    await assert.rejects(verifyReleaseBundle(directory, expected), /targets do not match/u);
   });
 });
 

@@ -91,6 +91,7 @@ const verify = async () => {
     [
       path.join(root, "scripts", "check-release-metadata.mjs"),
       "--stage=all",
+      `--target=${process.argv.slice(2).find((value) => value.startsWith("--target="))?.slice("--target=".length) ?? process.env.RELEASE_PUBLICATION_TARGET ?? "both"}`,
       `--vsix=${artifacts[0].snapshot}`,
       `--bridge=${artifacts[1].snapshot}`,
     ],
@@ -144,7 +145,7 @@ const verify = async () => {
   }
 
   console.log(
-    `Verified this exact release set: records, binding, and packaged bytes all describe\n  Bachata VSIX ${artifacts[0].digest}\n  Browser Bridge ZIP ${artifacts[1].digest}`,
+    `Verified this exact release set: applicable release checks, binding, and packaged bytes all describe\n  Bachata VSIX ${artifacts[0].digest}\n  Browser Bridge ZIP ${artifacts[1].digest}`,
   );
 };
 

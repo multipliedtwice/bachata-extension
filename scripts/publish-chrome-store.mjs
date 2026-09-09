@@ -62,6 +62,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const { bridge } = await verifyReleaseBundle(path.resolve(directory), {
     repository: process.env.GITHUB_REPOSITORY, commit: process.env.GITHUB_SHA,
     runId: process.env.RELEASE_RUN_ID, runAttempt: process.env.RELEASE_RUN_ATTEMPT,
+    target: "bridge",
   });
   const state = await publishChromeStore({ ...bridge, env: process.env });
   console.log(`Chrome Web Store submission state: ${state}. Store review and availability remain separate.`);

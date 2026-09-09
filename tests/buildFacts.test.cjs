@@ -178,7 +178,7 @@ test("the tree state the gate cannot compare is still recorded for a human", () 
 
 test("the human verdict keeps its own decision and cites the generated facts", () => {
   const verdict = fs.readFileSync(path.join(root, "docs", "RELEASE_VERDICT.md"), "utf8");
-  assert.match(verdict, /\*\*(?:NO-SHIP|SHIP) as a stable release/u);
+  assert.match(verdict, /\*\*(?:(?:NO-SHIP|SHIP) as a stable release|SHIP to VS Code Marketplace only: existing Bachata 0\.7\.0 VSIX, by explicit owner authorization\.)/u);
   assert.match(verdict, /BUILD_FACTS\.md/u);
 });
 

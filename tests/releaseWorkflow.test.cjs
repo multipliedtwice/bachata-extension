@@ -106,6 +106,8 @@ test("downloaded Bridge inputs stay outside the source drift check", () => {
 });
 
 test("acceptance verifies the existing candidate instead of rebuilding its bytes", () => {
+  assert.match(workflow, /publication_target:[\s\S]*?options: \[both, vscode, bridge\]/u);
+  assert.match(workflow, /RELEASE_PUBLICATION_TARGET: \$\{\{ inputs\.publication_target \}\}/u);
   assert.match(workflow, /name: Build the candidate VSIX\n\s+if: inputs\.phase == 'candidate'/u);
   assert.match(workflow, /name: Download the already tested VSIX\n\s+if: inputs\.phase == 'verify'/u);
   assert.match(workflow, /name: Release verification\n\s+if: inputs\.phase == 'verify'/u);
@@ -115,6 +117,9 @@ test("acceptance verifies the existing candidate instead of rebuilding its bytes
 test("marketplace publication consumes a verified bundle and never rebuilds or versions it", () => {
   const deploy = fs.readFileSync(path.join(root, ".github/workflows/publish-marketplaces.yml"), "utf8");
   assert.match(deploy, /environment: marketplace/u);
+  assert.match(deploy, /RELEASE_PUBLICATION_TARGET: \$\{\{ inputs\.target \}\}/u);
+  const chromePublisher = fs.readFileSync(path.join(root, "scripts/publish-chrome-store.mjs"), "utf8");
+  assert.match(chromePublisher, /verifyReleaseBundle\([\s\S]*?target: "bridge"/u);
   assert.match(deploy, /EXPECTED_COMMIT: \$\{\{ github\.sha \}\}/u);
   assert.match(deploy, /EXPECTED_RUN_ATTEMPT: \$\{\{ inputs\.release_run_attempt \}\}/u);
   assert.match(deploy, /EXPECTED_EVENT: workflow_dispatch/u);

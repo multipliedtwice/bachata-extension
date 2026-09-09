@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { releaseMetadataFindings } from "./lib/releaseMetadata.mjs";
+import { ownerPublicationApproved } from "./lib/ownerPublicationApproval.mjs";
 import {
   BRIDGE_ARTIFACT_LIMITS,
   VSIX_ARTIFACT_LIMITS,
@@ -102,6 +103,8 @@ const artifacts = !bindsArtifacts ? {} : {
     : {}),
 };
 
+const publicationVerdict = await readOptional("docs/RELEASE_VERDICT.md");
+const publicationTarget = pathArgument("target") ?? process.env.RELEASE_PUBLICATION_TARGET ?? "both";
 const findings = releaseMetadataFindings({
   packageJson,
   readme: (await readOptional("README.md")) ?? "",
@@ -113,6 +116,8 @@ const findings = releaseMetadataFindings({
   providerDocumentationSource: (await readOptional("src/readiness/providerDocs.ts")) ?? "",
   artifacts,
   stage,
+  publicationVerdict,
+  publicationTarget,
 });
 
 if (bindsArtifacts) {
@@ -130,4 +135,8 @@ if (findings.length > 0) {
   );
   process.exit(1);
 }
-console.log(`Public distribution metadata is complete (${stage} stage).`);
+if (stage === "all" && ownerPublicationApproved(publicationVerdict, artifacts, publicationTarget)) {
+  console.log("Public distribution checks passed for owner-authorized VS Code publication; manual acceptance, compatibility/terms reviews and screenshots remain deferred.");
+} else {
+  console.log(`Public distribution metadata is complete (${stage} stage).`);
+}

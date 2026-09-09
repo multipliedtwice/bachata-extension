@@ -1,3 +1,5 @@
+import { ownerPublicationApproved } from "./ownerPublicationApproval.mjs";
+
 export const PLACEHOLDER_MARKER = "todo-release";
 
 const placeholder = (value) =>
@@ -80,6 +82,7 @@ const structuredTableFindings = ({
   artifactHashes,
   artifactHashByKind = {},
   checksEvidence = true,
+  deferredManualColumns = [],
 }) => {
   const bindsArtifacts = artifactHashes !== undefined;
   const dateColumns = columnIndexes(table.headers, /date/iu);
@@ -164,7 +167,9 @@ const structuredTableFindings = ({
     }
     const unrecorded = row.cells.filter(unrecordedCell);
     if (unrecorded.length > 0) {
-      if (checksEvidence) {
+      const authorizedManualDeferral = row.cells.every((cell, index) =>
+        !unrecordedCell(cell) || deferredManualColumns.includes(table.headers[index]));
+      if (checksEvidence && !authorizedManualDeferral) {
         findings.push(`${where} is still unrecorded ("${unrecorded[0]}").`);
       }
       return;
@@ -448,6 +453,8 @@ export const releaseMetadataFindings = ({
   artifacts = {},
   stage = "all",
   schemas = RECORD_SCHEMAS,
+  publicationVerdict,
+  publicationTarget = "both",
 }) => {
   const findings = [];
   const stages = stage === "all"
@@ -460,6 +467,14 @@ export const releaseMetadataFindings = ({
           artifact: stage === "artifact",
         };
   const bindsArtifacts = stages.artifact;
+  let approvedManualDeferral = false;
+  if (stages.evidence && bindsArtifacts) {
+    try {
+      approvedManualDeferral = ownerPublicationApproved(publicationVerdict, artifacts, publicationTarget);
+    } catch (error) {
+      findings.push(error.message);
+    }
+  }
 
   if (stages.identity) {
   if (placeholder(packageJson.publisher) || packageJson.publisher === "local") {
@@ -521,13 +536,13 @@ export const releaseMetadataFindings = ({
       readme.matchAll(/!\[[^\]]*\]\((media\/screenshots\/[^)\s]+)\)/gu),
       (match) => match[1],
     );
-    if (referencedScreenshots.length === 0) {
+    if (referencedScreenshots.length === 0 && !approvedManualDeferral) {
       findings.push("README.md references no screenshot under media/screenshots/.");
     }
     referencedScreenshots
       .filter((reference) => !screenshotFiles.includes(reference))
       .forEach((reference) => findings.push(`README.md references a missing screenshot: ${reference}`));
-    if (screenshotFiles.length === 0) {
+    if (screenshotFiles.length === 0 && !approvedManualDeferral) {
       findings.push("media/screenshots/ contains no verified screenshot of the packaged build.");
     }
   }
@@ -572,6 +587,12 @@ export const releaseMetadataFindings = ({
           ...(artifacts.bridge?.sha256 ? { bridge: artifacts.bridge.sha256.toLowerCase() } : {}),
         },
         checksEvidence: stages.evidence,
+        deferredManualColumns: !approvedManualDeferral ? []
+          : label === "docs/PROVIDER_TERMS.md" ? ["Terms reviewed", "Outcome"]
+            : label === "docs/COMPATIBILITY_MATRIX.md" ? ["Result"]
+              : label === "docs/RELEASE_VALIDATION_RECORD.md"
+                && ["OS", "Provider", "Step", "Scenario"].includes(table.headers[0])
+                ? ["Result", "Graphical checklist"] : [],
       }));
   };
 

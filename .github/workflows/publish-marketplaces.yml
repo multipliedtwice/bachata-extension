@@ -39,6 +39,7 @@ jobs:
     env:
       RELEASE_RUN_ID: ${{ inputs.release_run_id }}
       RELEASE_RUN_ATTEMPT: ${{ inputs.release_run_attempt }}
+      RELEASE_PUBLICATION_TARGET: ${{ inputs.target }}
     steps:
       - uses: actions/checkout@v4
         with:

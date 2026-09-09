@@ -4,14 +4,38 @@ Artifacts under test: Bachata VSIX `b2de4cafc69281279c4bf08434da644b842da8293f35
 
 ## Verdict
 
-**NO-SHIP as a stable release. The source tree is a closed-alpha candidate.**
+**SHIP to VS Code Marketplace only: existing Bachata 0.7.0 VSIX, by explicit owner authorization.**
 
 Exact-package graphical acceptance, authenticated-provider smoke, provider-terms
-and compatibility records remain open. No human acceptance inferred from automated
-results. Earlier VSIX acceptance evidence does not cover this build.
+and compatibility records remain open. Owner deferred those checks and screenshots
+for this publication on 2026-09-09. No human acceptance inferred from automated
+results. Earlier VSIX acceptance evidence does not cover this build. This exception
+does not certify the deferred checks or authorize Chrome publication.
 
 The named artifacts are the current verified candidates. Keep these exact bytes;
-acceptance and final paired verification remain open.
+deferred acceptance remains open. Final automated paired verification must pass
+before publication. Identity, integrity, source-byte equivalence and provenance
+checks remain required. Other artifacts and releases retain the strict evidence gate.
+
+## Owner publication authorization
+
+```json
+{
+  "schemaVersion": 1,
+  "authorizedOn": "2026-09-09",
+  "ownerStatement": "well, we can lift no-ship",
+  "explicitApproval": "publish the existing Bachata 0.7.0 VSIX to VS Code only, deferring manual acceptance, compatibility/terms reviews and screenshots for this release.",
+  "target": "vscode",
+  "vsix": {
+    "version": "0.7.0",
+    "sha256": "b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03"
+  },
+  "bridge": {
+    "version": "0.6.7",
+    "sha256": "d531ebb5f4988b99a78fd00c06e82f7e2c8cfbb10bf3b7b3a2f5f4f904af7fc5"
+  }
+}
+```
 
 ## Current candidate evidence
 
@@ -116,7 +140,8 @@ Encrypted Bridge read token and Marketplace PAT configured; both expire
 2026-10-08. Chrome OAuth client, secret and refresh token are encrypted in the
 marketplace environment. Token refresh succeeded. OAuth app remains in Testing;
 refresh token expires seven days after issue on 2026-09-08 UTC. Renew before
-2026-09-15 UTC. Chrome publisher/item variables match the supplied draft item
+2026-09-15 UTC. See [Google token expiration](https://developers.google.com/identity/protocols/oauth2#expiration).
+Chrome publisher/item variables match the supplied draft item
 `pkjbokfimenacagphechjmlogogghaip`. Publisher reported Chrome Store submission
 for review on 2026-09-09. Google review outcome and live publication remain
 unverified. Submission does not establish exact-artifact acceptance or a
@@ -127,14 +152,14 @@ live in package.json. Source floors: 78 / 73 / 80 lines / branches / functions.
 No percentage inferred from a prior build. Source measurements: BUILD_FACTS.md.
 Maintained-source distribution: `npm run source:export` then `npm run source:verify`.
 
-## Publication still blocked
+## Open follow-up work
 
 - Determine the cause of the original intermittent retained-run status mismatch.
-- Complete applicable RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
-- Complete provider-terms review in PROVIDER_TERMS.md.
-- Capture screenshots from this packaged build.
+- Complete deferred RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
+- Complete deferred provider-terms review in PROVIDER_TERMS.md.
+- Capture deferred screenshots from this packaged build.
 - Await Chrome review outcome and confirm live publication; keep publishing credentials valid.
-- Run `npm run release:verify`; human reviews bound evidence and owns verdict.
+- Run final paired verification with `publication_target=vscode`, then publish the verified bundle to VS Code only.
 
 Moderated validation and benchmark claims remain unproved. Unclaimed future
 features follow STABLE_RELEASE_GATE.md and TODO.md; no completion inferred.

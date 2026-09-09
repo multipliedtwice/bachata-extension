@@ -25,6 +25,12 @@ on:
         description: Successful candidate-phase run ID; required for verify
         required: false
         type: string
+      publication_target:
+        description: Marketplace target authorized by the release verdict
+        required: true
+        type: choice
+        options: [both, vscode, bridge]
+        default: both
       candidate_run_attempt:
         description: Candidate run attempt; required for verify
         required: false
@@ -52,6 +58,8 @@ jobs:
     name: Verify the paired artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      RELEASE_PUBLICATION_TARGET: ${{ inputs.publication_target }}
     steps:
       - uses: actions/checkout@v4
         with:

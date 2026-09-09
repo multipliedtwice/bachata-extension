@@ -94,6 +94,77 @@ test("complete structured release evidence bound to the staged artifacts produce
   assert.deepEqual(releaseMetadataFindings(completeInput()), []);
 });
 
+const ownerApprovedInput = () => ({
+  packageJson: JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")),
+  readme: fs.readFileSync(path.join(root, "README.md"), "utf8"),
+  screenshotFiles: [],
+  bridgeInstallDocument: fs.readFileSync(path.join(root, "docs/BROWSER_BRIDGE_INSTALL.md"), "utf8"),
+  validationRecord: fs.readFileSync(path.join(root, "docs/RELEASE_VALIDATION_RECORD.md"), "utf8"),
+  providerTerms: fs.readFileSync(path.join(root, "docs/PROVIDER_TERMS.md"), "utf8"),
+  compatibilityMatrix: fs.readFileSync(path.join(root, "docs/COMPATIBILITY_MATRIX.md"), "utf8"),
+  publicationVerdict: fs.readFileSync(path.join(root, "docs/RELEASE_VERDICT.md"), "utf8"),
+  publicationTarget: "vscode",
+  artifacts: {
+    vsix: { version: "0.7.0", sha256: "b2de4cafc69281279c4bf08434da644b842da8293f351d4b669b5619d4d7ec03" },
+    bridge: { version: "0.6.7", sha256: "d531ebb5f4988b99a78fd00c06e82f7e2c8cfbb10bf3b7b3a2f5f4f904af7fc5" },
+  },
+});
+
+test("one-release approval defers only the named manual evidence for the exact pair and VS Code target", async () => {
+  const { releaseMetadataFindings } = await load();
+  const input = ownerApprovedInput();
+  assert.deepEqual(releaseMetadataFindings(input), []);
+  for (const publicationTarget of ["both", "bridge", "", "other"]) {
+    assert.ok(releaseMetadataFindings({ ...input, publicationTarget }).some((item) => /VS Code only/u.test(item)));
+  }
+  for (const kind of ["vsix", "bridge"]) {
+    for (const field of ["version", "sha256"]) {
+      const changed = structuredClone(input);
+      changed.artifacts[kind][field] = field === "version" ? "9.0.0" : "f".repeat(64);
+      assert.ok(releaseMetadataFindings(changed).some((item) => /does not cover the staged/u.test(item)));
+    }
+  }
+  assert.ok(releaseMetadataFindings({ ...input, publicationVerdict: undefined }).some((item) => /unrecorded/u.test(item)));
+  assert.ok(releaseMetadataFindings({ ...input, stage: "evidence" }).some((item) => /unrecorded/u.test(item)));
+});
+
+test("owner approval preserves audit, automated-suite, identity, schema and recorded-evidence checks", async () => {
+  const { releaseMetadataFindings } = await load();
+  const input = ownerApprovedInput();
+  const cases = [
+    [{ validationRecord: input.validationRecord.replace(/\| Pass \| Authorized registry audits/u, "| Not performed | Authorized registry audits") }, /Network-backed dependency audit.*unrecorded/u],
+    [{ validationRecord: input.validationRecord.replace(/Automated gates passed at source[^|]+/u, "Not performed ") }, /macOS.*unrecorded/u],
+    [{ validationRecord: input.validationRecord.replace(/\| 2026-09-08 \| (`[^`]+`) \| Pass/u, "| invalid-date | $1 | Pass") }, /invalid Date/u],
+    [{ validationRecord: input.validationRecord.replace(/\| Pass \| Authorized registry audits/u, "| maybe | Authorized registry audits") }, /not a terminal verdict/u],
+    [{ validationRecord: input.validationRecord.replace(/\| (`[^`]+`) \| Pass \| Authorized/u, `| \`${"f".repeat(64)}\` | Pass | Authorized`) }, /not the staged/u],
+    [{ packageJson: { ...input.packageJson, publisher: "local" } }, /publisher is a placeholder/u],
+    [{ compatibilityMatrix: input.compatibilityMatrix.replace(/\| 0\.7\.0 \|[^\n]+\n/u, "") }, /records .* rows/u],
+    [{ readme: "![Missing](media/screenshots/missing.png)" }, /missing screenshot/u],
+  ];
+  for (const [change, expectedFinding] of cases) {
+    const findings = releaseMetadataFindings({ ...input, ...change });
+    assert.ok(findings.some((item) => expectedFinding.test(item)), JSON.stringify({ expectedFinding: String(expectedFinding), findings }));
+  }
+});
+
+test("owner authorization rejects malformed, duplicated or widened records", async () => {
+  const { ownerPublicationApproved, readOwnerPublicationApproval } = await import("../scripts/lib/ownerPublicationApproval.mjs");
+  const input = ownerApprovedInput();
+  const approval = readOwnerPublicationApproval(input.publicationVerdict);
+  const document = (value) => `## Owner publication authorization\n\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\``;
+  assert.equal(ownerPublicationApproved(document(approval), input.artifacts, "vscode"), true);
+  assert.equal(ownerPublicationApproved("## Verdict\n\n**SHIP**", input.artifacts, "both"), false);
+  for (const change of [
+    { target: "both" }, { authorizedOn: "2026-09-10" }, { ownerStatement: "approved" },
+    { explicitApproval: "publish everything" }, { schemaVersion: 2 }, { additionalScope: true },
+    { vsix: { ...approval.vsix, sha256: "f".repeat(64) } },
+  ]) {
+    assert.throws(() => readOwnerPublicationApproval(document({ ...approval, ...change })), /one-release scope/u);
+  }
+  assert.throws(() => readOwnerPublicationApproval(`${document(approval)}\n${document(approval)}`), /Invalid owner/u);
+  assert.throws(() => readOwnerPublicationApproval("## Owner publication authorization\n\n```json\n{\n```"), /Invalid owner/u);
+});
+
 test("placeholder identity, missing evidence, and unrecorded rows all block release", async () => {
   const { releaseMetadataFindings } = await load();
   const input = completeInput();

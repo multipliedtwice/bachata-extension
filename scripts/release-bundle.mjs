@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ownerPublicationApproved } from "./lib/ownerPublicationApproval.mjs";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -50,6 +51,16 @@ export const verifyReleaseBundle = async (directory, expected) => {
   const verdict = await fileBytes(path.join(directory, "RELEASE_VERDICT.md"));
   if (sha256(verdict) !== manifest.verdictSha256) throw new Error("Release verdict digest mismatch.");
   requireShipVerdict(verdict.toString("utf8"));
+  const target = expected.target ?? "both";
+  if (!["both", "vscode", "bridge"].includes(target)) throw new Error("Invalid publication target.");
+  const approved = ownerPublicationApproved(verdict.toString("utf8"), {
+    vsix: result.vscode, bridge: result.bridge,
+  }, target);
+  const allowedTargets = approved ? ["vscode"] : ["vscode", "bridge"];
+  if ((approved || manifest.allowedTargets !== undefined)
+    && JSON.stringify(manifest.allowedTargets) !== JSON.stringify(allowedTargets)) {
+    throw new Error("Release bundle publication targets do not match its authorization.");
+  }
   return result;
 };
 
@@ -82,9 +93,14 @@ const createBundle = async (directory, env) => {
     manifest[kind] = { file, version, sha256: sha256(bytes) };
     await writeFile(path.join(directory, file), bytes, { flag: "wx" });
   }
+  const target = env.RELEASE_PUBLICATION_TARGET ?? "both";
+  const approved = ownerPublicationApproved(verdict.toString("utf8"), {
+    vsix: manifest.vscode, bridge: manifest.bridge,
+  }, target);
+  manifest.allowedTargets = approved ? ["vscode"] : ["vscode", "bridge"];
   await writeFile(path.join(directory, "RELEASE_VERDICT.md"), verdict, { flag: "wx" });
   await writeFile(path.join(directory, "release-set.json"), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
-  await verifyReleaseBundle(directory, manifest);
+  await verifyReleaseBundle(directory, { ...manifest, target });
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -96,5 +112,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     commit: process.env.GITHUB_SHA,
     runId: process.env.RELEASE_RUN_ID,
     runAttempt: process.env.RELEASE_RUN_ATTEMPT,
+    target: process.env.RELEASE_PUBLICATION_TARGET ?? "both",
   });
 }
