@@ -69,6 +69,12 @@ timeout; critical and later coverage gates did not run. No skipped gate counted
 as passed. Final paired verification must compare the accepted
 VSIX with the final checkout and the new Bridge archive before deployment.
 
+[Focused Windows coverage run 34293903164](https://github.com/multipliedtwice/bachata-extension/actions/runs/34293903164)
+passed on 2026-09-09 at source `da916e5`: 61 preflight tests, three isolated
+retained-case repetitions, and all 19 feature-delivery tests. Zero failures,
+cancellations or skips. Original full-suite failure remains unreproduced;
+this focused result does not clear the remaining Windows gates.
+
 [Bridge release gates 34266259840](https://github.com/multipliedtwice/bachata-browser-bridge/actions/runs/34266259840)
 passed on all three platforms at artifact source `6081387`.
 
@@ -77,8 +83,10 @@ Encrypted Bridge read token and Marketplace PAT configured; both expire
 marketplace environment. Token refresh succeeded. OAuth app remains in Testing;
 refresh token expires seven days after issue on 2026-09-08 UTC. Renew before
 2026-09-15 UTC. Chrome publisher/item variables match the supplied draft item
-`pkjbokfimenacagphechjmlogogghaip`. Store listing forms, acceptance verification
-and deployment remain open.
+`pkjbokfimenacagphechjmlogogghaip`. Publisher reported Chrome Store submission
+for review on 2026-09-09. Google review outcome and live publication remain
+unverified. Submission does not establish exact-artifact acceptance or a
+stable-release verdict. VS Code deployment and final paired verification remain open.
 
 Coverage policy: the floors, not these percentages, are the claim. Enforced floors
 live in package.json. Source floors: 78 / 73 / 80 lines / branches / functions.
@@ -91,7 +99,7 @@ Maintained-source distribution: `npm run source:export` then `npm run source:ver
 - Complete applicable RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
 - Complete provider-terms review in PROVIDER_TERMS.md.
 - Capture screenshots from this packaged build.
-- Complete Chrome listing, privacy and distribution forms; keep publishing credentials valid.
+- Await Chrome review outcome and confirm live publication; keep publishing credentials valid.
 - Run `npm run release:verify`; human reviews bound evidence and owns verdict.
 
 Moderated validation and benchmark claims remain unproved. Unclaimed future

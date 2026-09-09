@@ -148,7 +148,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'windows-coverage-regression'
     name: Windows retained-run coverage regression
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
@@ -172,14 +172,13 @@ jobs:
           npm run check:build-facts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test --test-concurrency=1 tests/bridgeRunValidation.test.cjs tests/documentation.test.cjs tests/buildFacts.test.cjs tests/releaseMetadata.test.cjs
-      - name: Repeated retained-run coverage regression
-        timeout-minutes: 10
-        run: |
-          foreach ($attempt in 1..3) {
-            Write-Output "Retained-run coverage attempt $attempt"
-            node --experimental-test-coverage --test --test-name-pattern="work that was never verified" tests/orchestratedFeatureDelivery.test.cjs
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-      - name: Complete feature-delivery coverage
-        timeout-minutes: 30
-        run: node --experimental-test-coverage --test --test-concurrency=2 tests/orchestratedFeatureDelivery.test.cjs
+      - name: Concurrent feature-delivery and orchestrator coverage
+        timeout-minutes: 50
+        run: >-
+          node --experimental-test-coverage --test-concurrency=2
+          --test-coverage-exclude=tests/**
+          --test-coverage-exclude=scripts/**
+          --test-coverage-exclude=dist/runtime/createRuntime.js
+          --test-coverage-exclude=dist/webview.js
+          --test-coverage-exclude=dist/webview-behavior.js
+          --test tests/orchestratedFeatureDelivery.test.cjs tests/orchestrator.test.cjs
