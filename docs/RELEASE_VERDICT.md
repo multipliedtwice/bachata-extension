@@ -76,8 +76,9 @@ Encrypted Bridge read token and Marketplace PAT configured; both expire
 2026-10-08. Chrome OAuth client, secret and refresh token are encrypted in the
 marketplace environment. Token refresh succeeded. OAuth app remains in Testing;
 refresh token expires seven days after issue on 2026-09-08 UTC. Renew before
-2026-09-15 UTC. Chrome publisher/item variables, acceptance verification and
-deployment remain open.
+2026-09-15 UTC. Chrome publisher/item variables match the supplied draft item
+`pkjbokfimenacagphechjmlogogghaip`. Store listing forms, acceptance verification
+and deployment remain open.
 
 Coverage policy: the floors, not these percentages, are the claim. Enforced floors
 live in package.json. Source floors: 78 / 73 / 80 lines / branches / functions.
@@ -90,7 +91,7 @@ Maintained-source distribution: `npm run source:export` then `npm run source:ver
 - Complete applicable RELEASE_VALIDATION_RECORD.md and COMPATIBILITY_MATRIX.md rows.
 - Complete provider-terms review in PROVIDER_TERMS.md.
 - Capture screenshots from this packaged build.
-- Configure Chrome item and publisher/item variables; keep publishing credentials valid.
+- Complete Chrome listing, privacy and distribution forms; keep publishing credentials valid.
 - Run `npm run release:verify`; human reviews bound evidence and owns verdict.
 
 Moderated validation and benchmark claims remain unproved. Unclaimed future
