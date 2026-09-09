@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "id": "bachata-ui-opus-sol",
+  "name": "Bachata UI iteration \u00b7 Opus + Sol",
+  "description": "Opus audits and leads; Sol implements and revises; Opus performs the final review. Work in the current extension checkout and preserve unrelated edits.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "opus",
+      "name": "Claude Opus \u00b7 Lead",
+      "adapter": "claude-code",
+      "command": "/opt/homebrew/bin/claude",
+      "model": "opus",
+      "permissionMode": "plan",
+      "resourceId": "claude-code:default-account"
+    },
+    {
+      "id": "sol",
+      "name": "GPT-5.6-Sol \u00b7 Worker",
+      "adapter": "codex-app-server",
+      "command": "/Users/danilt/.local/bin/codex",
+      "model": "gpt-5.6-sol",
+      "permissionMode": "workspaceWrite",
+      "approvalPolicy": "onRequest",
+      "resourceId": "codex-cli:default-account"
+    }
+  ],
+  "managedPolicy": {
+    "writeScope": "workspace",
+    "commitMode": "never",
+    "maxRevisionCycles": 1,
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "ux-plan",
+      "name": "Opus: inspect UX and plan",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "opus"
+      ],
+      "promptTemplate": "Read UI-ITERATION.md and follow its scope, constraints, validation and reporting requirements. Original user request: {{userPrompt}}\n\nInspect current UI code and available rendered evidence. Identify the three highest-impact usability problems, with evidence and acceptance criteria. Give Sol one complete implementation handoff. Keep configurability and step sequences central. You are read-only.",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "opus": "plan"
+      },
+      "attachments": "selected"
+    },
+    {
+      "id": "implement",
+      "name": "Sol: implement the UI iteration",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "sol"
+      ],
+      "promptTemplate": "Read UI-ITERATION.md and follow its scope, constraints, validation and reporting requirements. Original user request: {{userPrompt}}\n\nImplement the confirmed, in-scope Opus plan. Inspect the UI and current source before edits. Validate changed behavior and visual layout with available tools. Record limitations honestly. Opus handoff:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "sol": "workspaceWrite"
+      },
+      "approvalPolicies": {
+        "sol": "onRequest"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "lead-review",
+      "name": "Opus: review implementation",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "opus"
+      ],
+      "promptTemplate": "Read UI-ITERATION.md and follow its scope, constraints, validation and reporting requirements. Original user request: {{userPrompt}}\n\nIndependently inspect the actual diff and available rendered UI. Check acceptance criteria and interaction regressions. Return accept, revise or blocked with specific evidence. Do not edit files. Worker report:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "opus": "plan"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "revision",
+      "name": "Sol: resolve confirmed review findings",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "sol"
+      ],
+      "promptTemplate": "Read UI-ITERATION.md and follow its scope, constraints, validation and reporting requirements. Original user request: {{userPrompt}}\n\nResolve only confirmed, in-scope review findings. If accepted, make no further changes. Rerun affected checks after fixes. This is the single revision. Review:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "sol": "workspaceWrite"
+      },
+      "approvalPolicies": {
+        "sol": "onRequest"
+      },
+      "attachments": "none"
+    },
+    {
+      "id": "final-review",
+      "name": "Opus: final UX assessment",
+      "enabled": true,
+      "type": "agent",
+      "participants": [
+        "opus"
+      ],
+      "promptTemplate": "Read UI-ITERATION.md and follow its scope, constraints, validation and reporting requirements. Original user request: {{userPrompt}}\n\nInspect final changes and evidence. Return the final report required by UI-ITERATION.md. State remaining issues and native UI checks still requiring the human. Do not claim completion when evidence is missing. Do not edit files. Revision report:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "opus": "plan"
+      },
+      "attachments": "none"
+    }
+  ]
+}
