@@ -79,7 +79,11 @@ try {
   }
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   const artifact = path.join(root, `bachata-vscode-${manifest.version}.vsix`);
-  await run(["package"]);
+  // VSCE rewrites README.md's relative links to absolute repository URLs as it packages. The
+  // artifact must be byte-identical to the tree it was built from — that equivalence is what
+  // verify-vsix checks and what binds a release to a build — so the rewrite is declined here
+  // rather than accommodated by weakening the check.
+  await run(["package", "--no-rewrite-relative-links"]);
   await verifyVsix(artifact);
 
   const digest = createHash("sha256").update(await readFile(artifact)).digest("hex");

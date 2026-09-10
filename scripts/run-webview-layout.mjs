@@ -194,6 +194,7 @@ const composerMeasure = `(() => {
   const picker = document.querySelector(".pipeline-picker-button");
   const settings = document.querySelector('[data-action="composer-settings-toggle"]');
   const attach = document.querySelector('[data-action="attachment-pick"]');
+  const agents = document.querySelector("#agents-picker-button");
   const surface = document.querySelector(".composer-surface");
   const prompt = document.querySelector("#composer-prompt");
   const nativeSelect = document.querySelector("#pipeline-select");
@@ -209,7 +210,9 @@ const composerMeasure = `(() => {
     nativeSelect: nativeSelect !== null,
     sendVisible: s.width > 0 && s.height > 0,
     sendRightOfPicker: Math.round(s.left) >= Math.round(p.right),
-    sendOnFirstRow: [attach, picker, settings, send].every((control) => {
+    agentsPresent: agents !== null,
+    agentsBox: agents ? [agents.getBoundingClientRect().left, agents.getBoundingClientRect().top, agents.getBoundingClientRect().width, agents.getBoundingClientRect().height] : null,
+    sendOnFirstRow: [attach, picker, settings, send, ...(agents ? [agents] : [])].every((control) => {
       const r = control.getBoundingClientRect();
       return Math.abs(r.top + r.height / 2 - t.top - t.height / 2) <= 1;
     }),
@@ -240,6 +243,50 @@ const pickerMeasure = `(() => {
     visibleAtTop: pop.contains(document.elementFromPoint(p.left + p.width / 2, p.top + 8)),
   };
 })()`;
+
+// The Agents popover opens above the same toolbar. It carries more content than the pipeline
+// listbox — several responsibilities, their provider choices and a browser conversation list — so
+// at a narrow width it must scroll inside itself rather than escape the pane or clip a row away.
+const agentsMeasure = `(() => {
+  const pop = document.querySelector(".agents-popover");
+  const toolbar = document.querySelector(".composer-toolbar");
+  if (!pop || !toolbar) return { present: false };
+  const p = pop.getBoundingClientRect();
+  const t = toolbar.getBoundingClientRect();
+  const slots = Array.from(document.querySelectorAll(".agents-slot"));
+  const choices = Array.from(document.querySelectorAll('.agents-choices [role="radio"]'));
+  const groups = Array.from(document.querySelectorAll(".agents-choices"));
+  return {
+    present: true,
+    aboveToolbar: p.bottom <= t.top + 1,
+    topVisible: p.top >= -1,
+    withinViewport: p.left >= -1 && p.right <= document.documentElement.clientWidth + 1 && p.bottom <= document.documentElement.clientHeight + 1,
+    visibleAtTop: pop.contains(document.elementFromPoint(p.left + p.width / 2, p.top + 8)),
+    scrollsInside: pop.scrollHeight <= pop.clientHeight + 1 || getComputedStyle(pop).overflowY === "auto",
+    slotCount: slots.length,
+    // Every slot's controls stay inside the popover's own box at every width.
+    slotsContained: slots.every((slot) => {
+      const r = slot.getBoundingClientRect();
+      return r.left >= p.left - 1 && r.right <= p.right + 1;
+    }),
+    choicesContained: choices.every((choice) => {
+      const r = choice.getBoundingClientRect();
+      return r.left >= p.left - 1 && r.right <= p.right + 1;
+    }),
+    // One tab stop per responsibility, with the assigned choice carrying it.
+    rovingTabStops: groups.every((group) => {
+      const radios = Array.from(group.querySelectorAll('[role="radio"]'));
+      return radios.filter((radio) => radio.getAttribute("tabindex") === "0").length === 1;
+    }),
+    sessionsListed: document.querySelectorAll('[data-action="agents-session"]').length,
+    horizontalScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  };
+})()`;
+
+const agentsDismissed = `(() => ({
+  open: document.querySelector(".agents-popover") !== null,
+  focusReturned: document.activeElement === document.querySelector("#agents-picker-button"),
+}))()`;
 
 const menuState = `(() => {
   const menu = document.querySelector(${JSON.stringify(MENU)});
@@ -311,6 +358,40 @@ const run = async () => {
         if (!picker.topVisible || !picker.withinViewport || !picker.visibleAtTop) failures.push(`${String(width)}px: the pipeline listbox was clipped by the viewport or a scroll container`);
       }
       if (picker.present) await pressKey(session, "Escape", "Escape", 27);
+      await delay(120);
+      // The Agents popover: same toolbar, same anchoring rules, more content.
+      if (!composer.present || !composer.agentsPresent) {
+        failures.push(`${String(width)}px: the Agents control is not on the composer toolbar`);
+      } else {
+        const [agentsLeft, agentsTop, agentsWidth, agentsHeight] = composer.agentsBox;
+        await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: agentsLeft + agentsWidth / 2, y: agentsTop + agentsHeight / 2 });
+        await delay(160);
+        const hoveredAgents = await session.evaluate(composerMeasure);
+        if (!hoveredAgents.present || hoveredAgents.agentsBox === null || hoveredAgents.agentsBox.some((value, index) => Math.abs(value - composer.agentsBox[index]) > 0.5)) {
+          failures.push(`${String(width)}px: the Agents control moves on hover`);
+        }
+        await press(session, "#agents-picker-button");
+        await delay(200);
+        const agents = await session.evaluate(agentsMeasure);
+        if (!agents.present) {
+          failures.push(`${String(width)}px: the Agents popover did not open above the toolbar`);
+        } else {
+          if (!agents.aboveToolbar) failures.push(`${String(width)}px: the Agents popover overlapped the toolbar instead of opening above it`);
+          if (!agents.topVisible || !agents.withinViewport || !agents.visibleAtTop) failures.push(`${String(width)}px: the Agents popover was clipped by the viewport or a scroll container`);
+          if (!agents.scrollsInside) failures.push(`${String(width)}px: the Agents popover overflows without scrolling inside itself`);
+          if (agents.horizontalScroll) failures.push(`${String(width)}px: the Agents popover forced the page to scroll horizontally`);
+          if (agents.slotCount < 3) failures.push(`${String(width)}px: the Agents popover drew ${String(agents.slotCount)} responsibilities, so a multi-role pipeline was not measured`);
+          if (!agents.slotsContained || !agents.choicesContained) failures.push(`${String(width)}px: an assignment row escaped the Agents popover`);
+          if (!agents.rovingTabStops) failures.push(`${String(width)}px: a provider radiogroup is not a single tab stop`);
+          if (agents.sessionsListed < 2) failures.push(`${String(width)}px: the browser conversations were not offered inside the Agents popover`);
+          // Escape closes it and hands focus back to the control that opened it.
+          await pressKey(session, "Escape", "Escape", 27);
+          await delay(160);
+          const dismissedAgents = await session.evaluate(agentsDismissed);
+          if (dismissedAgents.open) failures.push(`${String(width)}px: Escape did not close the Agents popover`);
+          if (!dismissedAgents.focusReturned) failures.push(`${String(width)}px: Escape did not return focus to the Agents control`);
+        }
+      }
       await delay(120);
       await session.evaluate("window.__posted.length = 0");
       await press(session, MENU);

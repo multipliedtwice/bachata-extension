@@ -383,6 +383,26 @@ type ExecutionContract = {
   }>;
 };
 
+// The responsibilities the host resolved for the selected pipeline, and the provider assigned to
+// each. Resolved there rather than re-derived here so a row the reader can change is always a
+// participant the run will actually use.
+type AgentAssignmentSlot = {
+  agentId: string;
+  responsibility: string;
+  roleId?: string;
+  defaultAdapter: string;
+  assignedAdapter: string;
+  browserSessionId?: string;
+  overridden: boolean;
+};
+
+type AgentAssignmentState = {
+  slots: AgentAssignmentSlot[];
+  assignableAdapters: string[];
+  constraint?: string;
+  lockReason?: string;
+};
+
 type PanelState = {
   taskId: string;
   workspaceRoots: string[];
@@ -425,6 +445,7 @@ type PanelState = {
   };
   adapterTypes: string[];
   agents: Record<string, AgentPanelState>;
+  agentAssignments: AgentAssignmentState;
   roles: Record<string, string>;
   running: boolean;
   workflowStatus: WorkflowStatus;

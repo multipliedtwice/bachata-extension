@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { ManagedRepositoryBaseline } from "../orchestrator/managedPair";
+import type { AgentAssignments } from "../pipeline/agentAssignment";
 import type { PipelineResumeState } from "../pipeline/runner";
 import type { PipelineSnapshot } from "../pipeline/identity";
 import type { WorkspaceWriteScope } from "../adapters/types";
@@ -23,6 +24,11 @@ import type { RunSettingRejection, RunSettingsSnapshot } from "./settingsSnapsho
 export type PersistedResumableWorkflow = ResumableWorkflow & {
   checkpoint: PipelineResumeState;
   pipelineSnapshot: PipelineSnapshot;
+  // Which provider actually answered for each participant. The snapshot above is the pipeline as
+  // the catalog holds it, so on its own it describes a run with the shipped providers — not the
+  // reassigned ones this run used. Recorded separately so the executed run stays reproducible and
+  // a resume can refuse a checkpoint whose assignments no longer hold.
+  assignments?: AgentAssignments | undefined;
   runSettings?: RunSettingsSnapshot | undefined;
   // Values the persisted snapshot carried that Bachata will not apply. A resume states them rather
   // than quietly continuing on live settings for those keys.
@@ -84,6 +90,7 @@ export const resumableWorkflowFrom = (input: {
   attachmentIds: readonly string[];
   checkpoint: PipelineResumeState;
   pipelineSnapshot: PipelineSnapshot;
+  assignments?: AgentAssignments | undefined;
   runSettings: RunSettingsSnapshot;
   constraints: RunConstraints;
   updatedAt: string;
@@ -101,6 +108,9 @@ export const resumableWorkflowFrom = (input: {
   updatedAt: input.updatedAt,
   checkpoint: input.checkpoint,
   pipelineSnapshot: structuredClone(input.pipelineSnapshot),
+  ...(input.assignments === undefined || Object.keys(input.assignments).length === 0
+    ? {}
+    : { assignments: structuredClone(input.assignments) }),
   ...input.constraints,
   ...(input.sourceQueueMessageId !== undefined
     ? { sourceQueueMessageId: input.sourceQueueMessageId }

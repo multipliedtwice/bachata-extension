@@ -107,6 +107,299 @@ test("the runtime publishes an execution contract for the selected pipeline", as
   }
 });
 
+const assignmentHarness = (extra = {}) =>
+  loadRuntimeHarness({
+    onCommandCheck: ({ command, args }) => {
+      if (command === "git" && args[0] === "--version") return "git version 2.39.5";
+      if (command === "git" && args[0] === "status") return "";
+      return `${command} mock-1.0.0`;
+    },
+    ...extra,
+  });
+
+test("reassigning a participant moves the topology and the contract, and reset returns the default", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "claude-code",
+    });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
+    const provider = harness.runtime
+      .getState()
+      .executionContract.providers.find((entry) => entry.agentId === "codex");
+    assert.equal(provider.adapter, "claude-code");
+    // The saved pipeline definition is unchanged; only the definition this run executes moved.
+    assert.equal(
+      harness.runtime.getState().selectedPipelineDefinition.agents[0].adapter,
+      "codex-app-server",
+    );
+    const slot = harness.runtime.getState().agentAssignments.slots[0];
+    assert.equal(slot.defaultAdapter, "codex-app-server");
+    assert.equal(slot.assignedAdapter, "claude-code");
+    assert.equal(slot.overridden, true);
+
+    await harness.runtime.handleMessage({ type: "agents.reset" });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].overridden, false);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a read-only Codex participant reassigned to Claude preflights with Claude's own vocabulary", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    // review-only declares codex readOnly with a Codex approval policy. Forwarding either word to
+    // Claude is what the adapter rejects, so a preflight that resolves at all is the regression.
+    await harness.runtime.configure({ pipelineId: "review-only" });
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "claude-code",
+    });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
+    const snapshot = await harness.runtime.preflightPipeline("Review the change");
+    // The recorded identity stays the catalog's, so selection and recovery keep comparing the same
+    // thing; what the run actually executed is carried separately as assignment provenance.
+    assert.equal(snapshot.definition.id, "review-only");
+    assert.equal(snapshot.definition.agents[0].adapter, "codex-app-server");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("an assignment survives a reload of the same workspace, and is dropped when the root changes", async () => {
+  const workspace = scratchRootSync("bachata-assignment-workspace-");
+  const first = assignmentHarness({ workspaceDirectories: [workspace] });
+  let persisted;
+  try {
+    await first.runtime.handleMessage({ type: "ready" });
+    await first.runtime.configure({ pipelineId: "codex-review" });
+    await first.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "claude-code",
+    });
+    persisted = structuredClone(first.workspaceState.get("bachata.runtimeState.v5"));
+    assert.equal(persisted.agentAssignments.pipelineId, "codex-review");
+    assert.equal(persisted.agentAssignments.assignments.codex.adapter, "claude-code");
+  } finally {
+    await first.runtime.dispose();
+    first.cleanup();
+  }
+
+  const second = assignmentHarness({
+    workspaceDirectories: [workspace],
+    initialWorkspaceState: { "bachata.runtimeState.v5": structuredClone(persisted) },
+  });
+  try {
+    await second.runtime.handleMessage({ type: "ready" });
+    assert.equal(second.runtime.getState().agents.codex.adapterType, "claude-code");
+    assert.equal(second.runtime.getState().agentAssignments.slots[0].overridden, true);
+  } finally {
+    await second.runtime.dispose();
+    second.cleanup();
+  }
+
+  // The same stored assignment against a different working root is not this pipeline's: the
+  // catalog it was chosen from is a different one, so the slot returns to its shipped provider.
+  const elsewhere = assignmentHarness({
+    initialWorkspaceState: { "bachata.runtimeState.v5": structuredClone(persisted) },
+  });
+  try {
+    await elsewhere.runtime.handleMessage({ type: "ready" });
+    assert.equal(elsewhere.runtime.getState().agents.codex.adapterType, "codex-app-server");
+    assert.equal(elsewhere.runtime.getState().agentAssignments.slots[0].overridden, false);
+  } finally {
+    await elsewhere.runtime.dispose();
+    elsewhere.cleanup();
+    removeScratchSync(workspace);
+  }
+});
+
+test("one pipeline's assignment never reaches another pipeline that names the same participant", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "claude-code",
+    });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
+
+    // review-only also declares an agent called `codex`. An unscoped override map reassigned it
+    // too, which silently ran a different pipeline on a provider nobody chose for it.
+    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "review-only" });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+    assert.equal(
+      harness.runtime.getState().agentAssignments.slots.every((slot) => !slot.overridden),
+      true,
+    );
+
+    // Coming back to the pipeline the assignment was made against restores it.
+    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "codex-review" });
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a failed persistence leaves the previous provider, topology and assignment in place", async () => {
+  let failWrites = false;
+  const harness = assignmentHarness({
+    beforeWorkspaceStateUpdate: ({ key }) => {
+      if (failWrites && key === "bachata.runtimeState.v5") {
+        throw new Error("workspace state is unavailable");
+      }
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    failWrites = true;
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter: "claude-code",
+      }),
+      /workspace state is unavailable/,
+    );
+    failWrites = false;
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].overridden, false);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("an unknown adapter and an unknown participant are refused without moving anything", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter: "ghost-adapter",
+      }),
+      /Unknown adapter/,
+    );
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "stranger",
+        adapter: "claude-code",
+      }),
+      /Unknown participant/,
+    );
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a browser conversation belonging to another provider is refused", async () => {
+  const harness = assignmentHarness({
+    bridgeSessions: [createBrowserSession("chatgpt-session", "A ChatGPT tab")],
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter: "claude-browser",
+        browserSessionId: "chatgpt-session",
+      }),
+      /belongs to chatgpt/,
+    );
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter: "chatgpt-browser",
+        browserSessionId: "missing-session",
+      }),
+      /unavailable/,
+    );
+    // A conversation only means anything for a Browser Bridge assignment.
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter: "claude-code",
+        browserSessionId: "chatgpt-session",
+      }),
+      /only to a Browser Bridge assignment/,
+    );
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a queued message holds the assignment it recorded", async () => {
+  const executionStarted = deferred();
+  const releaseExecution = deferred();
+  const harness = assignmentHarness({
+    runtimeOptions: {
+      executeQueuedPipeline: async (_request, onAccepted) => {
+        executionStarted.resolve();
+        await releaseExecution.promise;
+        await onAccepted();
+      },
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    const run = harness.runtime.handleMessage({
+      type: "pipeline.run",
+      requestId: "queued-hold",
+      prompt: "Queue this",
+      attachmentIds: [],
+      iterationCount: 1,
+      delivery: "queue",
+    });
+    await executionStarted.promise;
+    assert.equal(harness.runtime.getState().queuedMessages.length, 1);
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter: "claude-code",
+      }),
+      /Clear the queue/,
+    );
+    assert.match(harness.runtime.getState().agentAssignments.lockReason, /Clear the queue/);
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
+    releaseExecution.resolve();
+    await run;
+  } finally {
+    releaseExecution.resolve();
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
 test("readiness inspection probes providers and Git workspace state", async () => {
   const harness = loadRuntimeHarness({
     // Codex readiness is an app-server handshake, so the probe drives the protocol mock rather

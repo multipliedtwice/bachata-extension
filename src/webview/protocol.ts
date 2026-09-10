@@ -140,6 +140,33 @@ export type AgentPanelState = {
   error?: string | undefined;
 };
 
+/**
+ * One responsibility the reader may point at a provider, resolved by the runtime rather than by the
+ * editor. The editor drew rows straight from the agent list, which showed a raw provider row for a
+ * role and offered control over candidates no enabled step uses; deriving the slots where role
+ * resolution already lives is what keeps the control the reader sees and the participant that
+ * actually runs the same thing.
+ */
+export type AgentAssignmentSlot = {
+  agentId: AgentId;
+  responsibility: string;
+  roleId?: string;
+  defaultAdapter: string;
+  assignedAdapter: string;
+  browserSessionId?: string;
+  overridden: boolean;
+};
+
+export type AgentAssignmentState = {
+  slots: AgentAssignmentSlot[];
+  /** Adapter types a slot may be assigned to on this machine. */
+  assignableAdapters: string[];
+  /** Stated when a responsibility exists that no single slot can stand for. */
+  constraint?: string;
+  /** Why reassignment is refused right now, if it is. */
+  lockReason?: string;
+};
+
 export type PipelineSummary = {
   id: string;
   name: string;
@@ -193,6 +220,7 @@ export type PanelState = {
   };
   adapterTypes: string[];
   agents: Record<AgentId, AgentPanelState>;
+  agentAssignments: AgentAssignmentState;
   roles: Record<string, AgentId>;
   running: boolean;
   workflowStatus: WorkflowStatus;
@@ -565,6 +593,13 @@ export type WebviewToExtensionMessage =
       requestId?: string;
     }
   | { type: "browser.session.select"; agentId: AgentId; sessionId?: string }
+  | {
+      type: "agents.assign";
+      agentId: AgentId;
+      adapter?: string;
+      browserSessionId?: string;
+    }
+  | { type: "agents.reset" }
   | { type: "browser.asset.save"; assetId: string }
   | { type: "browser.asset.reveal"; assetId: string }
   | { type: "transcript.export" }
@@ -795,7 +830,8 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
     value.type === "transcript.export" ||
     value.type === "queue.resume" ||
     value.type === "workflow.resume" ||
-    value.type === "workflow.discard"
+    value.type === "workflow.discard" ||
+    value.type === "agents.reset"
   ) {
     if (!hasOnlyKeys(value, ["type"])) {
       throw new Error(`Invalid ${value.type} message`);
@@ -1115,6 +1151,36 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
       type: "browser.session.select",
       agentId,
       ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    };
+  }
+
+  if (value.type === "agents.assign") {
+    if (!hasOnlyKeys(value, ["type", "agentId", "adapter", "browserSessionId"])) {
+      throw new Error("Invalid agents.assign message");
+    }
+    const agentId = parseAgentId(value.agentId);
+    if (!agentId) {
+      throw new Error("agents.assign contains an invalid participant");
+    }
+    if (
+      value.adapter !== undefined &&
+      (typeof value.adapter !== "string" || !/^[a-z][a-z0-9-]{1,63}$/u.test(value.adapter))
+    ) {
+      throw new Error("agents.assign contains an invalid adapter");
+    }
+    if (
+      value.browserSessionId !== undefined &&
+      (typeof value.browserSessionId !== "string" || !value.browserSessionId.trim())
+    ) {
+      throw new Error("agents.assign contains an invalid browser session");
+    }
+    return {
+      type: "agents.assign",
+      agentId,
+      ...(typeof value.adapter === "string" ? { adapter: value.adapter } : {}),
+      ...(typeof value.browserSessionId === "string"
+        ? { browserSessionId: value.browserSessionId }
+        : {}),
     };
   }
 

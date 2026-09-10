@@ -7,22 +7,22 @@
   "agents": [
     {
       "id": "gpt-builder",
-      "name": "GPT Builder",
+      "name": "Builder participant",
       "adapter": "chatgpt-browser"
     },
     {
       "id": "claude-lead",
-      "name": "Claude Lead",
+      "name": "Lead participant",
       "adapter": "claude-browser"
     },
     {
       "id": "gpt-qa",
-      "name": "GPT QA",
+      "name": "QA participant",
       "adapter": "chatgpt-browser"
     },
     {
       "id": "claude-ux",
-      "name": "Claude UX",
+      "name": "UX participant",
       "adapter": "claude-browser"
     }
   ],
@@ -30,38 +30,22 @@
     {
       "id": "builder",
       "name": "Builder",
-      "instructions": "Implement the requested change in the repository and verify the result with concrete evidence.",
-      "requiredCapabilities": [
-        "browserSessionSelection",
-        "passiveActionLoop"
-      ]
+      "instructions": "Implement the requested change in the repository and verify the result with concrete evidence."
     },
     {
       "id": "lead",
       "name": "Lead",
-      "instructions": "Own technical coherence, cross-reference all specialist findings, and reject unsupported conclusions.",
-      "requiredCapabilities": [
-        "browserSessionSelection",
-        "passiveActionLoop"
-      ]
+      "instructions": "Own technical coherence, cross-reference all specialist findings, and reject unsupported conclusions."
     },
     {
       "id": "qa",
       "name": "Quality assurance",
-      "instructions": "Reproduce behavior, inspect edge cases, distinguish implementation defects from test defects, and report exact verification evidence.",
-      "requiredCapabilities": [
-        "browserSessionSelection",
-        "passiveActionLoop"
-      ]
+      "instructions": "Reproduce behavior, inspect edge cases, distinguish implementation defects from test defects, and report exact verification evidence."
     },
     {
       "id": "ux",
       "name": "User experience",
-      "instructions": "Review interaction flow, clarity, accessibility, empty and error states, and visual consistency against the current implementation.",
-      "requiredCapabilities": [
-        "browserSessionSelection",
-        "passiveActionLoop"
-      ]
+      "instructions": "Review interaction flow, clarity, accessibility, empty and error states, and visual consistency against the current implementation."
     }
   ],
   "steps": [

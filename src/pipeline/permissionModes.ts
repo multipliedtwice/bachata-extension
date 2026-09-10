@@ -55,6 +55,46 @@ export const adapterHasApprovalVocabulary = (adapter: string): boolean =>
   adapterApprovalVocabulary.has(adapter);
 
 /**
+ * What a permission word means, independent of who spells it.
+ *
+ * Reassigning a participant to another provider has to carry its authority across, and the only
+ * thing that survives a change of vocabulary is the intent. Codex's `readOnly` and Claude's `plan`
+ * are the same statement; reading both back to `read` is what lets the word be written again in the
+ * receiving adapter's own vocabulary. A word this project cannot place — a typo, or a mode belonging
+ * to an adapter with no table here — has no intent, and the caller must refuse rather than guess,
+ * because the alternative is dropping a restriction and calling the result a working pipeline.
+ */
+export const permissionModeIntent = (
+  adapter: string,
+  mode: string,
+): "read" | "write" | undefined => {
+  if (mode === "read" || mode === "write") {
+    return mode;
+  }
+  const native = adapterPermissionVocabulary[adapter];
+  return native === undefined
+    ? undefined
+    : mode === native.read
+      ? "read"
+      : mode === native.write
+        ? "write"
+        : undefined;
+};
+
+/**
+ * The word an adapter itself uses for an intent, or nothing when it has no permission concept.
+ *
+ * An agent definition and an agent-keyed step entry name one adapter, and both are judged against
+ * that adapter's own vocabulary — `validateDefinition` rejects `read` on Claude as firmly as it
+ * rejects `readOnly`. So a reassignment writes the receiving adapter's word in those two places,
+ * and the adapter-independent word only where the key is a role and the holder is not yet decided.
+ */
+export const adapterPermissionWord = (
+  adapter: string,
+  intent: "read" | "write",
+): string | undefined => adapterPermissionVocabulary[adapter]?.[intent];
+
+/**
  * Whether an adapter has a permission vocabulary at all.
  *
  * A browser adapter has no permission or approval concept: there is no mode to send it and no

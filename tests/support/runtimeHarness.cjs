@@ -194,8 +194,8 @@ const installHostDoubles = (options = {}) => {
     createBrowserBridgeServer: ({ enabled, onStatusChange }) => {
       const status = {
         enabled,
-        connected: false,
-        sessions: [],
+        connected: options.bridgeSessions !== undefined,
+        sessions: options.bridgeSessions ?? [],
       };
       return {
         start: async () => {

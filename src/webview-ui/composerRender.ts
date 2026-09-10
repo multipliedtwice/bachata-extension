@@ -262,6 +262,165 @@ const pipelinePickerHtml = (panel: PanelState): string => {
   return `<div class="pipeline-picker" data-pipeline-picker>${button}${list}</div>`;
 };
 
+// Assignments separate the pipeline's responsibilities from the providers that carry them. A slot
+// keeps its role, its instructions and its place in the sequence; only which agent answers for it
+// changes, and only for this conversation's next run. The saved pipeline is never touched.
+//
+// Every row here is resolved by the host from the same role binding execution uses, so the reader
+// can never point a control at a participant no enabled step runs.
+const AGENTS_POPOVER_ID = "agents-popover";
+
+const agentsAssignmentLockReason = (panel: PanelState): string | undefined =>
+  panel.agentAssignments.lockReason;
+
+const agentsAssignable = (panel: PanelState): boolean =>
+  panel.agentAssignments.slots.length > 0;
+
+const openAgentsPicker = (): void => {
+  const panel = activePanel();
+  if (!agentsAssignable(panel)) {
+    return;
+  }
+  state.agentsPickerOpen = true;
+  scheduleRender();
+  requestAnimationFrame(() => document.getElementById("agents-picker-button")?.focus());
+};
+
+const closeAgentsPicker = (restoreFocus = true): void => {
+  if (!state.agentsPickerOpen) {
+    return;
+  }
+  state.agentsPickerOpen = false;
+  delete state.agentsBrowserFor;
+  scheduleRender();
+  if (restoreFocus) {
+    requestAnimationFrame(() => document.getElementById("agents-picker-button")?.focus());
+  }
+};
+
+// The browser adapter a bridge session's provider implies, so the session — not a fixed vendor —
+// decides which adapter answers for a Browser Bridge slot.
+const browserAdapterForProvider = (provider: BrowserSession["provider"]): string =>
+  provider === "chatgpt" ? "chatgpt-browser" : provider === "claude" ? "claude-browser" : "generic-browser";
+
+const adapterAssignmentLabels: Record<string, string> = {
+  "codex-app-server": "Codex CLI",
+  "claude-code": "Claude CLI",
+  "zai-glm": "Z.AI GLM CLI",
+  "chatgpt-browser": "ChatGPT · Browser Bridge",
+  "claude-browser": "Claude · Browser Bridge",
+  "generic-browser": "Browser Bridge",
+};
+
+const assignedAdapterLabel = (adapter: string): string =>
+  adapterAssignmentLabels[adapter] ?? adapter;
+
+const isBrowserAssignment = (adapter: string): boolean => adapter.endsWith("-browser");
+
+// A radio inside a slot's group. Exactly one carries tabindex 0, so the group is one tab stop and
+// the arrow keys move within it; moving focus does not assign, because assigning restarts a
+// provider and that is not what an arrow key should cost.
+// Each choice carries a stable id so the render's own focus-return path finds it again: an
+// assignment replaces this whole popover, and without an id the reader's focus lands on the body
+// after every change they make.
+const agentsChoiceHtml = (input: {
+  id: string;
+  checked: boolean;
+  label: string;
+  attributes: string;
+  disabled: boolean;
+  title?: string;
+}): string =>
+  `<button type="button" id="${escapeAttribute(input.id)}" role="radio" aria-checked="${input.checked ? "true" : "false"}" tabindex="${input.checked ? "0" : "-1"}" class="agents-choice${input.checked ? " selected" : ""}" ${input.attributes}${input.disabled ? " disabled" : ""}${input.title ? ` title="${escapeAttribute(input.title)}"` : ""}>${escapeHtml(input.label)}</button>`;
+
+const agentSlotSessionsHtml = (slot: AgentAssignmentSlot, panel: PanelState): string => {
+  const sessions = panel.browserBridge.sessions;
+  if (sessions.length === 0) {
+    return `<p class="agents-session-empty">No browser conversations are connected. Open the Inspector to connect the Browser Bridge.</p>`;
+  }
+  const options = sessions.map((session) => {
+    const adapter = browserAdapterForProvider(session.provider);
+    const selected = slot.browserSessionId === session.id && slot.assignedAdapter === adapter;
+    const disabled = session.status !== "ready";
+    return `<button type="button" role="option" id="agents-session-${escapeAttribute(slot.agentId)}-${escapeAttribute(session.id)}" class="agents-session-option${selected ? " selected" : ""}" data-action="agents-session" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}" data-session="${escapeAttribute(session.id)}" aria-selected="${selected ? "true" : "false"}"${disabled ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(browserProviderName(session.provider))} · ${escapeHtml(session.title ?? session.conversationUrl)}</span><span class="agents-session-meta">${escapeHtml(browserSessionCapabilityLabel(session))}</span></button>`;
+  });
+  return `<div class="agents-session-list" role="listbox" aria-label="Browser conversation for ${escapeAttribute(slot.responsibility)}">${options.join("")}</div>`;
+};
+
+const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boolean): string => {
+  const isBrowser = isBrowserAssignment(slot.assignedAdapter);
+  const showSessions = isBrowser || state.agentsBrowserFor === slot.agentId;
+  const cliChoices = panel.agentAssignments.assignableAdapters
+    .filter((adapter) => !isBrowserAssignment(adapter) && adapter !== slot.defaultAdapter)
+    .map((adapter) =>
+      agentsChoiceHtml({
+        id: `agents-choice-${slot.agentId}-${adapter}`,
+        checked: slot.overridden && slot.assignedAdapter === adapter,
+        label: assignedAdapterLabel(adapter),
+        attributes: `data-action="agents-assign" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}"`,
+        disabled: locked,
+      }),
+    )
+    .join("");
+  const defaultChoice = agentsChoiceHtml({
+    id: `agents-choice-${slot.agentId}-default`,
+    checked: !slot.overridden,
+    label: `Default · ${assignedAdapterLabel(slot.defaultAdapter)}`,
+    attributes: `data-action="agents-assign" data-agent="${escapeAttribute(slot.agentId)}"`,
+    disabled: locked,
+    title: "Use the provider this pipeline ships with",
+  });
+  const browserChoice = panel.agentAssignments.assignableAdapters.some(isBrowserAssignment)
+    ? agentsChoiceHtml({
+        id: `agents-choice-${slot.agentId}-browser`,
+        checked: isBrowser && slot.overridden,
+        label: "Browser Bridge",
+        attributes: `data-action="agents-browser-toggle" data-agent="${escapeAttribute(slot.agentId)}" aria-expanded="${showSessions ? "true" : "false"}"`,
+        disabled: locked,
+        title: "Bind a conversation from any supported website",
+      })
+    : "";
+  const actual = isBrowser && slot.browserSessionId === undefined
+    ? `${assignedAdapterLabel(slot.assignedAdapter)} · no conversation bound`
+    : assignedAdapterLabel(slot.assignedAdapter);
+  const agentState = panel.agents[slot.agentId];
+  const statusError = agentState?.error
+    ? `<p class="agents-slot-error">${escapeHtml(agentState.error)}</p>`
+    : "";
+  return `<article class="agents-slot" data-agent-slot="${escapeAttribute(slot.agentId)}">
+    <div class="agents-slot-head">
+      <div class="agents-slot-title"><strong>${escapeHtml(slot.responsibility)}</strong><small>${escapeHtml(slot.overridden ? "reassigned" : "pipeline default")}</small></div>
+      <span class="agents-slot-actual">${escapeHtml(actual)}</span>
+    </div>
+    <div class="agents-choices" role="radiogroup" aria-label="Provider for ${escapeAttribute(slot.responsibility)}">${defaultChoice}${cliChoices}${browserChoice}</div>
+    ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
+    ${statusError}
+  </article>`;
+};
+
+const agentsPickerHtml = (panel: PanelState): string => {
+  const assignments = panel.agentAssignments;
+  const lockReason = agentsAssignmentLockReason(panel);
+  const hasPipeline = agentsAssignable(panel);
+  const overrides = assignments.slots.filter((slot) => slot.overridden).length;
+  const open = state.agentsPickerOpen && hasPipeline;
+  const disabled = !hasPipeline;
+  const title = lockReason ?? (hasPipeline ? "Assign a provider to each role" : "Select a pipeline to assign providers");
+  const label = overrides > 0 ? `Agents · ${String(overrides)} reassigned` : "Agents";
+  const button = `<button id="agents-picker-button" data-action="agents-picker-toggle" class="agents-picker-button${overrides > 0 ? " has-overrides" : ""}" aria-haspopup="dialog" aria-label="${escapeAttribute(label)}" ${expandedControlAttributes(open, AGENTS_POPOVER_ID)}${disabled ? " disabled" : ""} title="${escapeAttribute(title)}"><i class="codicon codicon-organization" aria-hidden="true"></i><span class="agents-picker-label">${escapeHtml(label)}</span></button>`;
+  if (!open) {
+    return `<div class="agents-picker" data-agents-picker>${button}</div>`;
+  }
+  const locked = lockReason !== undefined;
+  const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="Agent assignments">
+    <div class="agents-popover-head"><div><h2>Agents</h2><p>Assign a provider to each role for this conversation's next run. The saved pipeline is unchanged.</p></div>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">Reset to defaults</button>` : ""}</div>
+    ${locked ? `<p class="agents-locked">${escapeHtml(lockReason)}</p>` : ""}
+    ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
+    <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, locked)).join("")}</div>
+  </div>`;
+  return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;
+};
+
 // The one panel behind the composer's settings control: how to edit the pipeline, the options that
 // apply to this run, and the run details. Run options are labelled as run-local so nobody reads
 // them as edits to the saved pipeline.
@@ -332,6 +491,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
         <button data-action="attachment-pick" class="icon-button" aria-label="Attach image, text, log, or specification" title="Attach image, text, log, or specification"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>
         ${pipelinePickerHtml(panel)}
+        ${agentsPickerHtml(panel)}
         <button data-action="composer-settings-toggle" class="icon-button composer-settings-button${state.composerSettingsOpen ? " open" : ""}${optionChips.length > 0 ? " has-chips" : ""}" title="${escapeAttribute(settingsLabel)}" aria-label="${escapeAttribute(settingsLabel)}" ${expandedControlAttributes(state.composerSettingsOpen, "composer-settings")}><i class="codicon codicon-settings-gear" aria-hidden="true"></i></button>
         <div class="composer-send">
           ${stopButton}

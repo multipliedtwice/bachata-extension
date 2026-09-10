@@ -110,9 +110,47 @@ window.__panelState = {
   pipelineScopeKey: "workspace:/workspace",
   pipelineScopeRoot: "/workspace",
   selectedPipelineDefinition: pipelineDefinition,
-  adapterTypes: ["codex-app-server"],
+  adapterTypes: ["codex-app-server", "claude-code", "chatgpt-browser", "claude-browser", "generic-browser"],
   agents: {
     lead: { id: "lead", name: "Lead", adapterType: "codex-app-server", status: "idle", output: "" },
+  },
+  // Several responsibilities, one of them deliberately long, so the Agents popover is measured
+  // with content that can actually overflow a narrow pane rather than a single short row.
+  agentAssignments: {
+    slots: [
+      {
+        agentId: "lead",
+        responsibility: "Lead",
+        roleId: "lead",
+        defaultAdapter: "codex-app-server",
+        assignedAdapter: "codex-app-server",
+        overridden: false,
+      },
+      {
+        agentId: "builder",
+        responsibility: "Implementation and repository verification specialist",
+        roleId: "builder",
+        defaultAdapter: "claude-code",
+        assignedAdapter: "chatgpt-browser",
+        browserSessionId: "session-1",
+        overridden: true,
+      },
+      {
+        agentId: "qa",
+        responsibility: "Quality assurance",
+        roleId: "qa",
+        defaultAdapter: "claude-code",
+        assignedAdapter: "claude-code",
+        overridden: false,
+      },
+    ],
+    assignableAdapters: [
+      "codex-app-server",
+      "claude-code",
+      "chatgpt-browser",
+      "claude-browser",
+      "generic-browser",
+    ],
   },
   roles: {},
   running: false,
@@ -128,7 +166,30 @@ window.__panelState = {
   maxAttachmentTotalBytes: 52428800,
   pipelineMutable: true,
   browserActionPolicies: { readOnly: "ask", mutation: "ask", destructive: "ask", shell: "disabled" },
-  browserBridge: { enabled: true, connected: false, sessions: [] },
+  browserBridge: {
+    enabled: true,
+    connected: true,
+    sessions: [
+      {
+        id: "session-1",
+        provider: "chatgpt",
+        tabId: 7,
+        conversationIdentity: "conversation-1",
+        conversationUrl: "https://chatgpt.com/c/conversation-1",
+        title: "A browser conversation with a deliberately long title that must wrap or clip cleanly",
+        status: "ready",
+      },
+      {
+        id: "session-2",
+        provider: "claude",
+        tabId: 8,
+        conversationIdentity: "conversation-2",
+        conversationUrl: "https://claude.ai/chat/conversation-2",
+        title: "Second conversation",
+        status: "ready",
+      },
+    ],
+  },
   queuedMessages: [],
   queuePaused: false,
 };

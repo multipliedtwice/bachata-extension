@@ -522,6 +522,33 @@ root.addEventListener("click", (event) => {
     const pipelineId = target.dataset.pipelineId;
     closePipelinePicker();
     selectPipeline(pipelineId);
+  } else if (action === "agents-picker-toggle") {
+    if (state.agentsPickerOpen) closeAgentsPicker();
+    else openAgentsPicker();
+  } else if (action === "agents-assign" && target.dataset.agent) {
+    delete state.agentsBrowserFor;
+    postRuntime({
+      type: "agents.assign",
+      agentId: target.dataset.agent,
+      ...(target.dataset.adapter ? { adapter: target.dataset.adapter } : {}),
+    });
+  } else if (action === "agents-browser-toggle" && target.dataset.agent) {
+    const agentId = target.dataset.agent;
+    if (state.agentsBrowserFor === agentId) {
+      delete state.agentsBrowserFor;
+    } else {
+      state.agentsBrowserFor = agentId;
+    }
+    scheduleRender();
+  } else if (action === "agents-session" && target.dataset.agent && target.dataset.adapter) {
+    postRuntime({
+      type: "agents.assign",
+      agentId: target.dataset.agent,
+      adapter: target.dataset.adapter,
+      ...(target.dataset.session ? { browserSessionId: target.dataset.session } : {}),
+    });
+  } else if (action === "agents-reset-all") {
+    postRuntime({ type: "agents.reset" });
   } else if (action === "availability-check") postRuntime({ type: "availability.check" });
   else if (action === "working-directory") postRuntime({ type: "workingDirectory.pick" });
   else if (action === "contract-acknowledge") {

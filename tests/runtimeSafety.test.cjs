@@ -193,8 +193,18 @@ test("webview guards editor, interaction, attachment, and archived state", async
   assert.match(source, /reservedBytes \+ file\.size > panel\.maxAttachmentTotalBytes/u);
   assert.match(source, /archive-readonly-banner/u);
   assert.match(source, /Archived runs are read-only/u);
-  assert.match(source, /browser-binding-bar/u);
-  assert.match(source, /Select the provider tab used by each participant/u);
+  const composer = await loadSource("src/webview-ui/composerRender.ts");
+  // The browser-binding panel was folded into the Agents assignment popover; the duplicate bar is
+  // gone and its binding action lives inside the popover.
+  assert.doesNotMatch(source, /browser-binding-bar/u);
+  assert.match(composer, /agents-picker-button/u);
+  assert.match(composer, /data-action="agents-session"/u);
+  // The editor states the lock but never decides it: the reason travels on the panel state from
+  // the runtime, so the control a reader sees and the authority that refuses agree by construction.
+  assert.match(composer, /panel\.agentAssignments\.lockReason/u);
+  const assignment = await loadSource("src/pipeline/agentAssignment.ts");
+  assert.match(assignment, /Wait for the active operation before reassigning agents/u);
+  assert.match(assignment, /Clear the queue before reassigning agents/u);
   assert.match(style, /prefers-reduced-motion: reduce/u);
   assert.match(style, /scroll-behavior: auto/u);
   assert.match(style, /animation: none/u);
@@ -611,7 +621,7 @@ test("coverage gates source files and critical modules separately", async () => 
     "the browser layout gate runs before the build it measures",
   );
   const layoutSource = await loadSource("scripts/run-webview-layout.mjs");
-  assert.match(layoutSource, /const WIDTHS = \[320, 360, 400, 480, 1280\]/u);
+  assert.match(layoutSource, /const WIDTHS = \[320, 360, 400, 480, 700, 900, 1280\]/u);
   assert.match(layoutSource, /overlaps the action menu/u);
   assert.match(layoutSource, /pressing the action menu created a run/u);
   assert.match(layoutSource, /does not take keyboard focus/u);

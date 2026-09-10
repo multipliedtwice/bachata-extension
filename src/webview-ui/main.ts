@@ -815,25 +815,6 @@ const browserSessionCapabilityLabel = (session: BrowserSession): string => {
   return `${status} · fully automatic`;
 };
 
-const browserBindingsHtml = (panel: PanelState, readOnly = false): string => {
-  const sessions = panel.browserBridge.sessions;
-  const browserAgents = Object.values(panel.agents).filter((agent) =>
-    browserProviderForAdapterType(agent.adapterType) !== undefined,
-  );
-  if (browserAgents.length === 0) {
-    return "";
-  }
-  const unbound = browserAgents.filter((agent) => !agent.sessionId).length;
-  const lockedReason = readOnly ? "This run is archived, so its bindings are read-only."
-    : panel.running ? "Bindings are locked while this run is in flight. Stop the run to bind a different tab." : "";
-  return `<details class="browser-binding-bar" ${disclosureAttributes("browser-bindings", unbound > 0)}><summary><div><strong>Browser conversations</strong><small>Select the provider tab used by each participant.${lockedReason ? ` ${escapeHtml(lockedReason)}` : ""}</small></div><span class="binding-count">${unbound > 0 ? `${String(unbound)} not bound` : "all bound"}</span><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i></summary><div class="browser-binding-controls">${browserAgents.map((agent) => {
-    const provider = browserProviderForAdapterType(agent.adapterType);
-    const providerSessions = sessions.filter((session) => session.provider === provider);
-    const selectId = `browser-session-${agent.id}`;
-    return `<div class="browser-binding-row"><label for="${escapeAttribute(selectId)}"><span>${escapeHtml(agent.name)}</span></label><select id="${escapeAttribute(selectId)}" data-action="browser-session" data-agent="${escapeAttribute(agent.id)}" ${lockedReason ? `disabled title="${escapeAttribute(lockedReason)}"` : ""}><option value="">Not bound</option>${providerSessions.map((session) => `<option value="${escapeAttribute(session.id)}" ${agent.sessionId === session.id ? "selected" : ""} ${session.status !== "ready" ? "disabled" : ""}>${escapeHtml(session.title ?? session.conversationUrl)} · ${escapeHtml(browserSessionCapabilityLabel(session))}</option>`).join("")}</select></div>`;
-  }).join("")}</div></details>`;
-};
-
 const pipelineInspectorHtml = (panel: PanelState, _readOnly = false): string => {
   const pipeline = panel.selectedPipelineDefinition;
   if (!pipeline) {
@@ -1582,6 +1563,11 @@ const dismissTransientMenus = (origin: Element | null): void => {
     delete state.pipelinePickerActiveId;
     scheduleRender();
   }
+  if (state.agentsPickerOpen && !origin?.closest(".agents-picker")) {
+    state.agentsPickerOpen = false;
+    delete state.agentsBrowserFor;
+    scheduleRender();
+  }
 };
 
 // Action dispatch and input handling are installed by installActionListeners() in
@@ -1601,10 +1587,18 @@ root.addEventListener("compositionend", () => {
 // Focus leaving the picker closes it, so a popover is never left open behind the prompt or another
 // control. Focus is already elsewhere, so this does not steal it back.
 document.addEventListener("focusin", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (state.agentsPickerOpen) {
+    const insideAgents = target && typeof target.closest === "function" ? target.closest(".agents-picker") : null;
+    if (!insideAgents) {
+      state.agentsPickerOpen = false;
+      delete state.agentsBrowserFor;
+      scheduleRender();
+    }
+  }
   if (!state.pipelinePickerOpen) {
     return;
   }
-  const target = event.target instanceof Element ? event.target : null;
   const insidePicker = target && typeof target.closest === "function" ? target.closest(".pipeline-picker") : null;
   if (!insidePicker) {
     state.pipelinePickerOpen = false;
@@ -1613,7 +1607,46 @@ document.addEventListener("focusin", (event) => {
   }
 });
 
+// A slot's provider choices are one radiogroup: one tab stop, and the arrows move inside it. Moving
+// focus deliberately does not assign — an assignment restarts a provider, which is far too much for
+// an arrow key — so the reader arrows to a choice and presses Enter or Space, which the buttons
+// already answer natively.
+const moveAgentsChoiceFocus = (current: HTMLElement, key: string): boolean => {
+  const group = current.closest(".agents-choices");
+  if (!group) {
+    return false;
+  }
+  // Filtered in script rather than with `:not([disabled])`, because the selector is the kind a
+  // minimal DOM does not implement and the behaviour must be testable.
+  const radios = Array.from(group.querySelectorAll<HTMLElement>('[role="radio"]')).filter(
+    (radio) => !(radio instanceof HTMLButtonElement && radio.disabled),
+  );
+  const index = radios.indexOf(current);
+  if (radios.length === 0 || index === -1) {
+    return false;
+  }
+  const target = key === "ArrowDown" || key === "ArrowRight"
+    ? radios[(index + 1) % radios.length]
+    : key === "ArrowUp" || key === "ArrowLeft"
+      ? radios[(index - 1 + radios.length) % radios.length]
+      : key === "Home"
+        ? radios[0]
+        : radios[radios.length - 1];
+  target?.focus();
+  return true;
+};
+
 document.addEventListener("keydown", (event) => {
+  if (
+    state.agentsPickerOpen &&
+    event.target instanceof HTMLElement &&
+    event.target.getAttribute("role") === "radio" &&
+    ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) &&
+    moveAgentsChoiceFocus(event.target, event.key)
+  ) {
+    event.preventDefault();
+    return;
+  }
   // The combobox keyboard is scoped to the picker's own focus. If focus has moved on — Tab into the
   // prompt, say — these keys are the prompt's again, so Enter there can never select a pipeline
   // because a popover was left open.
@@ -1685,6 +1718,9 @@ document.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape" && state.runDrawerOpen) {
     event.preventDefault();
     setRunDrawerOpen(false);
+  } else if (event.key === "Escape" && state.agentsPickerOpen) {
+    event.preventDefault();
+    closeAgentsPicker();
   } else if (event.key === "Escape" && state.composerSettingsOpen) {
     event.preventDefault();
     state.composerSettingsOpen = false;

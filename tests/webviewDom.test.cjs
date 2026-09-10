@@ -509,6 +509,19 @@ const managerState = (overrides = {}) => ({
   ...overrides,
 });
 
+// The host resolves the assignment slots, so a panel fixture carries them the way a real snapshot
+// does: one slot per participant the selected pipeline declares, each on its own default provider.
+const assignmentStateFor = (definition, adapterTypes) => ({
+  slots: (definition?.agents ?? []).map((agent) => ({
+    agentId: agent.id,
+    responsibility: agent.name,
+    defaultAdapter: agent.adapter,
+    assignedAdapter: agent.adapter,
+    overridden: false,
+  })),
+  assignableAdapters: adapterTypes,
+});
+
 const panelState = (overrides = {}) => ({
   taskId: "run-1",
   workspaceRoots: ["/workspace"],
@@ -558,6 +571,10 @@ const panelState = (overrides = {}) => ({
   browserBridge: { enabled: true, connected: false, sessions: [] },
   queuedMessages: [],
   queuePaused: false,
+  agentAssignments: assignmentStateFor(
+    overrides.selectedPipelineDefinition ?? pipelineDefinition(),
+    overrides.adapterTypes ?? ["codex-app-server"],
+  ),
   ...overrides,
 });
 
@@ -623,7 +640,7 @@ test("non-editor disclosures preserve user state across rerenders", () => {
     const states = [
       ["run-1:orchestration", true],
       ["run-1:participant:lead", true],
-      ["run-1:browser-bindings", false],
+      ["run-1:inspector:bridge", false],
       ["run-1:inspector:pipeline", true],
     ];
     for (const [key, open] of states) {
@@ -1183,11 +1200,29 @@ test("retained TODO runs can be revealed and cleaned up independently", () => {
   }
 });
 
-test("browser conversation binding is available in the main run view", () => {
+test("browser conversation binding lives inside the Agents popover", () => {
   const harness = bootWebview(
     managerState(),
     panelState({
-      adapterTypes: ["chatgpt-browser"],
+      adapterTypes: ["chatgpt-browser", "codex-app-server", "claude-code"],
+      selectedPipelineId: "browser-pipeline",
+      selectedPipelineDefinition: {
+        version: 1,
+        id: "browser-pipeline",
+        name: "Browser pipeline",
+        agents: [{ id: "browser", name: "Browser Lead", adapter: "chatgpt-browser" }],
+        roles: [{ id: "lead", name: "Lead", instructions: "Lead." }],
+        steps: [
+          {
+            id: "assign",
+            name: "Assign",
+            enabled: true,
+            humanGate: "none",
+            type: "assignRoles",
+            roleAssignments: [{ agentId: "browser", role: "lead" }],
+          },
+        ],
+      },
       agents: {
         browser: {
           id: "browser",
@@ -1196,6 +1231,19 @@ test("browser conversation binding is available in the main run view", () => {
           status: "idle",
           output: "",
         },
+      },
+      // The host resolved this slot to the Lead role, so the row is named by the responsibility
+      // rather than by the participant's provider-flavoured name.
+      agentAssignments: {
+        slots: [{
+          agentId: "browser",
+          responsibility: "Lead",
+          roleId: "lead",
+          defaultAdapter: "chatgpt-browser",
+          assignedAdapter: "chatgpt-browser",
+          overridden: false,
+        }],
+        assignableAdapters: ["chatgpt-browser", "codex-app-server", "claude-code"],
       },
       browserBridge: {
         enabled: true,
@@ -1213,21 +1261,206 @@ test("browser conversation binding is available in the main run view", () => {
     }),
   );
   try {
-    assert.match(harness.document.root.innerHTML, /browser-binding-bar/u);
-    const select = harness.document.root.querySelector('[data-action="browser-session"][data-agent="browser"]');
-    assert.ok(select);
-    assert.equal(select.disabled, false);
-    select.value = "session-1";
-    harness.document.root.dispatch("change", { target: select });
+    // The duplicate top-of-conversation binding panel is gone.
+    assert.doesNotMatch(harness.document.root.innerHTML, /browser-binding-bar/u);
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    // The slot reads by its responsibility, not the participant's provider-flavoured name. The
+    // fixture's participant is called "Browser Lead", so the exact markup is what separates them.
+    assert.match(harness.document.root.innerHTML, /<strong>Lead<\/strong>/u);
+    assert.doesNotMatch(harness.document.root.innerHTML, /<strong>Browser Lead<\/strong>/u);
+    const option = harness.document.root.querySelector(
+      '[data-action="agents-session"][data-agent="browser"][data-session="session-1"]',
+    );
+    assert.ok(option);
+    option.click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
       conversationId: "run-1",
       message: {
-        type: "browser.session.select",
+        type: "agents.assign",
         agentId: "browser",
-        sessionId: "session-1",
+        adapter: "chatgpt-browser",
+        browserSessionId: "session-1",
       },
     });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Agents popover reassigns a browser slot to a local CLI", () => {
+  const harness = bootWebview(
+    managerState(),
+    panelState({
+      adapterTypes: ["chatgpt-browser", "codex-app-server", "claude-code"],
+      selectedPipelineId: "browser-pipeline",
+      selectedPipelineDefinition: {
+        version: 1,
+        id: "browser-pipeline",
+        name: "Browser pipeline",
+        agents: [{ id: "builder", name: "Builder participant", adapter: "chatgpt-browser" }],
+        roles: [{ id: "builder", name: "Builder", instructions: "Build." }],
+        steps: [
+          {
+            id: "assign",
+            name: "Assign",
+            enabled: true,
+            humanGate: "none",
+            type: "assignRoles",
+            roleAssignments: [{ agentId: "builder", role: "builder" }],
+          },
+        ],
+      },
+      agents: {
+        builder: {
+          id: "builder",
+          name: "Builder participant",
+          adapterType: "chatgpt-browser",
+          status: "idle",
+          output: "",
+        },
+      },
+    }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const claude = harness.document.root.querySelector(
+      '[data-action="agents-assign"][data-agent="builder"][data-adapter="claude-code"]',
+    );
+    assert.ok(claude);
+    claude.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: {
+        type: "agents.assign",
+        agentId: "builder",
+        adapter: "claude-code",
+      },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+const assignmentPanel = (overrides = {}) =>
+  panelState({
+    adapterTypes: ["chatgpt-browser", "codex-app-server", "claude-code"],
+    selectedPipelineId: "browser-pipeline",
+    selectedPipelineDefinition: {
+      version: 1,
+      id: "browser-pipeline",
+      name: "Browser pipeline",
+      agents: [{ id: "builder", name: "Builder participant", adapter: "chatgpt-browser" }],
+      roles: [{ id: "builder", name: "Builder", instructions: "Build." }],
+      steps: [],
+    },
+    agents: {
+      builder: {
+        id: "builder",
+        name: "Builder participant",
+        adapterType: "chatgpt-browser",
+        status: "idle",
+        output: "",
+      },
+    },
+    agentAssignments: {
+      slots: [{
+        agentId: "builder",
+        responsibility: "Builder",
+        roleId: "builder",
+        defaultAdapter: "chatgpt-browser",
+        assignedAdapter: "chatgpt-browser",
+        overridden: false,
+      }],
+      assignableAdapters: ["chatgpt-browser", "codex-app-server", "claude-code"],
+      ...overrides,
+    },
+  });
+
+test("a slot's provider choices are one tab stop with the assigned choice checked", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const radios = Array.from(
+      harness.document.root.querySelectorAll('.agents-choices [role="radio"]'),
+    );
+    assert.ok(radios.length >= 2);
+    const tabbable = radios.filter((radio) => radio.getAttribute("tabindex") === "0");
+    assert.equal(tabbable.length, 1, "a radiogroup is one tab stop");
+    assert.equal(tabbable[0].getAttribute("aria-checked"), "true");
+    assert.equal(
+      radios.filter((radio) => radio.getAttribute("aria-checked") === "true").length,
+      1,
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("arrow keys move within a slot's choices without assigning a provider", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const radio = harness.document.root.querySelector('.agents-choices [role="radio"]');
+    const before = harness.messages.length;
+    for (const key of ["ArrowDown", "ArrowRight", "ArrowUp", "Home", "End"]) {
+      harness.document.root.dispatch("keydown", {
+        key,
+        target: radio,
+        preventDefault: () => undefined,
+      });
+    }
+    // Assigning restarts a provider, so it is never what an arrow key costs.
+    assert.equal(harness.messages.length, before);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Escape closes the Agents popover", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.ok(harness.document.getElementById("agents-popover"));
+    harness.document.root.dispatch("keydown", {
+      key: "Escape",
+      target: harness.document.getElementById("agents-picker-button"),
+      preventDefault: () => undefined,
+    });
+    assert.equal(harness.document.getElementById("agents-popover"), null);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a locked assignment states why and offers no control", () => {
+  const harness = bootWebview(
+    managerState(),
+    assignmentPanel({ lockReason: "Clear the queue before reassigning agents" }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /Clear the queue before reassigning agents/u);
+    const radios = Array.from(
+      harness.document.root.querySelectorAll('.agents-choices [role="radio"]'),
+    );
+    assert.ok(radios.length > 0);
+    assert.equal(radios.every((radio) => radio.disabled === true), true);
+    assert.equal(harness.document.root.querySelector('[data-action="agents-reset-all"]'), null);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a responsibility that changes hands is explained rather than offered as one control", () => {
+  const harness = bootWebview(
+    managerState(),
+    assignmentPanel({ constraint: "Builder changes hands between steps, so it is assigned per participant below." }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /changes hands between steps/u);
   } finally {
     harness.restore();
   }

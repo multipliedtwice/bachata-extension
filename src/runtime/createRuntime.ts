@@ -333,6 +333,19 @@ import {
   writeCatalogTextIfUnchanged,
 } from "../pipeline/catalogStorage";
 import { parseJsonResponse } from "../pipeline/output";
+import {
+  AgentAssignments,
+  AssignmentSlots,
+  ScopedAgentAssignments,
+  adapterTypeForBrowserProvider,
+  assignedPipelineDefinition,
+  assignmentLockReason,
+  assignmentRefusals,
+  assignmentSlots,
+  isBrowserAdapterType,
+  parseScopedAgentAssignments,
+  usableAssignments,
+} from "../pipeline/agentAssignment";
 import { validatePipelineDefinition } from "../pipeline/schema";
 import {
   addCustomPipelines,
@@ -670,6 +683,10 @@ type PersistedRuntimeState = {
   selectedPipelineSnapshot?: PipelineSnapshot | undefined;
   taskDirty: boolean;
   agents: Record<string, PersistedAgentState>;
+  // Conversation-local reassignment of participant slots to a different provider. Never edits the
+  // saved pipeline; applied to the definition the next run executes and restored across reload.
+  // Carries the pipeline identity it was made against, because agent ids recur across pipelines.
+  agentAssignments?: ScopedAgentAssignments | undefined;
   attachments: AttachmentMetadata[];
   queuedMessages: QueuedMessage[];
   queuePaused: boolean;
@@ -1235,6 +1252,9 @@ const parsePersistedRuntimeState = (
     selectedPipelineSnapshot: parsePipelineSnapshot(value.selectedPipelineSnapshot),
     taskDirty: value.taskDirty === true,
     agents,
+    agentAssignments: parseScopedAgentAssignments(value.agentAssignments, (adapter) =>
+      /^[a-z][a-z0-9-]{1,63}$/u.test(adapter),
+    ),
     attachments: Array.isArray(value.attachments)
       ? value.attachments
           .map(parsePersistedAttachment)
@@ -1481,6 +1501,22 @@ export const createRuntime = (
   let taskDirty = persisted?.taskDirty ?? false;
   let queueStartClaim = persisted?.queueStart;
   let selectedPipelineSnapshot = persisted?.selectedPipelineSnapshot;
+  // Conversation-local participant reassignments and the pipeline identity they were made against.
+  // Only adapters this build still registers survive the restore, so a stored assignment naming a
+  // dropped adapter is discarded rather than left to fail the topology build.
+  let scopedAssignments: ScopedAgentAssignments | undefined = ((): ScopedAgentAssignments | undefined => {
+    const stored = persisted?.agentAssignments;
+    if (!stored) {
+      return undefined;
+    }
+    const known = new Set(registry.types());
+    const assignments = Object.fromEntries(
+      Object.entries(stored.assignments).filter(([, override]) => known.has(override.adapter)),
+    );
+    return Object.keys(assignments).length === 0
+      ? undefined
+      : { scopeKey: stored.scopeKey, pipelineId: stored.pipelineId, assignments };
+  })();
   let readinessAdapterProbes: AdapterReadiness[] = [];
   const readinessCommandProbes = new Map<string, ReturnType<typeof providerReadinessFrom>>();
   let readinessGit: RuntimeReadinessReport["git"] = {
@@ -1516,6 +1552,7 @@ export const createRuntime = (
     },
     adapterTypes: registry.types(),
     agents: {},
+    agentAssignments: { slots: [], assignableAdapters: registry.types() },
     roles: {},
     running: false,
     workflowStatus: resumableWorkflowData ? "interrupted" : "idle",
@@ -1713,6 +1750,7 @@ export const createRuntime = (
   const emitSnapshot = (): void => {
     refreshRuntimeLimits();
     refreshReadiness();
+    refreshAgentAssignments();
     post({ type: "state.snapshot", state: structuredClone(state) });
   };
 
@@ -1870,6 +1908,76 @@ export const createRuntime = (
     setOptionalProperty(state, "pipelineScopeRoot", activePipelineScope.root);
   };
 
+  /**
+   * What the editor draws the Agents control from: the responsibilities this pipeline resolves,
+   * each with the provider it ships with and the one actually assigned. Derived here, from the same
+   * role resolution execution uses, so a row the reader can change is always a participant the run
+   * will use.
+   */
+  const refreshAgentAssignments = (): void => {
+    const pipeline = selectedPipelineSnapshot?.definition;
+    const assignments = activeAssignments();
+    const resolved: AssignmentSlots = pipeline
+      ? assignmentSlots(pipeline)
+      : { slots: [] };
+    state.agentAssignments = {
+      slots: resolved.slots.map((slot) => {
+        const assigned = assignments[slot.agentId];
+        const sessionId = state.agents[slot.agentId]?.sessionId;
+        return {
+          agentId: slot.agentId,
+          responsibility: slot.responsibility,
+          ...(slot.roleId === undefined ? {} : { roleId: slot.roleId }),
+          defaultAdapter: slot.defaultAdapter,
+          assignedAdapter: assigned?.adapter ?? slot.defaultAdapter,
+          ...(sessionId === undefined ? {} : { browserSessionId: sessionId }),
+          overridden: assigned !== undefined && assigned.adapter !== slot.defaultAdapter,
+        };
+      }),
+      assignableAdapters: registry.types(),
+      ...(resolved.constraint === undefined ? {} : { constraint: resolved.constraint }),
+      ...((): { lockReason?: string } => {
+        const reason = assignmentLockReason({
+          catalogError: pipelineCatalogError,
+          busy: state.running,
+          workflowStatus: state.workflowStatus,
+          queuedCount: state.queuedMessages.length,
+          hasResumable: state.resumableWorkflow !== undefined,
+        });
+        return reason === undefined ? {} : { lockReason: reason };
+      })(),
+    };
+  };
+
+  // Whether a stored assignment map belongs to this pipeline in this scope. Agent ids such as
+  // `codex` and `claude` recur across bundled pipelines, so identity — not merely a matching id in
+  // whatever happens to be selected — is what decides. A pipeline the assignments were not made
+  // against is returned untouched, which is what keeps one pipeline's override out of another's
+  // topology, readiness and contract.
+  const assignmentsOwn = (pipeline: PipelineDefinition): boolean =>
+    scopedAssignments !== undefined &&
+    scopedAssignments.pipelineId === pipeline.id &&
+    scopedAssignments.scopeKey === activePipelineScope.key;
+
+  // The reassignments in force for the selected pipeline, already filtered to the ones it can
+  // honour. Empty whenever nothing is selected or the stored map belongs to another pipeline.
+  const activeAssignments = (): AgentAssignments => {
+    const pipeline = selectedPipelineSnapshot?.definition;
+    return pipeline && scopedAssignments && assignmentsOwn(pipeline)
+      ? usableAssignments(pipeline, scopedAssignments.assignments)
+      : {};
+  };
+
+  // A catalog pipeline with this conversation's participant reassignments applied, so readiness,
+  // the contract and the probe all judge the providers that will actually run rather than the ones
+  // the saved pipeline shipped with.
+  const withAssignments = (
+    pipeline: PipelineDefinition | undefined,
+  ): PipelineDefinition | undefined =>
+    pipeline && scopedAssignments && assignmentsOwn(pipeline)
+      ? assignedPipelineDefinition(pipeline, scopedAssignments.assignments)
+      : pipeline;
+
   const agentProbeKey = (definition: AgentDefinition): string => {
     const effective = effectiveDefinition(definition);
     return JSON.stringify([
@@ -1891,7 +1999,7 @@ export const createRuntime = (
         ? { detail: agent.version ?? "Provider availability has not been checked yet" }
         : { detail: agent.error }),
     }));
-    const pipelineProbes = (pipelines.get(pipelineId ?? "")?.agents ?? []).flatMap((agent) => {
+    const pipelineProbes = (withAssignments(pipelines.get(pipelineId ?? ""))?.agents ?? []).flatMap((agent) => {
       const probe = readinessCommandProbes.get(agentProbeKey(agent))?.readiness;
       if (!probe) return [];
       const current = agentReadiness.find((entry) => entry.agentId === agent.id && entry.type === agent.adapter);
@@ -1952,7 +2060,9 @@ export const createRuntime = (
       browserBindings: Object.fromEntries(
         Object.entries(state.agents).map(([agentId, agent]) => [agentId, agent.sessionId]),
       ),
-      catalog: Array.from(pipelines.values()),
+      catalog: Array.from(pipelines.values()).map(
+        (pipeline) => withAssignments(pipeline) ?? pipeline,
+      ),
       selectedPipelineId: pipelineId,
       disabledProviders: disabledProviders(),
       codexWorkspaceScope: configuredCodexWorkspaceScope(),
@@ -1973,10 +2083,11 @@ export const createRuntime = (
   };
 
   const currentExecutionContract = (): ExecutionContract | undefined => {
-    const pipeline = state.selectedPipelineId
+    const catalogPipeline = state.selectedPipelineId
       ? pipelines.get(state.selectedPipelineId)
       : undefined;
-    if (!pipeline) return undefined;
+    if (!catalogPipeline) return undefined;
+    const pipeline = withAssignments(catalogPipeline) ?? catalogPipeline;
     const config = configuration();
     return buildExecutionContract({
       pipeline,
@@ -2788,6 +2899,9 @@ export const createRuntime = (
       return { action: "accept", content };
     });
 
+  // Reassignment is applied to the whole pipeline before a topology is built from it, never to a
+  // lone definition here: this function is handed agents belonging to whichever pipeline is being
+  // built, including one being switched to, and an id match alone cannot tell those apart.
   const effectiveDefinition = (definition: AgentDefinition): AgentDefinition =>
     effectiveAgentDefinition(definition, (settingKey, fallback) => {
       const config = configuration();
@@ -2885,9 +2999,18 @@ export const createRuntime = (
     pipeline: PipelineDefinition,
     persistedAgents: Record<string, PersistedAgentState> = {},
     workingDirectory: string | undefined = state.workingDirectory,
+    candidateAssignments?: AgentAssignments,
   ): Promise<AdapterTopology> => {
     const contextValue = adapterFactoryContext(workingDirectory);
-    return await buildTopology(pipeline.agents, persistedAgents, {
+    // The one place reassignment reaches adapter construction. Every caller — first build, reset,
+    // pipeline switch, reassignment — goes through here, and the identity guard inside decides
+    // whether this particular pipeline is the one the assignments were made against. A candidate
+    // build states the assignments it is testing instead, so a topology can be proven to start
+    // before anything commits to it.
+    const assigned = candidateAssignments
+      ? assignedPipelineDefinition(pipeline, candidateAssignments)
+      : withAssignments(pipeline) ?? pipeline;
+    return await buildTopology(assigned.agents, persistedAgents, {
       effectiveDefinition,
       createAdapter: (definition) => {
         const createdAdapter = registry.create(definition, contextValue);
@@ -2971,6 +3094,9 @@ export const createRuntime = (
         },
       ]),
     ),
+    ...(scopedAssignments === undefined
+      ? {}
+      : { agentAssignments: structuredClone(scopedAssignments) }),
     attachments: state.attachments,
     queuedMessages: state.queuedMessages,
     queuePaused: state.queuePaused,
@@ -3239,6 +3365,7 @@ export const createRuntime = (
         checkpoint: resumableWorkflowData,
         selectedSnapshot: selectedPipelineSnapshot,
         availableAttachmentIds,
+        currentAssignments: activeAssignments(),
       }),
       sourceQueueMessageId: resumableWorkflowData?.sourceQueueMessageId,
     });
@@ -6351,8 +6478,12 @@ export const createRuntime = (
     const disposeAttachments = resolvedAttachments.dispose;
     let attachmentsTransferred = false;
     try {
+      // The definition this run executes: identity and hashing above judged the saved pipeline; from
+      // here the run reasons about the providers actually assigned, so capability validation, the
+      // runner's permission translation and its provider-specific branches all see the real adapter.
+      const executionPipeline = assignedPipelineDefinition(pipeline, activeAssignments());
       const capabilityErrors = validatePipelineCapabilities(
-        pipeline,
+        executionPipeline,
         Object.fromEntries(
           Object.entries(adapters).map(([agentId, adapter]) => {
             if (definitions[agentId]?.adapter !== "generic-browser") {
@@ -6397,7 +6528,7 @@ export const createRuntime = (
           `Pipeline capability validation failed: ${capabilityErrors.join("; ")}`,
         );
       }
-      const hasChecklistExecution = pipeline.steps.some(
+      const hasChecklistExecution = executionPipeline.steps.some(
         (step) => step.enabled && step.type === "executeChecklist",
       );
       const allowedDirtyPaths = hasChecklistExecution
@@ -6416,7 +6547,7 @@ export const createRuntime = (
         });
       }
       attachmentsTransferred = true;
-      return { pipeline, pipelineSnapshot, attachmentPaths, disposeAttachments, allowedDirtyPaths };
+      return { pipeline: executionPipeline, pipelineSnapshot, attachmentPaths, disposeAttachments, allowedDirtyPaths };
     } finally {
       // The plaintext snapshot stays this function's responsibility until the caller
       // actually receives it: every failure between resolution and return disposes it.
@@ -6524,6 +6655,7 @@ export const createRuntime = (
           attachmentIds,
           checkpoint: initialCheckpoint,
           pipelineSnapshot,
+          assignments: activeAssignments(),
           runSettings,
           constraints: runConstraints,
           updatedAt: new Date().toISOString(),
@@ -8322,6 +8454,191 @@ export const createRuntime = (
     );
   };
 
+  // A reassignment changes what the NEXT run executes, so it is refused only while a run is in
+  // flight, queued, or waiting to resume — never merely because a finished run left a transcript. A
+  // pinned execution already froze the definition it runs; letting an override touch it here is the
+  // one thing this must not do.
+  const agentAssignmentRefusal = (): string | undefined =>
+    assignmentLockReason({
+      catalogError: pipelineCatalogError,
+      busy: workflowActive || anyAgentRunning() || activeForegroundOperations > 0,
+      workflowStatus: state.workflowStatus,
+      queuedCount: state.queuedMessages.length + (queueStartClaim === undefined ? 0 : 1),
+      hasResumable: resumableWorkflowData !== undefined,
+    });
+
+  /**
+   * Move the selected pipeline onto a new set of participant assignments, or leave everything
+   * exactly as it was.
+   *
+   * The order is the whole point. Everything that can refuse — an unknown adapter, a browser
+   * conversation that is missing, occupied or belongs to another provider, an authority the
+   * receiving provider cannot express, a provider process that will not start — is asked before
+   * any live state moves. Only then are the previous bindings released and the new topology
+   * installed, and a persistence failure after that still puts back the topology, the bindings and
+   * the overrides that were in force. A slot whose provider did not change keeps its session, so
+   * reassigning one participant does not cost the others their conversations.
+   */
+  const commitAgentAssignments = async (next: AgentAssignments): Promise<void> => {
+    const pipeline = selectedPipelineSnapshot?.definition;
+    if (!pipeline) {
+      throw new Error("No selected pipeline is available");
+    }
+    const previousScoped = scopedAssignments ? structuredClone(scopedAssignments) : undefined;
+    const previousAssignments = activeAssignments();
+    const changed = pipeline.agents
+      .map((agent) => agent.id)
+      .filter((agentId) => next[agentId]?.adapter !== previousAssignments[agentId]?.adapter);
+    if (changed.length === 0) {
+      return;
+    }
+    const refusals = assignmentRefusals(pipeline, next);
+    if (refusals.length > 0) {
+      throw new Error(
+        `This assignment would lose an authority the pipeline declared — ${refusals
+          .map((entry) => `${entry.agentId}: ${entry.reason}`)
+          .join("; ")}`,
+      );
+    }
+    // A reassigned slot starts with nothing carried over: the old provider's reported version is
+    // not evidence that the new one is installed, and its conversation belongs to the provider it
+    // was opened against.
+    const persistedAgents = persistedAgentsFromState();
+    changed.forEach((agentId) => {
+      persistedAgents[agentId] = {};
+    });
+    const previousTopology = currentTopology();
+    const candidate = await buildAdapterTopology(pipeline, persistedAgents, state.workingDirectory, next);
+    const nextScoped: ScopedAgentAssignments | undefined = Object.keys(next).length === 0
+      ? undefined
+      : { scopeKey: activePipelineScope.key, pipelineId: pipeline.id, assignments: next };
+    let committed = false;
+    try {
+      changed.forEach((agentId) => bridge.releaseBinding(`${runtimeOwnerId}:${agentId}`));
+      scopedAssignments = nextScoped;
+      bindBrowserAgents(candidate);
+      installTopology(candidate);
+      committed = true;
+      await persistNow();
+    } catch (error) {
+      scopedAssignments = previousScoped;
+      if (committed) {
+        installTopology({
+          adapters: previousTopology.adapters,
+          definitions: previousTopology.definitions,
+          agents: previousTopology.agents,
+        });
+      }
+      bindBrowserAgents(currentTopology());
+      if (!committed) {
+        await disposeTopology(candidate);
+      }
+      throw error;
+    }
+    const cleanupFailures = await disposeTopology(previousTopology);
+    cleanupFailures.forEach((failure) => {
+      logOutput(
+        `Failed to dispose a replaced provider adapter: ${failure instanceof Error ? failure.message : String(failure)}`,
+      );
+    });
+  };
+
+  /**
+   * The browser conversation an assignment names, proven to exist, to be usable, and to belong to
+   * the provider the chosen adapter answers for. Checked before anything commits, because binding a
+   * conversation of the wrong provider is exactly the leak this feature must not introduce.
+   */
+  const assignableBrowserSession = (adapter: string, sessionId: string): void => {
+    const session = state.browserBridge.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session) {
+      throw new Error("The selected browser conversation is unavailable");
+    }
+    if (session.status !== "ready") {
+      throw new Error(`The selected browser conversation is ${session.status}`);
+    }
+    if (adapterTypeForBrowserProvider(session.provider) !== adapter) {
+      throw new Error(
+        `The selected browser conversation belongs to ${session.provider}, which ${adapter} does not drive`,
+      );
+    }
+  };
+
+  const applyAgentAssignment = async (
+    agentId: string,
+    adapter: string | undefined,
+    browserSessionId: string | undefined,
+  ): Promise<void> => {
+    const refusal = agentAssignmentRefusal();
+    if (refusal) {
+      throw new Error(refusal);
+    }
+    const base = selectedPipelineSnapshot?.definition.agents.find((agent) => agent.id === agentId);
+    if (!base) {
+      throw new Error(`Unknown participant ${agentId}`);
+    }
+    if (adapter !== undefined && !registry.types().includes(adapter)) {
+      throw new Error(`Unknown adapter ${adapter}`);
+    }
+    if (browserSessionId !== undefined) {
+      if (adapter === undefined || !isBrowserAdapterType(adapter)) {
+        throw new Error("A browser conversation applies only to a Browser Bridge assignment");
+      }
+      assignableBrowserSession(adapter, browserSessionId);
+    }
+    const resetToDefault = adapter === undefined || adapter === base.adapter;
+    const next = { ...activeAssignments() };
+    if (resetToDefault) {
+      delete next[agentId];
+    } else {
+      next[agentId] = {
+        adapter,
+        ...(browserSessionId ? { browserSessionId } : {}),
+      };
+    }
+    // A no-op when only the conversation changed: the adapter is already the assigned one, so no
+    // topology moves and the binding below is the whole change.
+    await commitAgentAssignments(next);
+    if (browserSessionId !== undefined) {
+      const selectedId = selectedPipelineSnapshot?.definition.id;
+      if (selectedId === undefined) {
+        throw new Error("No selected pipeline is available");
+      }
+      const previousScoped = scopedAssignments ? structuredClone(scopedAssignments) : undefined;
+      scopedAssignments = {
+        scopeKey: activePipelineScope.key,
+        pipelineId: selectedId,
+        assignments: next,
+      };
+      try {
+        await selectBrowserSession(agentId, browserSessionId);
+        await persistNow();
+      } catch (error) {
+        scopedAssignments = previousScoped;
+        throw error;
+      }
+    }
+    await checkSelectedReadiness();
+    if (!disposed) {
+      emitSnapshot();
+    }
+  };
+
+  const resetAgentAssignments = async (): Promise<void> => {
+    const refusal = agentAssignmentRefusal();
+    if (refusal) {
+      throw new Error(refusal);
+    }
+    if (Object.keys(activeAssignments()).length === 0) {
+      scopedAssignments = undefined;
+      return;
+    }
+    await commitAgentAssignments({});
+    await checkSelectedReadiness();
+    if (!disposed) {
+      emitSnapshot();
+    }
+  };
+
   const capturedAsset = async (
     assetId: string,
   ): Promise<CapturedAsset | undefined> =>
@@ -9019,6 +9336,20 @@ export const createRuntime = (
     throw unsupportedWebviewMessage(message);
   };
 
+  const handleAssignmentMessage = async (
+    message: Extract<WebviewToExtensionMessage, { type: "agents.assign" | "agents.reset" }>,
+  ): Promise<void> => {
+    if (message.type === "agents.assign") {
+      await applyAgentAssignment(message.agentId, message.adapter, message.browserSessionId);
+      return;
+    }
+    if (message.type === "agents.reset") {
+      await resetAgentAssignments();
+      return;
+    }
+    throw unsupportedWebviewMessage(message);
+  };
+
   const handleBrowserMessage = async (
     message: Extract<WebviewToExtensionMessage, { type: "browser.session.select" | "browser.asset.save" | "browser.asset.reveal" | "bridge.reset" | "bridge.discover" }>,
   ): Promise<void> => {
@@ -9223,6 +9554,9 @@ export const createRuntime = (
       case "pipeline.fork":
       case "pipeline.export":
         return await handleCatalogMessage(message);
+      case "agents.assign":
+      case "agents.reset":
+        return await handleAssignmentMessage(message);
       case "browser.session.select":
       case "browser.asset.save":
       case "browser.asset.reveal":

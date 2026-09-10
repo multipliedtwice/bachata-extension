@@ -102,6 +102,7 @@ const emptyPanel = (): PanelState => ({
   pipelines: [],
   pipelineScopeKey: "extension",
   adapterTypes: [],
+  agentAssignments: { slots: [], assignableAdapters: [] },
   agents: {},
   roles: {},
   running: false,
@@ -145,6 +146,9 @@ const state: {
   composerSettingsOpen: boolean;
   pipelinePickerOpen: boolean;
   pipelinePickerActiveId?: string;
+  agentsPickerOpen: boolean;
+  // The slot whose Browser Bridge conversation list is expanded, if any.
+  agentsBrowserFor?: string;
   roomView: "chat" | "execution" | "direction";
   historyFilter: string;
   directionRationale: string;
@@ -221,6 +225,7 @@ const state: {
   inspectorOpen: false,
   composerSettingsOpen: false,
   pipelinePickerOpen: false,
+  agentsPickerOpen: false,
   roomView: "chat",
   historyFilter: "",
   directionRationale: "",
@@ -399,6 +404,8 @@ const resetViewState = (): void => {
   state.composerSettingsOpen = false;
   state.pipelinePickerOpen = false;
   delete state.pipelinePickerActiveId;
+  state.agentsPickerOpen = false;
+  delete state.agentsBrowserFor;
   state.roomSearch = "";
   state.historyFilter = "";
   state.expandedEditorCards.clear();

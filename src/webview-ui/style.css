@@ -1813,6 +1813,12 @@ strong + small {
     flex: 1 1 120px;
     min-width: 0;
   }
+
+  /* The Agents control drops to its icon so the toolbar holds one row; its accessible name and the
+     popover it opens are unchanged. */
+  .composer-toolbar .agents-picker-label {
+    display: none;
+  }
 }
 
 @media (max-width: 590px) {
@@ -3497,6 +3503,180 @@ select[multiple] option:checked {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* The Agents assignment control sits beside the pipeline picker; the popover it opens is anchored
+   to the toolbar so a growing prompt never pushes it off the pane. */
+/* Deliberately not a positioning context: the popover is wider than this button, so anchoring it
+   here sent its left edge past the pane's left edge at narrow widths. Its containing block is the
+   composer surface instead, which is exactly the width the popover may occupy. */
+.agents-picker {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.agents-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.agents-picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.agents-picker-button.has-overrides {
+  box-shadow: inset 0 0 0 1px var(--bachata-green);
+  color: var(--bachata-green-text);
+}
+
+.agents-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  /* Per cent of the composer surface, so the popover can never be wider than the pane it sits in. */
+  width: min(420px, 100%);
+  z-index: 30;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 10px;
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+
+.agents-popover-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.agents-popover-head h2 {
+  margin: 0;
+  font-size: var(--bachata-font-md);
+}
+
+.agents-popover-head p {
+  margin: 2px 0 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.agents-reset-all {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.agents-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agents-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-card);
+}
+
+.agents-slot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agents-slot-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agents-slot-title small {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-slot-actual {
+  color: var(--bachata-green-text);
+  font-size: var(--bachata-font-sm);
+  text-align: right;
+}
+
+.agents-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agents-choice {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: var(--bachata-font-sm);
+}
+
+.agents-choice.selected {
+  box-shadow: inset 0 0 0 1px var(--bachata-green);
+  color: var(--bachata-green-text);
+  background: var(--bachata-card-strong);
+}
+
+.agents-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agents-session-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.agents-session-option.selected {
+  box-shadow: inset 0 0 0 1px var(--bachata-green);
+  background: var(--bachata-card-strong);
+}
+
+.agents-session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-session-meta,
+.agents-session-empty {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-locked,
+.agents-constraint,
+.agents-slot-error {
+  margin: 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.agents-slot-error {
+  color: var(--vscode-errorForeground, #f14c4c);
 }
 
 /* The settings panel opens in flow beneath the toolbar it belongs to. */
