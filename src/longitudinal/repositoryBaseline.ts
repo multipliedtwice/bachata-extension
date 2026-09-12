@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { stat, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { gitProcessEnvironment } from "../process/safeEnvironment";
 import type { CycleBaseline } from "./types";
+import { parseVerificationScope } from "./findingVerification";
 import { byCodeUnitOn } from "../security/ordinal";
 
 const execFileAsync = promisify(execFile);
@@ -312,3 +313,29 @@ export const baselineIsSameCandidate = (
 
 export const baselineLabel = (baseline: CycleBaseline): string =>
   `${baseline.branch ?? "detached"}@${baseline.commit.slice(0, 12) || "unborn"}${baseline.dirty ? " +dirty" : ""}`;
+
+export const verificationScopeIsObservable = async (root: string | undefined, scope: readonly string[]): Promise<boolean> => {
+  const logicalPaths = parseVerificationScope(scope);
+  if (!root || logicalPaths === undefined) return false;
+  try {
+    const canonicalRoot = await realpath(root);
+    for (const relative of logicalPaths) {
+      const absolute = path.resolve(canonicalRoot, relative);
+      const info = await lstat(absolute).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (info !== undefined) {
+        if (!info.isFile() || await realpath(absolute) !== absolute) return false;
+      } else if (await realpath(path.dirname(absolute)) !== path.dirname(absolute)) return false;
+    }
+    const inventory = await execFileAsync("git", ["--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ...logicalPaths], {
+      cwd: canonicalRoot, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536,
+      windowsHide: true, env: gitProcessEnvironment(canonicalRoot),
+    });
+    const observed = new Set(inventory.stdout.split("\u0000"));
+    return logicalPaths.every((relative) => observed.has(relative));
+  } catch {
+    return false;
+  }
+};

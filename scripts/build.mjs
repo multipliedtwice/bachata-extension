@@ -84,7 +84,7 @@ const main = async () => {
   await copyPrismAssets();
   await copyCodiconAssets();
   await generateThirdPartyNotices({
-    roots: ["ajv", "fast-glob", "ignore", "jsonrepair", "ts-morph", "typescript", "prismjs", "@vscode/codicons"],
+    roots: ["ajv", "fast-glob", "ignore", "jsonrepair", "ts-morph", "typescript", "yauzl", "prismjs", "@vscode/codicons"],
     output: path.join("dist", "THIRD_PARTY_NOTICES.txt"),
   });
 

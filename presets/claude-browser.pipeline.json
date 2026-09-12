@@ -1,20 +1,20 @@
 {
   "version": 1,
   "id": "claude-browser-agent",
-  "name": "Claude browser agent",
-  "description": "Use one explicitly bound Claude conversation with image attachments, deterministic workspace actions, approvals, and result reinjection.",
+  "name": "Browser task — one participant (compatibility)",
+  "description": "A single-browser workflow with a legacy default assignment. The website selects the model; local actions retain their approval rules.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "claude-browser",
-      "name": "Claude Browser",
+      "name": "Reviewer",
       "adapter": "claude-browser"
     }
   ],
   "steps": [
     {
       "id": "browser-turn",
-      "name": "Claude browser turn",
+      "name": "Browser task",
       "enabled": true,
       "participants": [
         "claude-browser"

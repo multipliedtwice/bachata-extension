@@ -10,6 +10,7 @@ import { createAsyncQueue } from "../process/asyncQueue";
 import { extensionVersion } from "../version";
 import { ProcessTimeoutError } from "../process/errors";
 import { redactText } from "../security/redact";
+import { codexParticipantConfiguration, CodexDelegationPolicyError, unmanagedCodexDelegation } from "./codexDelegationPolicy";
 import { providerFailureErrorIfRecognized } from "./providerFailure";
 import { assertWorkspacePathAllowed, isCommitCommand } from "../browser/mutationPolicy";
 import {
@@ -989,6 +990,22 @@ export const createCodexAppServerAdapter = (
       return;
     }
 
+    const delegation = unmanagedCodexDelegation(message);
+    if (delegation !== undefined) {
+      const error = new CodexDelegationPolicyError(delegation);
+      if (typeof message.id === "number" || typeof message.id === "string") {
+        child?.stdin.write(`${JSON.stringify({ id: message.id, error: { code: -32601, message: error.message } })}\n`);
+      }
+      disposed = true;
+      if (failTransport) failTransport(error);
+      else {
+        void terminateTransport();
+        rejectPending(error);
+        failActiveOperations(error);
+      }
+      return;
+    }
+
     const serverRequestId =
       typeof message.id === "number" || typeof message.id === "string"
         ? message.id
@@ -1040,7 +1057,7 @@ export const createCodexAppServerAdapter = (
       return startPromise;
     }
 
-    const invocation = commandInvocation(options.command, ["app-server"]);
+    const invocation = commandInvocation(options.command, ["app-server", "-c", "features.multi_agent=false", "-c", "features.multi_agent_v2=false"]);
     const scope = spawnScopedProviderProcess(invocation.command, invocation.args, {
       ...(options.environment === undefined ? {} : { env: options.environment }),
     });
@@ -1277,6 +1294,7 @@ export const createCodexAppServerAdapter = (
 
     if (requestData.sessionId) {
       const result = await request("thread/resume", {
+        ...codexParticipantConfiguration(),
         threadId: requestData.sessionId,
         cwd: requestData.workingDirectory,
         approvalPolicy: codexApprovalPolicyWire(requestData.approvalPolicy),
@@ -1294,6 +1312,7 @@ export const createCodexAppServerAdapter = (
     }
 
     const result = await request("thread/start", {
+      ...codexParticipantConfiguration(),
       cwd: requestData.workingDirectory,
       approvalPolicy: codexApprovalPolicyWire(requestData.approvalPolicy),
       sandbox: codexSandboxModeWire(requestData.permissionMode, requestData.workspacePolicy),

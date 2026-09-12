@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "product-review",
-  "name": "Product review",
-  "description": "Codex and Claude review the product decision this work embodies, converge on recommendations with explicit dispositions, and record the recommendations as durable initiative artifacts. Nothing is implemented.",
+  "name": "Product direction review",
+  "description": "Review product choices and reconcile recommendations in up to 6 rounds. Requires a Direction. This is not a visual UI/UX review and does not implement changes.",
   "longitudinalIntent": "initiativeRequired",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -16,7 +16,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Reviewer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "plan",

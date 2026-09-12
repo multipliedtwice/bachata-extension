@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "codex-fix",
-  "name": "Fix with Codex",
-  "description": "Codex diagnoses and implements the fix inside a declared write scope. Verification is controller-owned, not model-reviewed. No commit is created.",
+  "name": "Fix a bug",
+  "description": "Diagnose and implement a fix with one participant. Runs declared controller checks; creates no commit. Choose the participant in Agents.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Implementer",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "workspaceWrite",
@@ -21,12 +21,18 @@
       "enabled": true,
       "humanGate": "none",
       "type": "agent",
-      "participants": ["codex"],
+      "participants": [
+        "codex"
+      ],
       "promptTemplate": "Diagnose the reported defect from the current repository and supplied evidence. Identify the reproducible cause before proposing changes. Do not modify files in this step.\n\n{{userPrompt}}",
       "parallel": false,
       "consensus": false,
-      "permissionModes": { "codex": "readOnly" },
-      "approvalPolicies": { "codex": "onRequest" },
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
       "attachments": "selected"
     },
     {
@@ -35,12 +41,18 @@
       "enabled": true,
       "humanGate": "before",
       "type": "agent",
-      "participants": ["codex"],
+      "participants": [
+        "codex"
+      ],
       "promptTemplate": "Implement the root-cause fix you diagnosed. Stay inside the declared write scope. Do not run repository commands: the controller owns verification.\n\nDiagnosis:\n{{peerAnswersTagged}}",
       "parallel": false,
       "consensus": false,
-      "permissionModes": { "codex": "workspaceWrite" },
-      "approvalPolicies": { "codex": "onRequest" },
+      "permissionModes": {
+        "codex": "workspaceWrite"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
       "attachments": "none"
     }
   ],
@@ -48,8 +60,14 @@
     "writeScope": "workspace",
     "commitMode": "never",
     "verificationChecks": [
-      { "id": "workspace-integrity", "command": "bachata:workspace-integrity" },
-      { "id": "project-checks", "command": "bachata:project-checks" }
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
     ]
   }
 }

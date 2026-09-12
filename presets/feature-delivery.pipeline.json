@@ -1,8 +1,8 @@
 {
   "version": 1,
   "id": "feature-delivery",
-  "name": "Feature delivery",
-  "description": "Codex and Claude converge on the requirements a feature must meet, record them and the chosen design as durable initiative artifacts, then a managed Worker implements inside a declared write scope while a read-only Lead reviews. The controller owns verification and Git.",
+  "name": "Deliver a feature",
+  "description": "Reconcile requirements and design, then implement and review inside a declared scope with controller checks. Requires a Direction and configured verification.",
   "longitudinalIntent": "initiativeRequired",
   "managedPolicy": {
     "writeScope": "configured",
@@ -29,7 +29,7 @@
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "workspaceWrite",
@@ -38,7 +38,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Reviewer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "acceptEdits",
@@ -144,7 +144,7 @@
       "participants": [
         "codex"
       ],
-      "promptTemplate": "Write the agreed requirements as the durable record for this feature. Return JSON only: {\"title\": ..., \"summary\": ..., \"evidence\": [...], \"requirements\": [...]}. Carry over exactly the requirements the previous step agreed, with the same ids and dispositions. Add nothing that step did not agree.\n\n{{peerAnswersTagged}}",
+      "promptTemplate": "Copy the exact accepted candidate object from the previous consensus step as JSON only. Preserve every field and value, including optional fields. Do not add, omit, summarize, or rewrite content. Bachata rejects a record that differs from the accepted candidate.\n\n{{peerAnswersTagged}}",
       "parallel": false,
       "consensus": false,
       "humanGate": "none",
@@ -162,6 +162,7 @@
       },
       "artifactPromotion": {
         "type": "requirement",
+        "fromConsensusStep": "requirement-consensus",
         "titleField": "title",
         "evidenceField": "evidence"
       }

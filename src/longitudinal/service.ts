@@ -1,3 +1,4 @@
+import { findingVerificationRefusal, parseFindingVerification, type FindingVerification } from "./findingVerification";
 import { createHash } from "node:crypto";
 
 import type { ModelFinding } from "../results/modelFindings";
@@ -178,6 +179,7 @@ export type RoundOutcome = {
 export type ResolutionTarget = "finding" | "decision" | "artifact" | "externalEvidence";
 
 export type DeclaredArtifactSource = {
+  consensusAcceptance?: import("../pipeline/consensusPromotion").ConsensusAcceptance;
   promotion: DeclaredArtifactPromotion;
   output: unknown;
   fallbackTitle: string;
@@ -286,6 +288,7 @@ export type LongitudinalService = {
     findingIdentities: readonly string[];
   }) => InitiativeArtifact | undefined;
   recordExternalEvidence: (input: {
+    verification?: FindingVerification;
     source: ExternalEvidenceSource;
     claim: string;
     relation: ExternalEvidenceRelation;
@@ -304,6 +307,7 @@ export type LongitudinalService = {
     participantIds: readonly string[];
   }) => boolean;
   resolve: (input: {
+    currentBaseline?: CycleBaseline;
     target: ResolutionTarget;
     id: string;
     action: HumanResolutionAction;
@@ -1348,6 +1352,7 @@ export const createLongitudinalService = (options: {
         recordedAt,
         promotion: source.promotion,
         output: source.output,
+        ...(source.consensusAcceptance === undefined ? {} : { consensusAcceptance: source.consensusAcceptance }),
         fallbackTitle: source.fallbackTitle,
         participantIds: source.participantIds,
         ...(source.stepId === undefined ? {} : { stepId: source.stepId }),
@@ -1833,6 +1838,9 @@ export const createLongitudinalService = (options: {
     if (initiative === undefined) return undefined;
     const cycle = currentCycle();
     if (cycle === undefined) return undefined;
+    const verification = input.verification === undefined ? undefined : parseFindingVerification(input.verification);
+    if (input.verification !== undefined && (verification === undefined || input.target.kind !== "finding" ||
+        input.target.identity !== verification.findingIdentity)) return undefined;
     const claim = input.claim.trim();
     const uri = input.source.uri.trim();
     if (claim.length === 0 || uri.length === 0) return undefined;
@@ -1858,6 +1866,8 @@ export const createLongitudinalService = (options: {
       && previous.claim === claim
       && previous.relation === input.relation
       && previous.authority === input.authority
+      && previous.freshnessHorizonDays === input.freshnessHorizonDays
+      && JSON.stringify(previous.verification) === JSON.stringify(verification)
     ) {
       return previous;
     }
@@ -1869,6 +1879,7 @@ export const createLongitudinalService = (options: {
       initiativeId: initiative.id,
       cycleId: cycle.id,
       source: { ...input.source, uri },
+      ...(verification === undefined ? {} : { verification }),
       claim,
       relation: input.relation,
       target: input.target,
@@ -1981,7 +1992,25 @@ export const createLongitudinalService = (options: {
       // the record that is current, not on a revision something else replaced.
       if (record.supersededById !== undefined) return false;
       if (!resolutionIsAllowed("externalEvidence", record.state, input.action)) return false;
-      store.commitExternalEvidence([resolveExternalEvidence(record, resolution)]);
+      const accepted = resolveExternalEvidence(record, resolution);
+      if (input.action === "accept" && record.verification !== undefined) {
+        const finding = store.listFindingHistory(initiative.id).find((item) =>
+          record.target.kind === "finding" && item.identity === record.target.identity);
+        if (!cycle || cycle.completion !== "open" ||
+            store.listFindingAliases(initiative.id).some((alias) => alias.aliasIdentity === finding?.identity) ||
+            findingVerificationRefusal({
+          record, finding, currentBaseline: input.currentBaseline, now: resolution.resolvedAt,
+        }) !== undefined || finding === undefined) return false;
+        const resolved = resolveFindingWithControllerEvidence(finding, {
+          evidence: [`Accepted verification evidence ${record.id}: ${record.verification.requirement}`],
+          cycleId: cycle.id, recordedAt: resolution.resolvedAt,
+        });
+        if (!resolved) return false;
+        store.commitResolution({
+          externalEvidence: [accepted], findings: [{ ...resolved, fixState: "verified" }],
+          cycle: deltaWith(cycle, "resolvedFindingIdentities", finding.identity, resolution.resolvedAt) ?? cycle,
+        });
+      } else store.commitExternalEvidence([accepted]);
       return true;
     }
     if (input.target === "finding") {

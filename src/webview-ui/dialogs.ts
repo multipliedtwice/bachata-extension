@@ -5,6 +5,68 @@
  * restoration stays with the dialog that took focus.
  */
 
+const dialogReturnFocusSelector = (): string | undefined =>
+  bachataWebviewBehavior.focusReturnSelector(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+
+const restoreDialogFocus = (selector: string | undefined): void => {
+  focusAfterRender(() => {
+    // A dialog dismissed over a still-open editor or drawer must return focus inside that layer.
+    // The page behind it is under a backdrop, so a control focused there takes the ring where
+    // nobody can see it and the next Tab is yanked back by the trap.
+    const layer = state.editorOpen
+      ? root.querySelector<HTMLElement>(".pipeline-editor")
+      : state.runDrawerOpen
+        ? root.querySelector<HTMLElement>(".run-drawer")
+        : null;
+    const scope = layer ?? root;
+    const target = selector ? scope.querySelector<HTMLElement>(selector) : undefined;
+    // A dialog returns to its trigger. Reopen its menu first so that trigger is reachable.
+    const collapsed = target?.closest<HTMLDetailsElement>("details:not([open])") ?? null;
+    if (collapsed) {
+      collapsed.open = true;
+      if (collapsed.dataset.disclosureKey) state.disclosureStates.set(collapsed.dataset.disclosureKey, true);
+      const summary = collapsed.querySelector<HTMLElement>("summary");
+      if (summary) positionRunMenu(summary);
+    }
+    (target
+      ?? (layer ? reachableControls(layer)[0] : undefined)
+      // The pipeline edit control lives inside the settings panel and may be closed; the settings
+      // control that opens it is always in the composer, so it is the stable landing place.
+      ?? root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')
+      ?? document.getElementById("composer-prompt")
+      ?? root.querySelector<HTMLElement>('[data-action="run-drawer-toggle"]'))?.focus();
+  });
+};
+
+const openDialog = (dialog: AppDialog): void => {
+  const returnFocusSelector = dialogReturnFocusSelector();
+  setOptionalProperty(state, "dialogReturnFocusSelector", returnFocusSelector);
+  state.dialog = dialog;
+  scheduleRender();
+  focusAfterRender(() => {
+    const input = document.getElementById("app-dialog-input") as HTMLInputElement | null;
+    const confirm = root.querySelector<HTMLButtonElement>('[data-action="dialog-confirm"]');
+    const cancel = root.querySelector<HTMLButtonElement>('[data-dialog-default="cancel"]');
+    const danger = "danger" in dialog && dialog.danger;
+    const initialFocus = bachataWebviewBehavior.dialogInitialFocus(Boolean(input), danger);
+    (initialFocus === "input" ? input : initialFocus === "cancel" ? cancel : confirm)?.focus();
+    input?.select();
+  });
+};
+
+const closeDialog = (): void => {
+  const selector = state.dialogReturnFocusSelector;
+  delete state.dialog;
+  delete state.dialogReturnFocusSelector;
+  state.fieldErrors.delete("app-dialog-input");
+  state.fieldErrors.delete("app-dialog-delta");
+  scheduleRender();
+  restoreDialogFocus(selector);
+};
+
+
 const appDialogHtml = (): string => {
   const dialog = state.dialog;
   if (!dialog) {
@@ -46,6 +108,7 @@ type ControlSnapshot = {
 };
 
 let composing = false;
+let pointerActivationPending = false;
 let deferredRender = false;
 
 /**

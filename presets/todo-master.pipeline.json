@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "todo-master",
-  "name": "TODO Master watchdog",
-  "description": "Checks TODO execution state only. It does not review implementation choices.",
+  "name": "Internal — task progress check",
+  "description": "Read-only controller watchdog for TODO execution state. Requires an orchestration packet; it does not review implementation decisions.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",

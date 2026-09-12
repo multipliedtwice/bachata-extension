@@ -899,7 +899,7 @@ export const assertExpectedFileHashes = async (
       throw new MutationPolicyError(`Expected source file is unavailable: ${expected.path}`, "STALE_FILE");
     }
     if (sha256(content) !== expected.sha256.toLowerCase()) {
-      throw new MutationPolicyError(`Source hash changed before mutation: ${expected.path}`, "STALE_FILE");
+      throw new MutationPolicyError(`Source version changed before mutation: ${expected.path}`, "STALE_FILE");
     }
   }
 };

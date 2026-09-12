@@ -111,7 +111,7 @@ const attemptFromPayload = (payload: unknown): WorkflowAttempt | undefined => {
   if (!isRecord(pipeline) || typeof pipeline.hash !== "string" || !Array.isArray(pipeline.steps)) {
     return undefined;
   }
-  if (!/^[0-9a-f]{64}$/u.test(pipeline.hash)) return undefined;
+  if (pipeline.hash.length !== 64 || !/^[0-9a-f]{64}$/u.test(pipeline.hash)) return undefined;
   if (pipeline.steps.length === 0 || pipeline.steps.length > MAX_PIPELINE_STEPS) return undefined;
   const steps: WorkflowAttemptStep[] = [];
   const ids = new Set<string>();
@@ -265,29 +265,61 @@ const PAYLOAD_ENTRY_BYTES = 11;
 const conversationEntryBytes = (conversationId: string): number =>
   serializedJsonBytes(conversationId) + 4;
 
-const lastRulingIndex = (events: readonly CatalogEventRow[]): number =>
-  events.reduce(
-    (found, event, index) => (event.type === "decision.published" ? index : found),
-    -1,
-  );
+/**
+ * The newest published ruling, carried with the row it came from.
+ *
+ * The event travels with its index because every caller needs both, and looking the index back up
+ * afterwards would reintroduce an absent-row case that this search has already ruled out.
+ */
+const lastRuling = (
+  events: readonly CatalogEventRow[],
+): { index: number; event: CatalogEventRow } | undefined => {
+  let found: { index: number; event: CatalogEventRow } | undefined;
+  for (const [index, event] of events.entries()) {
+    if (event.type === "decision.published") found = { index, event };
+  }
+  return found;
+};
 
 /** Newest first, with the newest published ruling ahead of everything. */
 const spendOrder = (
   events: readonly CatalogEventRow[],
-): { index: number; event: CatalogEventRow }[] => {
-  const ruling = lastRulingIndex(events);
-  const newestFirst = events
-    .map((_event, offset) => events.length - 1 - offset)
-    .filter((index) => index !== ruling)
-    .map((index) => ({ index, event: events[index] as CatalogEventRow }));
-  return ruling < 0
-    ? newestFirst
-    : [{ index: ruling, event: events[ruling] as CatalogEventRow }, ...newestFirst];
-};
+): Iterable<{ index: number; event: CatalogEventRow }> => ({
+  *[Symbol.iterator]() {
+    const ruling = lastRuling(events);
+    if (ruling !== undefined) yield ruling;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      if (index !== ruling?.index) yield { index, event: events[index] as CatalogEventRow };
+    }
+  },
+});
 
 export type ConversationEventHistory = {
   conversationId: string;
   events: readonly CatalogEventRow[];
+};
+
+/** One selected conversation and the rows it has been granted so far. */
+type SelectedHistory = {
+  history: ConversationEventHistory;
+  rows: Map<number, WorkflowEventSummary>;
+};
+
+/**
+ * The active conversation's place in the list, carried with the history itself.
+ *
+ * The index is what the inactive pass skips by, and the history is what the active pass charges, so
+ * returning both together removes the re-indexing that would otherwise need an absent-element case.
+ */
+const activeHistoryOf = (
+  histories: readonly ConversationEventHistory[],
+  activeConversationId: string | undefined,
+): { index: number; history: ConversationEventHistory } | undefined => {
+  if (activeConversationId === undefined) return undefined;
+  for (const [index, history] of histories.entries()) {
+    if (history.conversationId === activeConversationId) return { index, history };
+  }
+  return undefined;
 };
 
 /**
@@ -305,35 +337,32 @@ const projectedHistories = (input: {
   activeConversationId?: string | undefined;
   aggregateBytes?: number | undefined;
 }): { conversationId: string; views: WorkflowEventSummary[] }[] => {
-  const aggregate = input.aggregateBytes ?? EVENT_HISTORY_AGGREGATE_BYTES;
-  if (aggregate < 2) return [];
-  const prioritized: ConversationEventHistory[] = [];
-  const activeIndex = input.activeConversationId === undefined
-    ? -1
-    : input.histories.findIndex((history) => history.conversationId === input.activeConversationId);
-  if (activeIndex >= 0) prioritized.push(input.histories[activeIndex] as ConversationEventHistory);
-  input.histories.forEach((history, index) => {
-    if (index !== activeIndex) prioritized.push(history);
-  });
+  const requested = input.aggregateBytes ?? EVENT_HISTORY_AGGREGATE_BYTES;
+  // `{}` is two bytes and is what an empty projection already sends, so two is the smallest ceiling
+  // any answer can honour, and a smaller or non-finite request is raised to it rather than refused.
+  // Every spend below is guarded against what is left, so the budget only ever reaches zero.
+  const aggregate = Number.isFinite(requested) ? Math.max(2, Math.floor(requested)) : 2;
+  const active = activeHistoryOf(input.histories, input.activeConversationId);
 
-  const selected: { history: ConversationEventHistory; rows: Map<number, WorkflowEventSummary> }[] = [];
+  const selected: SelectedHistory[] = [];
   let remaining = aggregate - 2;
-  const addHistory = (history: ConversationEventHistory): boolean => {
+
+  /**
+   * Charges one conversation key and hands back the entry that now owns its rows, or nothing when
+   * the key itself did not fit. Returning the entry is what makes "it was added" and "here is what
+   * was added" the same fact.
+   */
+  const addHistory = (history: ConversationEventHistory): SelectedHistory | undefined => {
     const entryBytes = conversationEntryBytes(history.conversationId)
       - (selected.length === 0 ? 1 : 0);
-    if (entryBytes > remaining) return false;
+    if (entryBytes > remaining) return undefined;
     remaining -= entryBytes;
-    selected.push({ history, rows: new Map() });
-    return true;
+    const entry: SelectedHistory = { history, rows: new Map() };
+    selected.push(entry);
+    return entry;
   };
-  if (activeIndex >= 0) {
-    addHistory(prioritized[0] as ConversationEventHistory);
-  }
 
-  const spendMetadata = (
-    entries: readonly { history: ConversationEventHistory; rows: Map<number, WorkflowEventSummary> }[],
-    budget: number,
-  ): number => {
+  const spendMetadata = (entries: readonly SelectedHistory[], budget: number): number => {
     let metadataRemaining = budget;
     entries.forEach(({ history, rows }) => {
       for (const { index, event } of spendOrder(history.events)) {
@@ -348,44 +377,68 @@ const projectedHistories = (input: {
     return metadataRemaining;
   };
 
+  /**
+   * The one place a detail is priced, charged and attached, so the active conversation's ruling and
+   * every later row are paid for by the same rule.
+   */
+  const attachPayload = (
+    entry: SelectedHistory,
+    index: number,
+    event: CatalogEventRow,
+    summary: WorkflowEventSummary,
+  ): void => {
+    // The projector is asked for at most what is left, and it guarantees its own serialized size
+    // against that number, so what comes back is already affordable. Re-checking it here would be
+    // a branch no input can reach; `tests/eventDetail.test.cjs` is where that guarantee is held.
+    const detail = eventDetail(
+      event,
+      Math.min(MAX_EVENT_DETAIL_BYTES, remaining - PAYLOAD_ENTRY_BYTES),
+    );
+    if (detail === undefined) return;
+    remaining -= serializedJsonBytes(detail) + PAYLOAD_ENTRY_BYTES;
+    entry.rows.set(index, { ...summary, payload: detail });
+  };
+
+  const activeEntry = active === undefined ? undefined : addHistory(active.history);
+
   const metadataBudget = Math.floor(
     Math.max(0, remaining) * METADATA_SHARE_NUMERATOR / METADATA_SHARE_DENOMINATOR,
   );
-  let metadataRemaining = activeIndex >= 0
-    ? spendMetadata(selected, metadataBudget)
-    : metadataBudget;
+  let metadataRemaining = activeEntry === undefined
+    ? metadataBudget
+    : spendMetadata([activeEntry], metadataBudget);
 
-  const inactiveStart = activeIndex >= 0 ? 1 : 0;
-  for (let index = inactiveStart; index < prioritized.length; index += 1) {
-    addHistory(prioritized[index] as ConversationEventHistory);
+  // The active conversation's ruling is paid before any inactive conversation is charged for its
+  // key, so the answer the reader is looking at outlives an arbitrary number of other runs.
+  if (activeEntry !== undefined && remaining > PAYLOAD_ENTRY_BYTES) {
+    const ruling = lastRuling(activeEntry.history.events);
+    if (ruling !== undefined) {
+      const summary = activeEntry.rows.get(ruling.index);
+      if (summary !== undefined) attachPayload(activeEntry, ruling.index, ruling.event, summary);
+    }
   }
-  const inactiveSelected = activeIndex >= 0 ? selected.slice(1) : selected;
-  metadataRemaining = spendMetadata(inactiveSelected, Math.min(metadataRemaining, remaining));
 
-  selected.forEach(({ history, rows }) => {
-    for (const { index, event } of spendOrder(history.events)) {
+  for (const [index, history] of input.histories.entries()) {
+    if (index === active?.index) continue;
+    const entry = addHistory(history);
+    if (entry === undefined) continue;
+    const budget = Math.floor(Math.min(metadataRemaining, remaining) / (input.histories.length - index));
+    metadataRemaining -= budget - spendMetadata([entry], budget);
+  }
+
+  selected.forEach((entry) => {
+    for (const { index, event } of spendOrder(entry.history.events)) {
       if (remaining <= PAYLOAD_ENTRY_BYTES) break;
-      const summary = rows.get(index);
+      const summary = entry.rows.get(index);
       if (summary === undefined) continue;
-      // The projector is asked for at most what is left, and it guarantees its own serialized size
-      // against that number, so what comes back is already affordable. Re-checking it here would be
-      // a branch no input can reach; `tests/eventDetail.test.cjs` is where that guarantee is held.
-      const detail = eventDetail(
-        event,
-        Math.min(MAX_EVENT_DETAIL_BYTES, remaining - PAYLOAD_ENTRY_BYTES),
-      );
-      if (detail === undefined) continue;
-      remaining -= serializedJsonBytes(detail) + PAYLOAD_ENTRY_BYTES;
-      rows.set(index, { ...summary, payload: detail });
+      if (summary.payload !== undefined) continue;
+      attachPayload(entry, index, event, summary);
     }
   });
 
   return selected.map(({ history, rows }) => ({
     conversationId: history.conversationId,
-    views: history.events.flatMap((_event, index) => {
-      const summary = rows.get(index);
-      return summary === undefined ? [] : [summary];
-    }),
+    views: [...rows.entries()].sort(([left], [right]) => left - right).map(([, summary]) => summary),
   }));
 };
 

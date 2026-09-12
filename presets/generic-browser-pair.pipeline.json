@@ -1,8 +1,8 @@
 {
   "version": 1,
   "id": "generic-browser-pair",
-  "name": "Generic browser pair (Grok / Z.AI / other)",
-  "description": "Use two explicitly bound Generic browser conversations such as Grok or Z.AI as managed worker and lead. The website controls the actual model or mode.",
+  "name": "Implement and refine — generic browser",
+  "description": "Worker/lead workflow for supported generic sites, with one planned revision and final review. Requires bound conversations; sites own model selection.",
   "longitudinalIntent": "runLocal",
   "managedPolicy": {
     "writeScope": "task",
@@ -24,13 +24,13 @@
   "agents": [
     {
       "id": "generic-worker",
-      "name": "Generic Browser Worker",
+      "name": "Implementer",
       "adapter": "generic-browser",
       "resourceId": "generic-browser:default-origin"
     },
     {
       "id": "generic-lead",
-      "name": "Generic Browser Lead",
+      "name": "Lead reviewer",
       "adapter": "generic-browser",
       "resourceId": "generic-browser:default-origin"
     }

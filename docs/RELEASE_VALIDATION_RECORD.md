@@ -81,4 +81,4 @@ Unconfirmed risk, not a defect. The state store is synchronous and waits on a lo
 
 | Check | Date | VSIX SHA-256 | Result | Notes |
 | --- | --- | --- | --- | --- |
-| Network-backed dependency audit | — | — | Not performed | Authorized source audits passed for both packages with zero reported vulnerabilities. Exact VSIX audit and artifact binding remain required after packaging. |
+| Network-backed dependency audit | 2026-09-13 | `6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e` | Pass | `npm audit --audit-level=moderate` passed against the registry in both package trees: Extension 0 vulnerabilities across 302 dependencies; Browser Bridge 0 vulnerabilities across 62 dependencies. `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` separately passed against this exact VSIX; the pinned Bridge ZIP is `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`. |

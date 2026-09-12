@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, constants } from "node:fs";
+import { open, lstat } from "node:fs/promises";
 
 export const sha256FilePath = async (
   absolutePath: string,
@@ -35,3 +36,32 @@ export const sha256FilePath = async (
       resolve(hash.digest("hex"));
     });
   });
+
+export const sha256EvidenceCopy = async (absolutePath: string): Promise<string> => {
+  const named = await lstat(absolutePath);
+  if (!named.isFile()) throw new Error("Evidence copies must be regular local files of at most 4 MiB");
+  const file = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await file.stat();
+    const limit = 4 * 1024 * 1024;
+    if (before.dev !== named.dev || before.ino !== named.ino) throw new Error("Evidence copy changed during inspection");
+    if (!before.isFile() || before.size > limit) throw new Error("Evidence copies must be regular local files of at most 4 MiB");
+    const hash = createHash("sha256");
+    const buffer = Buffer.alloc(65_536);
+    let size = 0;
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      if (Date.now() > deadline) throw new Error("Evidence copy inspection timed out");
+      const next = await file.read(buffer, 0, buffer.length, size);
+      if (next.bytesRead === 0) break;
+      size += next.bytesRead;
+      if (size > before.size || size > limit) throw new Error("Evidence copy changed during inspection");
+      hash.update(buffer.subarray(0, next.bytesRead));
+    }
+    const after = await file.stat();
+    if (size !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
+      throw new Error("Evidence copy changed during inspection");
+    }
+    return hash.digest("hex");
+  } finally { await file.close(); }
+};

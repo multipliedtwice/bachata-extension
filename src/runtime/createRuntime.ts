@@ -1,3 +1,8 @@
+import { browserCandidateReference, browserControllerEvidence, browserControllerText, composeAgentPrompt } from "./browserPromptContracts";
+import { prepareBrowserDeliverable } from "../browser/deliverables";
+import { BrowserContextReferences } from "../browser/contextReferences";
+import { assertBrowserAttachmentSource } from "../browser/sourceTransferPolicy";
+import { webviewErrorMessage } from "../webview/errorMessage";
 import { readTimeoutSetting } from "../state/timeoutBounds";
 import { setOptionalProperty } from "../state/optionalProperty";
 import { recoveryCheckpointIsUsable } from "./recoveryCheckpoint";
@@ -366,6 +371,7 @@ import {
   createPipelineValidator,
   PipelineCatalogMaps,
   planLegacyCustomPipelineMigration,
+  pipelinePickerMetadata,
   readBuiltInPipelineCatalog,
   readCustomPipelineCatalog,
   resetPipelineCatalog,
@@ -452,6 +458,8 @@ import type { GuardrailSummary } from "../workflows/guardrails";
 import { redactText } from "../security/redact";
 import { boundedRedactedText } from "../conversations/eventDetail";
 import { boundedAgentOutput } from "../state/boundedAgentOutput";
+import { createStreamRedactor, redactedAgentOutput } from "../security/streamRedaction";
+import { stoppedByUser, UserStopError } from "./userStop";
 import {
   boundedTranscriptEntry,
   boundedTranscriptWindow,
@@ -1379,8 +1387,9 @@ const pipelineSummary = (
   editable,
   hash,
   scopeKey: editable ? scope.key : "builtin",
-  participantCount: pipeline.agents.length,
-  participantNames: pipeline.agents.map((agent) => agent.name),
+  ...pipelinePickerMetadata(pipeline.id, editable),
+  participantCount: assignmentSlots(pipeline).slots.length,
+  participantNames: assignmentSlots(pipeline).slots.map((slot) => slot.responsibility),
   stepCount: pipeline.steps.filter((step) => step.enabled).length,
   ...(editable && scope.root ? { scopeRoot: scope.root } : {}),
 });
@@ -1501,6 +1510,7 @@ export const createRuntime = (
   >();
   const approvalResolvers = new Map<string, ApprovalResolver>();
   const deltaBuffers = new Map<AgentId, string>();
+  const outputRedactors = new Map<AgentId, ReturnType<typeof createStreamRedactor>>();
   const deltaTimers = new Map<AgentId, NodeJS.Timeout>();
   const managedPairCheckpoints = new Map<string, ManagedPairCheckpoint>(
     (persisted?.managedPairCheckpoints ?? []).map((checkpoint) => [checkpoint.taskId, checkpoint]),
@@ -1820,7 +1830,14 @@ export const createRuntime = (
     if (!requestId) {
       return;
     }
-    post({ type: "operation.result", requestId, operation, status, ...values });
+    if (values.pipeline !== undefined) {
+      const validation = validatePipelineDefinition(values.pipeline);
+      if (!validation.success) {
+        post({ type: "operation.result", requestId, operation, status: "failed", message: "The pipeline exceeds the supported definition boundary." });
+        return;
+      }
+    }
+    post({ type: "operation.result", requestId, operation, status, ...values, ...(values.message === undefined ? {} : { message: boundedRedactedText(values.message, 8192, { structured: true }) }) });
   };
 
   const emitSnapshot = (): void => {
@@ -2578,6 +2595,7 @@ export const createRuntime = (
         removeApproval(agentId, request.requestId);
         previous.resolve("cancel");
       }
+      if (approvalResolvers.size >= 64) throw new Error("Bachata refuses more than 64 pending provider approvals");
       const approval = pendingApprovalFrom(agentId, request);
       let resolveDecision: (choiceId: string) => void = () => undefined;
       const decision = new Promise<string>((resolve) => {
@@ -3712,7 +3730,7 @@ export const createRuntime = (
     });
     const restoredOutputs = latestAgentOutputs(state.transcript, Object.keys(state.agents));
     for (const [agentId, output] of Object.entries(restoredOutputs)) {
-      agentStateFor(agentId).output = boundedAgentOutput(output);
+      agentStateFor(agentId).output = redactedAgentOutput(output);
     }
     if (options.startBridge ?? ownsBridge) {
       await bridge.start();
@@ -3799,9 +3817,11 @@ export const createRuntime = (
     // A provider's failure message is free-form provider text like any other, and it travels in
     // every snapshot from here until the agent is reset. It is bounded where it is written rather
     // than at each of the places that write one.
-    const bounded = patch.error === undefined
-      ? patch
-      : { ...patch, error: boundedRedactedText(patch.error, AGENT_ERROR_BYTES, { structured: true, maxUnits: AGENT_ERROR_UNITS }) };
+    const bounded = {
+      ...patch,
+      ...(patch.error === undefined ? {} : { error: boundedRedactedText(patch.error, AGENT_ERROR_BYTES, { structured: true, maxUnits: AGENT_ERROR_UNITS }) }),
+      ...(patch.output === undefined ? {} : { output: redactedAgentOutput(patch.output) }),
+    };
     Object.assign(agent, bounded);
     // A provider that failed during an actual turn is evidence the cached answer is stale — the
     // executable may have been removed, moved or replaced since discovery. Its record is dropped so
@@ -3879,9 +3899,15 @@ export const createRuntime = (
   };
 
   const queueDelta = (agentId: string, text: string): void => {
+    let redactor = outputRedactors.get(agentId);
+    if (!redactor) {
+      redactor = createStreamRedactor();
+      outputRedactors.set(agentId, redactor);
+    }
+    const safe = redactor.push(text);
     const agent = agentStateFor(agentId);
-    agent.output = boundedAgentOutput(agent.output + text);
-    deltaBuffers.set(agentId, boundedAgentOutput(`${deltaBuffers.get(agentId) ?? ""}${text}`));
+    agent.output = boundedAgentOutput(agent.output + safe);
+    deltaBuffers.set(agentId, boundedAgentOutput(`${deltaBuffers.get(agentId) ?? ""}${safe}`));
     if (deltaTimers.has(agentId)) {
       return;
     }
@@ -3894,7 +3920,9 @@ export const createRuntime = (
 
   const replaceAgentOutput = (agentId: string, text: string): void => {
     flushDelta(agentId);
-    const bounded = boundedAgentOutput(text);
+    const redactor = createStreamRedactor();
+    outputRedactors.set(agentId, redactor);
+    const bounded = redactor.push(text);
     agentStateFor(agentId).output = bounded;
     post({ type: "agent.replace", agentId, text: bounded });
   };
@@ -4233,28 +4261,30 @@ export const createRuntime = (
 
   const renderBrowserResultsPrompt = (
     round: number,
-    response: CapturedResponse,
+    _response: CapturedResponse,
     actions: BrowserActionCandidate[],
     results: BrowserActionExecutionResult[],
     structuredTurnToken?: string,
+    workspaceRoot = "",
   ): string => {
-    const payload = actions.map((action) => ({
+    const payload = actions.map((action, index) => ({
       action: {
-        id: action.id,
+        id: `action-${String(index + 1)}`,
         kind: action.kind,
         risk: action.risk,
         summary: redactText(describeBrowserAction(action)),
       },
-      result: results.find((item) => item.actionId === action.id),
+      result: results.find((item) => item.actionId === action.id) === undefined ? undefined : { ...results.find((item) => item.actionId === action.id), actionId: `action-${String(index + 1)}` },
     }));
     return [
       "Bachata executed or rejected the local actions detected in your previous response.",
       "Continue the same task using only the results below. Do not claim an action succeeded unless its status is completed.",
       `Action round: ${String(round)}`,
-      `Captured response request: ${response.requestId}`,
       ...(structuredTurnToken ? [`Structured action turn token: ${structuredTurnToken}`] : []),
       "Results:",
-      JSON.stringify(payload, null, 2),
+      JSON.stringify(payload, (key: string, value: unknown): unknown =>
+        typeof value === "string" && (key === "stderr" || key === "summary")
+          ? browserControllerText(value, workspaceRoot) : value, 2),
     ].join("\n\n");
   };
 
@@ -4265,9 +4295,9 @@ export const createRuntime = (
     "Use fenced JSON blocks with language bachata-action for local workspace operations.",
     `Read: {"turnToken":"${structuredTurnToken}","kind":"workspace.read","path":"relative/path.ts"}`,
     `Search: {"turnToken":"${structuredTurnToken}","kind":"workspace.search","path":"optional/subdir","query":"text"}`,
-    `Write: {"turnToken":"${structuredTurnToken}","kind":"workspace.write","path":"relative/path.ts","content":"...","expectedFiles":[{"path":"relative/path.ts","sha256":"<sha256 from workspace.read>"}]}`,
-    `Patch: {"turnToken":"${structuredTurnToken}","kind":"workspace.applyPatch","patch":"...","expectedFiles":[{"path":"relative/path.ts","sha256":"<sha256 from workspace.read>"}]}`,
-    "Existing-file mutations require the complete workspace.read SHA-256. Arbitrary shell.run actions are disabled.",
+    `Write: {"turnToken":"${structuredTurnToken}","kind":"workspace.write","path":"relative/path.ts","content":"...","expectedFiles":[{"path":"relative/path.ts","fileVersion":"<reference from workspace.read>"}]}`,
+    `Patch: {"turnToken":"${structuredTurnToken}","kind":"workspace.applyPatch","patch":"...","expectedFiles":[{"path":"relative/path.ts","fileVersion":"<reference from workspace.read>"}]}`,
+    "Existing-file mutations require the fileVersion from a complete workspace.read. File digests stay inside the extension. Lockfiles, generated directories and VSIX archives are excluded from browser context. Arbitrary shell.run actions are disabled.",
     `Write scope: ${options.writeScope ?? ((options.allowedPaths ?? []).length > 0 ? "configured" : "workspace")}.`,
     `Allowed paths: ${(options.allowedPaths ?? []).length > 0 ? (options.allowedPaths ?? []).join(", ") : "none"}`,
     `Protected mutation paths: ${(options.protectedPaths ?? []).length > 0 ? (options.protectedPaths ?? []).join(", ") : "none"}`,
@@ -4336,6 +4366,9 @@ export const createRuntime = (
     // disabling one provider never prevents the extension from starting or from running a
     // workflow bound to another.
     const disabledAdapter = definitions[agentId]?.adapter;
+    if (disabledAdapter?.endsWith("-browser")) {
+      for (const attachment of attachments) assertBrowserAttachmentSource(attachment, state.attachments, state.workingDirectory);
+    }
     if (disabledAdapter !== undefined && disabledProviders().includes(disabledAdapter)) {
       throw new Error(
         `${definitions[agentId]?.name ?? agentId} (${disabledAdapter}) is disabled in`
@@ -4367,7 +4400,7 @@ export const createRuntime = (
       options.managed === true &&
       definitions[agentId]?.adapter.endsWith("-browser") === true &&
       attachments.length > 0 &&
-      attachments.every(isSupportedManagedContextAttachmentPath);
+      attachments.every((file) => isSupportedManagedContextAttachmentPath(file, state.workingDirectory));
     if (attachments.length > 0 && !adapter.capabilities.attachments && !managedLocalContextOnly) {
       releaseAgents([agentId], ownerId);
       throw new Error(`${agentStateFor(agentId).name} does not support attachments`);
@@ -4809,6 +4842,8 @@ export const createRuntime = (
       if (resultIsStale({ operationTaskId, currentTaskId: state.taskId, aborted: controller.signal.aborted })) {
         return { status: "interrupted", answer: "" };
       }
+      flushDelta(agentId);
+      outputRedactors.delete(agentId);
       patchAgent(agentId, { status: "running", error: undefined, output: "" });
 
       const sendTurn = async (
@@ -4951,6 +4986,7 @@ export const createRuntime = (
       };
 
       const isBrowserAgent = definitions[agentId]?.adapter.endsWith("-browser") === true;
+      const browserContextReferences = new BrowserContextReferences(workingDirectory);
       const structuredTurnToken = isBrowserAgent && programmaticAutoProvisioning && !managedBrowserTurn
         ? randomUUID()
         : undefined;
@@ -4960,22 +4996,27 @@ export const createRuntime = (
       // named and what the controller found, kept apart from each other.
       const managedControllerBlock = managedLeadReview
         ? managedLeadReviewPrompt({
-            candidate: managedLeadReview.workspaceFingerprint,
+            candidate: isBrowserAgent ? browserCandidateReference(browserContextReferences, managedLeadReview.workspaceFingerprint) : managedLeadReview.workspaceFingerprint,
             issues: managedLeadReview.issues,
-            evidence: managedLeadReview.evidence,
+            evidence: isBrowserAgent ? browserControllerEvidence(managedLeadReview.evidence, workingDirectory) : managedLeadReview.evidence,
           })
         : pendingLeadRevision
-          ? managedWorkerRevisionPrompt(pendingLeadRevision)
+          ? managedWorkerRevisionPrompt(isBrowserAgent ? {
+              ...pendingLeadRevision,
+              candidate: browserCandidateReference(browserContextReferences, pendingLeadRevision.candidate),
+              evidence: browserControllerEvidence(pendingLeadRevision.evidence, workingDirectory),
+            } : pendingLeadRevision)
           : undefined;
-      const initialPrompt = managedBrowserTurn
-        ? managedBrowserTurn.prompt
-        : isBrowserAgent && programmaticAutoProvisioning
-          ? [prompt, browserWorkspaceProtocolPrompt(options, structuredTurnToken!)].join("\n\n")
-          : managedControllerBlock
-            ? [prompt, managedControllerBlock].join("\n\n")
-            : prompt;
+      const initialPrompt = composeAgentPrompt({
+        task: prompt,
+        managedHandoff: managedBrowserTurn?.prompt,
+        controllerContract: managedControllerBlock,
+        workspaceProtocol: isBrowserAgent && structuredTurnToken
+          ? browserWorkspaceProtocolPrompt(options, structuredTurnToken)
+          : undefined,
+      });
       const initialAttachments = managedBrowserTurn
-        ? attachments.filter(isSupportedBrowserAttachmentPath)
+        ? attachments.filter((file) => isSupportedBrowserAttachmentPath(file, workingDirectory))
         : attachments;
       const initial = await sendTurn(initialPrompt, initialAttachments, "agent.prompt");
       let status = initial.result.status;
@@ -4984,6 +5025,8 @@ export const createRuntime = (
       const browserResponses: Array<CapturedResponse | undefined> = [
         initial.capturedResponse,
       ];
+      let deliverableCorrections = 0;
+      let unresolvedDeliverable = false;
       let providerAssetsObserved = (initial.capturedResponse?.assets.length ?? 0) > 0;
       const recordBrowserTurn = (turn: AdapterTurnResult): void => {
         providerAssetsObserved ||= (turn.capturedResponse?.assets.length ?? 0) > 0;
@@ -5147,8 +5190,49 @@ export const createRuntime = (
         round += 1
       ) {
         const terminalOnlyRound = round > maximumRounds;
+        const originalEnvelope = managedBrowserTurn
+          ? extractBrowserControlEnvelopeFromCaptured(capturedResponse, managedBrowserTurn.contextReferences)
+          : undefined;
+        const fallbackActions = managedBrowserTurn ? [] : extractBrowserActions(
+          capturedResponse.text, capturedResponse.segments, structuredTurnToken, browserContextReferences,
+        );
+        let deliverable = await prepareBrowserDeliverable(capturedResponse, {
+          workingDirectory,
+          references: managedBrowserTurn?.contextReferences ?? browserContextReferences,
+          fetchAsset: bridge.fetchAsset,
+          signal: controller.signal,
+          hasControlActions: (originalEnvelope?.actions.length ?? 0) > 0 || fallbackActions.some((action) => action.origin === "structured"),
+          mutationContext: browserActionMutationContext({
+            allowedPaths: options.allowedPaths,
+            protectedPaths: options.protectedPaths,
+            readOnly: options.readOnly,
+          }),
+        });
+        if (deliverable.kind === "none" && unresolvedDeliverable
+          && !(originalEnvelope?.actions.length || fallbackActions.length)
+          && originalEnvelope?.status !== "blocked") {
+          deliverable = { kind: "correction", message: "The previous deliverable is still unresolved. Return corrected changes or request current source context; a prose completion claim cannot resolve an unapplied deliverable." };
+        }
+        if (deliverable.kind === "correction" || deliverable.kind === "unchanged") {
+          unresolvedDeliverable = deliverable.kind === "correction";
+          await appendTranscript(createEventEntry(
+            `browser.deliverable.${deliverable.kind}`, deliverable.message, undefined, agentId, step,
+          ));
+          if (terminalOnlyRound || ++deliverableCorrections > 2) {
+            throw new Error("Browser deliverable remains unresolved after the correction budget; no unvalidated changes were applied");
+          }
+          const continuation = managedBrowserTurn && managedBrowserOptions
+            ? await sendManagedContinuation(deliverable.message, "browser.deliverable.correction")
+            : await sendTurn(deliverable.message, [], "browser.deliverable.correction");
+          status = continuation.result.status;
+          lastNaturalAnswer = continuation.result.answer;
+          recordBrowserTurn(continuation);
+          capturedResponse = continuation.capturedResponse;
+          continue;
+        }
+        if (deliverable.kind === "changes") unresolvedDeliverable = true;
         if (managedBrowserTurn && managedBrowserOptions) {
-          const prospectiveEnvelope = extractBrowserControlEnvelopeFromCaptured(capturedResponse);
+          const prospectiveEnvelope = deliverable.kind === "changes" ? deliverable.envelope : originalEnvelope;
           if (terminalOnlyRound && (prospectiveEnvelope?.actions.length ?? 0) > 0) {
             await appendTranscript(
               createEventEntry(
@@ -5303,6 +5387,11 @@ export const createRuntime = (
             continue;
           }
           managedRepairAttempts = 0;
+          if (controlled.envelope?.actions.some((action) => action.kind.startsWith("workspace."))
+            && controlled.actionResults.length > 0 && controlled.actionResults.every((result) => result.status === "completed")) {
+            unresolvedDeliverable = false;
+            deliverableCorrections = 0;
+          }
           actionCount += controlled.envelope?.actions.length ?? 0;
           const activeManagedTurn = managedBrowserTurn;
           if (!activeManagedTurn) {
@@ -5413,7 +5502,7 @@ export const createRuntime = (
                 }
               : undefined,
           };
-          managedControllerEvidence.push(JSON.stringify(managedEvidence, null, 2).slice(0, 65_536));
+          managedControllerEvidence.push((activeManagedTurn.contextReferences ??= new BrowserContextReferences(workingDirectory)).render(managedEvidence).slice(0, 65_536));
           await appendTranscript(
             createEventEntry(
               "browser.managed.control",
@@ -5471,11 +5560,7 @@ export const createRuntime = (
           continue;
         }
 
-        let detectedActions = extractBrowserActions(
-          capturedResponse.text,
-          capturedResponse.segments,
-          structuredTurnToken,
-        );
+        let detectedActions = deliverable.kind === "changes" ? [deliverable.action] : fallbackActions;
         if (semanticInterpreterEnabled && !terminalOnlyRound) {
           const interpreted = await interpretBrowserActions(
             capturedResponse.text,
@@ -5582,6 +5667,7 @@ export const createRuntime = (
             continue;
           }
           const executeLocalAction = () => executeBrowserAction(action, {
+            contextReferences: browserContextReferences,
             workingDirectory,
             signal: controller.signal,
             ...browserActionLimits({
@@ -5604,6 +5690,9 @@ export const createRuntime = (
           const rawExecuted = action.risk === "readOnly"
             ? await executeLocalAction()
             : await withWorkspaceMutation(executeLocalAction);
+          if (rawExecuted.status === "failed" && /rollback could not be completed safely/i.test(rawExecuted.stderr ?? "")) {
+            throw new Error("Workspace mutation failed and rollback could not be verified; orchestration stopped");
+          }
           const executed = sanitizedBrowserActionResult(rawExecuted);
           results.push(executed);
           await appendTranscript(
@@ -5619,6 +5708,11 @@ export const createRuntime = (
             ),
           );
         }
+        if (actions.some((action) => action.risk !== "readOnly") && results.length === actions.length
+          && results.every((result) => result.status === "completed")) {
+          unresolvedDeliverable = false;
+          deliverableCorrections = 0;
+        }
         browserRounds.push({ response: capturedResponse, actions, results });
         if (stopLoop || controller.signal.aborted) {
           break;
@@ -5629,6 +5723,7 @@ export const createRuntime = (
           actions,
           results,
           structuredTurnToken,
+          workingDirectory,
         );
         const continuation = await sendTurn(
           resultPrompt,
@@ -5687,7 +5782,7 @@ export const createRuntime = (
             controllerVerificationPrompt({
               role: managedTurnOptions.role,
               issues: pass.issues,
-              evidence: pass.evidence,
+              evidence: isBrowserAgent ? browserControllerEvidence(pass.evidence, workingDirectory) : pass.evidence,
             }),
             [],
             "verification.controller.revision",
@@ -5731,6 +5826,7 @@ export const createRuntime = (
           answer: lastNaturalAnswer,
           candidate: managedLeadReview.workspaceFingerprint,
           currentCandidate,
+          ...(isBrowserAgent ? { resolveCandidate: (reference: string) => browserContextReferences.objectValue("candidate", reference) } : {}),
         });
         await appendTranscript(
           createEventEntry(
@@ -5802,7 +5898,7 @@ export const createRuntime = (
       const controllerVerificationAnswer = controllerVerificationLines.length > 0
         ? [
             "Bachata controller verification (authoritative, run by the controller against this candidate):",
-            renderControllerVerificationEvidence(controllerVerificationLines),
+            renderControllerVerificationEvidence(isBrowserAgent ? browserControllerEvidence(controllerVerificationLines, workingDirectory) : controllerVerificationLines),
           ].join("\n\n")
         : undefined;
       const answer = managedBrowserTurn && managedControllerEvidence.length > 0
@@ -5825,6 +5921,8 @@ export const createRuntime = (
           `${agentId} augmented response exceeded ${String(maxStoredResponseBytes * 4)} bytes`,
         );
       }
+      flushDelta(agentId);
+      outputRedactors.delete(agentId);
       patchAgent(
         agentId,
         {
@@ -5856,6 +5954,11 @@ export const createRuntime = (
       };
     } catch (error) {
       flushDelta(agentId);
+      if (stoppedByUser(controller.signal)) {
+        patchAgent(agentId, { status: "interrupted", error: undefined }, true);
+        await appendTranscriptAfterCommit(createEntry("interrupted", "Stopped by you", agentId, step), "This user stop");
+        return { status: "interrupted", answer: agentStateFor(agentId).output };
+      }
       if (managedPairCheckpoint && isProviderFailureError(error)) {
         const nextCheckpoint = advanceManagedPair(managedPairCheckpoint, {
           type: "providerFailed",
@@ -5898,6 +6001,15 @@ export const createRuntime = (
       );
       throw error;
     } finally {
+      const outputRedactor = outputRedactors.get(agentId);
+      if (outputRedactor) {
+        const safe = outputRedactor.finish();
+        const agent = agentStateFor(agentId);
+        agent.output = boundedAgentOutput(agent.output + safe);
+        outputRedactors.delete(agentId);
+        flushDelta(agentId);
+        post({ type: "agent.replace", agentId, text: agent.output });
+      }
       if (managedDeadlineTimer) clearTimeout(managedDeadlineTimer);
       if (browserOperationDeadlineTimer) clearTimeout(browserOperationDeadlineTimer);
       if (abortControllers.get(agentId)?.controller === controller) {
@@ -5981,7 +6093,7 @@ export const createRuntime = (
     }
   };
 
-  const interruptAgents = async (agentIds: string[]): Promise<void> => {
+  const interruptAgents = async (agentIds: string[], reason?: UserStopError): Promise<void> => {
     const unique = Array.from(new Set(agentIds)).filter(
       (agentId) => adapters[agentId],
     );
@@ -5993,10 +6105,10 @@ export const createRuntime = (
       (agentId) => [agentId, releasePendingApprovals(agentId)] as const,
     );
     for (const agentId of unique) {
-      foregroundReservations.get(agentId)?.controller.abort();
+      foregroundReservations.get(agentId)?.controller.abort(reason);
       const active = abortControllers.get(agentId);
       if (active) {
-        active.controller.abort();
+        active.controller.abort(reason);
         activeAgentIds.push(agentId);
       }
     }
@@ -7125,15 +7237,31 @@ export const createRuntime = (
               after: await captureManagedRepositoryBaseline(workspaceRoot, controller.signal),
             })
           : undefined;
-        const completedResult = workspaceChange === undefined
+        const completedResult = stoppedByUser(controller.signal)
+          ? { ...result, status: "interrupted" as const }
+          : workspaceChange === undefined
           ? result
           : { ...result, ...workspaceChange };
         lastPipelineResult = structuredClone(completedResult);
         const terminal = pipelineTerminalPlan(completedResult.status);
-        if (!terminal.keepResumable) await setResumableWorkflow(undefined);
         patchRun(false, terminal.runStatus, { roles: completedResult.roles });
-        await appendTranscript(createEntry("status", terminal.statusText));
+        if (workflowController === controller) workflowController = undefined;
+        if (!terminal.keepResumable) await setResumableWorkflow(undefined);
+        await appendTranscript(createEntry(completedResult.status === "interrupted" ? "interrupted" : "status", completedResult.status === "interrupted" ? "Stopped by you" : terminal.statusText));
       } catch (error) {
+        if (stoppedByUser(controller.signal)) {
+          const snapshot = resumableWorkflowData?.checkpoint.snapshot;
+          lastPipelineResult = {
+            status: "interrupted",
+            roles: { ...state.roles },
+            answers: snapshot?.answers ?? {},
+            outputs: snapshot?.outputs ?? {},
+            decisions: snapshot?.decisions ?? {},
+          };
+          patchRun(false, "interrupted");
+          await appendTranscript(createEntry("interrupted", "Stopped by you"));
+          return;
+        }
         pipelineFailure = error;
         await interruptAgents(Object.keys(adapters));
         const failurePlan = pipelineFailurePlan({
@@ -7553,11 +7681,12 @@ export const createRuntime = (
 
   const interruptCurrentExecution = async (): Promise<void> => {
     const workflow = activeWorkflow;
-    workflowController?.abort();
+    const reason = new UserStopError();
+    workflowController?.abort(reason);
     gateResolver?.resolve({ action: "cancel" });
     gateResolver = undefined;
-    foregroundControllers.forEach((controller) => controller.abort());
-    await interruptAgents(Object.keys(adapters));
+    foregroundControllers.forEach((controller) => controller.abort(reason));
+    await interruptAgents(Object.keys(adapters), reason);
     await Promise.allSettled([
       ...(workflow ? [workflow] : []),
       ...Array.from(foregroundOperations),
@@ -9354,6 +9483,7 @@ export const createRuntime = (
       saveLabel: "Export Bachata transcript",
     });
     if (!selected) {
+      await vscode.window.showInformationMessage("Transcript export cancelled.");
       return;
     }
     const payload = {
@@ -9410,10 +9540,12 @@ export const createRuntime = (
       });
       const candidate = selected?.at(0)?.fsPath;
       if (!candidate) {
+        await vscode.window.showInformationMessage("Folder selection cancelled.");
         return;
       }
       const resolved = await resolveAllowedDirectory(candidate);
       if (resolved === state.workingDirectory) {
+        await vscode.window.showInformationMessage(`Already using ${resolved}`);
         return;
       }
       if (hasDurableTaskState() || state.workflowStatus !== "idle") {
@@ -9427,6 +9559,7 @@ export const createRuntime = (
         }
       }
       await resetForWorkingDirectory(resolved);
+      await vscode.window.showInformationMessage(`Working folder: ${resolved}`);
     } finally {
       pickingWorkingDirectory = false;
     }
@@ -9708,16 +9841,18 @@ export const createRuntime = (
       return;
     }
     if (message.type === "run.interrupt") {
+      const reason = new UserStopError();
       const cancelsPipeline =
         !message.agentId ||
         (workflowActive && state.workflowStatus === "running");
       if (cancelsPipeline) {
-        workflowController?.abort();
+        workflowController?.abort(reason);
         gateResolver?.resolve({ action: "cancel" });
         gateResolver = undefined;
       }
       await interruptAgents(
         message.agentId ? [message.agentId] : Object.keys(adapters),
+        reason,
       );
       return;
     }
@@ -9929,7 +10064,9 @@ export const createRuntime = (
       return;
     }
     if (message.type === "bridge.discover") {
+      await bridge.start();
       bridge.discover();
+      handleBridgeStatus(bridge.getStatus());
       return;
     }
     throw unsupportedWebviewMessage(message);
@@ -10193,7 +10330,7 @@ export const createRuntime = (
     void awaitInitialization().then(emitSnapshot, (error) => {
       post({
         type: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: webviewErrorMessage(error),
       });
     });
     return new vscode.Disposable(() => {
@@ -10794,10 +10931,11 @@ export const createRuntime = (
 
   const interruptProgrammatic = async (): Promise<void> => {
     await awaitInitialization();
-    workflowController?.abort();
+    const reason = new UserStopError();
+    workflowController?.abort(reason);
     gateResolver?.resolve({ action: "cancel" });
     gateResolver = undefined;
-    await interruptAgents(Object.keys(adapters));
+    await interruptAgents(Object.keys(adapters), reason);
     await activeWorkflow?.catch(() => undefined);
   };
 

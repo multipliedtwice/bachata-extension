@@ -7,6 +7,8 @@ import {
   WorkspaceWriteScope,
 } from "../adapters/types";
 import { isProviderFailureError, providerFallbackFailureCodes } from "../adapters/providerFailure";
+import { consensusAcceptanceFor } from "./consensusPromotion";
+import { stoppedByUser } from "../runtime/userStop";
 import { describeCapability } from "./capabilities";
 import { resolveCandidateShape } from "./candidateShapes";
 import {
@@ -854,6 +856,7 @@ export const executePipeline = async (
     index = targetIndex;
   };
 
+  try {
   while (index < pipeline.steps.length) {
     const step = pipeline.steps[index];
     // The loop condition already proves the step is there. Saying so once is what lets the
@@ -1571,6 +1574,12 @@ export const executePipeline = async (
           outputSchema,
           participantByAgentId.get(agentId),
         );
+        const consensusStep = agentStep.artifactPromotion?.fromConsensusStep;
+        if (consensusStep !== undefined && !consensusAcceptanceFor(
+          decisions[consensusStep]?.at(-1), artifact.value, consensusStep,
+        )) {
+          artifact.validationErrors.push("The recorded output does not match the latest accepted consensus candidate");
+        }
         stepOutputs[agentId] = artifact;
         await callbacks.onOutput?.(artifact);
       }
@@ -1664,5 +1673,9 @@ export const executePipeline = async (
     nextStepIndex: pipeline.steps.length,
     snapshot: captureSnapshot(),
   });
-  return result("completed");
+  return result(interrupted() ? "interrupted" : "completed");
+  } catch (error) {
+    if (stoppedByUser(signal)) return result("interrupted");
+    throw error;
+  }
 };

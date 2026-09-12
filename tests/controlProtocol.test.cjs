@@ -80,7 +80,7 @@ test("managed context search accepts continuation cursors and explicit full-file
     status: "needContext",
     actions: [
       { kind: "context.search", query: "createRuntime", pathPrefix: "src", cursor: "v1:abcdef123456:2000" },
-      { kind: "context.hashFile", path: "src/runtime/createRuntime.ts" },
+      { kind: "context.fileVersion", path: "src/runtime/createRuntime.ts" },
     ],
     summary: "continue search and authorize a later patch",
     objections: [],
@@ -94,7 +94,7 @@ test("managed context search accepts continuation cursors and explicit full-file
     pathPrefix: "src",
     cursor: "v1:abcdef123456:2000",
   });
-  assert.deepEqual(parsed?.actions[1], { kind: "context.hashFile", path: "src/runtime/createRuntime.ts" });
+  assert.deepEqual(parsed?.actions[1], { kind: "context.fileVersion", path: "src/runtime/createRuntime.ts" });
 });
 
 test("managed context search rejects oversized continuation cursors", () => {

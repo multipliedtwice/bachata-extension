@@ -87,12 +87,21 @@ class FakeElement {
     return this.attributes.has(name);
   }
 
-  querySelector() {
-    return null;
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] ?? null;
   }
 
-  querySelectorAll() {
-    return [];
+  querySelectorAll(selector) {
+    return document.root.elements.filter((element) => {
+      let parent = element.parentElement;
+      while (parent && parent !== this) parent = parent.parentElement;
+      return parent === this && selector.split(",").some((part) => {
+        if (part.trim().startsWith(":scope > ")) {
+          return element.parentElement === this && matchesSelector(element, part.trim().slice(9));
+        }
+        return matchesSelector(element, part);
+      });
+    });
   }
 
   scrollIntoView() {}
@@ -142,6 +151,18 @@ const elementForTag = (tagName) => {
 
 const matchesSelector = (element, selector) => {
   const trimmed = selector.trim();
+  if (trimmed === "details:not([open])") return element.tagName === "DETAILS" && !element.open;
+  const child = trimmed.lastIndexOf(" > ");
+  if (child >= 0) return matchesSelector(element, trimmed.slice(child + 3)) && element.parentElement !== null && matchesSelector(element.parentElement, trimmed.slice(0, child));
+  const descendant = trimmed.lastIndexOf(" ");
+  if (descendant >= 0 && !trimmed.slice(0, descendant).includes('[title="')) {
+    return matchesSelector(element, trimmed.slice(descendant + 1)) && Boolean(element.parentElement?.closest(trimmed.slice(0, descendant)));
+  }
+  if (trimmed.endsWith("[open]") && !element.open) return false;
+  const prefix = trimmed.match(/^([a-z]+)?((?:\.[A-Za-z0-9_-]+)*)/u);
+  if (prefix?.[1] && element.tagName !== prefix[1].toUpperCase()) return false;
+  if (prefix?.[2] && !prefix[2].slice(1).split(".").every((name) => element.className.split(/\s+/u).includes(name))) return false;
+
   if (trimmed.startsWith("#")) return element.id === trimmed.slice(1);
   // A class selector, so a test can count one KIND of alert rather than every element carrying
   // role="alert". "At least one alert exists" is not an assertion when the defect is that the
@@ -155,11 +176,11 @@ const matchesSelector = (element, selector) => {
   if (attributes.length === 0 && /^[a-z]+$/u.test(trimmed)) {
     return element.tagName === trimmed.toUpperCase();
   }
-  if (attributes.length === 0) return false;
+  if (attributes.length === 0) return /^([a-z]+)?(?:\.[A-Za-z0-9_-]+)+$/u.test(trimmed);
   return attributes.every((match) => {
     const name = match[1];
     const expected = match[2];
-    const actual = name.startsWith("data-")
+    const actual = name === "open" ? (element.open ? "" : null) : name.startsWith("data-")
       ? element.dataset[camel(name.slice(5))]
       : element.getAttribute(name);
     return expected === undefined ? actual !== undefined && actual !== null : actual === expected;
@@ -532,6 +553,50 @@ const conversationSummary = () => ({
   selectedPipelineId: "custom-a",
   selectedPipelineHash: customAHash,
   pipelineScopeRoot: "/workspace",
+});
+
+test("run tabs omit their own reference while preserving readable bracketed titles", () => {
+  const runs = [
+    { ...conversationSummary(), id: "first", runRef: "R8HYQPMZ6", title: "[R8HYQPMZ6] Fix the tab order" },
+    { ...conversationSummary(), id: "second", runRef: "RKJ2GFVKD", title: "[UI] Review accessibility" },
+    { ...conversationSummary(), id: "third", runRef: "R23456789", title: "[R23456789] [UI] Review accessibility" },
+  ];
+  const harness = bootWebview(managerState({ conversations: runs, activeConversationId: "first" }), panelState());
+  try {
+    const tabs = harness.document.root.innerHTML.match(/<button class="run-tab-select"[\s\S]*?<\/button>/gu).join("\n");
+    assert.match(tabs, /<span>Fix the tab order<\/span>/u);
+    assert.match(tabs, /<span>\[UI\] Review accessibility<\/span>/u);
+    assert.doesNotMatch(tabs, /\[(?:R8HYQPMZ6|RKJ2GFVKD|R23456789)\]/u);
+    assert.equal(runs[0].title, "[R8HYQPMZ6] Fix the tab order");
+  } finally { harness.restore(); }
+});
+
+test("run tabs keep creation order across selection activity snapshots and reload", () => {
+  const runs = [
+    { ...conversationSummary(), id: "first", createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-12T00:00:00Z" },
+    { ...conversationSummary(), id: "second", createdAt: "2026-09-02T00:00:00Z", updatedAt: "2026-09-11T00:00:00Z" },
+    { ...conversationSummary(), id: "third", createdAt: "2026-09-02T00:00:00Z", updatedAt: "2026-09-10T00:00:00Z" },
+  ];
+  const order = (harness) => harness.document.root.querySelectorAll(".run-tab-select").map((tab) => tab.getAttribute("data-conversation"));
+  const manager = managerState({ conversations: runs, activeConversationId: "first" });
+  const harness = bootWebview(manager, panelState());
+  try {
+    assert.deepEqual(order(harness), ["first", "second", "third"]);
+    for (const id of ["third", "second", "first", "third"]) {
+      harness.document.root.querySelectorAll(".run-tab-select").find((tab) => tab.getAttribute("data-conversation") === id).click();
+      assert.equal(harness.messages.at(-1).type, "conversation.select");
+      manager.activeConversationId = id;
+      manager.conversations = [...manager.conversations].reverse().map((run) => ({ ...run, updatedAt: run.id === id ? "2026-09-30T00:00:00Z" : run.updatedAt, unread: 2 }));
+      harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+      assert.deepEqual(order(harness), ["first", "second", "third"]);
+    }
+    manager.conversations.push({ ...conversationSummary(), id: "fourth", createdAt: "2026-09-03T00:00:00Z" });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.deepEqual(order(harness), ["first", "second", "third", "fourth"]);
+  } finally { harness.restore(); }
+  const restored = bootWebview(manager, panelState());
+  try { assert.deepEqual(order(restored), ["first", "second", "third", "fourth"]); }
+  finally { restored.restore(); }
 });
 
 const managerState = (overrides = {}) => ({
@@ -1907,21 +1972,8 @@ test("resource waiting is visible and cancellable before providers start", () =>
     const cancel = harness.document.root.querySelector('[data-action="interrupt-run"]');
     assert.ok(cancel);
     assert.match(harness.document.root.innerHTML, /Cancel wait/);
-    // Send cannot start a run while the panel waits for shared capacity. Non-activation is what
-    // is asserted, by dispatching the control, rather than the `disabled` attribute that used to
-    // enforce it — and the control stays in the tab order so a keyboard reader reaches the
-    // conditions it points at instead of skipping past a control it can never focus.
-    const submit = harness.document.root.querySelector('[data-action="submit-message"]');
-    assert.equal(submit.getAttribute("aria-disabled"), "true");
-    assert.equal(submit.getAttribute("aria-describedby"), "composer-blockers");
-    assert.equal(submit.disabled, false, "a blocked Send is out of the tab order");
-    const beforeSubmit = harness.messages.length;
-    submit.click();
-    assert.equal(
-      harness.messages.length,
-      beforeSubmit,
-      "Send started a run while the panel waited for shared capacity",
-    );
+    assert.equal(harness.document.root.querySelector('[data-action="submit-message"]'), null);
+    assert.equal(cancel.getAttribute("aria-label"), "Cancel wait");
     cancel.click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
@@ -2342,7 +2394,7 @@ test("Tab out of the pipeline picker closes it and lets focus move on", () => {
   }
 });
 
-test("the picker trigger stays compact and the rich options carry names and step counts", () => {
+test("the picker describes the workflow shape while Agents owns participant names", () => {
   const harness = bootWebview(managerState(), panelState({
     pipelines: [
       { id: "custom-a", name: "Custom A", editable: true, hash: customAHash, scopeKey: "workspace:/workspace", scopeRoot: "/workspace" },
@@ -2356,11 +2408,11 @@ test("the picker trigger stays compact and the rich options carry names and step
     const html = harness.document.root.innerHTML;
     // The selected pipeline derives its shape from the definition on hand.
     assert.match(html, /Custom A<\/span>[\s\S]*?class="pipeline-picker-option-meta">1 step · 1 participant</u);
-    assert.match(html, /class="pipeline-picker-option-participants">Lead</u);
+    assert.doesNotMatch(html, /class="pipeline-picker-option-participants"/u);
     // A non-selected pipeline shows the names and counts the host supplied on its summary — the
     // metadata does not disappear for pipelines other than the selected one.
     assert.match(html, /Custom B<\/span>[\s\S]*?5 steps · 3 participants/u);
-    assert.match(html, /class="pipeline-picker-option-participants">Alpha, Beta, Gamma</u);
+    assert.doesNotMatch(html, /Alpha, Beta, Gamma/u);
   } finally {
     harness.restore();
   }
@@ -3055,7 +3107,7 @@ test("a model-reviewed run with no controller checks is still stated as unverifi
   }
 });
 
-test("typed findings use one concise count and keep unresolved evidence in drill-down", () => {
+test("typed findings use one concise count and show actionable evidence", () => {
   const harness = bootWebview();
   try {
     const provenance = {
@@ -3104,7 +3156,8 @@ test("typed findings use one concise count and keep unresolved evidence in drill
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
     const html = harness.document.root.innerHTML;
     assert.equal(html.match(/Findings · 1 actionable · 1 need human/gu)?.length, 1);
-    assert.match(html, /<summary>Finding details<\/summary>/u);
+    assert.match(html, /<ul class="result-finding-list">/u);
+    assert.doesNotMatch(html, /<details[^>]*result-finding-details/u);
     assert.match(html, /Human must choose behavior/u);
     assert.match(html, /Race is only suspected/u);
     assert.match(html, /Claim was disproved/u);
@@ -4474,9 +4527,7 @@ test("notifications turned off render no bell badge and no inline bubble", () =>
     const html = harness.document.root.innerHTML;
     assert.equal(html.includes("notification-unread"), false);
     assert.equal(html.includes("notification-bubble"), false);
-    // An empty bell is not rendered at all, and the setting that turned it off stays reachable in
-    // the room's overflow menu, so hiding it is disclosure and not removal.
-    assert.equal(html.includes("notification-center"), false);
+    assert.equal(html.includes("notification-center"), true);
     assert.ok(harness.document.getElementById("notification-mode") !== null);
   } finally {
     harness.restore();
@@ -5722,7 +5773,7 @@ test("the no-run room offers the Direction centre only where there is direction"
 
 const MARKERS = {
   taskInput: 'id="composer-prompt"',
-  primaryAction: 'data-action="submit-message"',
+  primaryAction: 'class="composer-send"',
   blockers: "composer-blockers",
   bell: "notification-center",
   directionBanner: "direction-banner",
@@ -5741,7 +5792,7 @@ const MARKERS = {
 
 const assertMatrixRow = (label, html, expected) => {
   for (const [marker, pattern] of Object.entries(MARKERS)) {
-    const shouldShow = expected.visible.includes(marker);
+    const shouldShow = marker === "bell" || expected.visible.includes(marker);
     assert.equal(
       html.includes(pattern),
       shouldShow,
@@ -7046,6 +7097,105 @@ const recoverableWorkflow = () => ({
   updatedAt: timestamp,
 });
 
+for (const [status, label] of [["interrupted", "Resume stopped step"], ["error", "Retry failed step"]]) {
+  test(`Chat recovery uses ${label} for ${status} and dispatches resume once`, () => {
+    const harness = bootWebview(managerState(), panelState({ workflowStatus: status, resumableWorkflow: recoverableWorkflow() }));
+    try {
+      const card = harness.document.root.querySelector(".recovery-card");
+      assert.ok(card);
+      assert.match(harness.document.root.innerHTML, new RegExp(`>${label}</button>`));
+      assert.doesNotMatch(harness.document.root.innerHTML, new RegExp(`>${status === "interrupted" ? "Retry failed step" : "Resume stopped step"}</button>`));
+      const before = harness.messages.length;
+      card.querySelector('[data-action="workflow-resume"]').click();
+      assert.deepEqual(harness.messages.slice(before), [{ type: "conversation.runtime", conversationId: "run-1", message: { type: "workflow.resume" } }]);
+    } finally { harness.restore(); }
+  });
+}
+
+for (const [action, runtimeType, surface] of [
+  ["inspector-toggle", null, ".inspector"],
+  ["room-view", null, ".conversation-scroll"],
+  ["pipeline-new", null, ".pipeline-editor"],
+  ["pipeline-fork", "pipeline.fork", null],
+  ["availability-check", "availability.check", ".agents-popover"],
+  ["working-directory", "workingDirectory.pick", null],
+  ["orchestration-start", "orchestration.start", null],
+  ["transcript-export", "transcript.export", null],
+  ["task-reset", null, '[role="dialog"]'],
+]) {
+  test(`room action ${action} activates its flow and dismisses the menu`, () => {
+    const harness = bootWebview();
+    try {
+      openMenu(harness, ".header-action-menu");
+      const menu = harness.document.root.querySelector(".header-action-menu");
+      assert.equal(menu.open, true);
+      const control = menu.querySelector(`[data-action="${action}"]`);
+      assert.ok(control); assert.equal(control.disabled, false);
+      const before = harness.messages.length;
+      control.focus(); control.click();
+      assert.equal(harness.document.root.querySelector(".header-action-menu").open, false);
+      const sent = harness.messages.slice(before);
+      if (runtimeType) {
+        const expected = runtimeType === "orchestration.start" ? { type: runtimeType } : { type: "conversation.runtime", conversationId: "run-1", message: runtimeType === "pipeline.fork" ? { type: runtimeType, pipelineId: "custom-a" } : { type: runtimeType } };
+        if (runtimeType === "pipeline.fork") {
+          assert.equal(sent.length, 1);
+          assert.equal(sent[0].type, expected.type);
+          assert.equal(sent[0].conversationId, expected.conversationId);
+          assert.equal(sent[0].message.type, runtimeType);
+          assert.equal(typeof sent[0].message.requestId, "string");
+          assert.equal(sent[0].message.pipelineId, "custom-a");
+        } else assert.deepEqual(sent, [expected]);
+      }
+      if (["working-directory", "transcript-export", "orchestration-start"].includes(action)) {
+        assert.equal(harness.document.activeElement, harness.document.getElementById("room-actions-button"));
+      }
+      if (surface) assert.ok(harness.document.root.querySelector(surface));
+      if (action === "room-view") assert.ok(harness.document.root.querySelector('[data-view="direction"]').className.includes("selected"));
+      if (action === "task-reset") {
+        assert.equal(sent.length, 0);
+        assert.equal(harness.document.activeElement.dataset.dialogDefault, "cancel");
+      }
+      if (action === "inspector-toggle") {
+        assert.equal(harness.document.activeElement, harness.document.getElementById("inspector-title"));
+        openMenu(harness, ".header-action-menu");
+        harness.document.root.querySelector('.header-action-menu [data-action="inspector-toggle"]').click();
+        assert.equal(harness.document.root.querySelector(".inspector"), null);
+        assert.equal(harness.document.activeElement, harness.document.root.querySelector(".header-action-menu > summary"));
+      }
+    } finally { harness.restore(); }
+  });
+}
+
+test("archived room unarchive and export actions dispatch once and editing stays disabled", () => {
+  const harness = bootWebview(managerState({ conversations: [{ ...conversationSummary(), archived: true }] }), panelState());
+  try {
+    for (const [action, expected] of [["run-unarchive", { type: "conversation.archive", conversationId: "run-1", archived: false }], ["transcript-export", { type: "conversation.runtime", conversationId: "run-1", message: { type: "transcript.export" } }]]) {
+      openMenu(harness, ".header-action-menu");
+      const before = harness.messages.length;
+      harness.document.root.querySelector(`.header-action-menu [data-action="${action}"]`).click();
+      assert.deepEqual(harness.messages.slice(before), [expected]);
+      assert.equal(harness.document.root.querySelector(".header-action-menu").open, false);
+    }
+    const disabled = harness.document.root.querySelector('.header-action-menu [data-action="pipeline-new"]');
+    assert.equal(disabled.disabled, true);
+    assert.match(disabled.getAttribute("title"), /read-only/);
+    const before = harness.messages.length; disabled.click(); assert.equal(harness.messages.length, before);
+  } finally { harness.restore(); }
+});
+
+test("uploading an attachment restores Send instead of Stop", async () => {
+  const harness = bootWebview(managerState(), panelState({ running: true, workflowStatus: "running" }));
+  try {
+    assert.ok(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'));
+    const input = harness.document.getElementById("attachment-input");
+    input.files = [{ name: "review.md", type: "text/markdown", size: 20, contents: "Review accessibility" }];
+    harness.document.root.dispatch("change", { target: input });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(harness.document.root.querySelector('.composer-send [data-action="submit-message"]'));
+    assert.equal(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), null);
+  } finally { harness.restore(); }
+});
+
 test("a failed result states the error once and offers restart as the primary way back", () => {
   const harness = bootWebview(
     managerState({ resultsByConversation: { "run-1": failedResultState() } }),
@@ -7379,4 +7529,262 @@ test("the newest ruling still renders after a history long enough to spend the w
   } finally {
     harness.restore();
   }
+});
+
+test("composer replaces Send with Stop and rejects repeated stop activation", () => {
+  const running = panelState({ running: true, workflowStatus: "running" });
+  const harness = bootWebview(managerState(), running);
+  try {
+    let stop = harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]');
+    assert.ok(stop);
+    assert.equal(stop.getAttribute("aria-label"), "Stop");
+    assert.equal(harness.document.root.querySelector('[data-action="submit-message"]'), null);
+    let prompt = harness.document.getElementById("composer-prompt");
+    prompt.value = "Keep the existing lease ownership checks";
+    harness.document.root.dispatch("input", { target: prompt });
+    assert.ok(harness.document.root.querySelector('.composer-send [data-action="submit-message"]'));
+    assert.equal(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), null);
+    prompt = harness.document.getElementById("composer-prompt");
+    prompt.value = "";
+    harness.document.root.dispatch("input", { target: prompt });
+    stop = harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]');
+    assert.ok(stop);
+    const before = harness.messages.filter((message) => message.message?.type === "run.interrupt").length;
+    stop.click();
+    stop.click();
+    assert.equal(harness.messages.filter((message) => message.message?.type === "run.interrupt").length, before + 1);
+    assert.ok(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]').hasAttribute("disabled"));
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panelState({ workflowStatus: "interrupted" }) } });
+    assert.ok(harness.document.root.querySelector('.composer-send [data-action="submit-message"]'));
+    assert.equal(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), null);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the bell owns preferences and the action menu owns run commands", () => {
+  const harness = bootWebview();
+  try {
+    const setting = harness.document.getElementById("notification-mode");
+    assert.ok(setting.closest(".notification-center"));
+    assert.equal(setting.closest(".header-action-menu"), null);
+    for (const action of ["inspector-toggle", "room-view", "pipeline-new", "pipeline-fork", "availability-check", "working-directory", "transcript-export", "task-reset"]) {
+      assert.ok(harness.document.root.querySelector(`.header-action-menu [data-action="${action}"]`), action);
+    }
+    assert.ok(harness.document.root.querySelector('.header-action-menu [data-action="task-reset"]').className.includes("danger"));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("common workflows are discoverable without internal stages or compatibility copies", () => {
+  const { pipelinePickerMetadata } = require("../dist/pipeline/pipelineCatalog.js");
+  const presets = ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine", "todo-master", "claude-review"].map((id) => ({ id, name: id, editable: false, hash: "a".repeat(64), scopeKey: "builtin", ...pipelinePickerMetadata(id, false) }));
+  const harness = bootWebview(managerState(), panelState({ pipelines: presets, selectedPipelineId: "codex-review" }));
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.deepEqual([...harness.document.root.querySelectorAll('[data-action="pipeline-picker-select"]')].map((node) => node.getAttribute("data-pipeline-id")), ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"]);
+    assert.ok(harness.document.root.querySelector('[data-pipeline-id="ui-ux-review"]'));
+    assert.ok(harness.document.root.querySelector('[data-pipeline-id="code-review-refine"]'));
+    assert.equal(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'), null);
+    assert.equal(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'), null);
+    harness.document.getElementById("pipeline-picker-more").click();
+    assert.ok(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'));
+    assert.ok(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'));
+  } finally { harness.restore(); }
+});
+
+test("Browser Bridge activation starts discovery and keeps pairing steps beside the role", () => {
+  const panel = cliAssignmentPanel();
+  panel.browserBridge = { enabled: true, connected: false, sessions: [], endpoint: "ws://127.0.0.1:43127", pairingToken: "PAIRING_FIXTURE" };
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    harness.document.root.querySelector('[data-action="agents-browser-toggle"]').click();
+    assert.equal(harness.messages.at(-1).message.type, "bridge.discover");
+    assert.match(harness.document.root.innerHTML, /Connect Browser Bridge/u);
+    assert.ok(harness.document.root.querySelector('[data-action="bridge-copy-token"]'));
+    assert.equal(harness.document.root.querySelector('[data-action="agents-model-apply"]'), null);
+  } finally { harness.restore(); }
+});
+
+test("manual model selection is an explained, closed advanced disclosure", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const advanced = harness.document.root.querySelector('.agents-model-advanced');
+    assert.ok(advanced);
+    assert.equal(advanced.open, false);
+    assert.match(harness.document.root.innerHTML, /Other model \(advanced\)/u);
+    assert.match(harness.document.root.innerHTML, /does not install a model/u);
+    assert.match(harness.document.root.innerHTML, /Apply model override/u);
+  } finally { harness.restore(); }
+});
+
+test("an interrupted result has stopped recovery labels and no failure styling", () => {
+  const result = { ...failedResultState(), status: "interrupted", unresolvedRisks: [], finalAssessment: { outcome: "failedBeforeRuling", method: "none", summary: "Stopped by you", producedBy: [] } };
+  const harness = bootWebview(managerState({ resultsByConversation: { "run-1": result } }), panelState({ workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow() }));
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /Stopped by you/u);
+    assert.match(html, /Resume stopped step/u);
+    assert.equal(harness.document.root.querySelector('.result-failure'), null);
+    const assessment = harness.document.root.querySelector('.result-decision');
+    assert.doesNotMatch(assessment.className, /outcome-failedBeforeRuling/u);
+    assert.match(assessment.className, /outcome-interrupted/u);
+    assert.doesNotMatch(html, />Retry failed step<|Failed before final ruling/u);
+  } finally { harness.restore(); }
+});
+
+test("header action matrix keeps navigation and export available and explains mutation locks", () => {
+  const cases = [
+    { name: "idle", panel: {}, archived: false, hidden: [], disabled: [] },
+    { name: "active", panel: { running: true, workflowStatus: "running", pipelineMutable: false, pipelineMutationReason: "Stop the active run before editing its pipeline" }, archived: false, hidden: [], disabled: ["pipeline-new", "pipeline-fork"] },
+    { name: "catalog conflict", panel: { pipelineMutable: false, pipelineMutationReason: "Resolve the catalog conflict" }, archived: false, hidden: [], disabled: ["pipeline-new", "pipeline-fork"] },
+    { name: "archived", panel: {}, archived: true, hidden: ["pipeline-fork", "availability-check", "working-directory", "orchestration-start", "task-reset"], disabled: ["pipeline-new"] },
+  ];
+  const actions = ["inspector-toggle", "room-view", "pipeline-new", "pipeline-fork", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
+  for (const row of cases) {
+    const manager = managerState();
+    manager.conversations[0].archived = row.archived;
+    const harness = bootWebview(manager, panelState(row.panel));
+    try {
+      for (const action of actions) {
+        const button = harness.document.root.querySelector(`.header-action-menu [data-action="${action}"]`);
+        assert.equal(button !== null, !row.hidden.includes(action), `${row.name}: ${action} visibility`);
+        if (!button) continue;
+        assert.equal(button.hasAttribute("disabled"), row.disabled.includes(action), `${row.name}: ${action} enabled`);
+        if (row.disabled.includes(action)) assert.ok(button.getAttribute("title"), `${row.name}: ${action} needs a reason`);
+      }
+      if (row.archived) assert.ok(harness.document.root.querySelector('.header-action-menu [data-action="run-unarchive"]'));
+    } finally { harness.restore(); }
+  }
+});
+
+test("late step metadata preserves the first terminal state until an explicit step restart", () => {
+  for (const [terminal, status, later] of [["run.interrupted", "interrupted", "run.failed"], ["run.failed", "failed", "run.interrupted"], ["run.completed", "completed", "run.interrupted"]]) {
+    const events = [stepEvent(1, "implement", "Implement", timestamp), { id: 2, type: terminal, status, title: "Terminal status", createdAt: timestamp }, { id: 3, type: "provider.failure", status: "failed", title: "Late provider detail", stepId: "implement", createdAt: timestamp }, { id: 4, type: later, title: "Late terminal notification", createdAt: timestamp }];
+    const manager = managerState({ eventsByConversation: { "run-1": events } });
+    const panel = panelState({ selectedPipelineDefinition: threeStepPipelineDefinition() });
+    const harness = bootWebview(manager, panel);
+    try {
+      harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+      const states = () => [...harness.document.root.innerHTML.matchAll(/class="pipeline-step pipeline-step-([^"]+)"/gu)].map((match) => match[1]);
+      assert.equal(states().length, 3);
+      assert.equal(states()[1], status);
+      manager.eventsByConversation['run-1'].push(stepEvent(5, "implement", "Implement", timestamp));
+      harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+      assert.equal(states()[1], 'running');
+    } finally { harness.restore(); }
+  }
+});
+
+test("bell and action menu exclude each other and preferences dispatch once", () => {
+  const harness = bootWebview(notificationManager());
+  try {
+    let actions = openMenu(harness, ".header-action-menu");
+    const notifications = openMenu(harness, ".notification-center");
+    assert.equal(actions.open, false);
+    assert.equal(notifications.open, true);
+    actions = openMenu(harness, ".header-action-menu");
+    assert.equal(actions.open, true);
+    assert.equal(notifications.open, false);
+    openMenu(harness, ".notification-center");
+    const setting = harness.document.getElementById("notification-mode");
+    setting.value = "off";
+    const before = harness.messages.length;
+    harness.document.root.dispatch("change", { target: setting });
+    assert.deepEqual(harness.messages.slice(before), [{ type: "notifications.setMode", mode: "off" }]);
+    assert.equal(harness.document.root.querySelector(".header-action-menu").open, false);
+  } finally { harness.restore(); }
+});
+
+for (const status of ["running", "waiting"]) {
+  test(`composer ${status} transitions through draft, stop pending, completion and idle`, () => {
+    const harness = bootWebview(managerState({ conversations: [{ ...conversationSummary(), waitingForResources: status === "waiting" }] }), panelState({ running: status === "running", workflowStatus: status === "running" ? "running" : "idle" }));
+    try {
+      const input = harness.document.getElementById("composer-prompt");
+      input.value = "Review the next refinement";
+      harness.document.root.dispatch("input", { target: input });
+      assert.ok(harness.document.root.querySelector('.composer-send [data-action="submit-message"]'));
+      const current = harness.document.getElementById("composer-prompt");
+      current.value = "";
+      harness.document.root.dispatch("input", { target: current });
+      const stop = harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]');
+      assert.ok(stop);
+      const before = harness.messages.length;
+      stop.click(); stop.click();
+      assert.deepEqual(harness.messages.slice(before), [{ type: "conversation.runtime", conversationId: "run-1", message: { type: "run.interrupt" } }]);
+      harness.sendWindowMessage({ type: "manager.snapshot", state: managerState() });
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panelState({ running: false, workflowStatus: "interrupted" }) } });
+      assert.equal(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), null);
+      assert.ok(harness.document.root.querySelector('.composer-send [data-action="submit-message"]'));
+    } finally { harness.restore(); }
+  });
+}
+
+test("unfamiliar built-in workflows are discovered behind More workflows from metadata", () => {
+  const unfamiliar = { id: "new-built-in-audit", name: "Concurrency audit", editable: false, hash: "c".repeat(64), scopeKey: "builtin", participantCount: 2, participantNames: ["Reviewer", "Implementer"], stepCount: 3 };
+  const panel = panelState();
+  panel.pipelines.push(unfamiliar);
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.equal(harness.document.root.querySelector(`[data-pipeline-id="${unfamiliar.id}"]`), null);
+    const more = harness.document.getElementById("pipeline-picker-more");
+    assert.ok(more);
+    more.click();
+    assert.ok(harness.document.root.innerHTML.includes("Concurrency audit"));
+    harness.document.getElementById("pipeline-picker-more").click();
+    assert.ok(!harness.document.root.innerHTML.includes("Concurrency audit"));
+  } finally { harness.restore(); }
+});
+
+test("candidate-bound evidence explains finding resolution and keeps provenance in a closed disclosure", () => {
+  const direction = directionState();
+  direction.externalEvidence = [{
+    id: "X1", claim: "The retry count now matches the request", relation: "supports", authority: "firstPartyMeasurement", state: "proposed", disposition: "unresolved", revision: 1,
+    source: { uri: "https://evidence.invalid/retry", title: "Retry verification", retrievedAt: "2026-09-12T00:00:00.000Z", contentDigest: "a".repeat(64) },
+    target: { kind: "finding", identity: "FH1" }, challenges: [],
+    verification: { requirement: "Exactly two calls for two requested attempts", kind: "externalEvidence", outcome: "passed", verifier: "human", environment: "Node.js" },
+  }];
+  direction.resolutionMatrix = { ...(direction.resolutionMatrix ?? {}), externalEvidence: { proposed: ["accept", "reject", "defer", "supersede"] } };
+  const harness = bootWebview(managerState({ direction }));
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    assert.match(harness.document.root.innerHTML, /Accepting this evidence resolves the linked finding only if its candidate and scope still match/);
+    const disclosure = harness.document.root.querySelector(".direction-verification-details");
+    assert.ok(disclosure);
+    assert.equal(disclosure.hasAttribute("open"), false);
+    harness.messages.length = 0;
+    harness.document.root.querySelector('[data-action="resolve-record"][data-target="externalEvidence"][data-resolution="accept"]').click();
+    assert.deepEqual(harness.messages, [{ type: "resolution.apply", target: "externalEvidence", id: "X1", action: "accept" }]);
+  } finally { harness.restore(); }
+});
+
+test("pipeline picker follows catalog prominence, retains custom and selected specialized workflows, and preserves keyboard order", () => {
+  const pipelines = [
+    { id: "specialized-selected", name: "Specialized review", editable: false },
+    { id: "custom-visible", name: "Custom review", editable: true },
+    { id: "compatibility-copy", name: "Compatibility review", editable: false },
+    { id: "new-catalog-common", name: "Zebra review", editable: false, prominentOrder: 0 },
+    { id: "another-catalog-common", name: "Alpha review", editable: false, prominentOrder: 1 },
+  ].map((pipeline) => ({ hash: "a".repeat(64), scopeKey: pipeline.editable ? "workspace:/workspace" : "builtin", ...pipeline }));
+  const harness = bootWebview(managerState(), panelState({ pipelines, selectedPipelineId: "specialized-selected" }));
+  const visibleIds = () => [...harness.document.root.querySelectorAll('[data-action="pipeline-picker-select"]')].map((node) => node.getAttribute("data-pipeline-id"));
+  const keyboard = (key) => harness.document.root.dispatch("keydown", { key, target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.deepEqual(visibleIds(), ["new-catalog-common", "another-catalog-common", "custom-visible", "specialized-selected"]);
+    assert.equal(harness.document.root.querySelector('[data-pipeline-id="specialized-selected"]').getAttribute("aria-selected"), "true");
+    assert.equal(harness.document.activeElement.id, "pipeline-picker-button");
+    keyboard("Home");
+    assert.equal(harness.document.getElementById("pipeline-picker-button").getAttribute("aria-activedescendant"), harness.document.root.querySelector('[data-pipeline-id="new-catalog-common"]').id);
+    keyboard("ArrowDown");
+    keyboard("Enter");
+    assert.equal(harness.messages.filter((entry) => entry.message?.type === "pipeline.select").length, 1);
+    assert.equal(harness.messages.at(-1).message.pipelineId, "another-catalog-common");
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null);
+  } finally { harness.restore(); }
 });

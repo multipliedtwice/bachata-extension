@@ -134,12 +134,13 @@ export const managedLeadDecision = (input: {
   answer: string;
   candidate: string;
   currentCandidate: string;
+  resolveCandidate?: (reference: string) => string | undefined;
 }): ManagedLeadDecision => {
   if (input.currentCandidate !== input.candidate) {
     return {
       decision: "invalid",
       problems: [
-        `the candidate changed while the Lead was reviewing it: verified ${input.candidate}, now ${input.currentCandidate}`,
+        "the candidate changed while the Lead was reviewing it; request a fresh review of the current source",
       ],
     };
   }
@@ -163,10 +164,10 @@ export const managedLeadDecision = (input: {
   if (typeof candidate !== "string" || review === undefined || !isRecord(review)) {
     return { decision: "invalid", problems: ["$ must carry a candidate and a review"] };
   }
-  if (candidate !== input.candidate) {
+  if ((input.resolveCandidate ? input.resolveCandidate(candidate) : candidate) !== input.candidate) {
     return {
       decision: "invalid",
-      problems: [`the verdict names candidate ${candidate}, and the controller verified ${input.candidate}`],
+      problems: ["the verdict does not name the candidate reference issued for this review"],
     };
   }
   const verdict = review.verdict;

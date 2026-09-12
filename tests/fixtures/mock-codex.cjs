@@ -136,6 +136,14 @@ const startTurn = (message) => {
     : "";
   record({ type: "turn", params: message.params });
   active = { threadId, turnId, text };
+  if (process.env.MOCK_CODEX_DELEGATION) {
+    send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", items: [], error: null } } });
+    const item = { type: "collabAgentToolCall", id: "collab-1", tool: "spawnAgent", status: "inProgress", senderThreadId: threadId, receiverThreadIds: [], agentsStates: {}, prompt: "Write an unmanaged file" };
+    if (process.env.MOCK_CODEX_DELEGATION === "item") send({ method: "item/started", params: { threadId, turnId, item } });
+    else if (process.env.MOCK_CODEX_DELEGATION === "turn") send({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed", error: null, items: [item] } } });
+    else send({ id: "unmanaged-delegation", method: "item/tool/call", params: { threadId, turnId, tool: "spawn_agent", arguments: { prompt: "Write an unmanaged file" } } });
+    return;
+  }
   const sendTurnStartResponse = () => {
     send({
       id: message.id,
@@ -433,6 +441,10 @@ lines.on("line", (line) => {
   const message = JSON.parse(line);
   record({ type: "rpc", pid: process.pid, message });
 
+  if (message.id === "unmanaged-delegation") {
+    if (message.result?.success === true) record({ type: "unmanaged-child-started" });
+    return;
+  }
   const hangMethod = process.env.MOCK_CODEX_HANG_METHOD;
   if (hangMethod && hangMethod === message.method) {
     return;

@@ -691,22 +691,36 @@ const boundedStringList = (value: readonly string[] | undefined): string[] | und
 export const pendingApprovalFrom = (
   agentId: string,
   request: ApprovalRequestSource,
-): PendingApproval => ({
-  agentId,
-  requestId: request.requestId,
-  kind: request.kind,
-  reason: boundedApprovalText(request.reason, APPROVAL_TEXT_BYTES),
-  command: boundedApprovalText(request.command, APPROVAL_TEXT_BYTES),
-  cwd: boundedApprovalText(request.cwd ?? request.grantRoot, APPROVAL_PATH_BYTES),
-  networkApprovalContext: request.networkApprovalContext,
-  commandActions: boundedApprovalStructure(request.commandActions),
-  browserAction: boundedApprovalStructure(request.browserAction),
-  additionalPermissions: boundedApprovalStructure(request.additionalPermissions),
-  requestedPermissions: boundedApprovalStructure(request.requestedPermissions),
-  proposedExecpolicyAmendment: boundedStringList(request.proposedExecpolicyAmendment),
-  proposedNetworkPolicyAmendments: boundedApprovalList(request.proposedNetworkPolicyAmendments),
-  choices: approvalChoices(request.choices).slice(0, MAX_APPROVAL_CHOICES).map((choice) => ({
-    id: choice.id,
-    label: boundedRedactedText(choice.label, APPROVAL_LABEL_BYTES),
-  })),
-});
+): PendingApproval => {
+  if (agentId.length > 128 || request.requestId.length > 512 || request.choices.length > MAX_APPROVAL_CHOICES) {
+    throw new Error("Provider approval exceeds the supported identifier or choice limit");
+  }
+  for (const choice of request.choices) {
+    if (choice.id.length > 512) throw new Error("Provider approval choice identifier exceeds the supported limit");
+  }
+  return {
+    agentId,
+    requestId: request.requestId,
+    kind: request.kind,
+    reason: boundedApprovalText(request.reason, APPROVAL_TEXT_BYTES),
+    command: boundedApprovalText(request.command, APPROVAL_TEXT_BYTES),
+    cwd: boundedApprovalText(request.cwd ?? request.grantRoot, APPROVAL_PATH_BYTES),
+    ...(request.networkApprovalContext === undefined ? {} : {
+      networkApprovalContext: {
+        ...(request.networkApprovalContext.host === undefined ? {} : { host: boundedRedactedText(request.networkApprovalContext.host, APPROVAL_PATH_BYTES, { structured: true }) }),
+        ...(request.networkApprovalContext.protocol === undefined ? {} : { protocol: boundedRedactedText(request.networkApprovalContext.protocol, 128, { structured: true }) }),
+        ...(Number.isSafeInteger(request.networkApprovalContext.port) ? { port: request.networkApprovalContext.port } : {}),
+      },
+    }),
+    commandActions: boundedApprovalStructure(request.commandActions),
+    browserAction: boundedApprovalStructure(request.browserAction),
+    additionalPermissions: boundedApprovalStructure(request.additionalPermissions),
+    requestedPermissions: boundedApprovalStructure(request.requestedPermissions),
+    proposedExecpolicyAmendment: boundedStringList(request.proposedExecpolicyAmendment),
+    proposedNetworkPolicyAmendments: boundedApprovalList(request.proposedNetworkPolicyAmendments),
+    choices: approvalChoices(request.choices).map((choice) => ({
+      id: choice.id,
+      label: boundedRedactedText(choice.label, APPROVAL_LABEL_BYTES),
+    })),
+  };
+};

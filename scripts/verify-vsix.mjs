@@ -507,14 +507,14 @@ export const verifyVsix = async (file) => {
         `VSIX does not match the current build. Rebuild and repackage. Differing files: ${stale.join(", ")}`,
       );
     }
-    for (const devPackage of ["@vscode/vsce", "@vscode/codicons", "prismjs", "yauzl"]) {
+    for (const devPackage of ["@vscode/vsce", "@vscode/codicons", "prismjs"]) {
       const prefix = `extension/node_modules/${devPackage}/`;
       if ([...names].some((name) => name.startsWith(prefix))) {
         throw new Error(`VSIX includes development-only package ${devPackage}`);
       }
     }
     const notices = await readFile(path.join(destination, "extension/dist/THIRD_PARTY_NOTICES.txt"), "utf8");
-    for (const name of ["ajv", "fast-glob", "ignore", "jsonrepair", "ts-morph", "typescript", "prismjs", "@vscode/codicons"]) {
+    for (const name of ["ajv", "fast-glob", "ignore", "jsonrepair", "ts-morph", "typescript", "yauzl", "prismjs", "@vscode/codicons"]) {
       if (!notices.includes(`${name}@`)) throw new Error(`Notices are missing ${name}`);
     }
     const entry = path.join(destination, "extension/dist/extension.js");

@@ -1,3 +1,4 @@
+import { isBrowserSourcePath } from "../browser/sourceTransferPolicy";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
@@ -34,6 +35,7 @@ const contextExtensionPattern = Array.from(textContextExtensions)
   .join(",");
 
 export const isSupportedContextPath = (relativePath: string): boolean => {
+  if (!isBrowserSourcePath(relativePath)) return false;
   const platformPath = process.platform === "win32" ? relativePath.replace(/\\/g, "/") : relativePath;
   const base = path.posix.basename(platformPath);
   if (contextBasenames.has(base)) return true;
@@ -288,6 +290,7 @@ const normalizePath = (value: string): string => {
 };
 
 const builtInIgnoreRules = [
+  "*.vsix", "*.lock", "bun.lockb", "packages.lock.json",
   ".git/", ".bachata/", "node_modules/", "dist/", "build/", "coverage/", ".next/", ".venv/", "venv/", "target/", "vendor/",
   ".cache/", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "npm-shrinkwrap.json", "bun.lockb",
 ];

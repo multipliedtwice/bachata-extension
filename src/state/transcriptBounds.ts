@@ -41,7 +41,7 @@ export const TRANSCRIPT_EVENT_TYPE_BYTES = 128;
  * two kinds get the stricter assignment-aware redaction; a prompt or an answer is prose.
  */
 const isStructuredKind = (kind: TranscriptEntry["kind"]): boolean =>
-  kind === "error" || kind === "event";
+  kind !== "prompt";
 
 export const boundedTranscriptEntry = (entry: TranscriptEntry): TranscriptEntry => {
   const data = entry.data === undefined
@@ -81,13 +81,6 @@ export const transcriptEntryBytes = (entry: TranscriptEntry): number =>
     ...(entry.data === undefined ? {} : { data: entry.data }),
   });
 
-/**
- * The newest entries that fit the window ceiling, oldest dropped first.
- *
- * At least one entry is always kept: an entry larger than the whole ceiling cannot exist, because
- * every entry has already been bounded, but a window that returned nothing would render as a
- * conversation that never happened.
- */
 export const boundedTranscriptWindow = (
   entries: readonly TranscriptEntry[],
   maxBytes = TRANSCRIPT_WINDOW_BYTES,

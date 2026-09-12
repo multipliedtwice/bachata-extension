@@ -266,7 +266,7 @@ const pipelineStepRows = (
       if (active && active !== row && (active.state === "running" || active.state === "interrupted")) {
         active.state = "completed";
       }
-      row.state = "running";
+      if (row.state === "waiting" || event.type === "step.started") row.state = "running";
       row.startedAt ??= event.createdAt;
       active = row;
       // Only an event that names its step joins that step's activity. A run-level event belongs to
@@ -276,7 +276,7 @@ const pipelineStepRows = (
       row.lastEventAt = event.createdAt;
     }
     const terminal = terminalRunEventState[event.type];
-    if (terminal !== undefined && active) {
+    if (terminal !== undefined && active?.state === "running") {
       active.state = terminal;
       if (terminal === "completed") {
         rows.forEach((candidate) => {
@@ -586,6 +586,7 @@ const passedCheckSummary = (result: RunResultCenter): string =>
   );
 
 const assessmentStatusLine = (result: RunResultCenter): string => {
+  if (result.status === "interrupted" && !result.finalAssessment?.failure) return "Interrupted";
   const outcome = result.finalAssessment?.outcome ?? "notApplicable";
   const modelReviewed = modelReviewedResult(result);
   if (outcome === "verificationFailed") {
@@ -666,6 +667,7 @@ const verificationDetailsHtml = (check: RunResultCenter["checks"][number]): stri
 };
 
 const recommendedNextAction = (result: RunResultCenter): string => {
+  if (result.status === "interrupted" && !result.finalAssessment?.failure) return "Stopped by you. Review the recorded progress and use the available recovery controls to continue.";
   if (result.applyBlockedReason) {
     return `Do not apply. ${result.applyBlockedReason.replace(/[.!?]\s*$/u, "")}. Rerun the approved checks, or fix the cause and run again.`;
   }
@@ -715,6 +717,7 @@ const rulingProvenanceLabel = (result: RunResultCenter): string | undefined => {
 };
 
 const outcomeIcon: Record<string, string> = {
+  interrupted: "debug-stop",
   completed: "pass",
   verificationFailed: "error",
   inconclusive: "question",
@@ -737,18 +740,21 @@ const runFailureHtml = (result: RunResultCenter): string => {
       : []),
     ["Model", failure.model ?? "not recorded"],
     ...(failure.step === undefined ? [] : [["Step", failure.step] as [string, string]]),
-    ["Provider error", failure.error],
+
   ];
   // The assessment line above already says the run failed before a ruling. This section says where
   // and on what, so repeating the verdict as its heading spent a line saying nothing new.
   return `<section class="result-failure" data-run-failure="true">
     <h3>Where the run stopped</h3>
-    <dl class="result-decision-grid">${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>
+    <p class="result-failure-cause">${escapeHtml(failure.error)}</p>
+    <details class="info-disclosure"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Provider and step details</summary><dl class="result-decision-grid">${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl></details>
   </section>`;
 };
 
 const resultDecisionSummaryHtml = (result: RunResultCenter): string => {
-  const outcome = result.finalAssessment?.outcome ?? "notApplicable";
+  const outcome = result.status === "interrupted" && !result.finalAssessment?.failure
+    ? "interrupted"
+    : result.finalAssessment?.outcome ?? "notApplicable";
   const scope = result.changedFiles.length > 0
     ? `${String(result.changedFiles.length)} changed file${result.changedFiles.length === 1 ? "" : "s"}`
     : result.expectations?.changedFiles === false
@@ -785,9 +791,9 @@ const resultDecisionSummaryHtml = (result: RunResultCenter): string => {
          rather than at the bottom of a collapsed disclosure of assessment detail. -->
     <p class="result-next-action">${escapeHtml(recommendedNextAction(result))}</p>
     ${runFailureHtml(result)}
-    <p class="result-finding-summary"><strong>Findings · ${String(actionable)} actionable · ${String(unresolved)} need human</strong></p>
-    <details class="result-finding-details"><summary>Finding details</summary>${findingDetails}</details>
-    <details class="result-assessment-details"><summary>Assessment details</summary>
+    ${actionable + unresolved > 0 ? `<p class="result-finding-summary"><strong>Findings · ${String(actionable)} actionable · ${String(unresolved)} need human</strong></p>` : ""}
+    ${actionable + unresolved > 0 ? findingDetails : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Finding details</summary>${findingDetails}</details>`}
+    <details class="info-disclosure result-assessment-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Assessment details</summary>
     <dl class="result-decision-grid">
       <dt>Summary</dt><dd>${escapeHtml(result.finalAssessment?.summary ?? "No final assessment was recorded")}</dd>
       <dt>Changed scope</dt><dd>${escapeHtml(scope)}</dd>
@@ -847,6 +853,7 @@ const evidenceStateIcon: Record<string, string> = {
 // run, so a run that stopped without proving its work does not headline as completed. With no
 // assessment recorded the lifecycle label is the only honest thing to state.
 const resultHeadlineLabel = (result: RunResultCenter): string => {
+  if (result.status === "error") return "Failed";
   if (result.status !== "completed") return statusLabel(result.status);
   const outcome = result.finalAssessment?.outcome;
   if (outcome === "verificationFailed") return "Finished, not proven";
@@ -872,7 +879,7 @@ const runRecoveryActionsHtml = (panel: PanelState): string => {
   const busy = panel.running || panel.workflowStatus === "running";
   const blocked = busy ? ` disabled title="Interrupt the active run before restarting it"` : "";
   const step = `${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}`;
-  return `<button class="primary" data-action="workflow-restart"${blocked}>Restart pipeline</button><button data-action="workflow-resume"${blocked} title="${escapeAttribute(`Resume the saved checkpoint at step ${step}`)}">Retry failed step</button>`;
+  return `<button class="primary" data-action="workflow-restart"${blocked}>Restart pipeline</button><button data-action="workflow-resume"${blocked} title="${escapeAttribute(`Resume the saved checkpoint at step ${step}`)}">${panel.workflowStatus === "interrupted" ? "Resume stopped step" : "Retry failed step"}</button>`;
 };
 
 const resultCenterHtml = (conversationId: string, panel: PanelState): string => {
@@ -936,7 +943,7 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
   const evidenceSections = `<div class="result-grid"><section><h3>Changed files</h3>${files}${result.diffSummary ? `<pre>${escapeHtml(result.diffSummary)}</pre>` : ""}</section><section><h3>Verification</h3>${checks}${verificationCurrencyLine(result)}</section></div>
     <section><h3>Final ruling</h3>${result.finalRuling ? `<div class="markdown">${renderMarkdown(result.finalRuling)}</div>${rulingProvenanceLabel(result) ? `<p class="muted">${escapeHtml(rulingProvenanceLabel(result) ?? "")}</p>` : ""}` : result.expectations?.finalRuling === false ? `<p class="muted">Not applicable: this pipeline declares no consensus or checklist ruling.</p>` : `<p class="muted">No final ruling was recorded.</p>`}${(result.providers ?? []).length > 0 ? `<p class="muted">Providers: ${escapeHtml((result.providers ?? []).map((provider) => provider.model ? `${provider.name} (${provider.adapter} · ${provider.model})` : `${provider.name} (${provider.adapter})`).join(", "))}</p>` : ""}</section>
     <section><h3>Unresolved risks</h3>${risks}</section>`;
-  const nothingRecorded = result.finalAssessment?.outcome === "failedBeforeRuling" &&
+  const nothingRecorded =
     result.changedFiles.length === 0 &&
     result.checks.length === 0 &&
     result.finalRuling === undefined &&

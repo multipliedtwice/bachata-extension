@@ -1,8 +1,8 @@
 {
   "version": 1,
   "id": "gpt-browser-pair",
-  "name": "GPT + GPT browser pair",
-  "description": "Use two independent ChatGPT conversations as worker and lead, with approved workspace actions and evidence-based review.",
+  "name": "Implement and refine — browser pair",
+  "description": "One worker implements; a lead reviews; one planned revision and a final review follow. Requires two bound browser conversations and declared controller checks.",
   "longitudinalIntent": "runLocal",
   "managedPolicy": {
     "writeScope": "task",
@@ -23,13 +23,13 @@
   "agents": [
     {
       "id": "gpt-worker",
-      "name": "GPT Worker",
+      "name": "Implementer",
       "adapter": "chatgpt-browser",
       "resourceId": "chatgpt-browser:default-account"
     },
     {
       "id": "gpt-lead",
-      "name": "GPT Lead",
+      "name": "Lead reviewer",
       "adapter": "chatgpt-browser",
       "resourceId": "chatgpt-browser:default-account"
     }

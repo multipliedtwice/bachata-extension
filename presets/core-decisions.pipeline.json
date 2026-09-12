@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "core-decisions",
-  "name": "Surface core decisions",
-  "description": "Codex and Claude independently inspect the repository and converge on the decisions that need human judgment, without proposing an answer the evidence does not support.",
+  "name": "Identify decisions for you",
+  "description": "Two participants reconcile the choices that require human judgment. Read-only; no Direction setup is required.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -15,7 +15,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Reviewer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "plan"

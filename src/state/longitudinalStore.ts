@@ -288,6 +288,7 @@ export type LongitudinalStore = {
     cycle: Cycle;
   }) => void;
   commitResolution: (input: {
+    externalEvidence?: readonly ExternalEvidenceRecord[];
     findings?: readonly FindingHistoryEntry[];
     decisions?: readonly DecisionRecord[];
     artifacts?: readonly InitiativeArtifact[];
@@ -881,6 +882,7 @@ export const createLongitudinalStore = (
     },
     commitResolution: (input) => {
       write(() => {
+        writeExternalEvidence(input.externalEvidence ?? []);
         writeFindingHistory(input.findings ?? []);
         writeDecisions(input.decisions ?? []);
         writeArtifacts(input.artifacts ?? []);

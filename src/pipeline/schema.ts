@@ -147,7 +147,7 @@ const ARTIFACT_PROMOTION_TYPES = new Set([
 ]);
 
 const ARTIFACT_PROMOTION_KEYS = new Set([
-  "type", "customType", "titleField", "bodyField", "evidenceField", "producedBy",
+  "type", "customType", "titleField", "bodyField", "evidenceField", "producedBy", "fromConsensusStep",
 ]);
 
 // Promotion writes durable initiative state, so an unknown or half-declared contract is
@@ -194,7 +194,7 @@ const validateArtifactPromotion = (
   } else if (!isNonEmptyString(value.producedBy) || !participants.includes(value.producedBy)) {
     errors.push(`${path}.producedBy must name one of this step's participants`);
   }
-  (["titleField", "bodyField", "evidenceField"] as const).forEach((field) => {
+  (["titleField", "bodyField", "evidenceField", "fromConsensusStep"] as const).forEach((field) => {
     const candidate = value[field];
     if (candidate === undefined) return;
     if (!isNonEmptyString(candidate) || !IDENTIFIER_PATTERN.test(candidate)) {
@@ -404,13 +404,14 @@ type PipelineBoundFrame = { value: unknown; depth: number };
  * strings, maps, depth and aggregate UTF-8 size.
  */
 const pipelineBoundsError = (value: Record<string, unknown>): string | undefined => {
-  const rootCollections: Array<[string, unknown, number]> = [
-    ["agents", value.agents, MAX_PIPELINE_AGENTS],
-    ["roles", value.roles, MAX_PIPELINE_ROLES],
-    ["steps", value.steps, MAX_PIPELINE_STEPS],
-    ["resourceDependencies", value.resourceDependencies, MAX_PIPELINE_RESOURCE_DEPENDENCIES],
+  const rootCollections: Array<[string, number]> = [
+    ["agents", MAX_PIPELINE_AGENTS],
+    ["roles", MAX_PIPELINE_ROLES],
+    ["steps", MAX_PIPELINE_STEPS],
+    ["resourceDependencies", MAX_PIPELINE_RESOURCE_DEPENDENCIES],
   ];
-  for (const [path, collection, limit] of rootCollections) {
+  for (const [path, limit] of rootCollections) {
+    const collection = value[path];
     if (Array.isArray(collection) && collection.length > limit) {
       return `${path} must declare at most ${String(limit)} items`;
     }
@@ -450,6 +451,7 @@ const pipelineBoundsError = (value: Record<string, unknown>): string | undefined
           stack.push({ value: candidate[index], depth: frame.depth + 1 });
         }
       } else {
+        if (!isRecord(candidate)) return "pipeline maps must be objects";
         const keys: string[] = [];
         for (const key in candidate) {
           if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
@@ -1319,6 +1321,15 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
           : [],
         errors,
       );
+    }
+    if (!checklist && isRecord(step.artifactPromotion) && step.artifactPromotion.fromConsensusStep !== undefined) {
+      const consensusStep = step.artifactPromotion.fromConsensusStep;
+      const source = steps.slice(0, index).find((candidate) => isRecord(candidate) &&
+        candidate.id === consensusStep);
+      if (!isRecord(source) || source.type !== "agent" || source.consensus !== true || source.enabled !== true) {
+        errors.push(`${stepPath}.artifactPromotion.fromConsensusStep must name an earlier enabled consensus step`);
+      }
+      if (step.output === undefined) errors.push(`${stepPath} needs an output for consensus-bound promotion`);
     }
     let outputName: string | undefined;
     if (!checklist && step.output !== undefined) {

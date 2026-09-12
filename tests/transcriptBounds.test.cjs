@@ -109,9 +109,9 @@ test("a window under the ceiling is not rationed at all", () => {
   assert.deepEqual(boundedTranscriptWindow(entries), entries);
 });
 
-test("one entry larger than the ceiling is still shown rather than nothing", () => {
+test("one entry larger than the ceiling is omitted", () => {
   const single = [boundedTranscriptEntry(entry({ text: "t".repeat(MEGABYTES) }))];
-  assert.equal(boundedTranscriptWindow(single, 16).length, 1);
+  assert.deepEqual(boundedTranscriptWindow(single, 16), []);
 });
 
 const writeRawTranscript = (directory, value) => {

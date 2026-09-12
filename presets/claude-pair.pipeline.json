@@ -1,8 +1,8 @@
 {
   "version": 1,
   "id": "claude-browser-pair",
-  "name": "Claude + Claude browser pair",
-  "description": "Use two independent Claude browser conversations as managed worker and lead, with bounded controller context, typed workspace actions, and evidence-based review.",
+  "name": "Implement and refine — browser pair (compatibility)",
+  "description": "The browser worker/lead workflow with a legacy default assignment, one planned revision, final review and declared controller checks.",
   "longitudinalIntent": "runLocal",
   "managedPolicy": {
     "writeScope": "task",
@@ -23,13 +23,13 @@
   "agents": [
     {
       "id": "claude-worker",
-      "name": "Claude Browser Worker",
+      "name": "Implementer",
       "adapter": "claude-browser",
       "resourceId": "claude-browser:default-account"
     },
     {
       "id": "claude-lead",
-      "name": "Claude Browser Lead",
+      "name": "Lead reviewer",
       "adapter": "claude-browser",
       "resourceId": "claude-browser:default-account"
     }

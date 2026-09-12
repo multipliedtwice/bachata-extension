@@ -85,61 +85,6 @@ const parseEditorPipeline = (
 
 const editorIsDirty = (): boolean => state.editorOpen && editorFingerprint() !== state.editorOriginalRaw;
 
-const dialogReturnFocusSelector = (): string | undefined =>
-  bachataWebviewBehavior.focusReturnSelector(
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-  );
-
-const restoreDialogFocus = (selector: string | undefined): void => {
-  requestAnimationFrame(() => {
-    // A dialog dismissed over a still-open editor or drawer must return focus inside that layer.
-    // The page behind it is under a backdrop, so a control focused there takes the ring where
-    // nobody can see it and the next Tab is yanked back by the trap.
-    const layer = state.editorOpen
-      ? root.querySelector<HTMLElement>(".pipeline-editor")
-      : state.runDrawerOpen
-        ? root.querySelector<HTMLElement>(".run-drawer")
-        : null;
-    const scope = layer ?? root;
-    const target = selector ? scope.querySelector<HTMLElement>(selector) : undefined;
-    // A menu item is inside a <details> the dismissal closed; the summary is what can take focus.
-    const collapsed = target?.closest<HTMLDetailsElement>("details:not([open])") ?? null;
-    const reachable = collapsed ? collapsed.querySelector<HTMLElement>("summary") ?? target : target;
-    (reachable
-      ?? (layer ? reachableControls(layer)[0] : undefined)
-      // The pipeline edit control lives inside the settings panel and may be closed; the settings
-      // control that opens it is always in the composer, so it is the stable landing place.
-      ?? root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')
-      ?? document.getElementById("composer-prompt")
-      ?? root.querySelector<HTMLElement>('[data-action="run-drawer-toggle"]'))?.focus();
-  });
-};
-
-const openDialog = (dialog: AppDialog): void => {
-  const returnFocusSelector = dialogReturnFocusSelector();
-  setOptionalProperty(state, "dialogReturnFocusSelector", returnFocusSelector);
-  state.dialog = dialog;
-  scheduleRender();
-  requestAnimationFrame(() => {
-    const input = document.getElementById("app-dialog-input") as HTMLInputElement | null;
-    const confirm = root.querySelector<HTMLButtonElement>('[data-action="dialog-confirm"]');
-    const cancel = root.querySelector<HTMLButtonElement>('[data-dialog-default="cancel"]');
-    const danger = "danger" in dialog && dialog.danger;
-    const initialFocus = bachataWebviewBehavior.dialogInitialFocus(Boolean(input), danger);
-    (initialFocus === "input" ? input : initialFocus === "cancel" ? cancel : confirm)?.focus();
-    input?.select();
-  });
-};
-
-const closeDialog = (): void => {
-  const selector = state.dialogReturnFocusSelector;
-  delete state.dialog;
-  delete state.dialogReturnFocusSelector;
-  state.fieldErrors.delete("app-dialog-input");
-  state.fieldErrors.delete("app-dialog-delta");
-  scheduleRender();
-  restoreDialogFocus(selector);
-};
 
 const discardPipelineEditor = (): void => {
   state.editorOpen = false;
@@ -524,7 +469,7 @@ const queueHtml = (panel: PanelState): string => {
     ? ` disabled title="Interrupt the active run before restarting it"`
     : "";
   const recovery = panel.resumableWorkflow
-    ? `<article class="recovery-card"><div><strong>Recoverable pipeline</strong><span>${escapeHtml(panel.resumableWorkflow.pipelineName)} · stopped at step ${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}</span></div><div class="compact-actions"><button class="primary" data-action="workflow-restart"${recoveryBlocked}>Restart pipeline</button><button data-action="workflow-resume"${recoveryBlocked}>Retry failed step</button><button data-action="workflow-discard"${recoveryBlocked}>Discard</button></div></article>`
+    ? `<article class="recovery-card"><div><strong>Recoverable pipeline</strong><span>${escapeHtml(panel.resumableWorkflow.pipelineName)} · stopped at step ${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}</span></div><div class="compact-actions"><button class="primary" data-action="workflow-restart"${recoveryBlocked}>Restart pipeline</button><button data-action="workflow-resume"${recoveryBlocked}>${panel.workflowStatus === "interrupted" ? "Resume stopped step" : "Retry failed step"}</button><button data-action="workflow-discard"${recoveryBlocked}>Discard</button></div></article>`
     : "";
   const queued = panel.queuedMessages
     .map((message, index) => {
@@ -624,7 +569,7 @@ const runTabTooltip = (conversation: ConversationSummary, label: string): string
   const participants = runParticipants(conversation);
   const childCount = state.manager.conversations.filter((candidate) => candidate.parentConversationId === conversation.id).length;
   return [
-    conversation.title,
+    runTabLabel(conversation),
     panel?.activeStep ? `${label} · ${panel.activeStep}` : label,
     pipeline ? `Pipeline: ${pipeline}` : undefined,
     ...(participants.length > 0
@@ -644,7 +589,7 @@ const tabsHtml = (): string => {
   const active = activeConversation();
   const selectedRootId = active ? rootConversationFor(active).id : activeId();
   // An open archived run keeps its tab, so the strip still says where the reader is.
-  const runs = rootRuns().filter((conversation) => !conversation.archived || conversation.id === selectedRootId);
+  const runs = stableRunTabs().filter((conversation) => !conversation.archived || conversation.id === selectedRootId);
   const archivedCount = rootRuns().filter((conversation) => conversation.archived).length;
   return `<nav class="run-tabs" aria-label="Bachata runs">
     <div class="run-tabs-brand">Bachata</div>
@@ -655,7 +600,7 @@ const tabsHtml = (): string => {
       return `<div class="run-tab ${selected ? "selected" : ""} ${conversation.archived ? "archived" : ""}">
         <button class="run-tab-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" title="${escapeAttribute(runTabTooltip(conversation, label))}" ${selected ? 'aria-current="page"' : ""}>
           <i class="codicon codicon-${escapeAttribute(runStatusIcon(status))} run-tab-status status-${escapeAttribute(status)}" aria-hidden="true"></i>
-          <span>${escapeHtml(conversation.title)}</span>
+          <span>${escapeHtml(runTabLabel(conversation))}</span>
           <span class="sr-only">${escapeHtml(label)}</span>
           ${conversation.iterationCount > 1 ? `<small>${String(conversation.activeIteration)}/${String(conversation.iterationCount)}</small>` : ""}
           ${conversation.unread > 0 ? `<span class="unread">${String(conversation.unread)}<span class="sr-only"> unread message${conversation.unread === 1 ? "" : "s"}</span></span>` : ""}
@@ -794,7 +739,7 @@ const hasOrchestrationState = (): boolean => {
     (orchestration.retainedRuns ?? []).length > 0;
 };
 
-const orchestrationStartButtonHtml = `<button data-action="orchestration-start">Run TODO.md</button>`;
+const orchestrationStartButtonHtml = (): string => `<button data-action="orchestration-start" ${orchestrationStartPending ? 'disabled aria-busy="true" title="Waiting for TODO orchestration to start"' : ""}>${orchestrationStartPending ? "Starting TODO.md…" : "Run TODO.md"}</button>`;
 
 const orchestrationHtml = (): string => {
   if (!hasOrchestrationState()) {
@@ -898,6 +843,8 @@ const composerSubmitBlocked = (button: HTMLButtonElement): boolean =>
 
 const refreshComposerSubmitState = (): void => {
   const conversationId = activeId();
+  const action = root.querySelector<HTMLElement>(".composer-send");
+  if (action) action.innerHTML = composerPrimaryActionHtml(activePanel(), activeDraft());
   const button = root.querySelector<HTMLButtonElement>('[data-action="submit-message"]');
   if (!button) {
     return;
@@ -1105,7 +1052,16 @@ const openPopoverSelector = (): string | undefined =>
       ? ".agents-picker"
       : undefined;
 
+let pendingRenderFocus: (() => void) | undefined;
+const focusAfterRender = (focus: () => void): void => {
+  pendingRenderFocus = focus;
+  scheduleRender();
+};
+
 const render = (): void => {
+  for (const id of pendingInterrupts) {
+    if (!state.panels.get(id)?.running && !conversationById(id)?.waitingForResources) pendingInterrupts.delete(id);
+  }
   if (!state.hydrated) {
     root.innerHTML = `<div class="app-shell">${tabsHtml()}<div class="workspace-shell"><main class="room-empty" aria-busy="true"><p class="muted">Loading runs…</p></main></div></div>`;
     return;
@@ -1153,6 +1109,8 @@ const render = (): void => {
     nextScroll.setAttribute("data-restoring", "");
     if ((nextScroll.getAttribute("class") ?? "").split(/\s+/u).includes("is-empty")) {
       nextScroll.scrollTop = 0;
+    } else if (state.roomView !== "chat") {
+      nextScroll.scrollTop = scroll?.className === nextScroll.className ? scrollTopBefore : 0;
     } else if (distanceFromBottom < 90) {
       nextScroll.scrollTop = nextScroll.scrollHeight;
     } else if (transcriptGrewAbove) {
@@ -1173,6 +1131,9 @@ const render = (): void => {
   revealSelectedTab();
   updateTabStripEdges();
   scrollPickerActiveOptionIntoView();
+  const focus = pendingRenderFocus;
+  pendingRenderFocus = undefined;
+  focus?.();
 };
 
 // Set by the reducer when older entries are prepended, so the next render keeps the reader's
@@ -1201,7 +1162,7 @@ const settleCodeBlockFocus = (): void => {
 };
 
 const scheduleRender = (): void => {
-  if (composing) {
+  if (composing || pointerActivationPending) {
     deferredRender = true;
     return;
   }
@@ -1211,6 +1172,10 @@ const scheduleRender = (): void => {
   renderScheduled = true;
   requestAnimationFrame(() => {
     renderScheduled = false;
+    if (composing || pointerActivationPending) {
+      deferredRender = true;
+      return;
+    }
     render();
   });
 };
@@ -1319,6 +1284,10 @@ const addFiles = async (files: FileList): Promise<void> => {
 
 const submitMessage = (delivery: MessageDelivery): void => {
   const conversationId = activeId();
+  if (pendingInterrupts.has(conversationId)) {
+    announceStatus("Wait for the current interruption to finish.");
+    return;
+  }
   const panel = activePanel();
   const draft = activeDraft();
   const prompt = draft.prompt.trim();
@@ -1491,36 +1460,6 @@ const transientMenuSelector = ".run-action-menu, .header-action-menu, .notificat
 // A floating menu is placed by measurement against the viewport: the run-tab menu, the room's
 // overflow menu and the notification panel all used to anchor to one edge of their summary and
 // clipped whenever that edge was near the side of a narrow panel.
-const positionRunMenu = (summary: HTMLElement): void => {
-  const details = summary.closest<HTMLDetailsElement>(transientMenuSelector);
-  if (!details) {
-    return;
-  }
-  root.querySelectorAll<HTMLDetailsElement>(".run-action-menu[open]").forEach((item) => {
-    if (item !== details && details.matches(".run-action-menu")) {
-      item.open = false;
-    }
-  });
-  const place = (): void => {
-    const items = details.querySelector<HTMLElement>(":scope > div");
-    const measured = items?.getBoundingClientRect();
-    const rect = summary.getBoundingClientRect();
-    const width = Math.max(200, measured?.width ?? 0);
-    const height = Math.max(164, measured?.height ?? 0);
-    const left = Math.min(
-      Math.max(8, window.innerWidth - width - 8),
-      Math.max(8, rect.right - width),
-    );
-    const top = rect.bottom + height + 8 <= window.innerHeight
-      ? rect.bottom + 4
-      : Math.max(8, rect.top - height - 4);
-    details.style.setProperty("--run-menu-left", `${String(left)}px`);
-    details.style.setProperty("--run-menu-top", `${String(top)}px`);
-  };
-  place();
-  requestAnimationFrame(place);
-};
-
 const renameConversation = (conversation: ConversationSummary): void => {
   openDialog({
     kind: "renameRun",
@@ -1584,6 +1523,7 @@ const menuPreservingActions = new Set(["run-menu-toggle", "notification-read-all
 const dismissTransientMenus = (origin: Element | null): void => {
   // An item chosen from a menu changes what is behind it, so that menu is dismissed too.
   const chosen = origin?.closest<HTMLElement>("[data-action]") ?? null;
+  const chosenMenu = chosen?.closest<HTMLDetailsElement>(transientMenuSelector);
   const keptMenu = chosen === null || menuPreservingActions.has(chosen.dataset.action ?? "")
     ? origin?.closest<HTMLDetailsElement>(transientMenuSelector) ?? null
     : null;
@@ -1596,6 +1536,9 @@ const dismissTransientMenus = (origin: Element | null): void => {
       }
     }
   });
+  // Host-only actions leave the room in place. Keep focus reachable after their menu closes;
+  // actions which open a view/dialog subsequently move focus to that destination.
+  if (chosenMenu && chosenMenu !== keptMenu && chosen?.dataset.action !== "task-reset") chosenMenu.querySelector<HTMLElement>("summary")?.focus();
   if (
     state.composerSettingsOpen &&
     !origin?.closest(".composer-settings, .composer-settings-button") &&
@@ -1623,6 +1566,19 @@ const dismissTransientMenus = (origin: Element | null): void => {
 
 // Action dispatch and input handling are installed by installActionListeners() in
 // actions.ts, which this bootstrap calls below.
+root.addEventListener("pointerdown", () => { pointerActivationPending = true; }, true);
+const finishPointerActivation = (): void => {
+  pointerActivationPending = false;
+  if (deferredRender && !composing) {
+    deferredRender = false;
+    scheduleRender();
+  }
+};
+document.addEventListener("pointerup", () => { setTimeout(finishPointerActivation, 0); }, true);
+document.addEventListener("click", finishPointerActivation);
+document.addEventListener("pointercancel", finishPointerActivation, true);
+window.addEventListener("blur", finishPointerActivation);
+
 root.addEventListener("compositionstart", () => {
   composing = true;
 });
@@ -1799,6 +1755,12 @@ root.addEventListener("toggle", (event: Event) => {
   if (disclosure && disclosureKey) {
     recordDisclosure(disclosureKey, disclosure.open);
     if (disclosure.open && (disclosure.matches(".header-action-menu") || disclosure.matches(".notification-center"))) {
+      root.querySelectorAll<HTMLDetailsElement>("details.header-action-menu[open], details.notification-center[open]").forEach((other) => {
+        if (other !== disclosure) {
+          other.open = false;
+          if (other.dataset.disclosureKey) recordDisclosure(other.dataset.disclosureKey, false);
+        }
+      });
       const summary = disclosure.querySelector<HTMLElement>(":scope > summary");
       if (summary) positionRunMenu(summary);
     }
@@ -1911,6 +1873,11 @@ const runHumanE2eUiScenario = async (
   // rather than off the state that produced them: a catalog held in state and never drawn is not a
   // catalog a person can use.
   root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]:not([disabled])')?.click();
+  await settleUi();
+  // The picker opens on the common workflows and keeps the compatibility presets behind one
+  // disclosure, so the scenario presses it the way a person looking for the rest would. The
+  // disclosure latches for the session, which is why the loop below needs no second press.
+  root.querySelector<HTMLElement>('[data-action="pipeline-picker-more"]')?.click();
   await settleUi();
   const renderedPipelineIds = Array.from(
     root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-select"]'),
@@ -2373,6 +2340,7 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     state.hydrated = true;
     const previousManager = state.manager;
     state.manager = message.state;
+    if (message.state.orchestration.status !== undefined) orchestrationStartPending = false;
     announceManagerTransition(previousManager, message.state);
     pruneResultSelections(message.state.conversations);
     for (const conversation of message.state.conversations) {
@@ -2442,6 +2410,7 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
   } else if (message.type === "conversation.message") {
     applyRuntimeMessage(message.conversationId, message.message);
   } else if (message.type === "manager.error") {
+    orchestrationStartPending = false;
     state.hydrated = true;
     state.pendingInteractions.clear();
     state.pendingApprovals.clear();

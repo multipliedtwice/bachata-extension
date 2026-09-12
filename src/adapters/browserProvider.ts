@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { assertBrowserSourcePath, browserAttachmentPath, isBrowserSourcePath } from "../browser/sourceTransferPolicy";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import * as path from "node:path";
 
 import { BrowserBridgeServer } from "../browser/bridgeServer";
@@ -27,17 +28,20 @@ const mimeTypes = new Map<string, BrowserAttachment["mimeType"]>([
   [".gif", "image/gif"],
 ]);
 
-export const isSupportedBrowserAttachmentPath = (filePath: string): boolean =>
-  mimeTypes.has(path.extname(filePath).toLowerCase());
+export const isSupportedBrowserAttachmentPath = (filePath: string, workspaceRoot?: string): boolean =>
+  isBrowserSourcePath(browserAttachmentPath(filePath, workspaceRoot)) && mimeTypes.has(path.extname(filePath).toLowerCase());
 
 const providerName = (provider: BrowserProvider): string =>
   provider === "chatgpt" ? "ChatGPT" : provider === "claude" ? "Claude" : "Generic";
 
-const attachmentFor = async (filePath: string): Promise<BrowserAttachment> => {
+const attachmentFor = async (filePath: string, workspaceRoot: string): Promise<BrowserAttachment> => {
+  assertBrowserSourcePath(browserAttachmentPath(filePath, workspaceRoot));
   const mimeType = mimeTypes.get(path.extname(filePath).toLowerCase());
   if (!mimeType) {
     throw new Error(`Unsupported browser attachment type: ${path.extname(filePath)}`);
   }
+  if ((await lstat(filePath)).isSymbolicLink()) throw new Error("Browser attachments cannot be symbolic links");
+  assertBrowserSourcePath(browserAttachmentPath(await realpath(filePath), await realpath(workspaceRoot)));
   const fileStat = await stat(filePath);
   if (!fileStat.isFile() || fileStat.size <= 0) {
     throw new Error(`Browser attachment is invalid: ${path.basename(filePath)}`);
@@ -125,7 +129,7 @@ export const createBrowserProviderAdapter = (
         if (options.supportsAttachments === false && request.attachments.length > 0) {
           throw new Error(`${providerName(options.provider)} browser does not support image attachments`);
         }
-        const attachments = await Promise.all(request.attachments.map(attachmentFor));
+        const attachments = await Promise.all(request.attachments.map((file) => attachmentFor(file, request.workingDirectory)));
         if (controller.signal.aborted) throw new Error(`${providerName(options.provider)} Browser request was interrupted before submission`);
         let answer = "";
         let interrupted = false;

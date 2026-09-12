@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "id": "code-review-refine",
+  "name": "Code review and refinement",
+  "description": "Two participants review the code and reconcile findings in up to 4 rounds. An implementer then fixes confirmed issues; an independent reviewer checks them, followed by one planned revision and a final review. Writes stay within src/tests; declared controller checks run. No commits.",
+  "longitudinalIntent": "runLocal",
+  "managedPolicy": {
+    "writeScope": "configured",
+    "allowedPaths": [
+      "src",
+      "tests"
+    ],
+    "protectedPaths": [
+      ".git",
+      ".bachata"
+    ],
+    "commitMode": "never",
+    "verificationChecks": [
+      {
+        "id": "workspace-integrity",
+        "command": "bachata:workspace-integrity"
+      },
+      {
+        "id": "project-checks",
+        "command": "bachata:project-checks"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "id": "implementer",
+      "name": "Implementer",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "reviewer",
+      "name": "Independent reviewer",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "roles": [
+    {
+      "id": "worker",
+      "name": "Worker",
+      "instructions": "Inspect the repository, implement the requested change, verify it, and report concrete evidence.\n\nDo not create commits, merges, rebases, tags, or pushes. Stay within the declared write scope. The controller owns verification.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "claude-code"
+      ],
+      "managed": true,
+      "readOnly": false,
+      "managedRole": "worker"
+    },
+    {
+      "id": "lead",
+      "name": "Lead reviewer",
+      "instructions": "Independently inspect the repository, challenge unsupported assumptions, and require reproducible evidence before accepting the implementation.\n\nYou are read-only. Return accept, revise, or blocked with concrete evidence.\n\nDo not create commits, merges, rebases, tags, or pushes. Stay within the declared write scope. The controller owns verification.",
+      "preferredAdapters": [
+        "codex-app-server",
+        "claude-code"
+      ],
+      "managed": true,
+      "readOnly": true,
+      "managedRole": "lead"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-review",
+      "name": "Independent review",
+      "enabled": true,
+      "participants": [
+        "implementer",
+        "reviewer"
+      ],
+      "promptTemplate": "Review the current code and supplied scope for reproducible defects, missing validation and regression risks. Do not modify files. State evidence for each finding.\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "implementer": "readOnly",
+        "reviewer": "plan"
+      },
+      "approvalPolicies": {
+        "implementer": "onRequest"
+      },
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "review-consensus",
+      "name": "Cross-reference findings",
+      "enabled": true,
+      "participants": [
+        "implementer",
+        "reviewer"
+      ],
+      "promptTemplate": "Carefully cross-reference the other participant's complete answer with repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 4,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "implementer": "readOnly",
+        "reviewer": "plan"
+      },
+      "approvalPolicies": {
+        "implementer": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    },
+    {
+      "id": "assign-roles",
+      "name": "Assign worker and lead",
+      "enabled": true,
+      "humanGate": "none",
+      "roleAssignments": [
+        {
+          "agentId": "implementer",
+          "role": "worker"
+        },
+        {
+          "agentId": "reviewer",
+          "role": "lead"
+        }
+      ],
+      "type": "assignRoles"
+    },
+    {
+      "id": "worker-turn",
+      "name": "Worker implementation",
+      "enabled": true,
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nFix only the confirmed findings from the agreed review, within the original request and declared write scope. Do not expand scope or change code for rejected or unresolved claims. The controller owns verification.\n\nOriginal request:\n{{userPrompt}}\n\nAgreed review:\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "before",
+      "attachments": "selected",
+      "type": "agent",
+      "permissionModes": {
+        "worker": "write"
+      }
+    },
+    {
+      "id": "lead-review",
+      "name": "Lead review",
+      "enabled": true,
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "Original task and immutable constraints:\n{{userPrompt}}\n\n{{roleInstructions}}\n\nReview the worker's augmented answer and the current repository state.\n\n{{peerAnswersTagged}}\n\nYou are read-only. Return accept, revise, or blocked with concrete evidence.",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "worker-revision",
+      "name": "Worker bounded revision",
+      "enabled": true,
+      "participants": [
+        "worker"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nOriginal task:\n{{userPrompt}}\n\nThe Lead review is below. Resolve only confirmed objections. If there are no valid objections, do not change files and finish.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent",
+      "permissionModes": {
+        "worker": "write"
+      }
+    },
+    {
+      "id": "lead-final-review",
+      "name": "Lead final review",
+      "enabled": true,
+      "participants": [
+        "lead"
+      ],
+      "promptTemplate": "{{roleInstructions}}\n\nOriginal task:\n{{userPrompt}}\n\nPerform the final read-only review after the single allowed Worker revision. Put concrete unresolved problems in objections/unresolved. Do not request further edits.\n\n{{peerAnswersTagged}}",
+      "parallel": false,
+      "consensus": false,
+      "humanGate": "none",
+      "attachments": "selected",
+      "type": "agent"
+    }
+  ]
+}

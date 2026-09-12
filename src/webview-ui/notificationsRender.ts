@@ -4,13 +4,6 @@
  * Concatenated after state.ts; reads notification state through the shared accessors.
  */
 
-/**
- * The notification mode control, which lives in the room's overflow menu.
- *
- * It used to live inside the bell panel, which is why the bell had to be rendered even with
- * nothing in it: hiding an empty bell would have deleted the only route to the setting. Moving
- * the control out is what makes hiding the empty bell disclosure rather than removal.
- */
 const notificationModeControlHtml = (): string => {
   const center = notificationCenterState();
   return `<label class="field"><span>Notifications</span><select id="notification-mode" aria-label="Notification mode">${NOTIFICATION_MODE_LABELS.map((option) => `<option value="${option.value}"${center.mode === option.value ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
@@ -32,14 +25,11 @@ const notificationLevelLabel: Record<"decision" | "material" | "routine", string
  */
 const notificationBellHtml = (): string => {
   const center = notificationCenterState();
-  if (center.events.length === 0) {
-    return "";
-  }
-  const unread = center.unread;
+  const unread = center.mode === "off" ? 0 : center.unread;
   const list = `<ul class="notification-list">${center.events
         .map((entry) => `<li class="notification-${escapeAttribute(entry.level)}${entry.read ? "" : " unread"}">${entry.read ? "" : `<strong class="notification-unread-flag">Unread</strong>`}<span class="notification-level">${escapeHtml(notificationLevelLabel[entry.level])}</span><p id="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(entry.text)}</p><div class="compact-actions"><button data-action="notification-open" data-record="${escapeAttribute(entry.id)}" aria-describedby="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(notificationActionLabel[entry.action])}</button></div></li>`)
         .join("")}</ul>`;
-  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary aria-label="${escapeAttribute(`Notifications, ${String(unread)} unread`)}" title="Notifications"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel"><div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>Mark all read</button><button data-action="notification-clear">Clear</button></div>${list}<p class="muted">Bachata writes these lines from recorded state. They cost no model tokens and never enter a reviewer prompt.</p></div></details>`;
+  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary id="notification-button" aria-label="${escapeAttribute(`Notifications, ${String(unread)} unread`)}" title="Notifications"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="Notifications">${notificationModeControlHtml()}${center.events.length === 0 ? '<p class="muted">No notifications yet.</p>' : ""}<div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>Mark all read</button><button data-action="notification-clear">Clear</button></div>${list}<p class="muted">Bachata writes these lines from recorded state. They cost no model tokens and never enter a reviewer prompt.</p></div></details>`;
 };
 
 const reconstructionLabel: Record<"available" | "unavailable" | "unknown", string> = {

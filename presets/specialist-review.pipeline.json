@@ -1,28 +1,28 @@
 {
   "version": 1,
   "id": "specialist-browser-review",
-  "name": "Builder + lead + QA + UX",
-  "description": "Coordinate four independent browser conversations with first-class builder, lead, QA, and UX roles.",
+  "name": "Implement with QA and UX review",
+  "description": "A builder implements while lead, QA and UX participants review. Requires four bound browser conversations. This workflow edits code; it is not a read-only UX audit.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "gpt-builder",
-      "name": "Builder participant",
+      "name": "Builder",
       "adapter": "chatgpt-browser"
     },
     {
       "id": "claude-lead",
-      "name": "Lead participant",
+      "name": "Lead reviewer",
       "adapter": "claude-browser"
     },
     {
       "id": "gpt-qa",
-      "name": "QA participant",
+      "name": "QA reviewer",
       "adapter": "chatgpt-browser"
     },
     {
       "id": "claude-ux",
-      "name": "UX participant",
+      "name": "UX reviewer",
       "adapter": "claude-browser"
     }
   ],

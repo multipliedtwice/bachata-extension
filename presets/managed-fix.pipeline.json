@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "managed-fix",
-  "name": "Managed fix",
-  "description": "A bounded fix with an explicit write scope, no commit authority, and controller-owned verification. Fork this pipeline into .bachata/pipelines to point verification at a repository verifier declared in .bachata/verifiers.json.",
+  "name": "Fix within a declared scope",
+  "description": "One worker implements inside the configured paths; the controller runs declared checks. Requires a Direction and scoped verification setup. Creates no commit.",
   "longitudinalIntent": "initiativeRequired",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Implementer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "workspaceWrite",
@@ -16,7 +16,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Implementer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "acceptEdits",

@@ -27,6 +27,7 @@ const loadCommands = (snapshot, options = {}) => {
   const warnings = [];
   const inputBoxes = [];
   const quickPicks = [];
+  const evidenceRecords = [];
   const informationDetails = [];
   const terminals = [];
   const publishedDiagnostics = [];
@@ -104,8 +105,10 @@ const loadCommands = (snapshot, options = {}) => {
         errors.push(message);
         return undefined;
       },
+      showOpenDialog: async () => options.evidenceFile ? [{ scheme: "file", fsPath: options.evidenceFile }] : undefined,
       showInputBox: async (inputOptions) => {
         inputBoxes.push(inputOptions);
+        if (options.evidenceInputs) return options.evidenceInputs.shift();
         // A git ref prompt answers with the ref; the initiative prompt answers with the goal.
         return /ref|commit|branch/iu.test(String(inputOptions.prompt ?? inputOptions.title ?? ""))
           ? options.inputBoxValue
@@ -113,6 +116,7 @@ const loadCommands = (snapshot, options = {}) => {
       },
       showQuickPick: async (items, pickOptions) => {
         quickPicks.push(items);
+        if (options.evidenceChoice) return options.evidenceChoice(items, pickOptions);
         if (pickOptions?.canPickMany === true) {
           if (options.pickSealedPaths !== undefined) {
             return options.pickSealedPaths
@@ -310,6 +314,11 @@ const loadCommands = (snapshot, options = {}) => {
   const adoptedConversations = [];
   const workingDirectoryPicks = [];
   const manager = {
+    recordExternalEvidence: async (input) => {
+      if (options.evidenceError) throw new Error(options.evidenceError);
+      evidenceRecords.push(input);
+      return { ...input, ...(input.verifyFinding ? { verification: {} } : {}) };
+    },
     chooseWorkingDirectory: async () => {
       workingDirectoryPicks.push("pick");
     },
@@ -373,6 +382,7 @@ const loadCommands = (snapshot, options = {}) => {
   );
   return {
     commands,
+    evidenceRecords,
     treeViews,
     workingDirectoryPicks,
     onboardingRecords,
@@ -1912,3 +1922,50 @@ test("a broker that cannot open fails activation without leaking the output chan
     "the panel global must not be set until the broker is open",
   );
 });
+
+
+for (const purpose of ["citation", "verification", "cancel", "failure", "changed initiative"]) {
+  test(`external evidence command reports ${purpose} without duplicate recording`, async () => {
+    const { mkdtemp, writeFile, rm } = require("node:fs/promises");
+    const path = require("node:path");
+    const os = require("node:os");
+    const root = await mkdtemp(path.join(os.tmpdir(), "bachata-evidence-command-"));
+    try {
+      const file = path.join(root, "evidence.txt");
+      await writeFile(file, "Cancellation reproduction: cleanup executed exactly once");
+      const options = {
+        evidenceFile: file,
+        evidenceInputs: ["https://evidence.invalid/cancellation", "Cancellation reproduction", "Cleanup always executes", "One cleanup call for one cancellation", "Node.js deterministic reproduction"],
+        longitudinal: { initiative: { id: "N1" }, findings: [{ identity: "FH1", subject: "Cancellation cleanup", message: "Cleanup is bypassed", state: "accepted" }] },
+        evidenceChoice: (items, pick) => {
+          if (pick.title.endsWith(": relation")) return items.find((item) => item.relation === "supports");
+          if (pick.title.endsWith(": authority")) return items.find((item) => item.authority === "firstPartyMeasurement");
+          if (pick.title.endsWith(": target")) return purpose === "cancel" ? undefined : items.find((item) => item.identity === "FH1");
+          if (purpose === "changed initiative") options.longitudinal.initiative.id = "N2";
+          return items.find((item) => item.verifies === (purpose !== "citation"));
+        },
+        ...(purpose === "failure" ? { evidenceError: "The current candidate could not be verified" } : {}),
+      };
+      const harness = loadCommands({ active: false, retainedRuns: [] }, options);
+      await harness.commands.get("bachata.recordExternalEvidence")();
+      if (purpose === "citation" || purpose === "verification") {
+        assert.equal(harness.evidenceRecords.length, 1);
+        const record = harness.evidenceRecords[0];
+        assert.deepEqual(record.target, { kind: "finding", identity: "FH1" });
+        assert.equal(record.authoredBy, "human");
+        assert.equal(record.relation, "supports");
+        assert.equal(record.verifyFinding !== undefined, purpose === "verification");
+        assert.equal(harness.errors.length, 0);
+        assert.equal(harness.informationMessages.length, 1);
+        assert.match(harness.informationMessages[0], /Rule on it in Direction/);
+        assert.ok(!harness.informationMessages[0].includes(record.source.contentDigest));
+      } else {
+        assert.equal(harness.evidenceRecords.length, 0);
+        assert.equal(harness.informationMessages.length, 0);
+        assert.equal(harness.errors.length, purpose === "cancel" ? 0 : 1);
+        if (purpose === "changed initiative") assert.match(harness.errors[0], /initiative changed/);
+        if (purpose === "failure") assert.match(harness.errors[0], /current candidate/);
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}

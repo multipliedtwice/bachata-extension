@@ -1,3 +1,4 @@
+import type { BrowserControlReferences } from "./controlProtocol";
 import { createHash, randomUUID } from "node:crypto";
 
 import { CapturedSegment } from "./protocol";
@@ -209,6 +210,7 @@ export const createBrowserActionCandidate = (
 const parsePairAction = (
   segment: CapturedSegment,
   expectedTurnToken?: string,
+  references?: BrowserControlReferences,
 ): BrowserActionCandidate | undefined => {
   let value: unknown;
   try {
@@ -238,6 +240,23 @@ const parsePairAction = (
   ) {
     return undefined;
   }
+  let expectedFiles: Array<{ path: string; sha256: string }> | undefined;
+  if (record.expectedFiles !== undefined) {
+    if (!Array.isArray(record.expectedFiles) || record.expectedFiles.length > 64) return undefined;
+    expectedFiles = [];
+    for (const value of record.expectedFiles) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+      const entry = value as Record<string, unknown>;
+      if (typeof entry.path !== "string" || entry.path.length > 16_384) return undefined;
+      if (references && typeof entry.fileVersion !== "string") return undefined;
+      const digest = typeof entry.fileVersion === "string"
+        ? references?.fileDigest(entry.path, entry.fileVersion)
+        : entry.sha256;
+      if (Object.keys(entry).some((key) => key !== "path" && key !== (entry.fileVersion === undefined ? "sha256" : "fileVersion"))
+        || typeof digest !== "string" || digest.length !== 64 || !/^[a-f0-9]{64}$/i.test(digest)) return undefined;
+      expectedFiles.push({ path: entry.path, sha256: digest.toLowerCase() });
+    }
+  }
   const candidate = {
     kind: kind as BrowserActionKind,
     origin: "structured" as const,
@@ -253,14 +272,7 @@ const parsePairAction = (
     ...(typeof record.recursive === "boolean"
       ? { recursive: record.recursive }
       : {}),
-    ...(Array.isArray(record.expectedFiles)
-      ? {
-          expectedFiles: record.expectedFiles
-            .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
-            .filter((entry) => typeof entry.path === "string" && typeof entry.sha256 === "string" && /^[a-f0-9]{64}$/i.test(entry.sha256))
-            .map((entry) => ({ path: entry.path as string, sha256: String(entry.sha256).toLowerCase() })),
-        }
-      : {}),
+    ...(expectedFiles === undefined ? {} : { expectedFiles }),
   };
   if (
     (candidate.kind === "shell.run" && !candidate.command) ||
@@ -515,6 +527,7 @@ export const extractBrowserActions = (
   text: string,
   segments: CapturedSegment[],
   expectedStructuredTurnToken?: string,
+  references?: BrowserControlReferences,
 ): BrowserActionCandidate[] => {
   const explicit = segments
     .filter(
@@ -522,7 +535,7 @@ export const extractBrowserActions = (
         segment.type === "codeBlock" &&
         bachataActionLanguages.has(segment.language?.trim().toLowerCase() ?? ""),
     )
-    .map((segment) => parsePairAction(segment, expectedStructuredTurnToken))
+    .map((segment) => parsePairAction(segment, expectedStructuredTurnToken, references))
     .filter((candidate): candidate is BrowserActionCandidate => Boolean(candidate));
   return deduplicateBrowserActions([
     ...explicit,

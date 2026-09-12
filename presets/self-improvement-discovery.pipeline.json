@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "self-improvement-discovery",
-  "name": "Self-improvement discovery",
-  "description": "Codex and Claude audit the same checked-out repository candidate independently and in parallel. Each returns what it actually read before what it found; an agent that could not read the candidate says so. Nothing is edited and nothing is converged here.",
+  "name": "Internal — improvement discovery",
+  "description": "Controller stage: two participants audit an exact checked-out candidate without edits. Requires a controller-supplied audit packet.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -16,7 +16,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Reviewer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "plan",

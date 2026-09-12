@@ -2,6 +2,22 @@ import { pipelineDefinitionHash } from "./identity";
 import { validatePipelineDefinition } from "./schema";
 import { PipelineDefinition } from "./types";
 
+const prominentWorkflowOrder = new Map([
+  ["codex-fix", 0],
+  ["codex-review", 1],
+  ["codex-plan", 2],
+  ["ui-ux-review", 3],
+  ["code-review-refine", 4],
+]);
+
+export const pipelinePickerMetadata = (
+  pipelineId: string,
+  editable: boolean,
+): { prominentOrder?: number } => {
+  const prominentOrder = editable ? undefined : prominentWorkflowOrder.get(pipelineId);
+  return prominentOrder === undefined ? {} : { prominentOrder };
+};
+
 export type PipelineValidator = (value: unknown, source: string) => PipelineDefinition;
 
 export const createPipelineValidator = (

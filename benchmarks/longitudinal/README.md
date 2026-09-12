@@ -37,3 +37,30 @@ The fixture repositories are shared with the single-round benchmark under `../fi
 
 A task is eligible only when both arms have recorded rounds. With no eligible task the
 verdict states that the benchmark supports no claim. Claude does not record rounds.
+
+## Record and score
+
+Validate an existing observation record and save it to a new file:
+
+```sh
+npm run benchmark:longitudinal -- record --task retry-refinement --arm single --input /path/to/observations.json --output /path/to/single.json
+```
+
+Each record declares `taskId`, `arm` and the task's exact ordered `rounds`. A round
+contains `index`, `kind`, `findings` and `decisionsShownToHuman`. Findings name `id`,
+`file`, optional `line`, a stable `identity`, optional `disposition` and optional
+`materialDelta` strings. Use the committed task's answer key and round kinds.
+Observations are supplied by the person running the experiment. The command does
+not execute providers, infer observations, or certify their origin.
+
+Score either or both recorded arms:
+
+```sh
+npm run benchmark:longitudinal -- score --task retry-refinement --single /path/to/single.json --paired /path/to/paired.json
+```
+
+Missing arms produce an explicit no-comparison verdict. Invalid records fail
+without scoring. Recording never overwrites an existing file. Inputs are bounded
+to 4 MiB, 100 rounds and 1,000 findings or decisions per round. The command's tests
+exercise the committed retry corpus using controlled observations; those tests
+are not an authenticated longitudinal experiment.

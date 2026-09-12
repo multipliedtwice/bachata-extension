@@ -1,3 +1,4 @@
+import { matchesConsensusAcceptance } from "../pipeline/consensusPromotion";
 import { createHash } from "node:crypto";
 
 import type { ModelFinding } from "../results/modelFindings";
@@ -109,6 +110,7 @@ export const latestArtifactOfType = (
     );
 
 export const produceTypedArtifact = (input: {
+  consensusAcceptance?: import("../pipeline/consensusPromotion").ConsensusAcceptance;
   createId: () => string;
   initiativeId: string;
   cycleId: string;
@@ -142,6 +144,7 @@ export const produceTypedArtifact = (input: {
     revision: (input.previous?.revision ?? 0) + 1,
     state: "proposed",
     provenance: {
+      ...(input.consensusAcceptance === undefined ? {} : { consensusAcceptance: input.consensusAcceptance }),
       authoredBy: "model",
       participantIds: [...input.participantIds],
       runRef: input.runRef,
@@ -226,6 +229,7 @@ export const supersedeArtifactAncestors = (
 };
 
 export type DeclaredArtifactPromotion = {
+  fromConsensusStep?: string;
   type: InitiativeArtifact["type"];
   customType?: string;
   titleField?: string;
@@ -256,6 +260,7 @@ const promotedList = (value: unknown): string[] => {
  * custom pipeline never grows durable state by accident.
  */
 export const produceDeclaredArtifact = (input: {
+  consensusAcceptance?: import("../pipeline/consensusPromotion").ConsensusAcceptance;
   createId: () => string;
   initiativeId: string;
   cycleId: string;
@@ -268,6 +273,9 @@ export const produceDeclaredArtifact = (input: {
   stepId?: string;
   previous?: InitiativeArtifact;
 }): ArtifactProduction | undefined => {
+  if (input.promotion.fromConsensusStep !== undefined && !matchesConsensusAcceptance(
+    input.consensusAcceptance, input.output, input.promotion.fromConsensusStep,
+  )) return undefined;
   if (input.promotion.type === "custom" && !input.promotion.customType) return undefined;
   // Refused at validation; refused again here so a stored pipeline predating that rule
   // cannot produce a second representation of a core decision.
@@ -292,6 +300,7 @@ export const produceDeclaredArtifact = (input: {
     runRef: input.runRef,
     recordedAt: input.recordedAt,
     type: input.promotion.type,
+    ...(input.consensusAcceptance === undefined ? {} : { consensusAcceptance: input.consensusAcceptance }),
     ...(input.promotion.customType === undefined
       ? {}
       : { customType: input.promotion.customType }),

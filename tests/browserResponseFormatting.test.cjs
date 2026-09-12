@@ -35,7 +35,7 @@ test("captured provider assets are represented without exposing provider identif
 
   assert.match(summary, /report\.docx/);
   assert.match(summary, /codeArtifact/);
-  assert.match(summary, /not present in the workspace/);
+  assert.match(summary, /only when a Bachata action result reports successful application or saving/);
   assert.doesNotMatch(summary, /signed-provider-file-id|artifact-secret-id/);
   assert.doesNotMatch(summary, /private-token-value/);
 });

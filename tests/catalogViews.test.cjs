@@ -609,10 +609,10 @@ test("an attempt is refused whenever the plan it names cannot be trusted", () =>
   assert.equal(attemptOf({ hash: "h", steps: [] }), undefined, "no steps at all");
   assert.equal(attemptOf({ hash: "h", steps: ["plan", { id: 1, name: "A" }, { id: "a", name: 2 }] }), undefined,
     "every entry was unreadable, so no plan survived");
-  assert.deepEqual(
-    attemptOf({ hash: "h", steps: ["plan", { id: "a", name: "A" }] }),
-    { pipelineHash: "h", steps: [{ id: "a", name: "A" }] },
-    "a readable step beside an unreadable one still describes the plan",
+  assert.equal(
+    attemptOf({ hash: "a".repeat(64), steps: ["plan", { id: "a", name: "A" }] }),
+    undefined,
+    "a malformed step invalidates the entire recorded plan",
   );
 });
 
@@ -625,6 +625,27 @@ test("with no active conversation named, the histories are still spent in listin
   const state = catalogEventHistories({ histories: manyConversations(2) });
   assert.equal(Object.keys(state).length, 2);
   assert.ok(payloadBytes(state["run-0"]) > 0);
+});
+
+test("an inactive conversation whose key does not fit is omitted, and the active one still travels", () => {
+  // Conversation keys are charged against the same ceiling as rows, so a ceiling can be wide enough
+  // for the active key and too narrow for the next one. The renderer reads an omitted inactive key
+  // as an empty history, so omitting it is the bounded answer, not a lost conversation.
+  const events = [{ id: 1, type: "run.started", createdAt: "t", payload: { iterations: 1 } }];
+  const histories = ["run-0", "run-1", "run-2"].map((conversationId) => ({ conversationId, events }));
+  for (const aggregateBytes of [12, 22]) {
+    const state = catalogEventHistories({ histories, activeConversationId: "run-0", aggregateBytes });
+    assert.deepEqual(Object.keys(state), ["run-0"], `a ${String(aggregateBytes)}-byte ceiling sent other keys`);
+    assert.ok(
+      wholeMessageBytes(state) <= aggregateBytes,
+      `a ${String(aggregateBytes)}-byte ceiling sent ${String(wholeMessageBytes(state))} bytes`,
+    );
+  }
+  // One byte more is exactly what the second key costs, and it is spent on the second key rather
+  // than on the active conversation's rows.
+  const wider = catalogEventHistories({ histories, activeConversationId: "run-0", aggregateBytes: 23 });
+  assert.deepEqual(Object.keys(wider), ["run-0", "run-1"]);
+  assert.ok(wholeMessageBytes(wider) <= 23);
 });
 
 test("a ceiling too small for one row's metadata sends the rows it can and no detail", () => {
@@ -644,6 +665,19 @@ test("a ceiling too small for one row's metadata sends the rows it can and no de
     }),
     { "run-0": [] },
   );
+  // A ceiling that is not a finite number is a caller mistake, not a licence to send everything:
+  // it collapses to the smallest ceiling rather than to Infinity.
+  for (const aggregateBytes of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.deepEqual(
+      catalogEventHistories({
+        histories: manyConversations(1),
+        activeConversationId: "run-0",
+        aggregateBytes,
+      }),
+      {},
+      `a ${String(aggregateBytes)} ceiling sent rows`,
+    );
+  }
   const some = catalogEventHistories({
     histories: manyConversations(1),
     activeConversationId: "run-0",

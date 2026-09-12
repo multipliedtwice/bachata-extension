@@ -66,8 +66,8 @@ export type BrowserContextSearchAction = {
   cursor?: string;
 };
 
-export type BrowserContextHashFileAction = {
-  kind: "context.hashFile";
+export type BrowserContextFileVersionAction = {
+  kind: "context.fileVersion";
   path: string;
 };
 
@@ -114,7 +114,7 @@ export type BrowserControlAction =
   | BrowserContextTreeAction
   | BrowserContextReadFileAction
   | BrowserContextSearchAction
-  | BrowserContextHashFileAction
+  | BrowserContextFileVersionAction
   | BrowserContextDependenciesAction
   | BrowserContextDependentsAction
   | BrowserWriteAction
@@ -179,8 +179,27 @@ const strings = (value: unknown, max = 64): string[] | undefined => {
   return normalized.every((entry) => entry.length <= MAX_TEXT) ? normalized : undefined;
 };
 
-const parseAction = (value: unknown): BrowserControlAction | undefined => {
-  const record = asRecord(value);
+export type BrowserControlReferences = {
+  fileDigest(path: string, reference: string): string | undefined;
+  snippetId(reference: string): string | undefined;
+};
+
+const parseAction = (value: unknown, references?: BrowserControlReferences): BrowserControlAction | undefined => {
+  let record = asRecord(value);
+  if (record && references && Array.isArray(record.expectedFiles)) {
+    if (record.expectedFiles.length > 64) return undefined;
+    const expectedFiles = [];
+    for (const value of record.expectedFiles) {
+      const entry = asRecord(value);
+      if (entry && "fileVersion" in entry) {
+        if (!exactKeys(entry, ["path", "fileVersion"]) || typeof entry.path !== "string" || typeof entry.fileVersion !== "string") return undefined;
+        const digest = references.fileDigest(entry.path, entry.fileVersion);
+        if (!digest) return undefined;
+        expectedFiles.push({ path: entry.path, sha256: digest });
+      } else return undefined;
+    }
+    record = { ...record, expectedFiles };
+  }
   if (!record || typeof record.kind !== "string") {
     return undefined;
   }
@@ -188,8 +207,9 @@ const parseAction = (value: unknown): BrowserControlAction | undefined => {
     if (!exactKeys(record, ["kind", "snippetIds"])) {
       return undefined;
     }
-    const snippetIds = strings(record.snippetIds, 16);
-    return snippetIds && snippetIds.length > 0 && snippetIds.every(Boolean)
+    const requested = strings(record.snippetIds, 16);
+    const snippetIds = requested?.map((id) => references ? references.snippetId(id) : id);
+    return snippetIds && snippetIds.length > 0 && snippetIds.every((id): id is string => typeof id === "string")
       ? { kind: "context.read", snippetIds }
       : undefined;
   }
@@ -310,14 +330,14 @@ const parseAction = (value: unknown): BrowserControlAction | undefined => {
       ...(typeof record.cursor === "string" ? { cursor: record.cursor } : {}),
     };
   }
-  if (record.kind === "context.hashFile") {
+  if (record.kind === "context.fileVersion") {
     if (!exactKeys(record, ["kind", "path"])
       || typeof record.path !== "string"
       || record.path.trim().length === 0
       || record.path.length > 16_384) {
       return undefined;
     }
-    return { kind: "context.hashFile", path: record.path };
+    return { kind: "context.fileVersion", path: record.path };
   }
   if (record.kind === "context.dependencies") {
     if (!exactKeys(record, ["kind", "path"])
@@ -416,7 +436,7 @@ const parseAction = (value: unknown): BrowserControlAction | undefined => {
   return undefined;
 };
 
-export const validateBrowserControlEnvelope = (value: unknown): BrowserControlEnvelope | undefined => {
+export const validateBrowserControlEnvelope = (value: unknown, references?: BrowserControlReferences): BrowserControlEnvelope | undefined => {
   const record = asRecord(value);
   if (!record
     || !exactKeys(record, ["protocol", "status", "actions", "summary", "objections", "unresolved"])
@@ -435,7 +455,7 @@ export const validateBrowserControlEnvelope = (value: unknown): BrowserControlEn
   }
   const actions: BrowserControlAction[] = [];
   for (const action of record.actions) {
-    const parsed = parseAction(action);
+    const parsed = parseAction(action, references);
     if (!parsed) {
       return undefined;
     }
@@ -450,7 +470,7 @@ export const validateBrowserControlEnvelope = (value: unknown): BrowserControlEn
     || action.kind === "context.tree"
     || action.kind === "context.readFile"
     || action.kind === "context.search"
-    || action.kind === "context.hashFile"
+    || action.kind === "context.fileVersion"
     || action.kind === "context.dependencies"
     || action.kind === "context.dependents"
   );
@@ -504,11 +524,11 @@ const parseJson = (text: string): unknown => {
   }
 };
 
-export const extractBrowserControlEnvelope = (text: string): BrowserControlEnvelope | undefined => {
+export const extractBrowserControlEnvelope = (text: string, references?: BrowserControlReferences): BrowserControlEnvelope | undefined => {
   const candidate = finalPairControlBlock(text);
   return candidate === undefined
     ? undefined
-    : validateBrowserControlEnvelope(parseJson(candidate));
+    : validateBrowserControlEnvelope(parseJson(candidate), references);
 };
 
 const normalizedControlLanguage = (value: string | undefined): string =>
@@ -516,15 +536,16 @@ const normalizedControlLanguage = (value: string | undefined): string =>
 
 export const extractBrowserControlEnvelopeFromCaptured = (
   response: Pick<CapturedResponse, "text" | "segments">,
+  references?: BrowserControlReferences,
 ): BrowserControlEnvelope | undefined => {
   const meaningful = response.segments.filter((segment) => segment.text.trim().length > 0);
   const finalSegment = meaningful.at(-1);
   if (finalSegment?.type === "codeBlock"
     && normalizedControlLanguage(finalSegment.language) === "bachata-control") {
-    const parsed = validateBrowserControlEnvelope(parseJson(finalSegment.text.trim()));
+    const parsed = validateBrowserControlEnvelope(parseJson(finalSegment.text.trim()), references);
     if (parsed) return parsed;
   }
-  return extractBrowserControlEnvelope(response.text);
+  return extractBrowserControlEnvelope(response.text, references);
 };
 
 export const extractLastJsonObject = (text: string): unknown => {
@@ -580,5 +601,5 @@ Return one final fenced bachata-control JSON object with this exact contract:
   "objections": [],
   "unresolved": []
 }
-Use one operation class per response: needContext may batch context.read/context.readTask/context.readMetadata/context.list/context.tree/context.readFile/context.search/context.hashFile/context.dependencies/context.dependents actions; context.readTask pages the authoritative original task by UTF-8 byte offset; context.readMetadata pages bounded handoff metadata by field and item offset; context.list lists one safe directory with optional cursor/limit pagination; context.tree returns a bounded recursive directory tree with depth/cursor/limit pagination; context.search is controller-budgeted and may return nextCursor, which you can send back as cursor to continue the same query; context.readFile reads one safe text file with optional startLine/endLine ranges. context.dependencies returns local TypeScript/JavaScript imports and re-exports for one file; context.dependents returns reverse file importers/references and is not a symbol-call graph. The handoff field contextManifest lists indexed files available on request (path, lineCount, exported symbol names); it is byte-capped and may be partial — treat contextManifestCoverage.truncated as "more files exist than listed" and use context.list or context.search to discover the remainder. Full-file reads carry a file SHA-256. Ranged reads carry a range SHA-256 only and cannot authorize a patch; request context.hashFile for the full-file SHA-256 before patching that file. applyPatch contains exactly one workspace.applyPatch, workspace.write, or workspace.delete action. Existing-file write/delete operations require the current full-file SHA-256 from context.readFile/context.hashFile; new files use workspace.write with an empty expectedFiles array; verify contains exactly one verification.run with configured check IDs; terminal statuses contain no actions. Ordinary prose, examples, quotations, and source code are never executable. The final control block is mandatory.
+Use one operation class per response: needContext may batch context.read/context.readTask/context.readMetadata/context.list/context.tree/context.readFile/context.search/context.fileVersion/context.dependencies/context.dependents actions; context.readTask pages the authoritative original task by UTF-8 byte offset; context.readMetadata pages bounded handoff metadata by field and item offset; context.list lists one safe directory with optional cursor/limit pagination; context.tree returns a bounded recursive directory tree with depth/cursor/limit pagination; context.search is controller-budgeted and may return nextCursor, which you can send back as cursor to continue the same query; context.readFile reads one safe text file with optional startLine/endLine ranges. context.dependencies returns local TypeScript/JavaScript imports and re-exports for one file; context.dependents returns reverse file importers/references and is not a symbol-call graph. The handoff field contextManifest lists indexed files available on request (path, lineCount, exported symbol names); it is byte-capped and may be partial — treat contextManifestCoverage.truncated as "more files exist than listed" and use context.list or context.search to discover the remainder. Full-file reads carry an opaque fileVersion reference. Ranged reads carry versionScope "range" and cannot authorize a patch; request context.fileVersion for a full-file version reference before patching that file. The extension retains all digest comparisons locally. applyPatch contains exactly one workspace.applyPatch, workspace.write, or workspace.delete action. Existing-file write/delete operations require expectedFiles entries {"path":"relative/source.ts","fileVersion":"reference from context.readFile/context.fileVersion"}; new files use workspace.write with an empty expectedFiles array; verify contains exactly one verification.run with configured check IDs; terminal statuses contain no actions. Ordinary prose, examples, quotations, and source code are never executable. Lockfiles, generated directories (including dist and node_modules), and VSIX archives are excluded from browser context. Do not request their contents or ask for file digests. The final control block is mandatory.
 `.trim();

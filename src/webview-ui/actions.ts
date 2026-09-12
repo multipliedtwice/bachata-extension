@@ -1,3 +1,33 @@
+const positionRunMenu = (summary: HTMLElement): void => {
+  const details = summary.closest<HTMLDetailsElement>(transientMenuSelector);
+  if (!details) {
+    return;
+  }
+  root.querySelectorAll<HTMLDetailsElement>(".run-action-menu[open]").forEach((item) => {
+    if (item !== details && details.matches(".run-action-menu")) {
+      item.open = false;
+    }
+  });
+  const place = (): void => {
+    const items = details.querySelector<HTMLElement>(":scope > div");
+    const measured = items?.getBoundingClientRect();
+    const rect = summary.getBoundingClientRect();
+    const width = Math.max(200, measured?.width ?? 0);
+    const height = Math.max(164, measured?.height ?? 0);
+    const left = Math.min(
+      Math.max(8, window.innerWidth - width - 8),
+      Math.max(8, rect.right - width),
+    );
+    const top = rect.bottom + height + 8 <= window.innerHeight
+      ? rect.bottom + 4
+      : Math.max(8, rect.top - height - 4);
+    details.style.setProperty("--run-menu-left", `${String(left)}px`);
+    details.style.setProperty("--run-menu-top", `${String(top)}px`);
+  };
+  place();
+  requestAnimationFrame(place);
+};
+
 /**
  * DOM action dispatch and the outbound protocol messages it sends.
  *
@@ -92,7 +122,10 @@ root.addEventListener("scroll", (event) => {
     return;
   }
   root.querySelectorAll<HTMLDetailsElement>("details.header-action-menu[open], details.notification-center[open], details.run-action-menu[open]").forEach((menu) => {
-    if (target === null || !menu.contains(target)) menu.open = false;
+    if (target === null || (target.contains(menu) && !menu.contains(target))) {
+      menu.open = false;
+      if (menu.dataset.disclosureKey) recordDisclosure(menu.dataset.disclosureKey, false);
+    }
   });
 }, true);
 
@@ -123,7 +156,11 @@ root.addEventListener("click", (event) => {
     : undefined;
   const disclosureKey = details?.dataset.disclosureKey;
   // Read before the default action runs, so `open` is still what the reader is toggling away from.
-  if (details && disclosureKey) recordDisclosure(disclosureKey, !details.open);
+  if (details && disclosureKey) {
+    event.preventDefault();
+    details.open = !details.open;
+    recordDisclosure(disclosureKey, details.open);
+  }
 }, true);
 
 // The initiative panel is a real form, so Enter in its title field submits it. Nothing in the
@@ -248,6 +285,10 @@ root.addEventListener("click", (event) => {
     const conversation = activeConversation();
     if (conversation) renameConversation(conversation);
   } else if (action === "orchestration-start") {
+    if (orchestrationStartPending) return;
+    orchestrationStartPending = true;
+    announceStatus("Starting TODO.md…");
+    scheduleRender();
     vscode.postMessage({ type: "orchestration.start" });
   } else if (action === "orchestration-resume") {
     vscode.postMessage({ type: "orchestration.resume" });
@@ -518,16 +559,25 @@ root.addEventListener("click", (event) => {
       }
     }
     scheduleRender();
+    if (target.dataset.focus !== "pending-decision") {
+      focusAfterRender(() => {
+        const content = root.querySelector<HTMLElement>(".conversation-scroll");
+        if (content) {
+          content.tabIndex = -1;
+          content.focus();
+        }
+      });
+    }
     if (target.dataset.focus === "pending-decision") {
       // "Review and continue" promised a decision; focus lands on it, not on the document body.
-      requestAnimationFrame(() => root.querySelector<HTMLElement>(".decision-card")?.focus());
+      focusAfterRender(() => root.querySelector<HTMLElement>(".decision-card")?.focus());
     }
   } else if (action === "inspector-toggle") {
     state.inspectorOpen = !state.inspectorOpen;
     scheduleRender();
     // Opened, the inspector is where the reader is going; closed, the control that opens it is
     // the nearest place to land. Either beats the document body.
-    requestAnimationFrame(() => {
+    focusAfterRender(() => {
       (state.inspectorOpen
         ? document.getElementById("inspector-title")
         : root.querySelector<HTMLElement>(".header-action-menu > summary"))?.focus();
@@ -538,6 +588,9 @@ root.addEventListener("click", (event) => {
   } else if (action === "pipeline-picker-toggle") {
     if (state.pipelinePickerOpen) closePipelinePicker();
     else openPipelinePicker();
+  } else if (action === "pipeline-picker-more") {
+    pipelinePickerShowAll = !pipelinePickerShowAll;
+    scheduleRender();
   } else if (action === "pipeline-picker-select" && target.dataset.pipelineId) {
     const pipelineId = target.dataset.pipelineId;
     closePipelinePicker();
@@ -558,6 +611,8 @@ root.addEventListener("click", (event) => {
       delete state.agentsBrowserFor;
     } else {
       state.agentsBrowserFor = agentId;
+      announceStatus("Starting Browser Bridge discovery. Complete pairing in your browser if needed.");
+      postRuntime({ type: "bridge.discover" });
     }
     scheduleRender();
   } else if (action === "agents-session" && target.dataset.agent && target.dataset.adapter) {
@@ -589,7 +644,13 @@ root.addEventListener("click", (event) => {
       type: "localModel.select",
       ...(target.dataset.model ? { model: target.dataset.model } : {}),
     });
-  } else if (action === "availability-check") postRuntime({ type: "availability.check" });
+  } else if (action === "availability-check") {
+    state.roomView = "chat";
+    state.agentsPickerOpen = true;
+    announceStatus("Checking agents…");
+    postRuntime({ type: "availability.check" });
+    scheduleRender();
+  }
   else if (action === "working-directory") postRuntime({ type: "workingDirectory.pick" });
   else if (action === "task-reset") openDialog({
     kind: "resetTask",
@@ -630,7 +691,14 @@ root.addEventListener("click", (event) => {
     event.stopPropagation();
     postRuntime({ type: "attachment.remove", attachmentId: target.dataset.attachmentId });
   } else if (action === "submit-message") submitMessage(activeDraft().delivery);
-  else if (action === "interrupt-run") postRuntime({ type: "run.interrupt" });
+  else if (action === "interrupt-run") {
+    if (pendingInterrupts.has(activeId())) return;
+    pendingInterrupts.add(activeId());
+    target.setAttribute("disabled", "");
+    announceStatus("Stopping…");
+    postRuntime({ type: "run.interrupt" });
+    scheduleRender();
+  }
   else if ((action === "interaction-pause" || action === "interaction-resume") && target.dataset.interactionRef) {
     const interactionRef = target.dataset.interactionRef;
     if (action === "interaction-pause") state.pausedSecretInteractions.add(interactionRef);
@@ -981,10 +1049,12 @@ root.addEventListener("input", (event) => {
     return;
   }
   if (target.id === "composer-prompt") {
+    const wasEmpty = activeDraft().prompt.trim().length === 0;
     activeDraft().prompt = target.value;
     if (target.value.trim().length === 0) discardPreparedDraft(activeId());
     else scheduleDraftSave(activeId(), target.value);
     refreshComposerSubmitState();
+    if (wasEmpty !== (target.value.trim().length === 0)) scheduleRender();
   } else if (target.id === "pipeline-iterations") activeDraft().iterationCount = Math.max(
     1,
     Math.min(

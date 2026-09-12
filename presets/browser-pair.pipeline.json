@@ -1,18 +1,18 @@
 {
   "version": 1,
   "id": "browser-pair",
-  "name": "ChatGPT + Claude browser pair",
-  "description": "Run independent bound ChatGPT and Claude browser conversations, execute approved workspace actions, reinject results, and cross-review their augmented answers.",
+  "name": "Browser research — cross-review",
+  "description": "Two bound browser conversations work independently, then reconcile evidence in up to 10 rounds. Browser access and any local actions require their existing permissions.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "chatgpt",
-      "name": "ChatGPT Browser",
+      "name": "Reviewer 1",
       "adapter": "chatgpt-browser"
     },
     {
       "id": "claude",
-      "name": "Claude Browser",
+      "name": "Reviewer 2",
       "adapter": "claude-browser"
     }
   ],

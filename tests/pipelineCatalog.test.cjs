@@ -236,3 +236,16 @@ test("the validator refuses on schema errors and on adapter errors, naming the s
   );
   assert.equal(createPipelineValidator(() => [])(definition("fine"), "ok").id, "fine");
 });
+
+test("catalog owns the five prominent workflow positions without promoting custom or unfamiliar workflows", () => {
+  const { pipelinePickerMetadata } = require("../dist/pipeline/pipelineCatalog.js");
+  const ordered = ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"];
+  for (const [position, id] of ordered.entries()) {
+    assert.deepEqual(pipelinePickerMetadata(id, false), { prominentOrder: position });
+    assert.deepEqual(pipelinePickerMetadata(id, true), {});
+  }
+  for (const id of ["new-specialized-workflow", "claude-review", "todo-master", "custom-review"]) {
+    assert.deepEqual(pipelinePickerMetadata(id, false), {});
+    assert.deepEqual(pipelinePickerMetadata(id, true), {});
+  }
+});

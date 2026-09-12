@@ -7018,6 +7018,7 @@ test("opening a chat checks its providers without Doctor or setup", async () => 
     assert.equal(harness.runtime.getState().readiness.status, "ready");
     assert.ok(commands.includes("claude"));
     assert.ok(commands.includes(CODEX_EXECUTABLE));
+    assert.deepEqual(harness.runtime.getState().pipelines.filter((pipeline) => pipeline.prominentOrder !== undefined).sort((left, right) => left.prominentOrder - right.prominentOrder).map((pipeline) => pipeline.id), ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"]);
     for (const pipeline of harness.runtime.getState().pipelines) {
       assert.equal(pipeline.participantNames.length, pipeline.participantCount);
       assert.ok(pipeline.stepCount > 0);

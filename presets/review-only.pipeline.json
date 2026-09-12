@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "review-only",
-  "name": "Review only",
-  "description": "Codex and Claude independently inspect the repository, cross-reference findings, and stop before implementation.",
+  "name": "Code review — reconcile findings",
+  "description": "Read-only review by two participants, with up to 10 rounds to reconcile findings. Requires a Direction. This workflow does not edit code.",
   "longitudinalIntent": "initiativeRequired",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -15,7 +15,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Reviewer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "plan"

@@ -16,6 +16,7 @@ if (!rootElement || !liveStatusElement) {
 // rather than re-proving it.
 const root: HTMLElement = rootElement;
 const liveStatus: HTMLElement = liveStatusElement;
+const pendingInterrupts = new Set<string>();
 let lastStatusAnnouncement = "";
 let lastStatusAnnouncedAt = 0;
 // A repeated event is still an event: a second approval request reads the same sentence as the
@@ -537,6 +538,17 @@ const conversationById = (conversationId: string): ConversationSummary | undefin
   state.manager.conversations.find((conversation) => conversation.id === conversationId);
 const activeConversation = (): ConversationSummary | undefined => conversationById(activeId());
 
+const runTabLabel = (conversation: ConversationSummary): string => {
+  const prefix = `[${conversation.runRef}]`;
+  return conversation.title.startsWith(prefix)
+    ? conversation.title.slice(prefix.length).trim() || "New run"
+    : conversation.title;
+};
+
+const stableRunTabs = (): ConversationSummary[] => rootRuns().sort((left, right) =>
+  left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+);
+
 const rootConversationFor = (conversation: ConversationSummary): ConversationSummary => {
   const visited = new Set<string>();
   let current = conversation;
@@ -778,3 +790,7 @@ const rootRuns = (): ConversationSummary[] =>
 
 const longitudinalState = (): LongitudinalState =>
   state.manager.direction ?? EMPTY_LONGITUDINAL_STATE;
+
+let orchestrationStartPending = false;
+
+let pipelinePickerShowAll = false;

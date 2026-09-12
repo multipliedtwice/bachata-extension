@@ -1,3 +1,6 @@
+import { captureSourceBaseline } from "./sourceBaseline";
+import { BrowserContextReferences } from "./contextReferences";
+import { assertBrowserSourcePath, browserAttachmentPath, isBrowserSourcePath, browserSourceDiff } from "./sourceTransferPolicy";
 import { createHash } from "node:crypto";
 import { createReadStream, type Dir } from "node:fs";
 import { sha256FilePath } from "../security/fileHash";
@@ -50,7 +53,6 @@ import {
   buildManagedTaskHandoff,
   HandoffContextManifestEntry,
   HandoffVerification,
-  renderManagedTaskHandoff,
 } from "../context/taskHandoff";
 import { runProcess } from "../orchestrator/commandRunner";
 import { configuredProcessEnvironment, gitProcessEnvironment } from "../process/safeEnvironment";
@@ -158,6 +160,7 @@ export type ManagedBrowserTurn = {
   initialContextOmittedTotal: number;
   contextManifest: HandoffContextManifestEntry[];
   prompt: string;
+  contextReferences?: BrowserContextReferences;
   directoryListings?: Map<string, ManagedDirectoryListingState>;
   treeListings?: Map<string, ManagedTreeListingState>;
 };
@@ -356,7 +359,7 @@ export const captureManagedRepositoryBaseline = async (
 ): Promise<ManagedRepositoryBaseline> => {
   const repository = await collectDirtyRepositoryPaths(workingDirectory, signal);
   if (!repository) {
-    return { isGitRepository: false, head: "", entries: [] };
+    return { isGitRepository: false, head: "", entries: await captureSourceBaseline(workingDirectory, signal) };
   }
   const entries = [] as ManagedRepositoryBaseline["entries"];
   for (const rawRelative of repository.paths) {
@@ -477,7 +480,7 @@ const repositoryState = async (
     }
   }
   if (baseline.head !== repository.head) {
-    policyViolations.push(`Git HEAD changed from managed baseline ${baseline.head} to ${repository.head}`);
+    policyViolations.push("Repository history changed after the managed task started. Restart the task against the current workspace before continuing.");
   }
   // EX-G6-09 invariant: a path the task changed then hid behind an ignore rule must not vanish from
   // evidence. Re-judge the finite, already-known names Git no longer surfaces (carried from an earlier
@@ -522,14 +525,14 @@ const repositoryState = async (
   }
 
   const currentTrackedTaskPaths = changedFiles.filter((relative) => repository.tracked.has(relative));
-  const diffPaths = currentTrackedTaskPaths.slice(0, 256);
+  const diffPaths = currentTrackedTaskPaths.filter(isBrowserSourcePath).slice(0, 256);
   const options = repositoryCommandOptions(workingDirectory, signal);
   const diffResult = diffPaths.length > 0
     ? await runProcess(
         "git",
         repository.head
-          ? ["diff", "--no-ext-diff", "--binary", "HEAD", "--", ...diffPaths]
-          : ["diff", "--cached", "--no-ext-diff", "--binary", "--", ...diffPaths],
+          ? ["diff", "--no-ext-diff", "HEAD", "--", ...diffPaths]
+          : ["diff", "--cached", "--no-ext-diff", "--", ...diffPaths],
         options,
       )
     : undefined;
@@ -554,7 +557,7 @@ const repositoryState = async (
     changedFiles: [...new Set(changedFiles)].sort(),
     preexistingChangedFiles: [...new Set(preexistingChangedFiles)].sort(),
     policyViolations,
-    diff: [diffResult?.stdout ?? "", ...notes].filter(Boolean).join("\n"),
+    diff: browserSourceDiff([diffResult?.stdout ?? "", ...notes].filter(Boolean).join("\n")),
     diffOmittedFileCount: omitted,
   };
 };
@@ -707,6 +710,7 @@ const taskSpecSnippets = async (
     const rawRelative = path.relative(workingDirectory, candidate);
     const relative = process.platform === "win32" ? rawRelative.replace(/\\/g, "/") : rawRelative;
     try {
+      if (!isBrowserSourcePath(relative)) continue;
       const policyPath = await assertWorkspacePathAllowed(workingDirectory, relative, { allowedPaths: [...allowedPaths] });
       const [info, candidateReal] = await Promise.all([
         lstat(candidate),
@@ -745,13 +749,14 @@ const textAttachmentExtensions = new Set([
   ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
 ]);
 
-export const isSupportedManagedContextAttachmentPath = (filePath: string): boolean =>
-  textAttachmentExtensions.has(path.extname(filePath).toLowerCase());
+export const isSupportedManagedContextAttachmentPath = (filePath: string, workspaceRoot?: string): boolean =>
+  isBrowserSourcePath(browserAttachmentPath(filePath, workspaceRoot)) && textAttachmentExtensions.has(path.extname(filePath).toLowerCase());
 
-const attachmentSnippets = async (attachments: readonly string[]): Promise<ContextSnippet[]> => {
+const attachmentSnippets = async (attachments: readonly string[], workspaceRoot: string): Promise<ContextSnippet[]> => {
   const snippets: ContextSnippet[] = [];
   for (const attachment of attachments.slice(0, 16)) {
-    if (!isSupportedManagedContextAttachmentPath(attachment)) {
+    assertBrowserSourcePath(browserAttachmentPath(attachment, workspaceRoot));
+    if (!isSupportedManagedContextAttachmentPath(attachment, workspaceRoot)) {
       continue;
     }
     const name = path.basename(attachment);
@@ -762,6 +767,7 @@ const attachmentSnippets = async (attachments: readonly string[]): Promise<Conte
     if (info.isSymbolicLink() || !info.isFile() || info.size <= 0 || info.size > MAX_SPEC_BYTES) {
       throw new Error(`Managed context attachment is invalid or exceeds ${String(MAX_SPEC_BYTES)} bytes: ${name}`);
     }
+    assertBrowserSourcePath(browserAttachmentPath(await realpath(attachment), await realpath(workspaceRoot)));
     const data = await readFile(attachment);
     if (data.length !== info.size || data.includes(0)) {
       throw new Error(`Managed context attachment changed while reading or is not text: ${name}`);
@@ -807,7 +813,9 @@ const resolveManagedContextPath = async (
   options: ManagedBrowserTurnOptions,
   value: string,
 ): Promise<{ relative: string; absolute: string }> => {
+  assertBrowserSourcePath(value);
   const policyPath = await assertWorkspacePathAllowed(options.workingDirectory, value, readContext(options));
+  assertBrowserSourcePath(policyPath.relative);
   const lexical = path.resolve(options.workingDirectory, policyPath.relative);
   const info = await lstat(lexical);
   if (info.isSymbolicLink()) {
@@ -892,6 +900,7 @@ const listManagedContextDirectory = async (
       }
       if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) continue;
       const child = resolved.relative === "." ? entry.name : `${resolved.relative}/${entry.name}`;
+      if (!isBrowserSourcePath(child)) continue;
       try {
         const policyPath = await assertWorkspacePathAllowed(options.workingDirectory, child, {
           workspaceRoot: options.workingDirectory,
@@ -1001,6 +1010,7 @@ const listManagedContextTree = async (
       }
       if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) continue;
       const child = listing.current.path === "." ? entry.name : `${listing.current.path}/${entry.name}`;
+      if (!isBrowserSourcePath(child)) continue;
       const depth = listing.current.depth + 1;
       try {
         const policyPath = await assertWorkspacePathAllowed(options.workingDirectory, child, readContext(options));
@@ -1273,12 +1283,12 @@ const handoffPrompt = async (
     readPaths: options.readPaths ?? [],
     allowedPaths: options.allowedPaths,
     requiredVerificationCheckIds: options.verificationChecks.map((check) => check.id),
-    worktreePath: options.workingDirectory,
+    worktreePath: ".",
     workspaceRevision: turn.workspaceRevision,
     changedFiles: turn.changedFiles,
     preexistingChangedFiles: turn.preexistingChangedFiles,
     repositoryPolicyViolations: turn.repositoryPolicyViolations,
-    diff: turn.diff,
+    diff: browserSourceDiff(turn.diff),
     diffOmittedFileCount: turn.diffOmittedFileCount,
     snippets: [...turn.snippets.values()],
     initialContextOmitted: turn.initialContextOmitted,
@@ -1295,7 +1305,7 @@ const handoffPrompt = async (
   });
   return [
     "Bachata managed task handoff. Treat this controller-provided state as authoritative.",
-    renderManagedTaskHandoff(handoff),
+    (turn.contextReferences ??= new BrowserContextReferences(options.workingDirectory)).render(handoff),
     browserControlProtocolPrompt,
   ].join("\n\n");
 };
@@ -1374,7 +1384,7 @@ export const prepareManagedBrowserTurn = async (
   });
   const [specs, selectedAttachments] = await Promise.all([
     taskSpecSnippets(options.workingDirectory, options.originalTask, options.readPaths ?? []),
-    attachmentSnippets(options.contextAttachments ?? []),
+    attachmentSnippets(options.contextAttachments ?? [], options.workingDirectory),
   ]);
   const snippets = new Map<string, ContextSnippet>();
   [...selectedAttachments, ...specs, ...selected.snippets].forEach((snippet) => snippets.set(snippet.id, snippet));
@@ -1385,6 +1395,7 @@ export const prepareManagedBrowserTurn = async (
     repositoryBaseline: currentRepositoryBaseline,
   });
   const base = {
+    contextReferences: new BrowserContextReferences(options.workingDirectory),
     index,
     snippets,
     verification: (options.initialVerification ?? [])
@@ -1440,7 +1451,7 @@ const patchCandidate = (patch: string, expectedFiles: Array<{ path: string; sha2
 const isManagedContextAction = (
   action: BrowserControlEnvelope["actions"][number],
 ): action is Extract<BrowserControlEnvelope["actions"][number], {
-  kind: "context.read" | "context.readTask" | "context.readMetadata" | "context.list" | "context.tree" | "context.readFile" | "context.search" | "context.hashFile" | "context.dependencies" | "context.dependents";
+  kind: "context.read" | "context.readTask" | "context.readMetadata" | "context.list" | "context.tree" | "context.readFile" | "context.search" | "context.fileVersion" | "context.dependencies" | "context.dependents";
 }> => action.kind === "context.read"
   || action.kind === "context.readTask"
   || action.kind === "context.readMetadata"
@@ -1448,13 +1459,13 @@ const isManagedContextAction = (
   || action.kind === "context.tree"
   || action.kind === "context.readFile"
   || action.kind === "context.search"
-  || action.kind === "context.hashFile"
+  || action.kind === "context.fileVersion"
   || action.kind === "context.dependencies"
   || action.kind === "context.dependents";
 
 const managedContextCandidate = (
   action: Extract<BrowserControlEnvelope["actions"][number], {
-    kind: "context.read" | "context.readTask" | "context.readMetadata" | "context.list" | "context.tree" | "context.readFile" | "context.search" | "context.hashFile" | "context.dependencies" | "context.dependents";
+    kind: "context.read" | "context.readTask" | "context.readMetadata" | "context.list" | "context.tree" | "context.readFile" | "context.search" | "context.fileVersion" | "context.dependencies" | "context.dependents";
   }>,
 ): BrowserActionCandidate => {
   const source = actionSource(JSON.stringify(action));
@@ -1479,7 +1490,7 @@ const managedContextCandidate = (
       path: action.path,
     });
   }
-  if (action.kind === "context.readFile" || action.kind === "context.hashFile" || action.kind === "context.dependencies" || action.kind === "context.dependents") {
+  if (action.kind === "context.readFile" || action.kind === "context.fileVersion" || action.kind === "context.dependencies" || action.kind === "context.dependents") {
     return createBrowserActionCandidate({
       kind: "workspace.read",
       risk: "readOnly",
@@ -1936,7 +1947,7 @@ type ManagedToolErrorCode =
 
 const classifyManagedToolError = (message: string, mutation = false): ManagedToolErrorCode => {
   const value = message.toLowerCase();
-  if (/sha-?256|hash changed|stale/u.test(value)) return "STALE_FILE";
+  if (/sha-?256|hash changed|source version changed|stale/u.test(value)) return "STALE_FILE";
   if (/restricted path|credential|vcs|generated path/u.test(value)) return "RESTRICTED_PATH";
   if (/outside the task scope|outside.*scope/u.test(value)) return mutation ? "PATH_OUTSIDE_WRITE_SCOPE" : "PATH_OUTSIDE_READ_SCOPE";
   if (/enoent|not found|missing|does not exist/u.test(value)) return "FILE_NOT_FOUND";
@@ -1985,14 +1996,14 @@ const renderResults = (
   const build = (items: unknown[], omitted: number): string => [
     "Bachata processed your managed control request. Continue the same task using only controller results below.",
     `Previous managed status: ${envelope.status}`,
-    JSON.stringify({
+    (turn.contextReferences ??= new BrowserContextReferences(turn.index?.workspaceRoot)).render({
       results: items,
       ...(omitted > 0 ? {
         resultPayloadTruncated: true,
         omittedResultCount: omitted,
         instruction: "Re-request omitted controller results in smaller batches or narrower file ranges.",
       } : {}),
-    }, null, 2),
+    }),
     `Workspace revision: ${String(turn.workspaceRevision)}`,
     browserControlProtocolPrompt,
   ].join("\n\n");
@@ -2180,7 +2191,7 @@ export const executeManagedBrowserEnvelope = async (
       }
       continue;
     }
-    if (action.kind === "context.hashFile") {
+    if (action.kind === "context.fileVersion") {
       try {
         payload.push({ kind: action.kind, ok: true, ...await hashManagedContextFile(options, action.path) });
       } catch (error) {
@@ -2422,7 +2433,7 @@ export const executeManagedBrowserControl = async (
   options: ManagedBrowserTurnOptions,
   approve: (action: BrowserActionCandidate) => Promise<"approve" | "reject" | "stop">,
 ): Promise<ManagedControlExecution> => {
-  const envelope = extractBrowserControlEnvelope(responseText);
+  const envelope = extractBrowserControlEnvelope(responseText, turn.contextReferences);
   if (!envelope) {
     return {
       recognized: false,

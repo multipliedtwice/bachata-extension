@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "paired-managed-fix",
-  "name": "Paired managed fix",
-  "description": "Codex and Claude diagnose the defect independently and converge on one root cause, you choose the work to execute, and each selected item is implemented and reviewed by a pair inside its own isolated Git worktree. The controller runs the declared checks, keeps the retained work in a retained worktree, and lets you apply whole files or single hunks.",
+  "name": "Fix a bug — reviewed tasks",
+  "description": "Two participants reconcile the diagnosis in up to 4 rounds. You select bounded tasks; the controller implements, reviews and checks each in an isolated worktree. Task execution has its own participant assignments.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Implementer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -16,7 +16,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Implementer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "plan",
@@ -29,13 +29,21 @@
       "name": "Diagnose independently",
       "enabled": true,
       "type": "agent",
-      "participants": ["codex", "claude"],
+      "participants": [
+        "codex",
+        "claude"
+      ],
       "promptTemplate": "Diagnose the reported defect from the current repository and the supplied evidence. Identify the reproducible cause and the exact files involved before proposing any change. Do not edit files.\n\n{{userPrompt}}",
       "parallel": true,
       "consensus": false,
       "humanGate": "none",
-      "permissionModes": { "codex": "readOnly", "claude": "plan" },
-      "approvalPolicies": { "codex": "onRequest" },
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
       "attachments": "selected"
     },
     {
@@ -43,7 +51,10 @@
       "name": "Converge on the root cause",
       "enabled": true,
       "type": "agent",
-      "participants": ["codex", "claude"],
+      "participants": [
+        "codex",
+        "claude"
+      ],
       "promptTemplate": "Cross-reference the other diagnosis against repository evidence. Return JSON only with fields candidate, accepted, objections, and unresolvedRisks. candidate is the exact agreed root cause and the files that must change. accepted is boolean. objections and unresolvedRisks are string arrays. Accept only the candidate you are returning.\n\n{{peerAnswersTagged}}",
       "parallel": true,
       "consensus": true,
@@ -58,8 +69,13 @@
         "onMaxRounds": "humanGate"
       },
       "humanGate": "after",
-      "permissionModes": { "codex": "readOnly", "claude": "plan" },
-      "approvalPolicies": { "codex": "onRequest" },
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
       "attachments": "none"
     },
     {
@@ -67,13 +83,19 @@
       "name": "Prepare the bounded fix checklist",
       "enabled": true,
       "type": "checklist",
-      "participants": ["codex"],
+      "participants": [
+        "codex"
+      ],
       "promptTemplate": "Convert the agreed root cause into concise execution issues. Keep only confirmed work inside the original request. Preserve dependencies and the exact paths each issue may touch. Do not produce commands. Do not add new scope.\n\n{{previousStepAnswers}}",
       "outputName": "executionChecklist",
       "timeoutMs": 120000,
       "humanGate": "none",
-      "permissionModes": { "codex": "readOnly" },
-      "approvalPolicies": { "codex": "onRequest" },
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
       "attachments": "none"
     },
     {
@@ -84,8 +106,14 @@
       "humanGate": "none",
       "inputName": "executionChecklist",
       "pipelineId": "todo-implementation",
-      "allowedPaths": ["src", "tests"],
-      "checks": ["bachata:workspace-integrity", "bachata:project-checks"],
+      "allowedPaths": [
+        "src",
+        "tests"
+      ],
+      "checks": [
+        "bachata:workspace-integrity",
+        "bachata:project-checks"
+      ],
       "retries": 1,
       "maxConcurrency": 1
     }

@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { ConversationManager } from "../conversations/createConversationManager";
 import { ConversationManagerToWebviewMessage, isRuntimeOperation } from "./protocol";
 import { getWebviewHtml } from "./html";
+import { webviewErrorMessage as errorMessage } from "./errorMessage";
 
 let panel: vscode.WebviewPanel | undefined;
 let panelReady = false;
@@ -143,9 +144,6 @@ type HumanE2eUiActionWaiter = {
 
 const humanE2eUiWaiters = new Map<string, HumanE2eUiWaiter>();
 const humanE2eUiActionWaiters = new Map<string, HumanE2eUiActionWaiter>();
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /**
  * The channel the panel reveals when the webview asks for it. The render-failure boundary is

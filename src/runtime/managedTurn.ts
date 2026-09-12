@@ -27,7 +27,7 @@ export const managedContextActionKinds: readonly string[] = [
   "context.tree",
   "context.readFile",
   "context.search",
-  "context.hashFile",
+  "context.fileVersion",
   "context.dependencies",
   "context.dependents",
 ];

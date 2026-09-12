@@ -129,6 +129,10 @@ const selectPipeline = (pipelineId: string): void => {
   scheduleRender();
 };
 
+const pipelinePickerEntries = (panel: PanelState): PipelineSummary[] => panel.pipelines
+  .filter((pipeline) => pipelinePickerShowAll || pipeline.editable || pipeline.prominentOrder !== undefined || pipeline.id === panel.selectedPipelineId)
+  .sort((left, right) => (left.prominentOrder ?? Number.MAX_SAFE_INTEGER) - (right.prominentOrder ?? Number.MAX_SAFE_INTEGER) || left.name.localeCompare(right.name));
+
 const openPipelinePicker = (): void => {
   const panel = activePanel();
   if (!panel.pipelineMutable || pendingPipelineSelection() !== undefined || panel.pipelines.length === 0) {
@@ -140,7 +144,7 @@ const openPipelinePicker = (): void => {
     state.pipelinePickerActiveId = activeId;
   }
   scheduleRender();
-  requestAnimationFrame(() => document.getElementById("pipeline-picker-button")?.focus());
+  focusAfterRender(() => document.getElementById("pipeline-picker-button")?.focus());
 };
 
 const closePipelinePicker = (restoreFocus = true): void => {
@@ -151,12 +155,12 @@ const closePipelinePicker = (restoreFocus = true): void => {
   delete state.pipelinePickerActiveId;
   scheduleRender();
   if (restoreFocus) {
-    requestAnimationFrame(() => document.getElementById("pipeline-picker-button")?.focus());
+    focusAfterRender(() => document.getElementById("pipeline-picker-button")?.focus());
   }
 };
 
 const movePipelinePickerActive = (key: string): void => {
-  const ids = activePanel().pipelines.map((pipeline) => pipeline.id);
+  const ids = pipelinePickerEntries(activePanel()).map((pipeline) => pipeline.id);
   if (ids.length === 0) {
     return;
   }
@@ -174,7 +178,7 @@ const movePipelinePickerActive = (key: string): void => {
     state.pipelinePickerActiveId = nextId;
   }
   scheduleRender();
-  requestAnimationFrame(() => document.getElementById("pipeline-picker-button")?.focus());
+  focusAfterRender(() => document.getElementById("pipeline-picker-button")?.focus());
 };
 
 const commitPipelinePickerActive = (): void => {
@@ -238,9 +242,8 @@ const pipelinePickerHtml = (panel: PanelState): string => {
   const activeOptionId = state.pipelinePickerActiveId ?? selectedId;
   const button = `<button id="pipeline-picker-button" data-action="pipeline-picker-toggle" class="pipeline-picker-button" role="combobox" aria-haspopup="listbox" aria-label="Pipeline" ${expandedControlAttributes(open, PIPELINE_PICKER_LIST_ID)}${open && activeOptionId ? ` aria-activedescendant="${escapeAttribute(pipelineOptionDomId(activeOptionId))}"` : ""} ${disabled ? "disabled" : ""} title="${escapeAttribute(title)}"><span class="pipeline-picker-name">${escapeHtml(label)}</span><i class="codicon codicon-chevron-down pipeline-picker-caret" aria-hidden="true"></i></button>`;
   const list = open
-    ? `<div class="pipeline-picker-popover"><div id="${PIPELINE_PICKER_LIST_ID}" role="listbox" aria-label="Pipeline" tabindex="-1">${panel.pipelines.map((pipeline) => {
+    ? `<div class="pipeline-picker-popover"><p class="pipeline-picker-guidance">Choose the work here. Choose providers in Agents.</p><div id="${PIPELINE_PICKER_LIST_ID}" role="listbox" aria-label="Pipeline" tabindex="-1">${pipelinePickerEntries(panel).map((pipeline) => {
         const steps = pipelineStepCount(pipeline, panel);
-        const names = pipelineParticipantNames(pipeline, panel);
         const count = pipelineParticipantCount(pipeline, panel);
         const shape = [
           steps === undefined ? undefined : countLabel(steps, "step"),
@@ -248,8 +251,8 @@ const pipelinePickerHtml = (panel: PanelState): string => {
         ].filter((part) => part !== undefined).join(" · ");
         const isSelected = pipeline.id === selectedId;
         const isActive = pipeline.id === activeOptionId;
-        return `<div id="${escapeAttribute(pipelineOptionDomId(pipeline.id))}" role="option" class="pipeline-picker-option${isActive ? " active" : ""}${isSelected ? " selected" : ""}" data-action="pipeline-picker-select" data-pipeline-id="${escapeAttribute(pipeline.id)}" aria-selected="${isSelected ? "true" : "false"}"><span class="pipeline-picker-option-head"><span class="pipeline-picker-option-name">${escapeHtml(pipeline.name)}</span>${isSelected ? `<i class="codicon codicon-check" aria-hidden="true"></i>` : ""}</span>${shape ? `<span class="pipeline-picker-option-meta">${escapeHtml(shape)}</span>` : ""}${names.length > 0 ? `<span class="pipeline-picker-option-participants">${escapeHtml(names.join(", "))}</span>` : ""}${pipeline.description ? `<span class="pipeline-picker-option-desc">${escapeHtml(pipeline.description)}</span>` : ""}</div>`;
-      }).join("")}</div></div>`
+        return `<div id="${escapeAttribute(pipelineOptionDomId(pipeline.id))}" role="option" class="pipeline-picker-option${isActive ? " active" : ""}${isSelected ? " selected" : ""}" data-action="pipeline-picker-select" data-pipeline-id="${escapeAttribute(pipeline.id)}" aria-selected="${isSelected ? "true" : "false"}"><span class="pipeline-picker-option-head"><span class="pipeline-picker-option-name">${escapeHtml(pipeline.name)}</span>${isSelected ? `<i class="codicon codicon-check" aria-hidden="true"></i>` : ""}</span>${shape ? `<span class="pipeline-picker-option-meta">${escapeHtml(shape)}</span>` : ""}${pipeline.description ? `<span class="pipeline-picker-option-desc">${escapeHtml(pipeline.description)}</span>` : ""}</div>`;
+      }).join("")}</div>${panel.pipelines.some((pipeline) => !pipeline.editable && pipeline.prominentOrder === undefined) ? `<button id="pipeline-picker-more" data-action="pipeline-picker-more" class="pipeline-picker-more">${pipelinePickerShowAll ? "Show common workflows" : "More workflows and compatibility presets"}</button>` : ""}</div>`
     : "";
   return `<div class="pipeline-picker" data-pipeline-picker>${button}${list}</div>`;
 };
@@ -275,7 +278,7 @@ const openAgentsPicker = (): void => {
   }
   state.agentsPickerOpen = true;
   scheduleRender();
-  requestAnimationFrame(() => document.getElementById("agents-picker-button")?.focus());
+  focusAfterRender(() => document.getElementById("agents-picker-button")?.focus());
 };
 
 const closeAgentsPicker = (restoreFocus = true): void => {
@@ -286,7 +289,7 @@ const closeAgentsPicker = (restoreFocus = true): void => {
   delete state.agentsBrowserFor;
   scheduleRender();
   if (restoreFocus) {
-    requestAnimationFrame(() => document.getElementById("agents-picker-button")?.focus());
+    focusAfterRender(() => document.getElementById("agents-picker-button")?.focus());
   }
 };
 
@@ -328,7 +331,8 @@ const agentsChoiceHtml = (input: {
 const agentSlotSessionsHtml = (slot: AgentAssignmentSlot, panel: PanelState): string => {
   const sessions = panel.browserBridge.sessions;
   if (sessions.length === 0) {
-    return `<p class="agents-session-empty">No browser conversations are connected. Open the Inspector to connect the Browser Bridge.</p>`;
+    const bridge = panel.browserBridge;
+    return `<section class="agents-bridge-setup" aria-label="Connect Browser Bridge"><h3>${bridge.connected ? "Connect a browser conversation" : "Connect Browser Bridge"}</h3>${bridge.error ? `<p class="agents-slot-error">${escapeHtml(bridge.error)}</p>` : ""}${!bridge.enabled ? `<p>Browser Bridge requires a local VS Code window. Reopen this repository locally, then connect the browser extension here. Remote workspaces cannot connect to your local browser.</p>` : `<ol><li>Open the Bachata Browser Bridge extension in your local browser.</li><li>${bridge.pairingToken ? `Copy the pairing token, then use Paste &amp; Pair in the browser extension. <button data-action="bridge-copy-token">Copy pairing token</button>` : bridge.connected ? "The bridge is paired." : "Use the browser extension’s saved pairing, or open the Inspector to reset an expired pairing."}</li><li>Open and sign in to the provider conversation you want to use, then refresh conversations here.</li></ol>${bridge.endpoint ? `<p class="agents-model-detail">Local endpoint: ${escapeHtml(bridge.endpoint)}</p>` : `<p class="agents-model-detail">Waiting for the local bridge endpoint. If it remains unavailable, check the error above and use a local VS Code window.</p>`}<button data-action="bridge-discover">Refresh conversations</button>`}</section>`;
   }
   const options = sessions.map((session) => {
     const adapter = browserAdapterForProvider(session.provider);
@@ -357,9 +361,7 @@ const agentSlotModelHtml = (
   const catalog = panel.agentAssignments.adapterModels?.[slot.assignedAdapter];
   const status = catalog?.status ?? "unknown";
   const listed = catalog?.models ?? [];
-  const defaultLabel = slot.assignedAdapter === slot.defaultAdapter && slot.defaultModel !== undefined
-    ? `Provider default · ${slot.defaultModel}`
-    : "Provider default";
+  const defaultLabel = slot.assignedAdapter === slot.defaultAdapter && slot.defaultModel !== undefined ? `Pipeline default · ${slot.defaultModel}` : "Automatic";
   const choices = [
     agentsChoiceHtml({
       id: `agents-model-${slot.agentId}-default`,
@@ -367,12 +369,14 @@ const agentSlotModelHtml = (
       label: defaultLabel,
       attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}"`,
       disabled: locked,
-      title: "Send no model name and let the provider choose",
+      title: slot.assignedAdapter === slot.defaultAdapter && slot.defaultModel !== undefined
+        ? `Use the pipeline’s default model: ${slot.defaultModel}`
+        : "Use this provider’s current default model. Choose a named model to keep an explicit selection.",
     }),
     ...listed.map((model) => agentsChoiceHtml({
       id: `agents-model-${slot.agentId}-${model.id}`,
       checked: slot.assignedModel === model.id,
-      label: model.isDefault === true ? `${model.label} · provider default` : model.label,
+      label: model.label,
       attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}" data-model="${escapeAttribute(model.id)}"`,
       disabled: locked,
       ...(model.label === model.id ? {} : { title: model.id }),
@@ -395,7 +399,7 @@ const agentSlotModelHtml = (
   const draft = state.agentsModelDrafts[slot.agentId] ?? "";
   const explicit = locked
     ? ""
-    : `<div class="agents-model-explicit"><label for="agents-model-input-${escapeAttribute(slot.agentId)}">Model name</label><input type="text" id="agents-model-input-${escapeAttribute(slot.agentId)}" class="agents-model-input" data-agents-model-for="${escapeAttribute(slot.agentId)}" value="${escapeAttribute(draft)}" placeholder="Type a model this provider accepts" spellcheck="false" autocomplete="off"><button type="button" data-action="agents-model-apply" data-agent="${escapeAttribute(slot.agentId)}"${draft.trim() ? "" : " disabled"}>Use this model</button></div>`;
+    : `<details class="agents-model-advanced" ${disclosureAttributes(`agents:model-override:${slot.agentId}`)}><summary>Other model (advanced)</summary><p>Enter an exact model ID only if your provider accepts a model that is not listed. This selects it for this participant’s next turn; it does not install a model.</p><div class="agents-model-explicit"><label for="agents-model-input-${escapeAttribute(slot.agentId)}">Model ID</label><input type="text" id="agents-model-input-${escapeAttribute(slot.agentId)}" class="agents-model-input" data-agents-model-for="${escapeAttribute(slot.agentId)}" value="${escapeAttribute(draft)}" placeholder="Exact provider model ID" spellcheck="false" autocomplete="off"><button type="button" data-action="agents-model-apply" data-agent="${escapeAttribute(slot.agentId)}"${draft.trim() ? "" : " disabled"}>Apply model override</button></div></details>`;
   const detail = status === "discovering"
     ? "Asking this provider which models it accepts…"
     : status === "unknown"
@@ -472,7 +476,7 @@ const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boo
     </div>
     <div class="agents-choices" role="radiogroup" aria-label="Provider for ${escapeAttribute(slot.responsibility)}">${defaultChoice}${cliChoices}${browserChoice}</div>
     ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
-    ${agentSlotModelHtml(slot, panel, locked)}
+    ${showSessions && !isBrowser ? "" : agentSlotModelHtml(slot, panel, locked)}
     ${statusError}
   </article>`;
 };
@@ -574,13 +578,24 @@ const composerSettingsPanelHtml = (panel: PanelState, draft: ConversationDraft):
   </div>`;
 };
 
+const composerPrimaryActionHtml = (panel: PanelState, draft: ConversationDraft): string => {
+  const waiting = conversationById(activeId())?.waitingForResources === true;
+  const pending = pendingInterrupts.has(activeId());
+  if ((panel.running || panel.workflowStatus === "running" || waiting) && draft.prompt.trim().length === 0 && draft.selectedAttachmentIds.size === 0 && draft.pendingAttachments.size === 0) {
+    const label = waiting ? "Cancel wait" : "Stop";
+    return `<button data-action="interrupt-run" class="send-button icon-send composer-stop" aria-label="${label}" title="${label}"${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>${pending ? '<span class="sr-only" role="status">Stopping…</span>' : ""}`;
+  }
+  const blockers = sendBlockers(activeId(), panel, draft);
+  const label = draft.delivery === "queue" ? "Queue" : draft.delivery === "interrupt" ? "Interrupt and send" : "Send";
+  return `<button class="send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(`${label} · ${submitShortcutLabel}`)}" aria-label="${escapeAttribute(label)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(blockers.length === 0 && !pending, blockers)}${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>`;
+};
+
 const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const conversationId = activeId();
   const blockers = sendBlockers(conversationId, panel, draft);
   const canSubmit = blockers.length === 0;
   const selection = pendingPipelineSelection(conversationId);
   const waitingForResources = conversationById(conversationId)?.waitingForResources === true;
-  const sendLabel = draft.delivery === "queue" ? "Queue" : draft.delivery === "interrupt" ? "Interrupt and send" : "Send";
   const deliveryLabel = draft.delivery === "queue" ? "queued" : draft.delivery === "interrupt" ? "interrupt" : "";
   const optionChips: string[] = [];
   if (draft.iterationCount !== 1) {
@@ -595,10 +610,6 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const settingsLabel = optionChips.length > 0
     ? `Pipeline settings and run options · ${optionChips.join(" · ")}`
     : "Pipeline settings and run options";
-  const interruptLabel = waitingForResources ? "Cancel wait" : "Stop";
-  const stopButton = panel.running || waitingForResources
-    ? `<button data-action="interrupt-run" class="icon-button composer-stop" aria-label="${escapeAttribute(interruptLabel)}" title="${escapeAttribute(interruptLabel)}"><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>`
-    : "";
   // One rounded surface holds the attachments, the borderless prompt and the compact toolbar; the
   // send control is an arrow icon carrying its Send/Queue/Interrupt name for assistive tech.
   return `<footer class="composer">
@@ -612,8 +623,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
         ${agentsPickerHtml(panel)}
         <button data-action="composer-settings-toggle" class="icon-button composer-settings-button${state.composerSettingsOpen ? " open" : ""}${optionChips.length > 0 ? " has-chips" : ""}" title="${escapeAttribute(settingsLabel)}" aria-label="${escapeAttribute(settingsLabel)}" ${expandedControlAttributes(state.composerSettingsOpen, "composer-settings")}><i class="codicon codicon-settings-gear" aria-hidden="true"></i></button>
         <div class="composer-send">
-          ${stopButton}
-          <button class="send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(`${sendLabel} · ${submitShortcutLabel}`)}" aria-label="${escapeAttribute(sendLabel)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(canSubmit, blockers)}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>
+          ${composerPrimaryActionHtml(panel, draft)}
         </div>
       </div>
     </div>

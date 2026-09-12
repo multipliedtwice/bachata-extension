@@ -455,7 +455,7 @@ new mode 100755
       options(directory),
     );
     assert.equal(missingHash.status, "failed");
-    assert.match(missingHash.stderr, /expected SHA-256/);
+    assert.match(missingHash.stderr, /issued fileVersion from workspace.read/);
     assert.equal((await fs.stat(path.join(directory, "outside.sh"))).mode & 0o777, 0o644);
 
     const scoped = await applyPatch(

@@ -1,20 +1,20 @@
 {
   "version": 1,
   "id": "chatgpt-browser-spike",
-  "name": "ChatGPT browser agent",
-  "description": "Use one explicitly bound ChatGPT conversation with image attachments, deterministic workspace actions, approvals, and result reinjection.",
+  "name": "Browser task — one participant",
+  "description": "One bound browser conversation completes the supplied task with approved local actions. The website selects the model.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "chatgpt",
-      "name": "ChatGPT Browser",
+      "name": "Reviewer",
       "adapter": "chatgpt-browser"
     }
   ],
   "steps": [
     {
       "id": "browser-turn",
-      "name": "ChatGPT browser turn",
+      "name": "Browser task",
       "enabled": true,
       "participants": [
         "chatgpt"

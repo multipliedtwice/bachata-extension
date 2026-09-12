@@ -235,6 +235,7 @@ export type PipelineSummary = {
   hash: string;
   scopeKey: string;
   scopeRoot?: string;
+  prominentOrder?: number;
   participantCount?: number;
   participantNames?: string[];
   stepCount?: number;

@@ -1,3 +1,4 @@
+import { verificationCandidateFrom } from "../longitudinal/findingVerification";
 import type { ProviderRegistry } from "../providers/providerRegistry";
 import type { LocalModelService } from "../providers/localModelService";
 import { readTimeoutSetting } from "../state/timeoutBounds";
@@ -200,6 +201,7 @@ import {
   baselineIdentity,
   baselineIsSameCandidate,
   captureCycleBaseline,
+  verificationScopeIsObservable,
 } from "../longitudinal/repositoryBaseline";
 import { findingIsActionable } from "../longitudinal/lifecycle";
 import type {
@@ -463,6 +465,7 @@ export type ConversationManager = {
   ) => Promise<boolean>;
   defineInitiative: (input: { title: string; goal: string; workingDirectory?: string }) => void;
   recordExternalEvidence: (input: {
+    verifyFinding?: { requirement: string; environment: string };
     source: ExternalEvidenceSource;
     claim: string;
     relation: ExternalEvidenceRelation;
@@ -471,7 +474,7 @@ export type ConversationManager = {
     freshnessHorizonDays?: number;
     authoredBy?: AuthoredBy;
     workingDirectory?: string;
-  }) => ExternalEvidenceRecord | undefined;
+  }) => Promise<ExternalEvidenceRecord | undefined>;
   createConversation: (options?: ConversationCreateOptions) => Promise<ConversationSummary>;
   resolvePipelineSnapshotInScope: (
     pipelineScopeRoot: string,
@@ -2786,7 +2789,9 @@ export const createConversationManager = (
             declaredDecisionSource(conversation, selectedDefinition, currentOutputRefs),
           ),
           planSourceFromDecisionArtifact(decisionPayload),
-          declaredArtifactSources(conversation, selectedDefinition, currentOutputRefs),
+          declaredArtifactSources(conversation, selectedDefinition, currentOutputRefs,
+            events.filter((event) => event.type === "decision.published" &&
+              event.id > currentExecutionEventId).map((event) => event.payload)),
         );
         recordCycleVerification(conversation, projected);
       }
@@ -2921,8 +2926,10 @@ export const createConversationManager = (
     conversation: ConversationSummary,
     definition: PipelineDefinition | undefined,
     outputRefs: ReadonlySet<string>,
+    decisions: readonly unknown[] = [],
   ): DeclaredArtifactSource[] => declaredArtifactSourcesFor({
     definition,
+    decisions,
     outputs: catalog.listStructuredOutputs(conversation.runRef),
     outputRefs,
   });
@@ -6465,7 +6472,23 @@ export const createConversationManager = (
       return;
     }
     if (message.type === "resolution.apply") {
-      const applied = (await ensureActiveLongitudinal()).resolve({
+      const service = await ensureActiveLongitudinal();
+      const verifyingRecord = message.target === "externalEvidence" && message.action === "accept"
+        ? service.summary().externalEvidence.find((record) => record.id === message.id && record.verification !== undefined)
+        : undefined;
+      const verifying = verifyingRecord !== undefined;
+      const applied = await withWorkspaceMutation(async () => {
+        if (verifying && state.conversations.some((item) =>
+          conversationRepositoryRoot(item) === activeRepositoryRoot() &&
+          (conversationExecutionBusy(item.id) || item.workflowStatus === "paused"))) {
+          throw new Error("Stop or complete active runs before accepting candidate-bound verification evidence");
+        }
+        if (verifyingRecord?.verification && !await verificationScopeIsObservable(activeRepositoryRoot(), verifyingRecord.verification.scope)) {
+          throw new Error("Verification scope contains ignored, unavailable or redirected files; record evidence for an observable repository scope");
+        }
+        const currentBaseline = verifying ? await refreshBaseline(activeRepositoryRoot()) : undefined;
+        return service.resolve({
+        ...(currentBaseline === undefined ? {} : { currentBaseline }),
         target: message.target,
         id: message.id,
         action: message.action,
@@ -6477,10 +6500,11 @@ export const createConversationManager = (
         ...(message.materialEvidenceDelta === undefined
           ? {}
           : { materialEvidenceDelta: message.materialEvidenceDelta }),
+        });
       });
       if (!applied) {
         throw new Error(
-          `Bachata refused this resolution: no ${message.target} is recorded as ${message.id}, or the resolution is missing a required reason, material evidence delta, or valid replacement`,
+          `Bachata refused this resolution: no ${message.target} is recorded as ${message.id}, or the resolution lacks required evidence, the finding/candidate changed, verification is stale or challenged, or a reason or valid replacement is missing`,
         );
       }
       onboardingObserver?.({ kind: "resolutionRecorded", ...journeyOf(state.activeConversationId) });
@@ -7343,12 +7367,39 @@ export const createConversationManager = (
     defineInitiative: ({ title, goal, workingDirectory }) => {
       longitudinalFor(workingDirectory ?? defaultRepositoryRoot()).defineInitiative({ title, goal });
     },
-    recordExternalEvidence: ({ workingDirectory, ...input }) => {
-      const recorded = longitudinalFor(workingDirectory ?? defaultRepositoryRoot())
-        .recordExternalEvidence(input);
+    recordExternalEvidence: ({ workingDirectory, verifyFinding, ...input }) => enqueueMutation(() => withWorkspaceMutation(async () => {
+      const repositoryRoot = workingDirectory ?? defaultRepositoryRoot();
+      const service = longitudinalFor(repositoryRoot);
+      let verification;
+      if (verifyFinding !== undefined) {
+        if (input.target.kind !== "finding" || input.authoredBy !== "human" || input.relation !== "supports") {
+          throw new Error("Fix verification must be recorded by a human for a specific finding");
+        }
+        if (state.conversations.some((item) => conversationRepositoryRoot(item) === repositoryRoot &&
+          (conversationExecutionBusy(item.id) || item.workflowStatus === "paused"))) {
+          throw new Error("Stop or complete active runs before recording candidate-bound verification evidence");
+        }
+        const identity = input.target.identity;
+        const finding = service.summary().findings.find((item) => item.identity === identity);
+        const candidate = verificationCandidateFrom(await refreshBaseline(repositoryRoot));
+        if (!finding?.location || !candidate) throw new Error("This finding needs a repository file and a complete current candidate before recording fix verification");
+        if (!await verificationScopeIsObservable(repositoryRoot, [finding.location.file])) {
+          throw new Error("Ignored or redirected finding files cannot be bound to repository verification evidence");
+        }
+        verification = {
+          version: 1 as const, kind: "externalEvidence" as const,
+          findingIdentity: identity, findingStatement: finding.message,
+          requirement: verifyFinding.requirement, scope: [finding.location.file], candidate,
+          outcome: "passed" as const, verifier: "human", environment: verifyFinding.environment,
+          recordedAt: new Date().toISOString(),
+        };
+      }
+      const recorded = service.recordExternalEvidence({
+        ...input, ...(verification === undefined ? {} : { verification }),
+      });
       if (recorded !== undefined) emitSnapshot();
       return recorded;
-    },
+    })),
     inspectActiveReadiness: (pipelineIds) => enqueueMutation(async () => {
       await ensureInitialized();
       const slot = await ensureRuntime(state.activeConversationId);

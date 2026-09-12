@@ -220,7 +220,19 @@ test("feature delivery records requirements and a design as separate durable art
   const designStep = stepById(featureDelivery, "design-record");
   assert.equal(requirementStep.artifactPromotion.type, "requirement");
   assert.equal(designStep.artifactPromotion.type, "design");
+  const acceptedRequirements = {
+    title: "Replay must reuse recorded settings",
+    evidence: ["src/export/runBundleImport.ts"],
+    requirements: [requirement("q1", "accepted")],
+  };
+  const consensus = buildDecisionArtifact({
+    stepId: "requirement-consensus", round: 1, policy: "unanimous",
+    participants: ["codex", "claude"].map((id) => parseDecisionParticipant(id,
+      JSON.stringify({ candidate: acceptedRequirements, accepted: true }),
+      { candidateField: "candidate", acceptedField: "accepted", acceptedValue: true })),
+  });
   const sources = declaredArtifactSourcesFor({
+    decisions: [consensus],
     definition: featureDelivery,
     outputs: [
       {
@@ -231,11 +243,7 @@ test("feature delivery records requirements and a design as separate durable art
           name: requirementStep.output.name,
           agentId: "codex",
           validationErrors: [],
-          value: {
-            title: "Replay must reuse recorded settings",
-            evidence: ["src/export/runBundleImport.ts"],
-            requirements: [requirement("q1", "accepted")],
-          },
+          value: acceptedRequirements,
         },
       },
       {

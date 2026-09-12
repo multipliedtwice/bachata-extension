@@ -1,14 +1,11 @@
-| `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` | pass, exit 0, measured 2026-09-12 as the final step of `npm run package`: 1915 archive entries, 12140124 bytes, 823 build-equivalent runtime files |
 # Release verdict
 
-Remediation baseline: 2026-09-08 source regression gates passed for both packages.
-Extension full source and critical coverage each pass 2,972 tests with zero skips/failures;
-Bridge package verification passes 1,205 tests. Compatibility, native ignored-write
-policy and applicable artifact acceptance remain open.
-Measurements below remain historical, bound to their stated date and artifact. They do not
-prove this modified candidate. Current source checks and open gates: [stable gate](STABLE_RELEASE_GATE.md),
+Current local candidate measured 2026-09-13. Extension source, coverage, packaging,
+installation, activation, layout, and dependency-audit gates pass. Browser Bridge source
+verification and dependency audit pass. Stable release still needs the human, provider,
+platform, compatibility, terms, screenshot, and artifact-binding evidence listed below.
+Current gate truth: [stable gate](STABLE_RELEASE_GATE.md),
 [validation record](RELEASE_VALIDATION_RECORD.md), and [open work](../TODO.md).
-Human verdict unchanged; no VSIX staged and no new artifact acceptance inferred.
 
 One file. One verdict. Every claim below names the artifact it was measured against.
 
@@ -26,17 +23,10 @@ verdict below is authored by a human and no generator may set it.
 
 **NO-SHIP as a stable release. The source tree is a closed-alpha candidate.**
 
-Identity validation passes. Current cross-platform source gates are being verified.
-A 0.7.1 candidate is staged and unbound: `bachata-vscode-0.7.1.vsix`, SHA-256
-`b5405bc92c1a73fae77795c03f1c7bda025fbf99e24652ed5db55a12d0541937`, built 2026-09-12 and
-measured in the tables below. It supersedes the earlier 2026-09-12 candidates
-`91b286ceafcc5930ec891d27769f6bbd9dd960bead6ae5b173a6a8d622009ee7` and
-`f19ba006e4a6fbad956de04f0391789ae7734bd70df7f40b5d4f73dc3fe7ba8d`, neither of which is the
-candidate and proves nothing about this tree — that artifact predates the bounded-input
-traversal, the whole-message event-history ceiling, the pipeline-schema limits, the bounded
-transcript, the bounded agent stream and the bounded approval request. The "Artifacts under test:" line above still
-records no hash on purpose: only `npm run release:bind` writes it, and binding gates on
-owner-only evidence that has not been produced.
+Identity validation passes. A verified 0.7.1 candidate is staged and unbound:
+`bachata-vscode-0.7.1.vsix`, SHA-256 `6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e`, built and measured 2026-09-13.
+It includes the accepted bounded-history and pipeline UI repairs. `npm run release:bind`
+still waits on owner and external evidence; no stable-release acceptance is inferred.
 
 Packaging is no longer circular, in both directions:
 
@@ -53,7 +43,7 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 
 | Item | Value |
 | --- | --- |
-| Date | 2026-09-05, and 2026-09-12 for every row dated so below |
+| Date | 2026-09-05 for retained Bridge-only measurements; 2026-09-13 for current candidate rows |
 | OS | macOS, Darwin 24.5.0 |
 | Node | v23.6.1 |
 | Git | 2.55.0 at `/opt/homebrew/bin/git` |
@@ -64,34 +54,34 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 
 | Gate | Result |
 | --- | --- |
-| VS Code `npm test` | pass, exit 0, measured 2026-09-12 on the worktree that produced the staged candidate, as the test stage of `npm run vscode:prepublish`. 3343 tests, 3336 passed, 0 failed, 7 skips, over 198 `node --test` file invocations. Counted as every `node --test` invocation the chain runs: `test:source-distribution` (`tests/sourceDistribution.test.cjs`) and `test:unit` (`tests/*.test.cjs`). The 7 skips are the Linux-only `setsid` process-group regressions — 4 in `tests/adapters.test.cjs`, 2 in `tests/process.test.cjs`, 1 in `tests/orchestrator.test.cjs` — each gated on `process.platform !== "linux"`, and `setsid` does not exist on this host. They did not run, and nothing here treats them as evidence. An earlier run of the same chain reported 10 skips: `tests/releaseBinding.test.cjs` skipped its three artifact cases because no Browser Bridge archive was staged in this checkout. The archive was rebuilt from the sibling package (`npm run package` there, 1208 tests, 1208 passed, 0 failed) and those three cases then ran and passed — `tests/releaseBinding.test.cjs` is 63 tests, 63 passed, 0 failed, 0 skipped |
-| Browser Bridge `npm test` | pass on the current tree, measured 2026-09-05 as `npm run test:unlocked`. 984 tests, 984 passed, 0 failed. Counted as every `node --test` invocation the chain runs: `test:source-distribution` (6) and the main suite (978) |
+| VS Code `npm test` | pass, exit 0, measured 2026-09-13 as the test stage of `npm run vscode:prepublish`: 3618 tests, 3611 passed, 0 failed, 7 skips, across 209 test-file invocations. Counted as every `node --test` invocation the chain runs: `test:source-distribution` and `test:unit`. The 7 skips are the Linux-only `setsid` process-group regressions; they did not run and are not evidence. |
+| Browser Bridge `npm test` | pass on the current tree, measured 2026-09-05 as `npm run test:unlocked`: 984 tests, 984 passed, 0 failed, 0 skips. Counted as every `node --test` invocation the chain runs: `test:source-distribution` and the main suite. |
 | Browser Bridge `npm run test:coverage` | pass on the current tree, measured 2026-09-05. Core: 91.66% lines, 82.20% branches, 98.33% functions over the gated files. Per-file floors are declared in `scripts/run-coverage-gates.mjs` |
-| VS Code `npm run test:coverage` | pass, exit 0, measured 2026-09-12 on the final source. All 15 gates pass and every declared floor held; the floors, not these percentages, are the claim. Source floors 78 / 73 / 80 lines / branches / functions. Critical floors 82 / 75 / 83. Runtime floors 71 / 68 / 75. Webview behavior floors 100 / 95 / 100 and the extracted-module gates at 100 / 100 / 100, including `dist/conversations/catalogViews.js` and `dist/runtime/providerInteraction.js`, which this session's changes had first dropped to 92.91% and 99.31% branch coverage and which are back at 100 / 100 / 100. `dist/runtime/pipelineRunPlan.js` was already below its 100 / 100 / 100 floor before this session — `parseRunExecutionPlan` and two `resumableWorkflowFrom` branches had no test — and is now at 100 / 100 / 100. Webview DOM floors 58 / 62 / 67 |
-| `npm audit --audit-level=moderate` | pass on 2026-08-29 in both trees, run against the registry from this working tree. 0 vulnerabilities at moderate or above. It describes the advisory state on that date for the current source, not for any packaged artifact; the artifact-bound audit named under "Not measured" is a separate record and is still unrecorded |
-| `npm run check-types` | pass, all three projects |
+| VS Code `npm run test:coverage` | pass, exit 0, measured 2026-09-13. All 43 declared gates ran with 8243 tests, 8229 passed, 0 failed, 14 skips and no threshold violation. Observed percentages are context; the floors, not these percentages, are the claim. Source aggregate: 88.50 / 82.60 / 88.13 lines / branches / functions against floors 78 / 73 / 80. `dist/conversations/catalogViews.js` passes at 100 / 100 / 100. The 14 skips are the same 7 Linux-only `setsid` cases counted in the source and critical lanes. |
+| `npm audit --audit-level=moderate` | pass, exit 0, measured 2026-09-13 against the registry in both package trees. Extension: 0 vulnerabilities across 302 dependencies after the lockfile-only `js-yaml` 4.3.2 repair. Browser Bridge: 0 vulnerabilities across 62 dependencies. The artifact-bound row in `docs/RELEASE_VALIDATION_RECORD.md` names the exact VSIX `6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e` and the pinned Bridge ZIP `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`. |
+| `npm run check-types` | pass, measured 2026-09-13, all three projects |
 | `npm run check:no-telemetry` | pass |
 | `npm run check:managed-fallback` | pass, exit 0, 240 checks, measured 2026-09-11 |
 | `npm run test:managed-modules` | pass |
 | `npm run test:managed-worktree` | pass, including selective per-file apply, hunk-level apply, binary and rename refusal, invalid-hunk refusal, conflict rollback, stale-base refusal, and a pure rename of a path containing a space |
-| `npm run test:source-distribution` | pass, exit 0, measured 2026-09-12 inside the package test chain once `BUILD_FACTS.md` was regenerated for this tree. Named without the chain's own command spelling on purpose: `tests/documentation.test.cjs` reads every row mentioning that command as a test-count row and requires a tests/passed/failed triple in it |
+| `npm run test:source-distribution` | pass, exit 0, measured 2026-09-13 inside the package test chain once `BUILD_FACTS.md` was regenerated for this tree. Named without the chain's own command spelling on purpose: `tests/documentation.test.cjs` reads every row mentioning that command as a test-count row and requires a tests/passed/failed triple in it |
 | `npm run check:policy-docs` | pass |
-| `npm run check:build-facts` | pass, exit 0, measured 2026-09-12 against the regenerated table. `BUILD_FACTS.md` was regenerated once more after this file's own rows were written, which changes the manifest hash it records and nothing that is packaged: neither `BUILD_FACTS.md` nor this document is in the VSIX |
+| `npm run check:build-facts` | pass after regeneration for the current source and staged artifact. `BUILD_FACTS.md` is outside the VSIX. |
 | `npm run validate:local` | pass on this repository |
-| `npm run test:webview-layout` | pass, exit 0, measured 2026-09-12. The built `dist/webview.js` driven in headless Chrome over the DevTools protocol at 320, 360, 400, 480, 700, 900 and 1280 px: at every width the selected run's action menu and New run share no pixel, each is what a pointer meets at its own centre, a press opens the menu and creates no run, Escape closes it and returns focus, and the stopped run's execution view renders four step rows contained in the panel with three disclosures closed on arrival, Restart and Retry present, the failure stated, and no horizontal page scroll |
-| Live panel inspection, both default themes | pass, measured 2026-09-12 in headless Chrome over the DevTools protocol against the built `dist/webview.js`, with the real Dark Modern and Light Modern palettes resolved out of VS Code's own theme files and colour registry — 272 and 281 `--vscode-*` declarations. 54 captures were saved and every one was opened and inspected: chat at 320/400/792/1280, the stopped run's execution view at 320/360/400/480/700/792/900/1280, the failed result, an expanded step's Technical detail, the provider history, the raw event history, a deliberately enormous truncated payload, and the 792 px action menu, in both themes. At every width and in both themes: no page overflow — the view's own scroller is the only thing that scrolls, and it never scrolled horizontally — no clipped or undersized control, no overlap, every information disclosure closed on arrival (0 of 8 in chat, 0 of 20 in the execution view, measured on a fresh load), Restart is the primary action and precedes Retry, code blocks are `overflow-x: auto` and contained inside their card, and the 792 px action menu opens below its trigger with four hit-testable items and posts nothing. No render error was raised and the render-failure boundary was never reached in either theme. Six of the 40 `--vscode-*` tokens the stylesheet reads are left unset because VS Code defines their defaults by reference to other colours rather than as literals; four of those have a CSS fallback in the stylesheet and two (`disabledForeground`, `notificationsWarningIcon-foreground`) do not, so those two are a fidelity gap in the capture rather than in the product. This is the built webview in a browser, not native VS Code: it is not the human graphical gate and does not substitute for it, and the six marketplace screenshots in `media/screenshots/` remain uncaptured human work |
-| `npm run test:activation-smoke` | pass, exit 0, measured 2026-09-12 on the final source, run twice consecutively. Each run reported `Activation smoke passed.` and ended with a global-alert count of 0 |
+| `npm run test:webview-layout` | pass, exit 0, measured 2026-09-13: 53 cases, 0 failed, 0 skipped, at 320, 360, 400, 480, 700, 792, 900 and 1280 px in light, dark and high-contrast themes. Covered menu hit testing, keyboard dismissal and focus return, stopped-run semantics, pipeline steps, disclosures, restart/retry controls, gutters and horizontal overflow. |
+| Live panel inspection | pass, measured 2026-09-13 against current `dist/webview.js` through live Chrome inspection. At 400 px in light, dark and high contrast: user messages align left; execution gutters are 16 px; six information disclosures start closed behind an info icon; minimum text is 13 px; visible controls are at least 24 px; Restart and Retry render. At 320 px: notification controls live under the bell; action-menu controls remain within the viewport; Escape restores focus. Empty running composer shows Stop, typing swaps it for Send at the same position. User stop renders `Stopped by you`, an interrupted result, Restart, and Resume stopped step. The picker shows five common workflows and reveals the remaining 16 through its disclosure. No screenshots were produced; the human packaged-build screenshot gate remains open. |
+| `npm run test:activation-smoke` | pass, exit 0, measured 2026-09-13 against the installed package: every catalog pipeline selectable and `globalAlertCount` 0 |
 | Bridge ZIP vs Bridge `dist` | pass, measured 2026-09-12 against a Browser Bridge archive rebuilt in this session: `bachata-browser-bridge-0.6.7.zip`, 58 files, SHA-256 `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`. `tests/releaseBinding.test.cjs`, 63 tests, 63 passed, 0 failed, 0 skipped, including the structural comparison of every archive entry against the build it was packaged from |
 
-## Measured red
+## Artifact checks and open release gates
 
 | Gate | Result |
 | --- | --- |
-| `npm run check:release-metadata` | fail, exit 1, measured 2026-09-12 with both artifacts staged. 57 findings, every one an owner input or a consequence of the unbound candidate: 29 in `docs/RELEASE_VALIDATION_RECORD.md`, 17 in `docs/COMPATIBILITY_MATRIX.md`, 9 in `docs/PROVIDER_TERMS.md`, one for the empty `media/screenshots/`, and one for the README referencing no screenshot. The identity and evidence counts are machine-recorded in `BUILD_FACTS.md` and checked by `npm run check:build-facts`. `npm run check:release-metadata:identity` passes on its own, exit 0 |
-| `npm run release:verify` | not run in this session. The staged artifact is `bachata-vscode-0.7.1.vsix` at SHA-256 `b5405bc9…`; verification still needs `npm run release:bind` against it first, and that binding gates on owner-only evidence |
-| `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` | pass, exit 0, measured 2026-09-12 both as the final step of `npm run package` and again standalone: 1915 archive entries, 12138458 bytes, 823 build-equivalent runtime files |
+| `npm run check:release-metadata` | fail, exit 1, measured 2026-09-13: 56 combined findings. `npm run check:release-metadata:identity` passes; `npm run check:release-metadata:evidence` reports 47 open evidence items, also generated in `BUILD_FACTS.md`. All remaining findings are the recorded screenshot, human, provider, platform, compatibility, terms or artifact-binding work below; no open result is relabelled as a pass. |
+| `npm run release:verify` | not run. The staged artifact is `bachata-vscode-0.7.1.vsix`, SHA-256 `6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e`. Verification follows human evidence and `npm run release:bind`. |
+| `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` | pass, exit 0, measured 2026-09-13 inside `npm run package` and again standalone: 1968 archive entries, 12254266 bytes, 865 build-equivalent runtime files |
 | `npm run check:managed-fallback` | pass, exit 0, 240 checks, measured 2026-09-11, including the invariant that the worktree manager manufactures no commit object |
-| `npm run package` | pass, exit 0, measured 2026-09-12. `bachata-vscode-0.7.1.vsix`, 1915 archive entries over 1913 files under `extension/`, 12140124 bytes, SHA-256 `b5405bc92c1a73fae77795c03f1c7bda025fbf99e24652ed5db55a12d0541937`, 823 build-equivalent runtime files. Installed with `code --install-extension --force` into `~/.vscode/extensions/rememo.bachata-vscode-0.7.1`; all 698 packaged `.js`, `.cjs`, `.mjs`, `.json` and `.node` files were compared byte for byte and 697 are identical. The only difference is `package.json`, which gains exactly one key — `__metadata`, injected by VS Code on install — with no key removed and no key changed. All 1215 packaged non-runtime files are byte-identical in the installation too. Nothing packaged is missing from the installation, and the only file present there and not under the archive's `extension/` prefix is the archive's own `.vsixmanifest` |
+| `npm run package` | pass, exit 0, measured 2026-09-13. `bachata-vscode-0.7.1.vsix`: 1968 archive entries, 12254266 bytes, SHA-256 `6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e`, 865 build-equivalent runtime files. Installed package: 1967 files. Of 1966 packaged files under `extension/`, 1965 are byte-identical; the only difference is VS Code's injected `__metadata` key in `package.json`. All 720 executable-class files are present and 719 are byte-identical; all 1246 non-executable files are identical. |
 
 `npm run check:release-metadata:identity` and `npm run check:release-metadata:evidence`
 remain the source-only views of the open owner inputs. The combined command requires both
@@ -128,12 +118,13 @@ both stay empty until a human runs them.
 
 ## Package weight, measured on the current tree
 
-No 0.7.0 VSIX exists, so this describes what would ship, not a packaged artifact.
+The exact staged 0.7.1 VSIX is measured in `BUILD_FACTS.md` and the package row above.
+Dependency-tree sizes remain generator-owned facts and are not duplicated here.
 
 | Item | Measured |
 | --- | --- |
-| `dist`, `typescript`, `ts-morph`, `@ts-morph`, `ajv`, `fast-glob`, `ignore`, `jsonrepair` | measured by `npm run docs:build-facts` and recorded in `BUILD_FACTS.md`. They are not restated here, because a hand-copied size goes stale silently |
-| A packaged 0.7.0 VSIX | none exists, so its file count and uncompressed size are unmeasured |
+| Staged Bachata VSIX | `bachata-vscode-0.7.1.vsix`; exact byte count, runtime count and SHA-256 recorded above and in `BUILD_FACTS.md` |
+| Runtime dependency trees | measured by `npm run docs:build-facts` and recorded in `BUILD_FACTS.md` |
 
 `typescript` and `ts-morph` exist for the TypeScript/JavaScript graph context in
 `src/context/tsJsContext.ts`. They are already behind a lazy `require`, reached only when
@@ -154,7 +145,6 @@ These are stated as unknown, not as passing.
 - Browser Bridge live validation in a clean browser profile.
 - Linux and Windows suite and graphical results.
 - Responsiveness under synchronous state contention.
-- An artifact-bound dependency audit for either package: the 2026-08-29 audit above was taken from the working tree, and no audit has been recorded against a staged VSIX or the pinned Bridge ZIP.
 - Provider usage-terms review.
 
 ## Documentation is tracked
@@ -169,14 +159,14 @@ measured into `BUILD_FACTS.md` rather than restated here.
 
 ## Source-tree identity
 
-No standalone 0.7.0 source-checksum manifest exists. `BUILD_FACTS.md` records the digest
+No standalone 0.7.1 source-checksum manifest exists. `BUILD_FACTS.md` records the digest
 of the Git-tracked maintained-source set. `npm run source:export -- <new-directory>` exports
 the maintained distribution, and `npm run source:verify -- <directory>` checks that export.
 Neither source digest is a substitute for the staged VSIX hash used by the release gate.
 
 ## What must happen before a stable claim
 
-1. Complete current automated gates and retain the verified candidate artifacts.
+1. Retain the verified candidate artifacts while the remaining acceptance work is completed.
 2. Capture screenshots from the exact packaged build into `media/screenshots/`.
 3. Keep the exact tested VSIX, then bind every human record to its hash. A rebuild needs fresh artifact acceptance. `docs/RELEASE_VALIDATION_RECORD.md`, `docs/PROVIDER_TERMS.md`, and `docs/COMPATIBILITY_MATRIX.md` each carry an `Artifacts under test:` line that the gate compares against the staged artifacts; a record produced from any other artifact is void.
 4. Complete `docs/HUMAN_E2E.md` and `docs/LIVE_SMOKE_TEST.md` against that artifact on macOS, Linux, and Windows.

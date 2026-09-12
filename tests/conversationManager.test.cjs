@@ -7782,3 +7782,64 @@ test("a restart that the runtime refuses is reported and leaves the run recovera
     await harness.manager.dispose();
   }
 });
+
+
+test("finding evidence is bound locally, refuses concurrent activity and drift, and survives manager restart", async () => {
+  const repository = mkdtempSync(path.join(os.tmpdir(), "bachata-proof-workspace-"));
+  const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-proof-storage-"));
+  execFileSync("git", ["init", "-q", repository]);
+  mkdirSync(path.join(repository, "src"));
+  writeFileSync(path.join(repository, "src/a.ts"), "export const cleanup = true;\n");
+  const options = {
+    storageRoot, removeStorageOnDispose: false, workingDirectory: repository,
+    configurationValues: { freshReviewPipelineId: "review-only" },
+    pipelineDefinitions: {
+      "cross-reference-development": writeCapableDefinition("cross-reference-development"),
+      "review-only": readOnlyReviewDefinition("review-only"),
+    },
+    onRuntimeCreated: (instance) => publishJourneyDecision(instance, { findings: [journeyFinding()] }),
+  };
+  let harness = loadHarness(undefined, options);
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    await harness.manager.handleMessage({ type: "initiative.define", title: "Preserve cleanup", goal: "Cancellation always cleans up" });
+    await harness.manager.handleMessage({ type: "review.startFresh" });
+    const identity = harness.manager.getState().direction.findings[0].identity;
+    const input = {
+      workingDirectory: repository, verifyFinding: { requirement: "Canceling always executes cleanup", environment: "Human inspected the deterministic cancellation reproduction" },
+      source: { uri: "https://evidence.invalid/cancellation", title: "Cancellation reproduction", retrievedAt: new Date().toISOString(), contentDigest: "a".repeat(64) },
+      claim: "Cleanup executed after cancellation", relation: "supports", target: { kind: "finding", identity }, authority: "firstPartyMeasurement", authoredBy: "human",
+    };
+    const runtime = harness.runtimeInstances.at(-1);
+    runtime.state.agents.codex.status = "running";
+    await assert.rejects(harness.manager.recordExternalEvidence(input), /Stop or complete active runs/);
+    runtime.state.agents.codex.status = "idle";
+    const recorded = await harness.manager.recordExternalEvidence(input);
+    assert.ok(recorded.verification);
+    assert.equal(recorded.verification.candidate.commit, "");
+    assert.equal(recorded.verification.findingIdentity, identity);
+    const resolution = { type: "resolution.apply", target: "externalEvidence", id: recorded.id, action: "accept" };
+    runtime.state.agents.codex.status = "running";
+    await assert.rejects(harness.manager.handleMessage(resolution), /Stop or complete active runs/);
+    runtime.state.agents.codex.status = "idle";
+    writeFileSync(path.join(repository, "src/a.ts"), "export const cleanup = false;\n");
+    await assert.rejects(harness.manager.handleMessage(resolution), /candidate changed/);
+    assert.equal(harness.manager.getState().direction.findings[0].state, "accepted");
+    assert.equal(harness.manager.getState().direction.externalEvidence[0].state, "proposed");
+    writeFileSync(path.join(repository, "src/a.ts"), "export const cleanup = true;\n");
+    await harness.manager.handleMessage(resolution);
+    assert.equal(harness.manager.getState().direction.findings[0].state, "resolved");
+    const stored = structuredClone(harness.manager.getState().direction.externalEvidence);
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+    harness = loadHarness(undefined, options);
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    assert.equal(harness.manager.getState().direction.findings[0].state, "resolved");
+    assert.deepEqual(harness.manager.getState().direction.externalEvidence, stored);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+    rmSync(repository, { recursive: true, force: true });
+    rmSync(storageRoot, { recursive: true, force: true });
+  }
+});

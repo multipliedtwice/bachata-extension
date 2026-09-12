@@ -326,3 +326,33 @@ test("Claude browser adapter filters sessions by provider", async () => {
     await adapter.dispose();
   }
 });
+
+test("browser image submission refuses excluded outside paths and redirected parents before bridge dispatch", async () => {
+  const { mkdir, symlink } = require("node:fs/promises");
+  const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-image-boundary-"));
+  const workspace = path.join(parent, "build", "project");
+  const outside = path.join(parent, "outside", "node_modules", "pkg");
+  let submitted = 0;
+  const browserSession = session("chatgpt");
+  const bridge = {
+    getStatus: () => ({ enabled: true, connected: true, sessions: [browserSession] }),
+    sendConversation: async function* () { submitted += 1; yield { type: "response", response: capturedResponse("chatgpt", browserSession.id, "Reviewed the selected image") }; },
+    interrupt: async () => undefined,
+  };
+  addBindingMethods(bridge);
+  const adapter = createBrowserChatGptAdapter({ id: "image-reviewer", bridge, turnTimeoutMs: 5000 });
+  try {
+    await mkdir(workspace, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    const bytes = Buffer.from([137, 80, 78, 71, 1, 2, 3]);
+    await writeFile(path.join(outside, "reference.png"), bytes);
+    await writeFile(path.join(workspace, "reference.png"), bytes);
+    await symlink(outside, path.join(workspace, "linked"), "dir");
+    for (const file of [path.join(outside, "reference.png"), path.join(workspace, "linked", "reference.png")]) {
+      await assert.rejects(collect(adapter.send(request({ workingDirectory: workspace, attachments: [file] }), new AbortController().signal)), /excludes/);
+      assert.equal(submitted, 0);
+    }
+    await collect(adapter.send(request({ workingDirectory: workspace, attachments: [path.join(workspace, "reference.png")] }), new AbortController().signal));
+    assert.equal(submitted, 1);
+  } finally { await adapter.dispose(); await rm(parent, { recursive: true, force: true }); }
+});

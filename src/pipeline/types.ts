@@ -129,6 +129,7 @@ export type HumanGateMode = "none" | "before" | "after" | "both";
 // so. Without this declaration the output stays run-local, which is what every preset that
 // does not name an artifact still gets.
 export type ArtifactPromotion = {
+  fromConsensusStep?: string;
   // Required when the step has more than one participant: two agents each produce a valid
   // answer, and which one becomes durable state is a product decision, not a race.
   producedBy?: string;

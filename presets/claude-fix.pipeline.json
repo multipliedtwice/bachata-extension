@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "claude-fix",
-  "name": "Fix with Claude",
-  "description": "Claude Code diagnoses and implements the fix inside a declared write scope. Verification is controller-owned, not model-reviewed. No commit is created.",
+  "name": "Fix a bug — one implementer (compatibility)",
+  "description": "Same single-implementer workflow with a legacy default assignment. For new runs, choose Fix a bug and select Agents.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Implementer",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "acceptEdits"

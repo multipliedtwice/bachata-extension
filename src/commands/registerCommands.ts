@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256EvidenceCopy } from "../security/fileHash";
 import * as path from "node:path";
 
 import * as vscode from "vscode";
@@ -1563,20 +1563,26 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         // copy itself stays where the human put it and is never stored by Bachata. Without a copy
         // there is nothing to fingerprint, so Bachata refuses rather than recording an
         // unverifiable citation.
+        const evidenceRepositoryRoot = activeRepositoryRoot();
+        const evidenceInitiativeId = manager.getState().direction?.initiative?.id;
         const ask = async (
           title: string,
           prompt: string,
           placeHolder?: string,
+          maxLength = 8000,
         ): Promise<string | undefined> => {
           const value = await vscode.window.showInputBox({
             title,
             prompt,
             ...(placeHolder === undefined ? {} : { placeHolder }),
             ignoreFocusOut: true,
-            validateInput: (input) => input.trim().length === 0
+            validateInput: (input) => input.length > maxLength
+              ? `Use at most ${String(maxLength)} characters.`
+              : input.trim().length === 0
               ? "State a value, or press Escape to stop."
               : undefined,
           });
+          if (value !== undefined && value.length > maxLength) throw new Error(`Evidence values must fit within ${String(maxLength)} characters`);
           return value?.trim() ? value.trim() : undefined;
         };
         const uri = await ask(
@@ -1625,18 +1631,45 @@ The task chat history will be retained. Extension-owned worktrees and branches w
           );
           return;
         }
-        const bytes = await vscode.workspace.fs.readFile(file);
-        const evidenceRepositoryRoot = activeRepositoryRoot();
-        const recorded = manager.recordExternalEvidence({
+        if (file.scheme !== "file") throw new Error("Select a saved local evidence copy");
+        const evidenceDigest = await sha256EvidenceCopy(file.fsPath);
+        const findings = manager.getState().direction?.findings ?? [];
+        const targetPick = await vscode.window.showQuickPick([
+          { label: "Initiative", identity: "", description: "Record a citation without changing a finding" },
+          ...findings.filter((finding) => finding.state !== "resolved" && finding.state !== "rejected")
+            .map((finding) => ({ label: finding.subject, identity: finding.identity, description: finding.message })),
+        ], { title: "Record external evidence: target" });
+        if (!targetPick) return;
+        let verifyFinding: { requirement: string; environment: string } | undefined;
+        if (targetPick.identity && relationPick.relation === "supports") {
+          const purpose = await vscode.window.showQuickPick([
+            { label: "Citation about this finding", verifies: false },
+            { label: "Evidence that this finding is fixed", verifies: true,
+              description: "Accepting it in Direction resolves this finding only for the unchanged current candidate" },
+          ], { title: "What does this evidence establish?" });
+          if (!purpose) return;
+          if (purpose.verifies) {
+            const requirement = await ask("Fix verification: acceptance criterion", "State the specific condition this evidence proves is satisfied.");
+            if (!requirement) return;
+            const environment = await ask("Fix verification: environment", "Where and how was the current candidate verified?", undefined, 2000);
+            if (!environment) return;
+            verifyFinding = { requirement, environment };
+          }
+        }
+        if (activeRepositoryRoot() !== evidenceRepositoryRoot || manager.getState().direction?.initiative?.id !== evidenceInitiativeId) {
+          throw new Error("The active workspace or initiative changed while recording evidence; reopen the command for the intended initiative");
+        }
+        const recorded = await manager.recordExternalEvidence({
+          ...(verifyFinding === undefined ? {} : { verifyFinding }),
           source: {
             uri,
             title,
             retrievedAt: new Date().toISOString(),
-            contentDigest: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
+            contentDigest: evidenceDigest,
           },
           claim,
           relation: relationPick.relation,
-          target: { kind: "initiative" },
+          target: targetPick.identity ? { kind: "finding", identity: targetPick.identity } : { kind: "initiative" },
           authority: authorityPick.authority,
           authoredBy: "human",
           ...(evidenceRepositoryRoot === undefined
@@ -1645,12 +1678,12 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         });
         if (recorded === undefined) {
           await vscode.window.showWarningMessage(
-            "Bachata recorded nothing: external evidence belongs to an initiative and an open cycle. Run Setup first.",
+            "Bachata recorded nothing: check the evidence fields and ensure this repository has an initiative with an open cycle.",
           );
           return;
         }
         await vscode.window.showInformationMessage(
-          `Recorded ${recorded.source.title} as external evidence, fingerprinted as ${recorded.source.contentDigest.slice(0, 12)}. Rule on it in Direction.`,
+          `Recorded ${recorded.source.title} as ${recorded.verification ? "candidate-bound fix verification" : "external evidence"}. Rule on it in Direction.`,
         );
       })),
     vscode.commands.registerCommand("bachata.localData", () =>

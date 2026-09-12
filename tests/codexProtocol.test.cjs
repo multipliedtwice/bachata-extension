@@ -162,6 +162,9 @@ test("a turn serialises the exact wire payload the protocol accepts", async () =
       }));
       const sent = records();
       const threadStart = sent.find((record) => record.type === "rpc" && record.message.method === "thread/start");
+      assert.deepEqual(threadStart.message.params.config, { "features.multi_agent": false, "features.multi_agent_v2": false });
+      assert.match(threadStart.message.params.developerInstructions, /Bachata alone/);
+      assert.equal(threadStart.message.params.baseInstructions, threadStart.message.params.developerInstructions);
       assert.equal(threadStart.message.params.sandbox, "workspace-write");
       assert.equal(threadStart.message.params.approvalPolicy, "untrusted");
       const turn = sent.find((record) => record.type === "turn");
@@ -186,6 +189,9 @@ test("a resumed thread restates the policy instead of inheriting whatever starte
       const resume = records().find(
         (record) => record.type === "rpc" && record.message.method === "thread/resume",
       );
+      assert.deepEqual(resume.message.params.config, { "features.multi_agent": false, "features.multi_agent_v2": false });
+      assert.match(resume.message.params.developerInstructions, /Bachata alone/);
+      assert.equal(resume.message.params.baseInstructions, resume.message.params.developerInstructions);
       assert.equal(resume.message.params.sandbox, "read-only");
       assert.equal(resume.message.params.approvalPolicy, "on-request");
     } finally {
@@ -623,3 +629,27 @@ test("a plain provider message is classified exactly as it arrived, with no evid
   assert.equal(failure.evidence, undefined);
   assert.equal(isClientVersionFailure(failure), false);
 });
+
+
+test("an unmanaged tool request is refused before the mock child can start", async () => {
+  await withRecording(async (records) => {
+    const adapter = createAdapter({ environment: { ...process.env, MOCK_CODEX_DELEGATION: "1" } });
+    try {
+      await assert.rejects(drain(adapter, workspaceRequest()), /Bachata policy refused unmanaged Codex delegation: spawn_agent/);
+      assert.equal(records().some((entry) => entry.type === "unmanaged-child-started"), false);
+      await assert.rejects(drain(adapter, workspaceRequest()), /disposed/);
+    } finally {
+      await adapter.dispose();
+    }
+  });
+});
+
+for (const shape of ["item", "turn"]) {
+  test(`Codex ${shape} notification refuses collaboration and makes the transport unusable`, async () => {
+    const adapter = createAdapter({ environment: { ...process.env, MOCK_CODEX_DELEGATION: shape } });
+    try {
+      await assert.rejects(drain(adapter, workspaceRequest()), /Bachata policy refused unmanaged Codex delegation: spawnAgent/);
+      await assert.rejects(drain(adapter, workspaceRequest()), /disposed/);
+    } finally { await adapter.dispose(); }
+  });
+}

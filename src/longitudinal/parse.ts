@@ -1,3 +1,5 @@
+import { parseFindingVerification } from "./findingVerification";
+import { parseConsensusAcceptance } from "../pipeline/consensusPromotion";
 import { INITIATIVE_BUNDLE_SPEC, walkBundle } from "./bundleSchema";
 import {
   decisionLogicalIdentity,
@@ -126,11 +128,13 @@ export const parseHumanResolution = (value: unknown): HumanResolution | undefine
 export const parseRecordProvenance = (value: unknown): RecordProvenance => {
   const source = isRecord(value) ? value : {};
   const rulingProvenance = parseRulingProvenance(source.rulingProvenance);
+  const consensusAcceptance = parseConsensusAcceptance(source.consensusAcceptance);
   const runRef = text(source.runRef);
   const cycleId = text(source.cycleId);
   const stepId = text(source.stepId);
   return {
     authoredBy: parseAuthoredBy(source.authoredBy) ?? "model",
+    ...(consensusAcceptance === undefined ? {} : { consensusAcceptance }),
     participantIds: textList(source.participantIds),
     ...(runRef === undefined ? {} : { runRef }),
     ...(cycleId === undefined ? {} : { cycleId }),
@@ -1096,6 +1100,8 @@ export const parseExternalEvidenceRecord = (
   value: unknown,
 ): ExternalEvidenceRecord | undefined => {
   if (!isRecord(value)) return undefined;
+  const verification = value.verification === undefined ? undefined : parseFindingVerification(value.verification);
+  if (value.verification !== undefined && verification === undefined) return undefined;
   const id = text(value.id);
   const initiativeId = text(value.initiativeId);
   const cycleId = text(value.cycleId);
@@ -1118,6 +1124,7 @@ export const parseExternalEvidenceRecord = (
   return {
     schemaVersion: positiveInteger(value.schemaVersion, LONGITUDINAL_SCHEMA_VERSION),
     id,
+    ...(verification === undefined ? {} : { verification }),
     logicalId: text(value.logicalId) ?? externalEvidenceLogicalIdentity(source.uri, target),
     revision: positiveInteger(value.revision, 1),
     initiativeId,

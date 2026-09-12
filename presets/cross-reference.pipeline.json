@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "cross-reference-development",
-  "name": "Review and prepare checklist",
-  "description": "Codex and Claude review in parallel, converge on one result, and prepare a selectable execution checklist without modifying the repository.",
+  "name": "Review and prepare tasks",
+  "description": "Two participants reconcile code findings in up to 10 rounds, then prepare a selectable task checklist without modifying the repository. This workflow does not implement the tasks.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer 1",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -15,7 +15,7 @@
     },
     {
       "id": "claude",
-      "name": "Claude Code",
+      "name": "Reviewer 2",
       "adapter": "claude-code",
       "command": "claude",
       "permissionMode": "plan"

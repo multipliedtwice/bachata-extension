@@ -201,6 +201,7 @@ type PipelineSummary = {
   hash: string;
   scopeKey: string;
   scopeRoot?: string;
+  prominentOrder?: number;
   participantCount?: number;
   participantNames?: string[];
   stepCount?: number;
@@ -855,6 +856,7 @@ type DirectionSummary = {
 type ResolutionMatrix = Record<string, Record<string, string[]>>;
 
 type DirectionExternalEvidence = {
+  verification?: { requirement: string; kind: string; outcome: string; verifier: string; environment: string };
   id: string;
   claim: string;
   relation: "supports" | "contradicts" | "qualifies";

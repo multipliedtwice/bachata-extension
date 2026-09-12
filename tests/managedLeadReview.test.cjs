@@ -171,7 +171,8 @@ test("a verdict about another candidate is not a verdict about this one", () => 
   const accepting = { candidate: "b".repeat(64), review: { verdict: "accept", summary: "ok", defects: [] } };
   const decision = decide(accepting);
   assert.equal(decision.decision, "invalid");
-  assert.match(decision.problems[0], /names candidate b{64}, and the controller verified a{64}/u);
+  assert.match(decision.problems[0], /does not name the candidate reference issued for this review/u);
+  assert.doesNotMatch(decision.problems[0], /a{64}|b{64}/u);
 });
 
 test("a candidate that moved while the Lead was reading it cannot be accepted", () => {

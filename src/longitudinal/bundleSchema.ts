@@ -47,6 +47,14 @@ const RULING_PROVENANCE = object({
 });
 
 const RECORD_PROVENANCE = object({
+  consensusAcceptance: optional(object({
+    stepId: required(structuralString),
+    round: required(positive),
+    ruling: required(structuralString),
+    candidateHash: required(structuralString),
+    participantIds: required(structuralList),
+    ruledBy: optional(structuralString),
+  })),
   authoredBy: required(structuralString),
   participantIds: required(structuralList),
   runRef: optional(structuralString),
@@ -132,7 +140,18 @@ const ARTIFACT = object({
 });
 
 
+const VERIFICATION_CANDIDATE = object({ commit: required(structuralString), worktreeDigest: required(structuralString) });
+const FINDING_VERIFICATION = object({
+  version: required(positive), kind: required(structuralString),
+  findingIdentity: required(structuralString), findingStatement: required(freeText),
+  requirement: required(freeText), scope: required(textList), candidate: required(VERIFICATION_CANDIDATE),
+  outcome: required(structuralString), verifier: required(freeText), environment: required(freeText),
+  recordedAt: required(structuralString), checkIdentity: optional(structuralString),
+  before: optional(object({ candidate: required(VERIFICATION_CANDIDATE), checkIdentity: required(structuralString), outcome: required(structuralString) })),
+});
+
 const EXTERNAL_EVIDENCE = object({
+  verification: optional(FINDING_VERIFICATION),
   schemaVersion: required(positive),
   id: required(structuralString),
   logicalId: required(structuralString),

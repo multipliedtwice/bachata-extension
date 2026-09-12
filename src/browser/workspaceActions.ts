@@ -1,3 +1,5 @@
+import { isBrowserSourcePath } from "./sourceTransferPolicy";
+import type { BrowserContextReferences } from "./contextReferences";
 import {
   assertExpectedFileHashes,
   assertWorkspaceActionAllowed,
@@ -56,6 +58,7 @@ export type BrowserActionExecutorOptions = {
   maxReadBytes: number;
   maxSearchResults: number;
   mutationContext?: MutationPolicyContext;
+  contextReferences?: BrowserContextReferences;
 };
 
 type ActionGuard = {
@@ -424,7 +427,8 @@ const appendBoundedLine = (state: BoundedText, line: string): boolean => {
 
 const isRestrictedWorkspacePath = (root: string, candidate: string): boolean => {
   try {
-    return isPolicyRestrictedWorkspacePath(safeRelative(root, candidate));
+    const relative = safeRelative(root, candidate);
+    return !isBrowserSourcePath(relative) || isPolicyRestrictedWorkspacePath(relative);
   } catch {
     return true;
   }
@@ -514,6 +518,7 @@ const readWorkspaceFile = async (
   candidate: string,
   maximumBytes: number,
   guard: ActionGuard,
+  contextReferences?: BrowserContextReferences,
 ): Promise<string> => {
   const value = await checked(guard, stat(candidate));
   if (!value.isFile()) {
@@ -538,7 +543,9 @@ const readWorkspaceFile = async (
     );
     const complete = !truncated;
     const digest = complete ? createHash("sha256").update(buffer.subarray(0, read.bytesRead)).digest("hex") : undefined;
-    return `${safeRelative(root, candidate)}${digest ? `\nsha256:${digest}` : ""}\n${text}${truncated ? `\n[truncated after ${String(maximumBytes)} bytes]` : ""}`;
+    const relative = safeRelative(root, candidate);
+    const version = digest && contextReferences ? contextReferences.fileVersion(relative, digest) : undefined;
+    return `${relative}${version ? `\nfileVersion:${version}` : digest ? `\nsha256:${digest}` : ""}\n${text}${truncated ? `\n[truncated after ${String(maximumBytes)} bytes]` : ""}`;
   } finally {
     await handle.close();
   }
@@ -934,7 +941,7 @@ const patchSnapshotOutputs = async (
       const content = await checked(guard, readFile(source));
       const expected = expectedByPath.get(relative);
       if (expected && createHash("sha256").update(content).digest("hex") !== expected) {
-        throw new Error(`Source hash changed before patch snapshot: ${relative}`);
+        throw new Error(`Source version changed before patch snapshot: ${relative}`);
       }
       await checked(guard, mkdir(path.dirname(target), { recursive: true }));
       await checked(guard, copyFile(source, target));
@@ -1036,12 +1043,12 @@ const assertPatchTargetsAllowedAndPreconditioned = async (
         throw new Error(`Patch target must be a regular file: ${relative}`);
       }
       if (!expectedByPath.has(relative)) {
-        throw new Error(`Existing file mutation requires an expected SHA-256 from workspace.read: ${relative}`);
+        throw new Error(`Existing file mutation requires an issued fileVersion from workspace.read: ${relative}`);
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         if (expectedByPath.has(relative)) {
-          throw new Error(`Expected SHA-256 supplied for a new patch path: ${relative}`);
+          throw new Error(`Existing-file version supplied for a new patch path: ${relative}`);
         }
         continue;
       }
@@ -1377,7 +1384,7 @@ const assertExistingMutationTargetsHavePreconditions = async (
         continue;
       }
       if (info.isFile() && !expected.has(allowed.relative)) {
-        throw new Error(`Existing file mutation requires an expected SHA-256 from workspace.read: ${target}`);
+        throw new Error(`Existing file mutation requires an issued fileVersion from workspace.read: ${target}`);
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
@@ -1406,6 +1413,7 @@ export const executeBrowserAction = async (
     if (action.kind === "shell.run") {
       throw new Error("Arbitrary shell actions are disabled; use structured workspace actions");
     }
+    if (action.path && !isBrowserSourcePath(action.path)) throw new Error("Browser action targets an excluded source path");
     if (action.kind !== "workspace.applyPatch") {
       await assertExistingMutationTargetsHavePreconditions(root, action, mutationContext);
       assertActive(guard);
@@ -1440,6 +1448,7 @@ export const executeBrowserAction = async (
         candidate.resolved,
         options.maxReadBytes,
         guard,
+        options.contextReferences,
       );
       return result(action, startedAt, {
         status: "completed",
@@ -1512,6 +1521,7 @@ export const executeBrowserAction = async (
       const patch = action.patch ?? "";
       const gitTargets = await inspectPatchPaths(root, patch, options, guard);
       const rawTargets = [...new Set([...gitTargets, ...extractPatchPaths(patch)])];
+      if (rawTargets.some((target) => !isBrowserSourcePath(target))) throw new Error("Browser patch targets an excluded source path");
       const affectedPaths = await assertPatchTargetsAllowedAndPreconditioned(
         root,
         action,
@@ -1608,7 +1618,7 @@ export const executeBrowserAction = async (
       }
       return result(action, startedAt, {
         status: "completed",
-        summary: `${describeBrowserAction(action)} (${createHash("sha256").update(patch).digest("hex").slice(0, 12)})`,
+        summary: describeBrowserAction(action),
         stdout: "",
         stderr: "",
         exitCode: 0,

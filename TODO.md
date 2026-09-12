@@ -109,7 +109,10 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
 - [ ] After one recorded user format and job, add structured SARIF, JUnit, saved CI
   result or issue-criteria import.
 - [ ] Add the next language-aware context graph only from user evidence.
-- [ ] Add a runnable longitudinal record/score command, verified in a validation round.
+- [ ] Run a longitudinal validation round with `npm run benchmark:longitudinal` and record its
+  results. The command itself is implemented and unit-verified
+  (`scripts/longitudinal-benchmark.mjs`, `tests/longitudinalBenchmarkCommand.test.cjs`);
+  `BUILD_FACTS.md` still reports 0 Git-tracked longitudinal result records, so no round has run.
 - [ ] Consider competing isolated implementations only once comparative evidence
   supports the added execution surface.
 

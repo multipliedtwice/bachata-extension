@@ -173,11 +173,23 @@ The Lead is not right by virtue of its role. Other presets converge on different
 artifacts, not on bug lists.
 
 A pipeline-accepted finding carries its own state: awaiting a fix, a fix running,
-a fix applied, or verified. Only the last of these comes from evidence — a fresh,
-independent review against the current repository state that no longer reports the
-finding. An applied fix is not a verified fix. You supervise by exception: inspect,
+a fix applied, or verified. Verification can come from a fresh, independent review
+against the current repository state that no longer reports the applied finding,
+or from explicitly accepted, finding-specific external verification evidence.
+An applied fix is not a verified fix. You supervise by exception: inspect,
 reject, reopen, or restore a semantic disposition. Discard and restore appear only
 for reversible retained work that Bachata owns.
+
+To record a human verification, run **Bachata: Record External Evidence**, select
+a saved local evidence copy, choose the finding, and select **Evidence that this
+finding is fixed**. State the acceptance criterion and verification environment.
+Bachata binds that record to the current repository candidate. Accept it in
+**Direction** to resolve the finding; changed candidates, unavailable or ignored
+scope, expired evidence, and unresolved challenges refuse the transition.
+An ordinary citation records evidence without closing the finding. This flow
+records your verification; it does not execute the reproduction or turn a failed
+provider run into a successful one. Evidence copies must be regular local files
+of at most 4 MiB. The copy stays local.
 
 A cycle is bound to one repository candidate: the commit, the branch, and a
 digest of the working tree at the moment it was baselined. Recorded checks belong

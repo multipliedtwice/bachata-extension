@@ -751,3 +751,52 @@ test("a policy-amendment field that is not a list is dropped rather than reshape
   });
   assert.equal(approval.proposedNetworkPolicyAmendments, undefined);
 });
+
+test("an approval past the identifier or choice limit is refused before anything is bounded", () => {
+  const limit = /Provider approval exceeds the supported identifier or choice limit/;
+  const base = { requestId: "r4", kind: "command", command: "npm test", choices: [{ id: "approve", label: "Approve" }] };
+  assert.throws(() => pendingApprovalFrom("a".repeat(129), base), limit);
+  assert.throws(() => pendingApprovalFrom("codex", { ...base, requestId: "r".repeat(513) }), limit);
+  assert.throws(
+    () => pendingApprovalFrom("codex", {
+      ...base,
+      choices: Array.from({ length: 17 }, (_unused, index) => ({ id: `c${String(index)}`, label: "Approve" })),
+    }),
+    limit,
+  );
+});
+
+test("an oversized choice identifier is refused rather than carried to the panel", () => {
+  assert.throws(
+    () => pendingApprovalFrom("codex", {
+      requestId: "r4",
+      kind: "command",
+      command: "npm test",
+      choices: [{ id: "approve", label: "Approve" }, { id: "d".repeat(513), label: "Deny" }],
+    }),
+    /Provider approval choice identifier exceeds the supported limit/,
+  );
+});
+
+test("network approval context is bounded, and an unusable port is dropped rather than shown", () => {
+  const approval = pendingApprovalFrom("codex", {
+    requestId: "r5",
+    kind: "network",
+    command: "curl https://example.com",
+    networkApprovalContext: { host: `${"h".repeat(2048)}.example.com`, protocol: "https", port: 443 },
+    choices: [{ id: "approve", label: "Approve" }],
+  });
+  assert.equal(approval.networkApprovalContext.protocol, "https");
+  assert.equal(approval.networkApprovalContext.port, 443);
+  assert.ok(approval.networkApprovalContext.host.length < 2048);
+
+  // Provider data, so each field may be absent and the port may be anything at all.
+  const partial = pendingApprovalFrom("codex", {
+    requestId: "r6",
+    kind: "network",
+    command: "curl https://example.com",
+    networkApprovalContext: { port: 1.5 },
+    choices: [{ id: "approve", label: "Approve" }],
+  });
+  assert.deepEqual(partial.networkApprovalContext, {});
+});

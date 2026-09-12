@@ -1,3 +1,4 @@
+import { consensusAcceptanceFor } from "../pipeline/consensusPromotion";
 import type { PipelineDefinition } from "../pipeline/types";
 import type { DeclaredArtifactSource } from "./service";
 
@@ -22,6 +23,7 @@ export const declaredArtifactSourcesFor = (input: {
   definition: PipelineDefinition | undefined;
   outputs: readonly StoredOutput[];
   outputRefs: ReadonlySet<string>;
+  decisions?: readonly unknown[];
 }): DeclaredArtifactSource[] => {
   if (input.definition === undefined) return [];
   const produced = input.outputs
@@ -61,11 +63,18 @@ export const declaredArtifactSourcesFor = (input: {
         output.agentId === producedBy);
     const match = matches.length === 1 ? matches[0] : undefined;
     if (match === undefined) return [];
+    const consensusStep = step.artifactPromotion.fromConsensusStep;
+    const decision = consensusStep === undefined ? undefined : (input.decisions ?? [])
+      .filter((item) => isRecord(item) && item.stepId === consensusStep).at(-1);
+    const consensusAcceptance = consensusStep === undefined ? undefined
+      : consensusAcceptanceFor(decision, match.value, consensusStep);
+    if (consensusStep !== undefined && consensusAcceptance === undefined) return [];
     return [{
       promotion: step.artifactPromotion,
       output: match.value,
       fallbackTitle: step.name,
-      participantIds: match.agentId === undefined ? step.participants : [match.agentId],
+      participantIds: consensusAcceptance?.participantIds ?? (match.agentId === undefined ? step.participants : [match.agentId]),
+      ...(consensusAcceptance === undefined ? {} : { consensusAcceptance }),
       stepId: step.id,
     }];
   });

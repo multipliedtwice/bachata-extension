@@ -35,6 +35,6 @@ export const renderCapturedAssetSummary = (
         : "";
       return `- ${redactFreeFormText(asset.name)} (${details.join(", ")})${preview}`;
     }),
-    "These provider assets are not present in the workspace until the user saves them through bachata.",
+    "Provider assets are delivered only when a Bachata action result reports successful application or saving. A download link alone is not evidence of a workspace change.",
   ].join("\n");
 };

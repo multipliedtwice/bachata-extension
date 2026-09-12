@@ -30,7 +30,12 @@ test("managed repository baseline remains explicit outside Git", async () => {
   try {
     fs.writeFileSync(path.join(root, "a.ts"), "export const a = 1;\n");
     const baseline = await captureManagedRepositoryBaseline(root, new AbortController().signal);
-    assert.deepEqual(baseline, { isGitRepository: false, head: "", entries: [] });
+    assert.equal(baseline.isGitRepository, false);
+    assert.equal(baseline.head, "");
+    assert.deepEqual(baseline.entries.map((entry) => entry.path), ["a.ts"]);
+    fs.writeFileSync(path.join(root, "a.ts"), "export const a = 2;\n");
+    const changed = await captureManagedRepositoryBaseline(root, new AbortController().signal);
+    assert.notEqual(changed.entries[0].fingerprint, baseline.entries[0].fingerprint);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

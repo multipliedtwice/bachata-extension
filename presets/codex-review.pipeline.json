@@ -1,13 +1,13 @@
 {
   "version": 1,
   "id": "codex-review",
-  "name": "Review with Codex",
-  "description": "Read-only repository review with Codex.",
+  "name": "Code review",
+  "description": "Read-only code review by one participant. Findings remain single-source. Choose the participant in Agents.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",
-      "name": "Codex",
+      "name": "Reviewer",
       "adapter": "codex-app-server",
       "command": "codex",
       "permissionMode": "readOnly",
@@ -21,12 +21,18 @@
       "enabled": true,
       "humanGate": "none",
       "type": "agent",
-      "participants": ["codex"],
+      "participants": [
+        "codex"
+      ],
       "promptTemplate": "Review this scope. Do not modify files. Return JSON only with findings. Each finding needs stable id, subject, message, disposition proposed, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. A single model cannot mark a finding accepted.\n\n{{userPrompt}}",
       "parallel": false,
       "consensus": false,
-      "permissionModes": { "codex": "readOnly" },
-      "approvalPolicies": { "codex": "onRequest" },
+      "permissionModes": {
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
       "attachments": "selected",
       "output": {
         "name": "modelFindings",

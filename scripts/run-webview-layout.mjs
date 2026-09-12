@@ -1,3 +1,4 @@
+import { runWebviewProductChecks } from "./lib/webviewProductChecks.mjs";
 /**
  * EX-UI-04. The run tab strip's hit regions at the widths a side panel actually has.
  *
@@ -24,7 +25,7 @@ import { closeCdpSession, delay, openCdpSession } from "./lib/chromeSession.mjs"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(root, "tests", "fixtures", "webview-layout", "index.html");
 const bundle = path.join(root, "dist", "webview.js");
-const WIDTHS = [320, 360, 400, 480, 700, 900, 1280];
+const WIDTHS = [320, 360, 400, 480, 700, 792, 900, 1280];
 
 const resolveChrome = () => {
   const configured = process.env.BACHATA_CHROME_BINARY?.trim();
@@ -88,6 +89,7 @@ const connect = (profile) =>
   openCdpSession({
     launch: () => spawn(resolveChrome(), [
       "--headless=new",
+      ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
       "--allow-file-access-from-files",
@@ -134,7 +136,7 @@ const press = async (session, selector) => {
 
 const pressKey = async (session, key, code, keyCode) => {
   for (const type of ["keyDown", "keyUp"]) {
-    await session.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode });
+    await session.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode, ...(type === "keyDown" && key === "Enter" ? { text: "\r" } : {}) });
   }
   await delay(160);
 };
@@ -491,6 +493,7 @@ const run = async () => {
       if (!row.focusRestored) failures.push(`${String(width)}px: closing the action menu did not return focus to it`);
       if (!row.focusable) failures.push(`${String(width)}px: the action menu does not take keyboard focus`);
     }
+    await runWebviewProductChecks(session, press, pressKey, WIDTHS);
     // The execution view: booted once, then measured at every width. It replaces the fixture's
     // idle state, so it runs after every idle-state measurement is done.
     await session.evaluate("window.__bootExecution()");

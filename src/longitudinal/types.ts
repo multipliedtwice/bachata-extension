@@ -30,6 +30,7 @@ export type HumanResolution = {
 export type AuthoredBy = "model" | "human" | "controller";
 
 export type RecordProvenance = {
+  consensusAcceptance?: import("../pipeline/consensusPromotion").ConsensusAcceptance;
   authoredBy: AuthoredBy;
   participantIds: string[];
   runRef?: string;
@@ -323,6 +324,7 @@ export type ExternalEvidenceChallenge = {
 };
 
 export type ExternalEvidenceRecord = {
+  verification?: import("./findingVerification").FindingVerification;
   schemaVersion: number;
   id: string;
   logicalId: string;

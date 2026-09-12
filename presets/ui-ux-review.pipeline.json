@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "id": "ui-ux-review",
+  "name": "UI/UX review",
+  "description": "Read-only review of usability, accessibility and visual hierarchy. Two reviewers reconcile findings in up to 4 rounds. Supply screenshots or access to the UI; code alone cannot establish a visual verdict.",
+  "longitudinalIntent": "runLocal",
+  "agents": [
+    {
+      "id": "codex",
+      "name": "Usability reviewer",
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
+    },
+    {
+      "id": "claude",
+      "name": "Accessibility reviewer",
+      "adapter": "claude-code",
+      "command": "claude",
+      "permissionMode": "plan"
+    }
+  ],
+  "steps": [
+    {
+      "id": "independent-review",
+      "name": "Inspect the interface independently",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Review the supplied interface for usability, accessibility, navigation, reading hierarchy, spacing, responsiveness, focus and action feedback. Inspect the available code and screenshots. Do not edit files. Distinguish observed defects from unverified hypotheses. State which screens, widths and interactions you actually inspected. If no graphical evidence or interface access is available, report the visual acceptance gap; do not invent a visual verdict.\n\n{{userPrompt}}",
+      "parallel": true,
+      "consensus": false,
+      "humanGate": "none",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "selected",
+      "type": "agent"
+    },
+    {
+      "id": "review-consensus",
+      "name": "Reconcile UI/UX findings",
+      "enabled": true,
+      "participants": [
+        "codex",
+        "claude"
+      ],
+      "promptTemplate": "Carefully cross-reference the other participant's complete answer with repository evidence. Return JSON only with candidate, accepted, objections, and unresolvedRisks. candidate must be {\"findings\":[...]}. Each finding needs stable id, subject, message, explicit disposition accepted/rejected/unresolved, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. accepted is boolean for this exact candidate. Keep proposed claims out of accepted findings.\n\n{{peerAnswersTagged}}",
+      "parallel": true,
+      "consensus": true,
+      "consensusConfig": {
+        "mode": "unanimous",
+        "maxRounds": 4,
+        "candidateField": "candidate",
+        "acceptedField": "accepted",
+        "objectionsField": "objections",
+        "risksField": "unresolvedRisks",
+        "acceptedValue": true,
+        "onMaxRounds": "humanGate",
+        "candidateShape": "ruledModelFindingSet"
+      },
+      "humanGate": "after",
+      "permissionModes": {
+        "codex": "readOnly",
+        "claude": "plan"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
+      },
+      "attachments": "none",
+      "type": "agent"
+    }
+  ]
+}
