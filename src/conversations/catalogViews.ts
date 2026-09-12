@@ -1,5 +1,7 @@
 import type { JsonValue } from "../adapters/types";
 import {
+  isValidPipelineDisplayName,
+  isValidPipelineIdentifier,
   MAX_DISPLAY_NAME_LENGTH,
   MAX_IDENTIFIER_LENGTH,
   MAX_PIPELINE_STEPS,
@@ -109,17 +111,19 @@ const attemptFromPayload = (payload: unknown): WorkflowAttempt | undefined => {
   if (!isRecord(pipeline) || typeof pipeline.hash !== "string" || !Array.isArray(pipeline.steps)) {
     return undefined;
   }
-  if (pipeline.hash.length > MAX_IDENTIFIER_LENGTH) return undefined;
-  if (pipeline.steps.length > MAX_PIPELINE_STEPS) return undefined;
+  if (!/^[0-9a-f]{64}$/u.test(pipeline.hash)) return undefined;
+  if (pipeline.steps.length === 0 || pipeline.steps.length > MAX_PIPELINE_STEPS) return undefined;
   const steps: WorkflowAttemptStep[] = [];
+  const ids = new Set<string>();
   for (const step of pipeline.steps) {
-    if (!isRecord(step) || typeof step.id !== "string" || typeof step.name !== "string") continue;
-    if (step.id.length > MAX_IDENTIFIER_LENGTH || step.name.length > MAX_DISPLAY_NAME_LENGTH) {
-      return undefined;
-    }
+    if (!isRecord(step)
+      || !isValidPipelineIdentifier(step.id)
+      || !isValidPipelineDisplayName(step.name)
+      || ids.has(step.id)) return undefined;
+    ids.add(step.id);
     steps.push({ id: step.id, name: step.name });
   }
-  return steps.length === 0 ? undefined : { pipelineHash: pipeline.hash, steps };
+  return { pipelineHash: pipeline.hash, steps };
 };
 
 /**
@@ -292,10 +296,9 @@ export type ConversationEventHistory = {
  * The same projection serves the window that owns the workspace and the read-only window beside it;
  * neither may send more than the other.
  *
- * The conversation identifiers themselves are charged against the ceiling but never dropped: a
- * conversation missing from this record is one the panel cannot render at all, which is a worse
- * answer than a conversation whose rows were rationed. They are controller-generated references of
- * fixed length, so what they cost is fixed too.
+ * Conversation keys are charged and may be omitted. The renderer treats an omitted inactive key as
+ * an empty history. The active key and its newest metadata are spent first, before an arbitrary
+ * number of inactive empty keys can consume the whole message.
  */
 const projectedHistories = (input: {
   histories: readonly ConversationEventHistory[];
@@ -303,42 +306,63 @@ const projectedHistories = (input: {
   aggregateBytes?: number | undefined;
 }): { conversationId: string; views: WorkflowEventSummary[] }[] => {
   const aggregate = input.aggregateBytes ?? EVENT_HISTORY_AGGREGATE_BYTES;
-  const histories = input.histories.map((history) => ({
-    history,
-    rows: new Map<number, WorkflowEventSummary>(),
-  }));
-
-  let remaining = aggregate - 2
-    - histories.reduce(
-      (total, { history }) => total + conversationEntryBytes(history.conversationId),
-      0,
-    );
-  const metadataShare = histories.length === 0
-    ? 0
-    : Math.floor(
-        (Math.max(0, remaining) * METADATA_SHARE_NUMERATOR)
-          / METADATA_SHARE_DENOMINATOR
-          / histories.length,
-      );
-
-  histories.forEach(({ history, rows }) => {
-    let share = metadataShare;
-    for (const { index, event } of spendOrder(history.events)) {
-      const summary = eventMetadata(event);
-      const bytes = metadataBytes(summary) + ROW_SEPARATOR_BYTES;
-      if (bytes > share || bytes > remaining) break;
-      share -= bytes;
-      remaining -= bytes;
-      rows.set(index, summary);
-    }
+  if (aggregate < 2) return [];
+  const prioritized: ConversationEventHistory[] = [];
+  const activeIndex = input.activeConversationId === undefined
+    ? -1
+    : input.histories.findIndex((history) => history.conversationId === input.activeConversationId);
+  if (activeIndex >= 0) prioritized.push(input.histories[activeIndex] as ConversationEventHistory);
+  input.histories.forEach((history, index) => {
+    if (index !== activeIndex) prioritized.push(history);
   });
 
-  const active = input.activeConversationId;
-  const prioritized = [
-    ...histories.filter(({ history }) => history.conversationId === active),
-    ...histories.filter(({ history }) => history.conversationId !== active),
-  ];
-  prioritized.forEach(({ history, rows }) => {
+  const selected: { history: ConversationEventHistory; rows: Map<number, WorkflowEventSummary> }[] = [];
+  let remaining = aggregate - 2;
+  const addHistory = (history: ConversationEventHistory): boolean => {
+    const entryBytes = conversationEntryBytes(history.conversationId)
+      - (selected.length === 0 ? 1 : 0);
+    if (entryBytes > remaining) return false;
+    remaining -= entryBytes;
+    selected.push({ history, rows: new Map() });
+    return true;
+  };
+  if (activeIndex >= 0) {
+    addHistory(prioritized[0] as ConversationEventHistory);
+  }
+
+  const spendMetadata = (
+    entries: readonly { history: ConversationEventHistory; rows: Map<number, WorkflowEventSummary> }[],
+    budget: number,
+  ): number => {
+    let metadataRemaining = budget;
+    entries.forEach(({ history, rows }) => {
+      for (const { index, event } of spendOrder(history.events)) {
+        const summary = eventMetadata(event);
+        const bytes = metadataBytes(summary) + (rows.size === 0 ? 0 : ROW_SEPARATOR_BYTES);
+        if (bytes > metadataRemaining || bytes > remaining) break;
+        metadataRemaining -= bytes;
+        remaining -= bytes;
+        rows.set(index, summary);
+      }
+    });
+    return metadataRemaining;
+  };
+
+  const metadataBudget = Math.floor(
+    Math.max(0, remaining) * METADATA_SHARE_NUMERATOR / METADATA_SHARE_DENOMINATOR,
+  );
+  let metadataRemaining = activeIndex >= 0
+    ? spendMetadata(selected, metadataBudget)
+    : metadataBudget;
+
+  const inactiveStart = activeIndex >= 0 ? 1 : 0;
+  for (let index = inactiveStart; index < prioritized.length; index += 1) {
+    addHistory(prioritized[index] as ConversationEventHistory);
+  }
+  const inactiveSelected = activeIndex >= 0 ? selected.slice(1) : selected;
+  metadataRemaining = spendMetadata(inactiveSelected, Math.min(metadataRemaining, remaining));
+
+  selected.forEach(({ history, rows }) => {
     for (const { index, event } of spendOrder(history.events)) {
       if (remaining <= PAYLOAD_ENTRY_BYTES) break;
       const summary = rows.get(index);
@@ -356,7 +380,7 @@ const projectedHistories = (input: {
     }
   });
 
-  return histories.map(({ history, rows }) => ({
+  return selected.map(({ history, rows }) => ({
     conversationId: history.conversationId,
     views: history.events.flatMap((_event, index) => {
       const summary = rows.get(index);

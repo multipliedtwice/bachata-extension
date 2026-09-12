@@ -374,20 +374,122 @@ const isNonEmptyString = (value: unknown): value is string =>
 export const MAX_PIPELINE_STEPS = 64;
 export const MAX_IDENTIFIER_LENGTH = 128;
 export const MAX_DISPLAY_NAME_LENGTH = 256;
+export const MAX_PIPELINE_AGENTS = 64;
+export const MAX_PIPELINE_ROLES = 128;
+export const MAX_PIPELINE_RESOURCE_DEPENDENCIES = 128;
+export const MAX_PIPELINE_COLLECTION_ITEMS = 256;
+export const MAX_PIPELINE_OBJECT_KEYS = 256;
+export const MAX_PIPELINE_STRING_LENGTH = 64 * 1_024;
+export const MAX_PIPELINE_DEPTH = 16;
+export const MAX_PIPELINE_SERIALIZED_BYTES = 512 * 1_024;
+
+export const isValidPipelineIdentifier = (value: unknown): value is string =>
+  typeof value === "string"
+  && value.length > 0
+  && value.length <= MAX_IDENTIFIER_LENGTH
+  && IDENTIFIER_PATTERN.test(value)
+  && !RESERVED_IDENTIFIERS.has(value);
+
+export const isValidPipelineDisplayName = (value: unknown): value is string =>
+  typeof value === "string"
+  && value.length > 0
+  && value.length <= MAX_DISPLAY_NAME_LENGTH
+  && value.trim().length > 0;
+
+type PipelineBoundFrame = { value: unknown; depth: number };
+
+/**
+ * Refuse structurally large definitions before semantic validation can walk, trim, clone or run a
+ * regular expression over them. Once this succeeds, the later validator only sees bounded arrays,
+ * strings, maps, depth and aggregate UTF-8 size.
+ */
+const pipelineBoundsError = (value: Record<string, unknown>): string | undefined => {
+  const rootCollections: Array<[string, unknown, number]> = [
+    ["agents", value.agents, MAX_PIPELINE_AGENTS],
+    ["roles", value.roles, MAX_PIPELINE_ROLES],
+    ["steps", value.steps, MAX_PIPELINE_STEPS],
+    ["resourceDependencies", value.resourceDependencies, MAX_PIPELINE_RESOURCE_DEPENDENCIES],
+  ];
+  for (const [path, collection, limit] of rootCollections) {
+    if (Array.isArray(collection) && collection.length > limit) {
+      return `${path} must declare at most ${String(limit)} items`;
+    }
+  }
+
+  const stack: PipelineBoundFrame[] = [{ value, depth: 0 }];
+  const seen = new Set<object>();
+  let bytes = 0;
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (!frame) break;
+    const candidate = frame.value;
+    if (typeof candidate === "string") {
+      if (candidate.length > MAX_PIPELINE_STRING_LENGTH) {
+        return `pipeline strings must be at most ${String(MAX_PIPELINE_STRING_LENGTH)} characters`;
+      }
+      bytes += Buffer.byteLength(JSON.stringify(candidate), "utf8");
+    } else if (candidate === null || typeof candidate === "boolean") {
+      bytes += candidate === null ? 4 : candidate ? 4 : 5;
+    } else if (typeof candidate === "number") {
+      const serialized = JSON.stringify(candidate);
+      bytes += serialized === undefined ? 4 : Buffer.byteLength(serialized, "utf8");
+    } else if (typeof candidate !== "object") {
+      bytes += 4;
+    } else {
+      if (seen.has(candidate)) return "pipeline must not contain cycles";
+      seen.add(candidate);
+      if (frame.depth >= MAX_PIPELINE_DEPTH) {
+        return `pipeline must be nested no deeper than ${String(MAX_PIPELINE_DEPTH)} levels`;
+      }
+      if (Array.isArray(candidate)) {
+        if (candidate.length > MAX_PIPELINE_COLLECTION_ITEMS) {
+          return `pipeline collections must contain at most ${String(MAX_PIPELINE_COLLECTION_ITEMS)} items`;
+        }
+        bytes += 2 + Math.max(0, candidate.length - 1);
+        for (let index = candidate.length - 1; index >= 0; index -= 1) {
+          stack.push({ value: candidate[index], depth: frame.depth + 1 });
+        }
+      } else {
+        const keys: string[] = [];
+        for (const key in candidate) {
+          if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
+          keys.push(key);
+          if (keys.length > MAX_PIPELINE_OBJECT_KEYS) {
+            return `pipeline maps must contain at most ${String(MAX_PIPELINE_OBJECT_KEYS)} keys`;
+          }
+        }
+        bytes += 2 + Math.max(0, keys.length - 1);
+        for (let index = keys.length - 1; index >= 0; index -= 1) {
+          const key = keys[index];
+          if (key === undefined) continue;
+          if (key.length > MAX_PIPELINE_STRING_LENGTH) {
+            return `pipeline keys must be at most ${String(MAX_PIPELINE_STRING_LENGTH)} characters`;
+          }
+          bytes += Buffer.byteLength(JSON.stringify(key), "utf8") + 1;
+          stack.push({ value: candidate[key], depth: frame.depth + 1 });
+        }
+      }
+    }
+    if (bytes > MAX_PIPELINE_SERIALIZED_BYTES) {
+      return `pipeline must serialize to at most ${String(MAX_PIPELINE_SERIALIZED_BYTES)} UTF-8 bytes`;
+    }
+  }
+  return undefined;
+};
 
 const validateDisplayName = (
   value: unknown,
   valuePath: string,
   errors: string[],
 ): value is string => {
-  if (!isNonEmptyString(value)) {
-    errors.push(`${valuePath} is required`);
-    return false;
-  }
-  if (value.length > MAX_DISPLAY_NAME_LENGTH) {
+  if (typeof value === "string" && value.length > MAX_DISPLAY_NAME_LENGTH) {
     errors.push(
       `${valuePath} must be at most ${String(MAX_DISPLAY_NAME_LENGTH)} characters`,
     );
+    return false;
+  }
+  if (!isNonEmptyString(value)) {
+    errors.push(`${valuePath} is required`);
     return false;
   }
   return true;
@@ -398,6 +500,10 @@ const validateIdentifier = (
   valuePath: string,
   errors: string[],
 ): value is string => {
+  if (typeof value === "string" && value.length > MAX_IDENTIFIER_LENGTH) {
+    errors.push(`${valuePath} must be at most ${String(MAX_IDENTIFIER_LENGTH)} characters`);
+    return false;
+  }
   if (!isNonEmptyString(value)) {
     errors.push(`${valuePath} is required`);
     return false;
@@ -406,10 +512,6 @@ const validateIdentifier = (
     errors.push(
       `${valuePath} must start with a letter or underscore and contain only letters, numbers, underscores, or hyphens`,
     );
-    return false;
-  }
-  if (value.length > MAX_IDENTIFIER_LENGTH) {
-    errors.push(`${valuePath} must be at most ${String(MAX_IDENTIFIER_LENGTH)} characters`);
     return false;
   }
   return true;
@@ -722,6 +824,11 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
 
   if (!isRecord(value)) {
     return { success: false, errors: ["Pipeline must be an object"] };
+  }
+
+  const boundsError = pipelineBoundsError(value);
+  if (boundsError !== undefined) {
+    return { success: false, errors: [boundsError] };
   }
 
   validateKnownKeys(value, ROOT_KEYS, "pipeline", errors);
