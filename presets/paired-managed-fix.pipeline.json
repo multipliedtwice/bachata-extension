@@ -3,7 +3,7 @@
   "id": "paired-managed-fix",
   "name": "Paired managed fix",
   "description": "Codex and Claude diagnose the defect independently and converge on one root cause, you choose the work to execute, and each selected item is implemented and reviewed by a pair inside its own isolated Git worktree. The controller runs the declared checks, keeps the retained work in a retained worktree, and lets you apply whole files or single hunks.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",

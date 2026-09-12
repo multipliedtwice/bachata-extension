@@ -394,13 +394,45 @@ type AgentAssignmentSlot = {
   assignedAdapter: string;
   browserSessionId?: string;
   overridden: boolean;
+  defaultModel?: string;
+  assignedModel?: string;
+};
+
+// What one provider answered when asked which models it accepts. "unsupported" means it cannot be
+// asked, not that it has none, so the reader keeps an explicit model field in that case.
+type AdapterModelCatalog = {
+  status: "listed" | "unsupported" | "unknown" | "discovering";
+  models: Array<{ id: string; label: string; isDefault?: boolean }>;
+  detail?: string;
 };
 
 type AgentAssignmentState = {
   slots: AgentAssignmentSlot[];
   assignableAdapters: string[];
+  availableAdapters: string[];
+  discovering: boolean;
+  adapterModels: Record<string, AdapterModelCatalog>;
   constraint?: string;
   lockReason?: string;
+};
+
+type LocalInterpreterState = {
+  enabled: boolean;
+  discovering: boolean;
+  status:
+    | "ready"
+    | "unverified"
+    | "serverUnavailable"
+    | "noSuitableModel"
+    | "configuredModelUnavailable"
+    | "disabled";
+  detail: string;
+  backend?: string;
+  backendLabel?: string;
+  endpoint?: string;
+  model?: string;
+  explicit: boolean;
+  availableModels: Array<{ id: string; backend: string; availability: string }>;
 };
 
 type PanelState = {
@@ -411,6 +443,7 @@ type PanelState = {
   pipelines: PipelineSummary[];
   selectedPipelineId?: string;
   selectedPipelineDefinition?: PipelineDefinition;
+  executionParticipants?: RunParticipant[];
   selectedPipelineHash?: string;
   readiness?: {
     status: "ready" | "blocked" | "needsSetup" | "unsupported";
@@ -423,15 +456,6 @@ type PanelState = {
     }>;
   };
   executionContract?: ExecutionContract;
-  contractAcknowledgement?: {
-    fingerprint: string;
-    open: boolean;
-    acknowledgementRequired: boolean;
-    diff: {
-      expanded: boolean;
-      changes: Array<{ label: string; from: string; to: string; expands: boolean }>;
-    };
-  };
   pipelineScopeKey: string;
   pipelineScopeRoot?: string;
   pipelineMutable: boolean;
@@ -446,6 +470,7 @@ type PanelState = {
   adapterTypes: string[];
   agents: Record<string, AgentPanelState>;
   agentAssignments: AgentAssignmentState;
+  localInterpreter: LocalInterpreterState;
   roles: Record<string, string>;
   running: boolean;
   workflowStatus: WorkflowStatus;
@@ -472,6 +497,8 @@ type RunParticipant = {
   name: string;
   adapter: string;
   model?: string;
+  agentId?: string;
+  provider?: string;
 };
 type ConversationSummary = {
   id: string;
@@ -497,12 +524,18 @@ type ConversationSummary = {
   orchestrationRunId?: string;
   orchestrationTaskId?: string;
 };
+type WorkflowAttemptStep = { id: string; name: string };
+type WorkflowAttempt = { pipelineHash: string; steps: WorkflowAttemptStep[] };
 type WorkflowEventSummary = {
   id: number;
   type: string;
   status?: string;
   title?: string;
   payload?: JsonValue;
+  /** The step this event belongs to, where it belongs to one. */
+  stepId?: string;
+  /** Present on the event that opened an attempt: the revision that attempt executed. */
+  attempt?: WorkflowAttempt;
   createdAt: string;
 };
 type InteractionSummary = {
@@ -600,14 +633,38 @@ type RunResultCenter = {
   }>;
   evidenceGaps: string[];
   finalAssessment?: {
-    outcome: "completed" | "verificationFailed" | "inconclusive" | "notApplicable";
+    outcome:
+      | "completed"
+      | "verificationFailed"
+      | "inconclusive"
+      | "failedBeforeRuling"
+      | "notApplicable";
     method: "consensus" | "arbiter" | "singleProvider" | "controller" | "none";
     summary: string;
-    producedBy: Array<{ name: string; adapter: string; model?: string }>;
+    producedBy: Array<{
+      name: string;
+      adapter: string;
+      model?: string;
+      agentId?: string;
+      provider?: string;
+    }>;
+    failure?: RunFailure;
   };
+  failure?: RunFailure;
   verificationProvenance?: { source: "run" | "recheck"; recordedAt: string };
   applyBlockedReason?: string;
   applyOverrideReason?: string;
+};
+// What ended a run that stopped before a ruling. Every field but the error is optional: a
+// run-scoped failure names no participant and no step, and stating an unknown would be worse.
+type RunFailure = {
+  error: string;
+  agentId?: string;
+  participant?: string;
+  adapter?: string;
+  provider?: string;
+  model?: string;
+  step?: string;
 };
 type RetainedTodoRunSummary = {
   runId: string;

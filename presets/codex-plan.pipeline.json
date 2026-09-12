@@ -3,7 +3,7 @@
   "id": "codex-plan",
   "name": "Plan with Codex",
   "description": "Read-only implementation plan produced by Codex alone. No second provider is required.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",

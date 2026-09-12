@@ -68,11 +68,14 @@ test("git remediation names the minimum version and rechecks only git", () => {
   assert.ok(plan.actions.some((action) => action.kind === "openExternal" && action.url === documentationUrls.git));
 });
 
-test("a dirty workspace remediation opens Source Control and rechecks the status only", () => {
+test("a dirty workspace remediation opens Source Control, offers the root, and rechecks the status only", () => {
   const plan = remediationPlan("doctor.run", { ...context, detail: "Workspace has uncommitted changes" });
   assert.equal(plan.condition, "Workspace has uncommitted changes");
+  // A checklist worktree is cut from the repository at the working directory, so the reader must
+  // be able to change which root that is. Neither action runs anything or touches the repository.
   assert.deepEqual(plan.actions, [
     { kind: "runCommand", label: "Open Source Control", command: "workbench.view.scm" },
+    { kind: "chooseWorkingDirectory", label: "Choose working directory" },
   ]);
   assert.equal(plan.recheck.kind, "gitStatus");
 });

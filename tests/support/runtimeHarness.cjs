@@ -68,9 +68,24 @@ const installHostDoubles = (options = {}) => {
   injectModule(checkCommandPath, {
     checkCommand: async (command, args, commandOptions) => {
       if (options.onCommandCheck) return options.onCommandCheck({ command, args, commandOptions });
+      // Git's default double answers a version this product drives and a clean tree. The runtime
+      // refuses a run whose readiness is blocked, so a double reporting Git 1.0.0 made every
+      // harness that did not care about Git fail on a Git requirement instead of on the thing it
+      // was written to check.
+      if (command === "git") return args[0] === "--version" ? "git version 2.43.0" : "";
       return `${command} mock-1.0.0`;
     },
   });
+
+  // Provider discovery reaches the command doubles through its own module, and a module that
+  // already loaded still holds the previous harness's doubles. Dropping it here is what makes each
+  // harness probe through its own `onCommandCheck` rather than the first harness's.
+  for (const providerModule of [
+    "../../dist/providers/providerDiscovery.js",
+    "../../dist/providers/providerRegistry.js",
+  ]) {
+    delete require.cache[require.resolve(providerModule)];
+  }
 
   const codexModulePath = require.resolve("../../dist/adapters/codexAppServer.js");
   delete require.cache[codexModulePath];
@@ -166,6 +181,17 @@ const installHostDoubles = (options = {}) => {
           interrupt: async () => {
             control.interruptCount += 1;
           },
+          // Only present when a test provides one, so the runtime's "this provider cannot be
+          // asked" path stays reachable exactly as it is for a provider with no listing method.
+          ...(options.onListModels
+            ? {
+                listModels: async () =>
+                  options.onListModels({
+                    agentId: definition.id,
+                    adapterType: definition.adapter,
+                  }),
+              }
+            : {}),
           resetSession: async () => {
             control.resetCount += 1;
             await options.onAdapterReset?.({
@@ -189,13 +215,27 @@ const installHostDoubles = (options = {}) => {
     }),
   });
 
+  // The local-model configuration the runtime hands the bridge is only ever sent over a socket, so
+  // the double keeps the accessor itself: a test can then ask what the bridge would be told.
+  const bridgeOptions = {};
   const bridgePath = require.resolve("../../dist/browser/bridgeServer.js");
   injectModule(bridgePath, {
-    createBrowserBridgeServer: ({ enabled, onStatusChange }) => {
+    createBrowserBridgeServer: (createOptions) => {
+      const { enabled, onStatusChange } = createOptions;
+      Object.assign(bridgeOptions, createOptions);
       const status = {
         enabled,
         connected: options.bridgeSessions !== undefined,
         sessions: options.bridgeSessions ?? [],
+        // A bridge that reports sessions reports which one is selected, the way the real one does.
+        // Readiness reads this, and a test that supplied a session but no selection described a
+        // bridge state the product cannot produce.
+        ...(options.bridgeSessions?.length
+          ? {
+              selectedSessionId:
+                options.bridgeSelectedSessionId ?? options.bridgeSessions[0].id,
+            }
+          : {}),
       };
       return {
         start: async () => {
@@ -408,6 +448,7 @@ const installHostDoubles = (options = {}) => {
     configuration,
     transcript,
     workspaceState,
+    bridgeOptions,
     workspaceDirectory,
     workspaceDirectories,
     storageDirectory,

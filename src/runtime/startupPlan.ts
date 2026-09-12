@@ -18,10 +18,17 @@ export type SelectedPipelinePlan =
 /**
  * Whether the persisted record carries work rather than only a preference.
  *
- * A record with a dirty task, attachments, a queue, a claimed queue start, a recoverable workflow
- * or managed checkpoints describes work in progress; one without any of them describes a selection
- * and nothing else. The difference decides whether a pipeline definition that changed underneath
- * the record is allowed to replace it.
+ * A record with a dirty task, a queue, a claimed queue start, a recoverable workflow or managed
+ * checkpoints describes work in progress; one without any of them describes a selection and some
+ * inputs. The difference decides whether a pipeline definition that changed underneath the record
+ * is allowed to replace it.
+ *
+ * Attachments are deliberately not on that list. An attachment on a draft nobody has run is an
+ * input to the next run, not a run that must keep the definition it started under — and counting it
+ * pinned an unexecuted draft to a stale built-in preset, so a reader who attached a screenshot kept
+ * being refused by a requirement the shipped preset no longer has. Every case where an attachment
+ * really does belong to a pinned execution is already named above: a queued message carries its
+ * attachment ids, and so does a recoverable workflow.
  */
 export const persistedHasDurableState = (
   persisted:
@@ -37,7 +44,6 @@ export const persistedHasDurableState = (
 ): boolean =>
   Boolean(
     persisted?.taskDirty ||
-      persisted?.attachments?.length ||
       persisted?.queuedMessages?.length ||
       persisted?.queueStart ||
       persisted?.resumableWorkflow ||

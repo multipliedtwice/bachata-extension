@@ -31,6 +31,24 @@ execution authority. All model transports reject redirects, including redirects 
 same host. Optional API key comes from the configured environment variable. Selector healing
 stays loopback-only.
 
+Discovery and the startup compatibility check are made under the same policy as interpretation
+itself: the same reach, the same bearer token from
+`bachata.browserSemanticInterpreterApiKeyEnvironment`, and the deadline from
+`bachata.browserSemanticInterpreterTimeoutMs`. A remote endpoint is therefore discovered and
+checked only where the opt-in is set, and it is never discovered anonymously or on selector
+healing's deadline. Selector healing keeps its own deadline
+(`bachata.browserSelectorHealingTimeoutMs`), sends no credential and stays loopback-only.
+
+Two consumers configured identically share one discovery and one compatibility verdict. Two that
+differ in endpoint, authentication, remote policy or deadline do not: neither reads the other's
+answer. No credential value is persisted, logged, rendered or used in any identity or cache key —
+only the name of the environment variable it came from.
+
+Changing `bachata.browserSemanticInterpreterAllowRemote`,
+`bachata.browserSemanticInterpreterApiKeyEnvironment`,
+`bachata.browserSemanticInterpreterTimeoutMs` or `bachata.browserSelectorHealingTimeoutMs`
+cancels work in flight, drops the affected verdict and runs the check again.
+
 Explicit `bachata-action` blocks remain the preferred deterministic format. During programmatic browser turns, the protocol prompt supplies a fresh `turnToken`; structured action blocks must echo that exact token or they are ignored as stale/unbound input.
 
 ## Selector healing is separate

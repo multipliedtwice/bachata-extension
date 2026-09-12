@@ -1,3 +1,5 @@
+import type { ProviderRegistry } from "../providers/providerRegistry";
+import type { LocalModelService } from "../providers/localModelService";
 import { readTimeoutSetting } from "../state/timeoutBounds";
 import { setOptionalProperty } from "../state/optionalProperty";
 import {
@@ -46,6 +48,7 @@ import {
   RuntimeInteractionResponse,
   RuntimeReadinessReport,
 } from "../runtime/createRuntime";
+import type { RunExecutionPlan } from "../runtime/pipelineRunPlan";
 import {
   ExecuteChecklistRequest,
   ExecuteChecklistResult,
@@ -276,7 +279,7 @@ import {
 } from "./longitudinalRound";
 import {
   EVENT_WINDOW_START,
-  catalogEventView,
+  catalogEventHistories,
   changedFilesFor,
   checksFor,
   finalRulingFor,
@@ -336,10 +339,12 @@ export type ConversationCreateOptions = {
 export const executionProvingEventTypes = new Set([
   "run.started",
   "run.resumed",
+  "run.restarted",
   "run.completed",
   "run.interrupted",
   "run.failed",
   "run.resume.failed",
+  "run.restart.failed",
   "iteration.started",
   "iteration.resumed",
   "iteration.failed",
@@ -381,6 +386,12 @@ export type ConversationRunOptions = {
   requiredCleanPasses?: number;
   composerAuthorized?: boolean;
   requirePipelineHash?: string;
+  /**
+   * Replay a recorded run from step one rather than start a new one. The first pass goes through
+   * the runtime's restart, which keeps the checkpoint until the replacement is durable; later
+   * passes are ordinary iterations of the same recorded snapshot.
+   */
+  restart?: boolean;
 };
 
 export type TodoOrchestrationControl = {
@@ -410,6 +421,12 @@ export type TodoOrchestrationControl = {
 
 export type ConversationManagerOptions = {
   focusInteraction?: (target: { conversationId: string; interactionRef: string }) => void;
+  // The host's shared provider discovery. Every conversation this manager opens reads the same
+  // records, so opening a second conversation never re-asks the machine what it already knows.
+  providerRegistry?: ProviderRegistry;
+  // The host's one answer about which local backend and model carry interpretation, shared so the
+  // extension and the bridge cannot choose differently.
+  localModelService?: LocalModelService;
   resourceBroker?: ResourceBroker;
   workspaceLease?: ResourceLease;
   withWorkspaceMutation?: WorkspaceMutationRunner;
@@ -486,6 +503,14 @@ export type ConversationManager = {
     options?: ConversationRunOptions,
   ) => Promise<ConversationExecutionResult>;
   interruptConversation: (conversationId: string) => Promise<void>;
+  /**
+   * Open working-directory selection for the active conversation.
+   *
+   * The Git audit refuses a run whose root is not a repository, and the repository is frequently a
+   * child of the folder that is open. Remediation therefore has to be able to reach this, without
+   * the audit itself being weakened.
+   */
+  chooseWorkingDirectory: () => Promise<void>;
   archiveConversation: (conversationId: string, archived: boolean) => Promise<void>;
   closeConversation: (conversationId: string) => Promise<void>;
   flush: () => Promise<void>;
@@ -2617,12 +2642,16 @@ export const createConversationManager = (
       const conversationId = conversationByRun.get(interaction.runRef);
       return conversationId ? [openInteractionView(interaction, conversationId)] : [];
     });
-    state.eventsByConversation = Object.fromEntries(
-      state.conversations.map((conversation) => [
-        conversation.id,
-        catalog.listEvents(conversation.runRef, 500).map(catalogEventView),
-      ]),
-    );
+    // One ceiling over the whole message rather than one per conversation: see
+    // `catalogEventHistories`. The active conversation is named so its ruling and its newest rows
+    // are what the shared budget is spent on first.
+    state.eventsByConversation = catalogEventHistories({
+      histories: state.conversations.map((conversation) => ({
+        conversationId: conversation.id,
+        events: catalog.listEvents(conversation.runRef, 500),
+      })),
+      activeConversationId: state.activeConversationId,
+    });
     // Skipped for a conversation with no run behind it; see `runWasExecuted`.
     const taskById = new Map(state.orchestration.tasks.map((task) => [task.id, task]));
     const retainedRunWorktree = state.orchestration.retainedRuns
@@ -2715,6 +2744,8 @@ export const createConversationManager = (
           name: participant.name,
           adapter: participant.adapter,
           ...(participant.model === undefined ? {} : { model: participant.model }),
+          ...(participant.agentId === undefined ? {} : { agentId: participant.agentId }),
+          ...(participant.provider === undefined ? {} : { provider: participant.provider }),
         })),
         findings,
         unresolvedRisks: [
@@ -3335,9 +3366,21 @@ export const createConversationManager = (
     return interaction;
   };
 
+  /**
+   * The providers a run is recorded against.
+   *
+   * The runtime publishes the participants it actually built, so a conversation that reassigned
+   * Builder to a CLI records that CLI. Reading `selectedPipelineDefinition` instead recorded the
+   * providers the saved pipeline shipped with — the very thing the reader changed — so a run that
+   * executed on Codex and Claude was filed under the browser defaults it never used. The saved
+   * pipeline is the fallback only for a build that publishes no execution participants at all.
+   */
   const runParticipants = (
     panel: PanelState,
   ): RunParticipant[] | undefined => {
+    if (panel.executionParticipants && panel.executionParticipants.length > 0) {
+      return panel.executionParticipants.map((participant) => ({ ...participant }));
+    }
     const agents = panel.selectedPipelineDefinition?.agents;
     if (!agents || agents.length === 0) {
       return undefined;
@@ -3345,9 +3388,22 @@ export const createConversationManager = (
     return agents.map((agent) => ({
       name: agent.name,
       adapter: agent.adapter,
+      agentId: agent.id,
       ...(agent.model ? { model: agent.model } : {}),
     }));
   };
+
+  /**
+   * Whether this conversation's recorded providers may still move.
+   *
+   * Only while nothing has run: no run in flight, an idle workflow, and no terminal result already
+   * filed. Once a run is accepted the providers it executes on are history, and history is not
+   * rewritten by a later change of mind.
+   */
+  const participantsAreOpen = (summary: ConversationSummary): boolean =>
+    !summary.running &&
+    summary.workflowStatus === "idle" &&
+    !terminalResults.has(summary.runRef);
 
   const updateSummaryFromRuntime = (
     conversationId: string,
@@ -3365,7 +3421,13 @@ export const createConversationManager = (
       setOptionalProperty(summary, "selectedPipelineHash", message.state.selectedPipelineHash);
       setOptionalProperty(summary, "pipelineScopeRoot", message.state.pipelineScopeRoot);
       setOptionalProperty(summary, "workingDirectory", message.state.workingDirectory);
-      summary.participants = runParticipants(message.state) ?? summary.participants;
+      // Provenance is captured while the run can still change and frozen once it is accepted.
+      // Reassignment is refused for exactly as long as a run is not idle, so the last idle
+      // reading is the assignment the run was accepted under; letting later snapshots overwrite it
+      // is what let a finished run's providers be rewritten by the next reassignment.
+      if (participantsAreOpen(summary)) {
+        summary.participants = runParticipants(message.state) ?? summary.participants;
+      }
       changed = true;
     } else if (message.type === "run.patch") {
       const wasPaused = summary.workflowStatus === "paused";
@@ -3472,11 +3534,19 @@ export const createConversationManager = (
     localModelConfig: () => {
       const current = vscode.workspace.getConfiguration("bachata");
       const endpoint = current.get<string>("browserSelectorHealingEndpoint", "").trim();
+      // The host's resolution is the authority whenever there is a host to ask. Falling back to the
+      // configured name when it resolved nothing was a way past the compatibility check: a model
+      // that had just failed the contract would still be sent to the bridge under its own name.
+      // No resolution means no model, and the bridge refuses — which is the intended answer.
+      const service = options.localModelService;
+      const resolved = service?.resolvedConfig("selectorHealing");
+      const configuredModel = current.get<string>("browserSelectorHealingModel", "").trim();
       return {
         enabled: current.get<boolean>("browserSelectorHealingEnabled", false),
-        backend: current.get<"auto" | "lmstudio" | "ollama">("browserSelectorHealingBackend", "auto"),
-        ...(endpoint ? { endpoint } : {}),
-        model: current.get<string>("browserSelectorHealingModel", "prism-ml/Bonsai-27B-mlx-1bit").trim() || "prism-ml/Bonsai-27B-mlx-1bit",
+        backend: resolved?.backend
+          ?? current.get<"auto" | "lmstudio" | "ollama">("browserSelectorHealingBackend", "auto"),
+        ...(resolved?.endpoint ? { endpoint: resolved.endpoint } : endpoint ? { endpoint } : {}),
+        model: service ? resolved?.model ?? "" : configuredModel,
         timeoutMs: Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => current.get(settingKey, settingFallback), "browserSelectorHealingTimeoutMs", 30_000)),
       };
     },
@@ -3947,7 +4017,14 @@ export const createConversationManager = (
         type: event.round === undefined ? "step.started" : "step.round.started",
         status: "running",
         title: event.step.name,
-        payload: event.round === undefined ? undefined : { round: event.round },
+        // The pipeline summary maps an event back to the step it belongs to. Matching on the
+        // title cannot do that: two steps may legitimately share a name, and a renamed step in a
+        // later catalog revision would silently re-point a recorded event.
+        payload: {
+          stepId: event.step.id,
+          index: event.index,
+          ...(event.round === undefined ? {} : { round: event.round }),
+        },
       });
       emitSnapshot();
     }
@@ -4073,6 +4150,12 @@ export const createConversationManager = (
       withPipelineCatalogMutation,
       onPipelineCatalogChanged: notifyPipelineCatalogChanged,
       bridge: sharedBridge,
+      ...(options.providerRegistry === undefined
+        ? {}
+        : { providerRegistry: options.providerRegistry }),
+      ...(options.localModelService === undefined
+        ? {}
+        : { localModelService: options.localModelService }),
       assertWritable: assertWorkspaceLease,
       withWorkspaceMutation,
       requestInteraction: (request) =>
@@ -4774,6 +4857,8 @@ export const createConversationManager = (
     iterationRef?: string | undefined;
     pairRef?: string | undefined;
     resume?: boolean | undefined;
+    /** Replay the recorded run from step one through the runtime's restart path. */
+    restart?: boolean | undefined;
     appendPrompt?: boolean | undefined;
     sourceQueueMessageId?: string | undefined;
     pipelineSnapshot?: PipelineSnapshot | undefined;
@@ -4781,6 +4866,8 @@ export const createConversationManager = (
     writeScope?: WorkspaceWriteScope | undefined;
     commitMode?: "never" | "allow" | undefined;
     trackWorkspaceChanges?: boolean | undefined;
+    /** The whole plan this run executes under, recorded with the checkpoint for a later restart. */
+    executionPlan?: RunExecutionPlan | undefined;
     onAccepted?: (() => Promise<void> | void) | undefined;
     onRuntimeAccepted?: (() => Promise<void> | void) | undefined;
   }): Promise<PipelineRunResult> => {
@@ -4850,6 +4937,10 @@ export const createConversationManager = (
         ? await input.slot.runtime.resumePipeline({
             ...(input.onRuntimeAccepted === undefined ? {} : { onAccepted: input.onRuntimeAccepted }),
           })
+        : input.restart
+        ? await input.slot.runtime.restartPipeline({
+            ...(input.onRuntimeAccepted === undefined ? {} : { onAccepted: input.onRuntimeAccepted }),
+          })
         : await input.slot.runtime.runPipeline(input.prompt, input.attachmentIds, {
             ...(input.onRuntimeAccepted === undefined ? {} : { onAccepted: input.onRuntimeAccepted }),
             ...(input.appendPrompt === undefined ? {} : { appendPrompt: input.appendPrompt }),
@@ -4870,6 +4961,7 @@ export const createConversationManager = (
             })(),
             ...(input.commitMode ? { commitMode: input.commitMode } : {}),
             ...(input.trackWorkspaceChanges ? { trackWorkspaceChanges: true } : {}),
+            ...(input.executionPlan === undefined ? {} : { executionPlan: input.executionPlan }),
           });
       if (result.status === "completed") {
         const nextWorkingDirectory = pendingWorkingDirectories.get(input.conversationId);
@@ -5050,6 +5142,14 @@ export const createConversationManager = (
       1,
       Math.min(10, options.requiredCleanPasses ?? 2),
     );
+    // The plan is recorded with the run, not re-derived when it is replayed: an until-clean run
+    // restarted under the fixed default would stop on a different rule than the one it failed on.
+    const executionPlan: RunExecutionPlan = {
+      iterationCount: requestedIterations,
+      iterationMode,
+      requiredCleanPasses,
+      ...(iterationMode === "untilClean" ? { trackWorkspaceChanges: true } : {}),
+    };
     const slot = await ensureRuntime(conversationId);
     let pipelineSnapshot = options.pipelineSnapshot ??
       runtimePipelineSnapshot(slot.runtime);
@@ -5061,6 +5161,9 @@ export const createConversationManager = (
       {
         requireCurrentCatalog,
         ...(options.composerAuthorized ? { composerAuthorized: true } : {}),
+        // A restart is preflighted as the replay it is. Asked as an ordinary run, the recovery
+        // checkpoint it exists to replace is what refuses it.
+        ...(options.restart ? { restart: true } : {}),
       },
     );
     if (
@@ -5129,13 +5232,25 @@ export const createConversationManager = (
       summary.updatedAt = new Date().toISOString();
       catalog.appendEvent({
         runRef: summary.runRef,
-        type: "run.started",
+        type: options.restart ? "run.restarted" : "run.started",
         status: "running",
         title: summary.title,
         payload: {
           iterations: requestedIterations,
           iterationMode,
           ...(iterationMode === "untilClean" ? { requiredCleanPasses } : {}),
+          // The revision this attempt executes, recorded with the attempt. The catalog may be
+          // edited before anyone reads the summary, and the reader is owed the steps that ran.
+          ...(pipelineSnapshot === undefined
+            ? {}
+            : {
+                pipeline: {
+                  hash: pipelineSnapshot.hash,
+                  steps: (pipelineSnapshot.definition.steps ?? [])
+                    .filter((step) => step.enabled !== false)
+                    .map((step) => ({ id: step.id, name: step.name })),
+                },
+              }),
         },
       });
       terminalResults.delete(summary.runRef);
@@ -5164,11 +5279,13 @@ export const createConversationManager = (
           ...(options.sourceQueueMessageId === undefined ? {} : { sourceQueueMessageId: options.sourceQueueMessageId }),
           pipelineSnapshot,
           requireCurrentCatalog: offset === 0 ? requireCurrentCatalog : false,
+          ...(options.restart && offset === 0 ? { restart: true } : {}),
           onAccepted: offset === 0 ? options.onAccepted : undefined,
           onRuntimeAccepted: offset === 0 ? options.onRuntimeAccepted : undefined,
           ...(options.writeScope === undefined ? {} : { writeScope: options.writeScope }),
           ...(options.commitMode === undefined ? {} : { commitMode: options.commitMode }),
           trackWorkspaceChanges: iterationMode === "untilClean",
+          executionPlan,
         });
         iterations.push(result);
         if (result.status !== "completed") break;
@@ -5194,7 +5311,7 @@ export const createConversationManager = (
       summary.updatedAt = new Date().toISOString();
       catalog.appendEvent({
         runRef: summary.runRef,
-        type: "run.failed",
+        type: options.restart ? "run.restart.failed" : "run.failed",
         status: "failed",
         title: summary.title,
         payload: { message: error instanceof Error ? error.message : String(error) },
@@ -5649,6 +5766,80 @@ export const createConversationManager = (
         });
       }
       return result;
+    } finally {
+      releaseRun();
+    }
+  };
+
+  /**
+   * Start the recorded run again from its first enabled step.
+   *
+   * What is replayed is the checkpoint's record, not the room's current state: its request, its
+   * attachments, and the exact pipeline revision it executed, so a catalog edit made since the
+   * failure cannot change what a restart runs. The prompt is not written to the chat again — it
+   * is already there, and a second copy reads as a second request.
+   *
+   * The checkpoint survives preflight. Only the runtime's restart replaces it, and only once its
+   * own record is durable, so a restart refused before anything started leaves the reader exactly
+   * the recovery they had.
+   */
+  const restartConversationOwned = async (
+    conversationId: string,
+  ): Promise<ConversationExecutionResult> => {
+    await ensureInitialized();
+    const summary = findSummary(conversationId);
+    if (summary.archived) {
+      throw new Error("Unarchive the run before restarting it");
+    }
+    const slot = await ensureRuntime(conversationId);
+    const recovery = slot.runtime.getState().resumableWorkflow;
+    const recordedSnapshot = slot.runtime.getRecoveryPipelineSnapshot?.();
+    if (!recovery || !recordedSnapshot) {
+      throw new Error("This run has no recorded workflow to restart");
+    }
+    // The recorded plan, not the defaults. Count, mode, clean-pass requirement, write scope, paths
+    // and commit mode all came from the request that started the run; a restart that supplied only
+    // the count would replay a different run under the same name.
+    const recordedPlan = slot.runtime.getRecoveryExecutionPlan?.();
+    const recordedConstraints = slot.runtime.getRecoveryRunConstraints?.() ?? {};
+    return await runConversationOwned(
+      conversationId,
+      recovery.userPrompt,
+      recovery.attachmentIds,
+      recordedPlan?.iterationCount ?? summary.iterationCount,
+      {
+        pipelineSnapshot: recordedSnapshot,
+        appendPrompt: false,
+        restart: true,
+        ...(recordedPlan === undefined
+          ? {}
+          : {
+              iterationMode: recordedPlan.iterationMode,
+              requiredCleanPasses: recordedPlan.requiredCleanPasses,
+            }),
+        ...(recordedConstraints.writeScope === undefined
+          ? {}
+          : { writeScope: recordedConstraints.writeScope }),
+        ...(recordedConstraints.commitMode === undefined
+          ? {}
+          : { commitMode: recordedConstraints.commitMode }),
+      },
+    );
+  };
+
+  const restartConversation = async (
+    conversationId: string,
+  ): Promise<ConversationExecutionResult> => {
+    await ensureInitialized();
+    if (conversationExecutionBusy(conversationId)) {
+      throw new Error("Conversation execution is already active");
+    }
+    const releaseRun = claimConversationRun(conversationId);
+    try {
+      const slot = await ensureRuntime(conversationId);
+      return await withExecutionLease(conversationId, slot, () =>
+        restartConversationOwned(conversationId)
+      );
     } finally {
       releaseRun();
     }
@@ -6945,7 +7136,8 @@ export const createConversationManager = (
       (message.message.type === "pipeline.run" && message.message.delivery !== "queue") ||
       message.message.type === "message.send" ||
       message.message.type === "availability.check" ||
-      message.message.type === "workflow.resume";
+      message.message.type === "workflow.resume" ||
+      message.message.type === "workflow.restart";
     try {
       if (message.message.type === "run.interrupt") {
         await interruptConversation(message.conversationId);
@@ -6991,6 +7183,10 @@ export const createConversationManager = (
       }
       if (message.message.type === "workflow.resume") {
         await resumeConversation(message.conversationId);
+        return;
+      }
+      if (message.message.type === "workflow.restart") {
+        await restartConversation(message.conversationId);
         return;
       }
       const slot = await ensureRuntime(message.conversationId);
@@ -7163,6 +7359,14 @@ export const createConversationManager = (
     configurePipelineSnapshot: configureConversationPipelineSnapshot,
     runConversation,
     interruptConversation,
+    // Deliberately outside the manager mutation queue. Remediation is reached from inside a
+    // queued message, so enqueuing here would wait on the very operation that called it. The
+    // runtime serialises `workingDirectory.pick` on its own queue, which is the lock that matters.
+    chooseWorkingDirectory: async () => {
+      await ensureInitialized();
+      const slot = await ensureRuntime(state.activeConversationId);
+      await slot.runtime.handleMessage({ type: "workingDirectory.pick" });
+    },
     archiveConversation: (conversationId, archived) =>
       enqueueMutation(() => archiveConversation(conversationId, archived)),
     closeConversation: (conversationId) =>

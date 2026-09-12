@@ -142,7 +142,7 @@ const lmStudio = async (
   prompt: string,
   config: LocalModelConfig,
   signal?: AbortSignal,
-): Promise<string> => {
+): Promise<LocalModelAnswer> => {
   const endpoint = (config.endpoint ?? "http://127.0.0.1:1234").replace(/\/+$/, "");
   let model = config.model;
   if (!model) {
@@ -181,14 +181,17 @@ const lmStudio = async (
   if (typeof message?.content !== "string") {
     throw new Error("LM Studio returned no message content");
   }
-  return message.content;
+  return {
+    text: message.content,
+    ...(typeof response.model === "string" ? { model: response.model } : {}),
+  };
 };
 
 const ollama = async (
   prompt: string,
   config: LocalModelConfig,
   signal?: AbortSignal,
-): Promise<string> => {
+): Promise<LocalModelAnswer> => {
   const endpoint = (config.endpoint ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
   let model = config.model;
   if (!model) {
@@ -226,14 +229,27 @@ const ollama = async (
   if (typeof message?.content !== "string") {
     throw new Error("Ollama returned no message content");
   }
-  return message.content;
+  return {
+    text: message.content,
+    ...(typeof response.model === "string" ? { model: response.model } : {}),
+  };
 };
 
-export const runLocalModel = async (
+/**
+ * One local model's answer, and which model the server says produced it.
+ *
+ * The identity matters for the compatibility gate: an OpenAI-compatible server asked for one model
+ * may answer with whichever model it currently has loaded, and a verdict recorded against the name
+ * that was requested would then vouch for a model nobody checked. Servers that do not report it
+ * leave it absent rather than having a name invented for them.
+ */
+export type LocalModelAnswer = { text: string; model?: string | undefined };
+
+export const runLocalModelAnswer = async (
   prompt: string,
   config: LocalModelConfig = {},
   signal?: AbortSignal,
-): Promise<string> => {
+): Promise<LocalModelAnswer> => {
   if (signal?.aborted) throw new Error("Local model request interrupted");
   const explicitEndpoint = config.endpoint?.trim();
   if (explicitEndpoint) {
@@ -268,3 +284,10 @@ export const runLocalModel = async (
     signal?.removeEventListener("abort", abort);
   }
 };
+
+/** The same request where only the text is wanted. */
+export const runLocalModel = async (
+  prompt: string,
+  config: LocalModelConfig = {},
+  signal?: AbortSignal,
+): Promise<string> => (await runLocalModelAnswer(prompt, config, signal)).text;

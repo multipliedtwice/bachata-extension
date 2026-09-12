@@ -21,10 +21,24 @@ class FakeElement {
     this.clientHeight = 0;
     this.parentElement = null;
     this.attributes = new Map();
+    // Custom properties only: this DOM does no layout, and code that places a floating menu writes
+    // its measurements here. Reading one back says what was written, never what was rendered.
+    this.style = {
+      values: new Map(),
+      setProperty(name, value) { this.values.set(name, String(value)); },
+      getPropertyValue(name) { return this.values.get(name) ?? ""; },
+      removeProperty(name) { this.values.delete(name); },
+    };
   }
 
   focus() {
+    if (document.activeElement === this) {
+      return;
+    }
     document.activeElement = this;
+    // Focus moving is what dismisses a popover, so the fake document delivers focusin the way the
+    // webview receives it. Without it a test cannot see a popover close behind restored focus.
+    document.root.dispatch("focusin", { target: this });
   }
 
   click() {
@@ -38,8 +52,13 @@ class FakeElement {
   }
 
   closest(selector) {
-    if (selector === "[data-action]") {
-      return this.dataset.action ? this : null;
+    const parts = selector.split(",");
+    let current = this;
+    while (current) {
+      if (parts.some((part) => matchesSelector(current, part))) {
+        return current;
+      }
+      current = current.parentElement;
     }
     return null;
   }
@@ -77,6 +96,13 @@ class FakeElement {
   }
 
   scrollIntoView() {}
+
+  // Enough of a box for code that positions a floating menu against the viewport. This DOM does no
+  // layout, so every rect is empty: what a test may assert here is that the positioning ran, never
+  // where it landed. Widths are proven in `npm run test:webview-layout`, in a real browser.
+  getBoundingClientRect() {
+    return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+  }
 }
 
 class FakeHTMLElement extends FakeElement {}
@@ -163,9 +189,19 @@ class FakeRoot extends FakeHTMLElement {
     this._innerHTML = value;
     this.elements = [];
     document.elements = new Map([["root", this]]);
-    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|h1|h2|h3)\b([^>]*)>/g;
+    // Open and close tags both, so an element knows what contains it. `closest` walks that chain,
+    // and a popover is identified by the container it sits in rather than by its own class.
+    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|h1|h2|h3)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|h1|h2|h3)>/g;
+    const open = [];
     for (const match of value.matchAll(expression)) {
+      if (match[3] !== undefined) {
+        if (open.at(-1)?.tagName === match[3].toUpperCase()) open.pop();
+        continue;
+      }
       const element = elementForTag(match[1]);
+      element.parentElement = open.at(-1) ?? this;
+      // `input` closes itself, so it never becomes the parent of what follows it.
+      if (match[1] !== "input") open.push(element);
       const attributes = match[2];
       for (const attribute of attributes.matchAll(/([a-zA-Z_:][\w:.-]*)(?:="([^"]*)")?/g)) {
         const name = attribute[1];
@@ -520,6 +556,9 @@ const assignmentStateFor = (definition, adapterTypes) => ({
     overridden: false,
   })),
   assignableAdapters: adapterTypes,
+  // The host reports what it finished discovering; a fixture stands for a settled discovery pass.
+  availableAdapters: adapterTypes,
+  discovering: false,
 });
 
 const panelState = (overrides = {}) => ({
@@ -571,6 +610,14 @@ const panelState = (overrides = {}) => ({
   browserBridge: { enabled: true, connected: false, sessions: [] },
   queuedMessages: [],
   queuePaused: false,
+  localInterpreter: {
+    enabled: false,
+    discovering: false,
+    status: "disabled",
+    detail: "Local interpretation is off. Deterministic extraction runs on its own.",
+    explicit: false,
+    availableModels: [],
+  },
   agentAssignments: assignmentStateFor(
     overrides.selectedPipelineDefinition ?? pipelineDefinition(),
     overrides.adapterTypes ?? ["codex-app-server"],
@@ -834,6 +881,30 @@ test("new pipeline cannot delete the selected custom pipeline", () => {
     assert.equal(request.message.pipelineId, "custom-a");
     assert.equal(request.message.scopeKey, "workspace:/workspace");
     assert.equal(request.message.expectedHash, customAHash);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Edit is reachable again through Settings after a save closed the panel behind the editor", () => {
+  const harness = bootWebview();
+  try {
+    openComposerSettings(harness);
+    harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
+    assert.match(harness.document.root.innerHTML, /Pipeline editor/);
+    // Saving is a click inside the editor, which is a click outside the settings panel, so the
+    // panel that offered Edit is dismissed behind the modal.
+    harness.document.root.querySelector('[data-action="pipeline-save"]').click();
+    assert.equal(harness.document.getElementById("composer-settings"), null, "the settings panel survived the editor");
+    assert.equal(harness.document.root.querySelector('[data-action="pipeline-edit"]'), null, "Edit was offered with the panel closed");
+    // The visible route back: open Settings again, and Edit reopens the same saved pipeline.
+    openComposerSettings(harness);
+    const edit = harness.document.root.querySelector('[data-action="pipeline-edit"]');
+    assert.ok(edit, "Settings did not offer Edit again");
+    assert.equal(edit.disabled, false, "Edit came back disabled");
+    edit.click();
+    assert.match(harness.document.root.innerHTML, /Pipeline editor/);
+    assert.equal(harness.document.root.querySelector('[data-editor-meta="id"]').value, "custom-a");
   } finally {
     harness.restore();
   }
@@ -1244,6 +1315,8 @@ test("browser conversation binding lives inside the Agents popover", () => {
           overridden: false,
         }],
         assignableAdapters: ["chatgpt-browser", "codex-app-server", "claude-code"],
+        availableAdapters: ["chatgpt-browser", "codex-app-server", "claude-code"],
+        discovering: false,
       },
       browserBridge: {
         enabled: true,
@@ -1343,8 +1416,9 @@ test("Agents popover reassigns a browser slot to a local CLI", () => {
   }
 });
 
-const assignmentPanel = (overrides = {}) =>
+const assignmentPanel = (overrides = {}, panelOverrides = {}) =>
   panelState({
+    ...panelOverrides,
     adapterTypes: ["chatgpt-browser", "codex-app-server", "claude-code"],
     selectedPipelineId: "browser-pipeline",
     selectedPipelineDefinition: {
@@ -1374,9 +1448,174 @@ const assignmentPanel = (overrides = {}) =>
         overridden: false,
       }],
       assignableAdapters: ["chatgpt-browser", "codex-app-server", "claude-code"],
+      availableAdapters: ["chatgpt-browser", "codex-app-server", "claude-code"],
+      discovering: false,
+      adapterModels: {},
       ...overrides,
     },
   });
+
+// The same popover with the Builder slot moved to a CLI, which is where a model can be chosen.
+const cliAssignmentPanel = (assignmentOverrides = {}, slotOverrides = {}) => {
+  const panel = assignmentPanel(assignmentOverrides);
+  panel.agents.builder.adapterType = "codex-app-server";
+  panel.agentAssignments.slots = [{
+    agentId: "builder",
+    responsibility: "Builder",
+    roleId: "builder",
+    defaultAdapter: "chatgpt-browser",
+    assignedAdapter: "codex-app-server",
+    overridden: true,
+    ...slotOverrides,
+  }];
+  return panel;
+};
+
+const modelRadios = (harness) =>
+  Array.from(harness.document.root.querySelectorAll('[role="radio"]'))
+    .filter((radio) => (radio.getAttribute("id") ?? "").startsWith("agents-model-"));
+
+test("a CLI slot offers keyboard-reachable model choices that assign only on activation", () => {
+  const harness = bootWebview(
+    managerState(),
+    cliAssignmentPanel({
+      adapterModels: {
+        "codex-app-server": {
+          status: "listed",
+          models: [
+            { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", isDefault: true },
+            { id: "gpt-5.5", label: "GPT-5.5" },
+          ],
+        },
+      },
+    }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const radios = modelRadios(harness);
+    assert.equal(radios.length, 3, "provider default plus every model the provider reported");
+    // One tab stop, arrow keys inside it: the same contract the provider choices keep.
+    const tabbable = radios.filter((radio) => radio.getAttribute("tabindex") === "0");
+    assert.equal(tabbable.length, 1);
+    assert.equal(tabbable[0].getAttribute("aria-checked"), "true");
+    assert.equal(
+      tabbable[0].getAttribute("id"),
+      "agents-model-builder-default",
+      "with no model chosen the provider's own default carries the tab stop",
+    );
+
+    const before = harness.messages.length;
+    for (const key of ["ArrowDown", "ArrowUp", "Home", "End"]) {
+      harness.document.root.dispatch("keydown", {
+        key,
+        target: radios[0],
+        preventDefault: () => undefined,
+      });
+    }
+    assert.equal(harness.messages.length, before, "moving focus must not change the model");
+
+    harness.document.root
+      .querySelector('[data-action="agents-model"][data-agent="builder"][data-model="gpt-5.5"]')
+      .click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "agents.model.select", agentId: "builder", model: "gpt-5.5" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("choosing the provider default clears the reader's model rather than substituting one", () => {
+  const harness = bootWebview(
+    managerState(),
+    cliAssignmentPanel(
+      {
+        adapterModels: {
+          "codex-app-server": { status: "listed", models: [{ id: "gpt-5.5", label: "GPT-5.5" }] },
+        },
+      },
+      { assignedModel: "gpt-5.5" },
+    ),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    harness.document.getElementById("agents-model-builder-default").click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "agents.model.select", agentId: "builder" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a provider that cannot list models keeps an explicit field rather than an empty catalog", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(
+      harness.document.root.innerHTML,
+      /has not been asked which models it accepts/u,
+      "not asked is stated as not asked, never as offering nothing",
+    );
+    assert.ok(harness.document.root.querySelector('[data-action="agents-model-discover"]'));
+    const input = harness.document.getElementById("agents-model-input-builder");
+    assert.ok(input, "an explicit model field stays usable");
+    input.value = "gpt-6-astra";
+    harness.document.root.dispatch("input", { target: input });
+    harness.document.root
+      .querySelector('[data-action="agents-model-apply"][data-agent="builder"]')
+      .click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "agents.model.select", agentId: "builder", model: "gpt-6-astra" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a chosen model the provider no longer lists stays visible instead of being dropped", () => {
+  const harness = bootWebview(
+    managerState(),
+    cliAssignmentPanel(
+      {
+        adapterModels: {
+          "codex-app-server": { status: "listed", models: [{ id: "gpt-5.5", label: "GPT-5.5" }] },
+        },
+      },
+      { assignedModel: "gpt-6-astra" },
+    ),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const chosen = harness.document.getElementById("agents-model-builder-chosen");
+    assert.ok(chosen, "the reader's own choice is never silently removed");
+    assert.equal(chosen.getAttribute("aria-checked"), "true");
+    assert.match(harness.document.root.innerHTML, /gpt-6-astra/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a browser slot states that the model is the website's and unreported", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /selected in the browser · unreported/u);
+    assert.equal(
+      modelRadios(harness).length,
+      0,
+      "a model cannot be chosen for a conversation the website owns",
+    );
+  } finally {
+    harness.restore();
+  }
+});
 
 test("a slot's provider choices are one tab stop with the assigned choice checked", () => {
   const harness = bootWebview(managerState(), assignmentPanel());
@@ -1461,6 +1700,194 @@ test("a responsibility that changes hands is explained rather than offered as on
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
     assert.match(harness.document.root.innerHTML, /changes hands between steps/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a provider still being discovered is pending, never missing", () => {
+  const harness = bootWebview(
+    managerState(),
+    assignmentPanel({ availableAdapters: [], discovering: true }),
+  );
+  try {
+    // The trigger says a pass is running rather than implying nothing is installed.
+    const trigger = harness.document.getElementById("agents-picker-button");
+    assert.match(trigger.getAttribute("aria-label"), /Discovering agents/u);
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /Discovering agents on this machine…/u);
+    // A CLI nobody has finished checking is offered and marked pending, not struck out as absent.
+    assert.match(harness.document.root.innerHTML, /Codex CLI · checking…/u);
+    assert.doesNotMatch(harness.document.root.innerHTML, /was not found on this machine/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a provider discovery finished and did not find is named as not found", () => {
+  const harness = bootWebview(
+    managerState(),
+    assignmentPanel({ availableAdapters: ["chatgpt-browser"], discovering: false }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.doesNotMatch(harness.document.root.innerHTML, /checking…/u);
+    assert.match(harness.document.root.innerHTML, /Codex CLI was not found on this machine/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+const localInterpreterPanel = (local) =>
+  assignmentPanel({}, {
+    localInterpreter: {
+      enabled: true,
+      discovering: false,
+      explicit: false,
+      availableModels: [],
+      ...local,
+    },
+  });
+
+test("a ready local interpreter names its backend, model and who chose it", () => {
+  const harness = bootWebview(managerState(), localInterpreterPanel({
+    status: "ready",
+    detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
+    backend: "ollama",
+    backendLabel: "Ollama",
+    endpoint: "http://127.0.0.1:11434",
+    model: "qwen2.5-coder:7b",
+    availableModels: [
+      { id: "qwen2.5-coder:7b", backend: "ollama", availability: "loaded" },
+      { id: "deepseek-r1:8b", backend: "ollama", availability: "installed" },
+    ],
+  }));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /Local interpreter/u);
+    assert.match(harness.document.root.innerHTML, /Ollama/u);
+    assert.match(harness.document.root.innerHTML, /qwen2\.5-coder:7b/u);
+    // Both a model list and an explicit automatic choice are offered.
+    assert.match(harness.document.root.innerHTML, /Choose automatically/u);
+    const override = harness.document.root.querySelector('[data-action="local-model-select"][data-model="deepseek-r1:8b"]');
+    assert.ok(override);
+    override.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "localModel.select", model: "deepseek-r1:8b" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("choosing automatic selection clears the pinned model", () => {
+  const harness = bootWebview(managerState(), localInterpreterPanel({
+    status: "ready",
+    detail: "deepseek-r1:8b on http://127.0.0.1:11434",
+    backend: "ollama",
+    backendLabel: "Ollama",
+    model: "deepseek-r1:8b",
+    explicit: true,
+    availableModels: [{ id: "deepseek-r1:8b", backend: "ollama", availability: "loaded" }],
+  }));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /your choice/u);
+    const automatic = harness.document.root.querySelectorAll('[data-action="local-model-select"]')[0];
+    automatic.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "localModel.select" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("each local interpreter failure is reported as its own distinct problem", () => {
+  const cases = [
+    ["serverUnavailable", "No local inference server answered. Start Ollama or LM Studio", /No local inference server answered/u],
+    ["noSuitableModel", "No suitable model is available. A local server is running but has no models installed", /No suitable model is available/u],
+    ["configuredModelUnavailable", "The model you selected is not available: gone-model", /model you selected is not available/u],
+  ];
+  for (const [status, detail, pattern] of cases) {
+    const harness = bootWebview(managerState(), localInterpreterPanel({ status, detail }));
+    try {
+      harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+      assert.match(harness.document.root.innerHTML, pattern);
+      // A blocked interpreter never reads as "ready" and never names a model it does not have.
+      assert.doesNotMatch(harness.document.root.innerHTML, /Local interpreter<\/strong><small>your choice/u);
+    } finally {
+      harness.restore();
+    }
+  }
+});
+
+test("an unverified model is offered as pending, not claimed ready", () => {
+  const harness = bootWebview(managerState(), localInterpreterPanel({
+    status: "unverified",
+    detail: "llama3.2:3b on http://127.0.0.1:11434 — not yet checked against the interpreter contract",
+    backend: "ollama",
+    backendLabel: "Ollama",
+    model: "llama3.2:3b",
+  }));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /not yet checked against the interpreter contract/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a locked run cannot change the model the bridge is already healing with", () => {
+  const harness = bootWebview(managerState(), assignmentPanel(
+    { lockReason: "Assignments are locked while this run is in flight." },
+    {
+      running: true,
+      localInterpreter: {
+        enabled: true,
+        discovering: false,
+        status: "ready",
+        detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
+        backend: "ollama",
+        backendLabel: "Ollama",
+        model: "qwen2.5-coder:7b",
+        explicit: false,
+        availableModels: [{ id: "qwen2.5-coder:7b", backend: "ollama", availability: "loaded" }],
+      },
+    },
+  ));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const choices = Array.from(harness.document.root.querySelectorAll('[data-action="local-model-select"]'));
+    assert.ok(choices.length > 0);
+    assert.equal(choices.every((choice) => choice.disabled === true), true);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a blocked interpreter is labelled unavailable rather than automatic", () => {
+  const harness = bootWebview(managerState(), localInterpreterPanel({
+    status: "serverUnavailable",
+    detail: "No local inference server answered.",
+  }));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(harness.document.root.innerHTML, /<strong>Local interpreter<\/strong><small>unavailable<\/small>/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("local interpretation that is off is not drawn at all", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.doesNotMatch(harness.document.root.innerHTML, /Local interpreter/u);
   } finally {
     harness.restore();
   }
@@ -1821,6 +2248,52 @@ test("the pipeline picker is a keyboard combobox that selects a pipeline", () =>
     harness.restore();
   }
 });
+
+for (
+  const popover of [
+    {
+      name: "pipeline",
+      toggle: '[data-action="pipeline-picker-toggle"]',
+      button: "pipeline-picker-button",
+      drawn: '[data-action="pipeline-picker-select"]',
+    },
+    {
+      name: "agents",
+      toggle: '[data-action="agents-picker-toggle"]',
+      button: "agents-picker-button",
+      drawn: '[data-action="agents-assign"]',
+    },
+  ]
+) {
+  test(`the ${popover.name} popover survives the render that opens it, with focus elsewhere`, () => {
+    const harness = bootWebview();
+    try {
+      // Focus is on another control when the popover is opened — the run drawer's own trigger,
+      // where closing the drawer leaves it. The render that draws the popover replaces the tree,
+      // and restoring focus to that control is focus leaving the popover, which dismisses it in
+      // the frame it opened.
+      const elsewhere = harness.document.root.querySelector('[data-action="run-drawer-toggle"]');
+      elsewhere.focus();
+      const toggle = harness.document.root.querySelector(popover.toggle);
+      harness.document.root.dispatch("click", {
+        target: toggle,
+        preventDefault: () => undefined,
+        stopPropagation: () => undefined,
+      });
+      assert.ok(
+        harness.document.root.querySelector(popover.drawn),
+        `the ${popover.name} popover closed behind the focus the render restored`,
+      );
+      assert.equal(
+        harness.document.activeElement.id,
+        popover.button,
+        `the ${popover.name} popover left focus outside itself`,
+      );
+    } finally {
+      harness.restore();
+    }
+  });
+}
 
 test("Escape closes the pipeline picker and restores focus to its button", () => {
   const harness = bootWebview();
@@ -2461,6 +2934,77 @@ test("the result center states evidence as recorded, not applicable, or expected
       type: "conversation.publishFindings",
       conversationId: "run-1",
     });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a run that died before a ruling names the failure and is never drawn as inconclusive", () => {
+  const harness = bootWebview();
+  try {
+    harness.sendWindowMessage({
+      type: "manager.snapshot",
+      state: managerState({
+        resultsByConversation: {
+          "run-1": {
+            status: "error",
+            changedFiles: [],
+            checks: [],
+            // The providers this run was reassigned to, not the browser defaults it shipped with.
+            providers: [
+              { agentId: "builder", name: "Builder", adapter: "claude-code" },
+              { agentId: "lead", name: "Lead", adapter: "codex-app-server", model: "gpt-6-astra" },
+            ],
+            findings: [],
+            unresolvedRisks: [],
+            recoveredErrors: [],
+            expectations: { changedFiles: false, verification: false, finalRuling: true },
+            evidence: [],
+            evidenceGaps: [],
+            failure: {
+              error: 'Codex at /Users/reader/.local/bin/codex (0.146.0) does not offer the selected model "gpt-6-astra".',
+              agentId: "lead",
+              participant: "Lead",
+              adapter: "codex-app-server",
+              model: "gpt-6-astra",
+              step: "Cross-check",
+            },
+            finalAssessment: {
+              outcome: "failedBeforeRuling",
+              method: "none",
+              summary: "Failed before final ruling: Lead (codex-app-server · gpt-6-astra) at step Cross-check — Codex rejected the model",
+              producedBy: [
+                { agentId: "builder", name: "Builder", adapter: "claude-code" },
+                { agentId: "lead", name: "Lead", adapter: "codex-app-server", model: "gpt-6-astra" },
+              ],
+              failure: {
+                error: 'Codex at /Users/reader/.local/bin/codex (0.146.0) does not offer the selected model "gpt-6-astra".',
+                agentId: "lead",
+                participant: "Lead",
+                adapter: "codex-app-server",
+                model: "gpt-6-astra",
+                step: "Cross-check",
+              },
+            },
+          },
+        },
+      }),
+    });
+
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /Failed before final ruling/u);
+    assert.doesNotMatch(html, /Inconclusive/u, "a failed run is never dressed as an assessment");
+    // The exact participant, provider, model, step and provider error.
+    assert.match(html, /data-run-failure="true"/u);
+    assert.match(html, /Lead/u);
+    assert.match(html, /codex-app-server/u);
+    assert.match(html, /gpt-6-astra/u);
+    assert.match(html, /Cross-check/u);
+    assert.match(html, /does not offer the selected model/u);
+    // The providers that actually ran, never the browser defaults the pipeline shipped with.
+    assert.match(html, /claude-code/u);
+    assert.doesNotMatch(html, /chatgpt-browser|claude-browser/u);
   } finally {
     harness.restore();
   }
@@ -3277,16 +3821,10 @@ test("Ctrl+Enter cannot bypass the send blockers the button enforces", () => {
   }
 });
 
-test("an unacknowledged contract cannot be submitted from the keyboard either", () => {
-  const unacknowledged = panelState({
-    contractAcknowledgement: {
-      fingerprint: "abc",
-      acknowledgementRequired: true,
-      open: true,
-      diff: { changes: [], expanded: false },
-    },
-  });
-  const harness = bootWebview(managerState(), unacknowledged);
+test("a keyboard submit starts a run with no contract to acknowledge", () => {
+  // The composer used to refuse Ctrl/Cmd+Enter until the execution contract was acknowledged.
+  // Reading the run details is evidence, never a gate, so the ordinary path is: type, then send.
+  const harness = bootWebview(managerState(), panelState());
   try {
     const prompt = harness.document.getElementById("composer-prompt");
     prompt.value = "Fix the retry";
@@ -3300,9 +3838,12 @@ test("an unacknowledged contract cannot be submitted from the keyboard either", 
     });
     assert.equal(
       harness.messages.some((message) => message.message?.type === "pipeline.run"),
-      false,
-      "a keyboard submit started a run with an unacknowledged execution contract",
+      true,
+      "a keyboard submit did not start the run",
     );
+    // And no acknowledgement control is drawn anywhere.
+    assert.equal(harness.document.root.querySelector('[data-action="contract-acknowledge"]'), null);
+    assert.doesNotMatch(harness.document.root.innerHTML, /Acknowledge contract/u);
   } finally {
     harness.restore();
   }
@@ -4055,7 +4596,10 @@ test("the execution view states where provider history lives and whether it can 
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
     const html = harness.document.root.innerHTML;
-    assert.ok(html.includes("provider history live?"));
+    // Provenance is kept, and kept behind an information disclosure: it is background, and the
+    // execution view opens on the run's own state rather than on where a provider files history.
+    assert.ok(html.includes("Where this run's provider history lives"));
+    assert.ok(html.includes("info-disclosure provider-history"));
     assert.ok(html.includes("history reconstructable"));
     assert.ok(html.includes("history unavailable"));
     assert.ok(html.includes("It never stores a full provider transcript"));
@@ -4940,10 +5484,11 @@ test("a room that has never run keeps its advanced evidence closed and says each
     if (contract) {
       assert.equal(contract.getAttribute("open"), null, "the run contract opened before anything ran");
     }
-    // One acknowledgement control in the composer, not one in the contract and one beside Send.
-    assert.ok(
-      harness.document.root.querySelectorAll('[data-action="contract-acknowledge"]').length <= 1,
-      "the acknowledgement is asked for twice inside one composer",
+    // Acknowledgement is gone entirely: run details are evidence a reader may open, never a gate.
+    assert.equal(
+      harness.document.root.querySelectorAll('[data-action="contract-acknowledge"]').length,
+      0,
+      "an acknowledgement control is still drawn",
     );
     assert.doesNotMatch(html, /Acknowledgement required/u);
     // Nothing that is drawn at zero width may be reached by a keyboard outside the composer.
@@ -5863,6 +6408,31 @@ const openRunMenu = (harness) => {
   return menu;
 };
 
+test("a render landing between the press and the browser's toggle keeps the menu open", () => {
+  // `toggle` is dispatched asynchronously, so a render scheduled in the same frame rebuilds the
+  // panel from the recorded disclosure state. Recording only on `toggle` meant that state still
+  // said closed, and the menu the reader had just opened was drawn shut — intermittently, because
+  // it only happens when a render lands in that window.
+  const harness = bootWebview();
+  try {
+    const root = harness.document.root;
+    const menu = root.querySelector(".run-action-menu");
+    assert.ok(menu, "the run tab has no action menu to press");
+    const summary = root.querySelectorAll("summary").find((candidate) => candidate.parentElement === menu);
+    assert.ok(summary, "the action menu has no summary to press");
+    summary.click();
+    // The render the reader never asked for: a snapshot arriving from the host.
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState() });
+    assert.equal(
+      root.querySelector(".run-action-menu").open,
+      true,
+      "a redraw between the press and the toggle closed the menu the reader had just opened",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
 test("choosing an action from a run menu dismisses that menu", () => {
   const harness = bootWebview();
   try {
@@ -6070,6 +6640,742 @@ test("a read-only window offers the pairing token as readable, never as an actio
         `${action} stayed live in a read-only window`,
       );
     }
+  } finally {
+    harness.restore();
+  }
+});
+
+test("run details still describe permissions and human decisions, and gate nothing", () => {
+  // Removing the acknowledgement must not remove the evidence. The contract is still published and
+  // still readable from the composer's settings; it simply no longer holds the run.
+  const harness = bootWebview(managerState(), panelState({
+    executionContract: {
+      pipelineName: "Builder + lead + QA + UX",
+      safetyLevel: "guarded",
+      commitPolicy: "never",
+      scope: {
+        workingDirectory: "/workspace",
+        writeScope: "task",
+        writablePaths: ["src"],
+        readablePaths: ["."],
+        protectedPaths: [".git"],
+      },
+      providers: [{ agentId: "codex", name: "Codex", adapter: "codex-app-server", status: "ready", roles: ["Builder"] }],
+      humanGates: [{ stepName: "Final specialist consensus", gate: "after" }],
+      roles: [],
+      verification: [],
+      verificationResources: [],
+      limits: { maxIterations: 1 },
+      fallbacks: [],
+      completion: [],
+      blockers: [],
+    },
+  }));
+  try {
+    // A task is entered, because an empty prompt is a real blocker and would mask the point.
+    const prompt = harness.document.getElementById("composer-prompt");
+    prompt.value = "perform UI/UX review of extension";
+    harness.document.root.dispatch("input", { target: prompt });
+    harness.document.root.querySelector('[data-action="composer-settings-toggle"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /Run details/u);
+    assert.match(html, /Scope and commits/u);
+    assert.match(html, /Human decisions/u);
+    assert.match(html, /Protected paths: \.git/u, "real filesystem restrictions are still stated");
+    assert.match(html, /Final specialist consensus/u, "configured human gates are still stated");
+    // And none of it is a precondition for sending.
+    assert.equal(harness.document.root.querySelector('[data-action="contract-acknowledge"]'), null);
+    const send = harness.document.root.querySelector('[data-action="submit-message"]');
+    assert.notEqual(send.getAttribute("aria-disabled"), "true", "Send is held by the contract");
+  } finally {
+    harness.restore();
+  }
+});
+
+const threeStepPipelineDefinition = () => ({
+  ...pipelineDefinition(),
+  steps: [
+    { id: "plan", name: "Plan", enabled: true, humanGate: "none", type: "agent", participants: ["lead"], promptTemplate: "{{userPrompt}}", parallel: false, consensus: false, attachments: "selected" },
+    { id: "implement", name: "Implement", enabled: true, humanGate: "none", type: "agent", participants: ["lead"], promptTemplate: "{{userPrompt}}", parallel: false, consensus: false, attachments: "selected" },
+    { id: "review", name: "Review", enabled: true, humanGate: "none", type: "agent", participants: ["lead"], promptTemplate: "{{userPrompt}}", parallel: false, consensus: false, attachments: "selected" },
+    { id: "sign-off", name: "Sign off", enabled: false, humanGate: "none", type: "agent", participants: ["lead"], promptTemplate: "{{userPrompt}}", parallel: false, consensus: false, attachments: "selected" },
+  ],
+});
+
+const stepEvent = (id, stepId, name, createdAt) => ({
+  id,
+  type: "step.started",
+  status: "running",
+  title: name,
+  payload: { stepId, index: id },
+  createdAt,
+});
+
+test("the pipeline summary states one row per enabled step, with the state the events prove", () => {
+  const harness = bootWebview(
+    managerState({
+      eventsByConversation: {
+        "run-1": [
+          { id: 1, type: "run.started", status: "running", title: "Test run", createdAt: timestamp },
+          stepEvent(2, "plan", "Plan", timestamp),
+          stepEvent(3, "implement", "Implement", timestamp),
+          { id: 4, type: "run.failed", status: "failed", title: "Test run", payload: { message: "provider refused" }, createdAt: timestamp },
+        ],
+      },
+    }),
+    panelState({ selectedPipelineDefinition: threeStepPipelineDefinition() }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.ok(html.includes("pipeline-summary"), "no compact pipeline summary was drawn");
+    // A disabled step is not part of this run, so it is not a row that could be "waiting".
+    assert.ok(!html.includes("Sign off"), "a disabled step must not appear as a pipeline row");
+    const rowState = (name) => {
+      const marker = html.indexOf(`>${name}<`);
+      assert.notEqual(marker, -1, `no pipeline row for ${name}`);
+      const start = html.lastIndexOf('class="pipeline-step pipeline-step-', marker);
+      return html.slice(start + 'class="pipeline-step pipeline-step-'.length, html.indexOf('"', start + 'class="pipeline-step pipeline-step-'.length));
+    };
+    assert.equal(rowState("Plan"), "completed", "a step the run moved past is completed");
+    assert.equal(rowState("Implement"), "failed", "the step the run stopped in is the failed one");
+    assert.equal(rowState("Review"), "waiting", "a step that never started is waiting, not skipped");
+    assert.ok(html.includes("3 steps · 1 failed · 1 completed · 1 waiting"));
+    // The flat stream is still recorded, and is no longer the page.
+    assert.ok(html.includes("Raw event history · 4 recorded"));
+    assert.ok(html.includes("info-disclosure workflow-timeline"));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a step row reveals the activity recorded against it and nothing it did not record", () => {
+  const harness = bootWebview(
+    managerState({
+      eventsByConversation: {
+        "run-1": [
+          stepEvent(1, "plan", "Plan", timestamp),
+          { id: 2, type: "output.validated", status: "completed", title: "plan-output", payload: { agentId: "lead" }, createdAt: timestamp },
+        ],
+      },
+    }),
+    panelState({ selectedPipelineDefinition: threeStepPipelineDefinition() }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.ok(html.includes("plan-output"), "the step does not reveal its own recorded activity");
+    assert.ok(
+      html.includes("No activity was recorded for this step."),
+      "a step with nothing recorded says so rather than inventing a duration",
+    );
+    assert.ok(!/Elapsed|Duration/u.test(html), "no duration is stated where none was recorded");
+  } finally {
+    harness.restore();
+  }
+});
+
+// The compact summary answers "where is this run", and a restart is a new answer to that question.
+// Folding every attempt in conversation history into one set of rows showed a restarted run the
+// state of the attempt it replaced — completed steps it has not reached yet, and a failure that
+// already happened.
+
+const attemptStart = (id, type, createdAt, steps) => ({
+  id,
+  type,
+  status: "running",
+  title: "Test run",
+  createdAt,
+  attempt: {
+    pipelineHash: "a".repeat(64),
+    steps: steps ?? [
+      { id: "plan", name: "Plan" },
+      { id: "implement", name: "Implement" },
+      { id: "review", name: "Review" },
+    ],
+  },
+});
+
+// The real projection sends the step identifier as its own field; the panel never receives payloads.
+const projectedStepEvent = (id, stepId, name, createdAt) => ({
+  id,
+  type: "step.started",
+  status: "running",
+  title: name,
+  stepId,
+  createdAt,
+});
+
+const summaryHarness = (events) =>
+  bootWebview(
+    managerState({ eventsByConversation: { "run-1": events } }),
+    panelState({ selectedPipelineDefinition: threeStepPipelineDefinition() }),
+  );
+
+const rowStateIn = (html, name) => {
+  const marker = html.indexOf(`>${name}<`);
+  assert.notEqual(marker, -1, `no pipeline row for ${name}`);
+  const start = html.lastIndexOf('class="pipeline-step pipeline-step-', marker);
+  return html.slice(
+    start + 'class="pipeline-step pipeline-step-'.length,
+    html.indexOf('"', start + 'class="pipeline-step pipeline-step-'.length),
+  );
+};
+
+test("the step identifier the panel actually receives is what keys the summary", () => {
+  const harness = summaryHarness([
+    attemptStart(1, "run.started", timestamp),
+    projectedStepEvent(2, "plan", "Plan", timestamp),
+    projectedStepEvent(3, "implement", "Implement", timestamp),
+  ]);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.equal(rowStateIn(html, "Plan"), "completed");
+    assert.equal(rowStateIn(html, "Implement"), "running");
+    assert.equal(rowStateIn(html, "Review"), "waiting");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a restarted attempt starts from waiting and inherits nothing from the attempt before it", () => {
+  const harness = summaryHarness([
+    attemptStart(1, "run.started", timestamp),
+    projectedStepEvent(2, "plan", "Plan", timestamp),
+    projectedStepEvent(3, "implement", "Implement", timestamp),
+    { id: 4, type: "run.failed", status: "failed", title: "Test run", createdAt: timestamp },
+    attemptStart(5, "run.restarted", timestamp),
+    projectedStepEvent(6, "plan", "Plan", timestamp),
+  ]);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.equal(rowStateIn(html, "Plan"), "running", "the restarted attempt is in its first step");
+    assert.equal(
+      rowStateIn(html, "Implement"),
+      "waiting",
+      "the previous attempt's failure was shown as this attempt's state",
+    );
+    assert.equal(rowStateIn(html, "Review"), "waiting");
+    assert.ok(
+      html.includes("Raw event history · 6 recorded"),
+      "every attempt is still recorded behind the disclosure",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a resume keeps the steps its own attempt already completed", () => {
+  const harness = summaryHarness([
+    attemptStart(1, "run.started", timestamp),
+    projectedStepEvent(2, "plan", "Plan", timestamp),
+    projectedStepEvent(3, "implement", "Implement", timestamp),
+    { id: 4, type: "run.interrupted", status: "interrupted", title: "Test run", createdAt: timestamp },
+    { id: 5, type: "run.resumed", status: "running", title: "Test run", createdAt: timestamp },
+    projectedStepEvent(6, "review", "Review", timestamp),
+  ]);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.equal(rowStateIn(html, "Plan"), "completed", "a resume is not a new attempt");
+    assert.equal(rowStateIn(html, "Implement"), "completed");
+    assert.equal(rowStateIn(html, "Review"), "running");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a run-level event is not filed under whichever step happened to be open", () => {
+  const harness = summaryHarness([
+    attemptStart(1, "run.started", timestamp),
+    projectedStepEvent(2, "plan", "Plan", timestamp),
+    {
+      id: 3,
+      type: "resourceDependencies.observed",
+      status: "completed",
+      title: "Declared resource dependencies",
+      createdAt: timestamp,
+    },
+  ]);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    const planBody = html.slice(html.indexOf(">Plan<"), html.indexOf(">Implement<"));
+    assert.ok(
+      !planBody.includes("Declared resource dependencies"),
+      "a run-level event was attached to a step that did not record it",
+    );
+    assert.ok(
+      html.includes("Declared resource dependencies"),
+      "the run-level event is still in the recorded history",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the rows are the revision the attempt executed, not whatever the catalog holds now", () => {
+  const harness = summaryHarness([
+    attemptStart(1, "run.started", timestamp, [
+      { id: "plan", name: "Plan" },
+      { id: "ship", name: "Ship it" },
+    ]),
+    projectedStepEvent(2, "plan", "Plan", timestamp),
+  ]);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.ok(html.includes("Ship it"), "the attempt's own recorded step is missing");
+    assert.ok(
+      !html.includes(">Implement<"),
+      "a step from the current catalog appeared in an attempt that never ran it",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a step row does not repeat its own name as the first thing inside it", () => {
+  const harness = summaryHarness([
+    attemptStart(1, "run.started", timestamp),
+    projectedStepEvent(2, "plan", "Plan", timestamp),
+  ]);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    const planRow = html.slice(html.indexOf(">Plan<"), html.indexOf(">Implement<"));
+    assert.equal(
+      (planRow.match(/>Plan</gu) ?? []).length,
+      1,
+      "the step name is printed twice: once as the row, once as its own activity",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("primary chat carries the conversation and files the run's own bookkeeping behind one disclosure", () => {
+  const promptCards = [1, 2, 3].map((index) => ({
+    id: `prompt-${String(index)}`,
+    kind: "prompt",
+    agentId: "lead",
+    step: "Independent specialist analysis",
+    eventType: "agent.prompt",
+    text: `Exact prompt ${String(index)}`,
+    createdAt: timestamp,
+  }));
+  const harness = bootWebview(
+    managerState(),
+    panelState({
+      transcript: [
+        { id: "user-1", kind: "prompt", eventType: "user.message", text: "Review the change", createdAt: timestamp },
+        ...promptCards,
+        { id: "step-1", kind: "event", eventType: "step.started", text: "Implement started", createdAt: timestamp },
+        { id: "answer-1", kind: "answer", agentId: "lead", text: "Here is the review", createdAt: timestamp },
+        { id: "error-1", kind: "error", eventType: "provider.failure", text: "The 'gpt-6-astra' model requires a newer version of Codex.", data: { code: "protocolError", evidence: '{"type":"error","status":400}' }, createdAt: timestamp },
+      ],
+      transcriptTotal: 6,
+    }),
+  );
+  try {
+    const html = harness.document.root.innerHTML;
+    const chatEnd = html.indexOf("run-information");
+    assert.notEqual(chatEnd, -1, "no run-information disclosure was drawn");
+    const primary = html.slice(0, chatEnd);
+    assert.ok(primary.includes("Review the change"), "the reader's request is primary");
+    assert.ok(primary.includes("Here is the review"), "a participant's answer is primary");
+    assert.ok(primary.includes("requires a newer version of Codex"), "the failure is primary");
+    assert.equal(
+      primary.includes("Exact prompt 1"),
+      false,
+      "an exact agent prompt is bookkeeping, not conversation",
+    );
+    assert.equal(primary.includes("Implement started"), false, "a step transition is bookkeeping");
+    assert.ok(html.includes("Run information · 4 recorded entries"));
+    // Nothing is dropped: every bookkeeping entry is still there, inside the disclosure.
+    const information = html.slice(chatEnd);
+    for (const index of [1, 2, 3]) {
+      assert.ok(information.includes(`Exact prompt ${String(index)}`));
+    }
+    assert.ok(information.includes("Implement started"));
+    // The wire envelope travels with the failure as technical detail, never in the sentence.
+    assert.ok(primary.includes("Technical detail"), "the failure detail is not offered");
+    assert.match(primary, /protocolError/u, "the classified code is not available as detail");
+  } finally {
+    harness.restore();
+  }
+});
+
+const failedResultState = () => ({
+  status: "error",
+  changedFiles: [],
+  checks: [],
+  providers: [{ agentId: "lead", name: "Lead", adapter: "codex-app-server", model: "gpt-6-astra" }],
+  findings: [],
+  unresolvedRisks: ["The 'gpt-6-astra' model requires a newer version of Codex."],
+  recoveredErrors: [],
+  evidence: [],
+  evidenceGaps: [],
+  finalAssessment: {
+    outcome: "failedBeforeRuling",
+    method: "none",
+    summary: "Failed before final ruling: Lead (codex-app-server · gpt-6-astra) — The 'gpt-6-astra' model requires a newer version of Codex.",
+    producedBy: [],
+    failure: {
+      error: "The 'gpt-6-astra' model requires a newer version of Codex.",
+      agentId: "lead",
+      participant: "Lead",
+      adapter: "codex-app-server",
+      provider: "codex-app-server",
+      model: "gpt-6-astra",
+      step: "Implement",
+    },
+  },
+});
+
+const recoverableWorkflow = () => ({
+  pipelineId: "custom-a",
+  pipelineName: "Custom A",
+  pipelineHash: customAHash,
+  userPrompt: "Review the change",
+  attachmentIds: [],
+  nextStepIndex: 1,
+  totalSteps: 3,
+  updatedAt: timestamp,
+});
+
+test("a failed result states the error once and offers restart as the primary way back", () => {
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": failedResultState() } }),
+    panelState({ resumableWorkflow: recoverableWorkflow() }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    const sentence = "requires a newer version of Codex";
+    const visible = html.slice(html.indexOf("result-center"));
+    const occurrences = visible.split(sentence).length - 1;
+    // Once in the failure block. The assessment summary repeating it lives inside the collapsed
+    // assessment details, and the risk list no longer prints it a third time.
+    assert.equal(occurrences, 2, `the failure sentence appears ${String(occurrences)} times`);
+    assert.ok(
+      visible.includes("The only unresolved risk recorded is the failure stated above."),
+      "the risk list still repeats the failure",
+    );
+    const restart = harness.document.root.querySelector('[data-action="workflow-restart"]');
+    const retry = harness.document.root.querySelector('[data-action="workflow-resume"]');
+    assert.ok(restart, "a failed run offers no way to start over");
+    assert.ok(retry, "a failed run offers no way to retry the stopped step");
+    assert.ok(restart.className.includes("primary"), "restart is not the primary action");
+    assert.ok(html.includes(">Restart pipeline</button>"));
+    assert.ok(html.includes(">Retry failed step</button>"));
+    assert.equal(restart.disabled, false);
+    restart.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "workflow.restart" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("restart and retry are refused while the room is busy, and say why", () => {
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": failedResultState() } }),
+    panelState({ resumableWorkflow: recoverableWorkflow(), running: true, workflowStatus: "running" }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const restart = harness.document.root.querySelector('[data-action="workflow-restart"]');
+    const retry = harness.document.root.querySelector('[data-action="workflow-resume"]');
+    assert.equal(restart.disabled, true);
+    assert.equal(retry.disabled, true);
+    assert.equal(
+      restart.getAttribute("title"),
+      "Interrupt the active run before restarting it",
+    );
+    const before = harness.messages.length;
+    restart.click();
+    assert.equal(harness.messages.length, before, "a disabled control must send nothing");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a failed-before-ruling run collapses the sections it recorded nothing in", () => {
+  const result = failedResultState();
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": { ...result, unresolvedRisks: [] } } }),
+    panelState({ resumableWorkflow: recoverableWorkflow() }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.ok(html.includes("result-empty-sections"), "empty sections are still drawn in full");
+    assert.ok(
+      html.includes("Changed files, verification, final ruling and unresolved risks · nothing was recorded"),
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the chat's run-result card routes to the result instead of reprinting the failure", () => {
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": failedResultState() } }),
+    panelState({
+      resumableWorkflow: recoverableWorkflow(),
+      transcript: [
+        { id: "user-1", kind: "prompt", eventType: "user.message", text: "Review the change", createdAt: timestamp },
+        { id: "error-1", kind: "error", eventType: "provider.failure", text: "The 'gpt-6-astra' model requires a newer version of Codex.", createdAt: timestamp },
+      ],
+      transcriptTotal: 2,
+    }),
+  );
+  try {
+    const html = harness.document.root.innerHTML;
+    const sentence = "requires a newer version of Codex";
+    // Once, where it happened. The card underneath says where the run stopped and offers the route.
+    assert.equal(
+      html.split(sentence).length - 1,
+      1,
+      "the chat states the provider's sentence more than once",
+    );
+    assert.ok(html.includes("result-summary"));
+    assert.ok(html.includes("Lead at Implement"), "the card does not say where the run stopped");
+  } finally {
+    harness.restore();
+  }
+});
+
+// The disclosures, from the manager's own projection to the rendered page.
+//
+// The panel is handed what `catalogEventView` produced, not a payload written by hand: the defect
+// this covers was the projection stripping every payload, which left "Technical detail" and the
+// raw event history with nothing to render however the page was written. A test that fabricated
+// payloads would have passed throughout.
+const { catalogEventView } = require("../dist/conversations/catalogViews.js");
+
+const projectedAttempt = (id, type, createdAt, payload) =>
+  catalogEventView({
+    id,
+    type,
+    status: type.endsWith("failed") ? "failed" : "running",
+    title: "Test run",
+    createdAt,
+    payload: {
+      ...payload,
+      pipeline: {
+        hash: "a".repeat(64),
+        steps: [
+          { id: "plan", name: "Plan" },
+          { id: "implement", name: "Implement" },
+          { id: "review", name: "Review" },
+        ],
+      },
+    },
+  });
+
+const projectedStep = (id, stepId, name, createdAt, payload, status = "running") =>
+  catalogEventView({ id, type: "step.started", status, title: name, createdAt, payload: { stepId, ...payload } });
+
+test("a pipeline step's technical detail survives the manager's projection and opens only on request", () => {
+  const events = [
+    projectedAttempt(1, "run.started", timestamp, { iterationMode: "fixed", iterations: 1 }),
+    projectedStep(2, "plan", "Plan", timestamp, { attempt: 1 }),
+    // A step's own start event repeats the row's heading and is not restated inside it. This is the
+    // activity that is: an attempt the reader can only understand from what it recorded.
+    catalogEventView({
+      id: 3,
+      type: "provider.failure",
+      status: "failed",
+      title: "Codex could not start",
+      createdAt: timestamp,
+      payload: {
+        stepId: "plan",
+        adapter: "codex-app-server",
+        exitCode: 0,
+        apiKey: "sk-live-must-not-travel",
+        sessionId: "sess-must-not-travel",
+      },
+    }),
+    projectedStep(4, "implement", "Implement", timestamp, { attempt: 1 }),
+  ];
+  const harness = summaryHarness(events);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+
+    // The primary flow is the row: position, name, state, timing. The detail is not in the summary.
+    const summaryStart = html.indexOf('<summary>', html.indexOf('class="pipeline-step pipeline-step-'));
+    const summary = html.slice(summaryStart, html.indexOf("</summary>", summaryStart));
+    assert.equal(summary.includes("codex-app-server"), false, "the row prints the technical detail");
+    assert.equal(summary.includes("Technical detail"), false);
+
+    // The detail is there, behind a disclosure that is closed on arrival.
+    assert.ok(html.includes("Technical detail"), "no technical detail reached the panel");
+    assert.ok(html.includes("codex-app-server"), "the recorded detail was not rendered");
+    const detailsStart = html.indexOf('data-disclosure-key="run-1:json:pipeline-step:run-1:plan:3"');
+    assert.notEqual(detailsStart, -1, "the step's own technical detail is not keyed to that step");
+    assert.notEqual(detailsStart, -1, "the step's own technical detail is not keyed to that step");
+    assert.equal(
+      html.slice(detailsStart, html.indexOf(">", detailsStart)).includes(" open"),
+      false,
+      "the technical detail opened on arrival",
+    );
+    // The raw event history is informational and closed on arrival too.
+    const historyStart = html.indexOf('class="info-disclosure workflow-timeline"');
+    assert.notEqual(historyStart, -1);
+    assert.equal(
+      html.slice(historyStart, html.indexOf(">", historyStart)).includes(" open"),
+      false,
+      "the raw event history opened on arrival",
+    );
+
+    // Nothing the projection withholds reached the page.
+    assert.equal(html.includes("sk-live-must-not-travel"), false, "a credential reached the panel");
+    assert.equal(html.includes("sess-must-not-travel"), false, "a session handle reached the panel");
+    assert.ok(html.includes("[REDACTED]"));
+    assert.ok(html.includes("[WITHHELD]"));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a restart keeps the compact summary on the newest attempt and the history on every attempt", () => {
+  const events = [
+    projectedAttempt(1, "run.started", timestamp, { iterationMode: "fixed", iterations: 1 }),
+    projectedStep(2, "plan", "Plan", timestamp, { attempt: 1, adapter: "codex-app-server" }),
+    projectedStep(3, "implement", "Implement", timestamp, { attempt: 1, adapter: "codex-app-server" }),
+    catalogEventView({
+      id: 4,
+      type: "run.failed",
+      status: "failed",
+      title: "Test run",
+      createdAt: timestamp,
+      payload: { error: "the first attempt stopped at Implement" },
+    }),
+    projectedAttempt(5, "run.restarted", timestamp, { iterationMode: "fixed", iterations: 1 }),
+    projectedStep(6, "plan", "Plan", timestamp, { attempt: 2, adapter: "codex-app-server" }),
+  ];
+  const harness = summaryHarness(events);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.equal(rowStateIn(html, "Plan"), "running", "the summary is not scoped to the newest attempt");
+    assert.equal(rowStateIn(html, "Implement"), "waiting");
+    assert.equal(rowStateIn(html, "Review"), "waiting");
+
+    // The history keeps both attempts, and what the failed one recorded.
+    assert.ok(html.includes("Raw event history · 6 recorded"));
+    const historyBody = html.slice(html.indexOf('class="workflow-timeline-body"'));
+    assert.ok(
+      historyBody.includes("the first attempt stopped at Implement"),
+      "the previous attempt's recorded detail was lost",
+    );
+    assert.ok(
+      historyBody.includes('data-disclosure-key="run-1:json:workflow-event:run-1:2"'),
+      "an earlier attempt's step carries no detail in the history",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
+// The ruling, through the projection that now bounds it.
+//
+// A published decision used to travel whole on the grounds that the panel renders it as the run's
+// conclusion. It is bounded now, so the conclusion has to survive being cut — and the newest
+// ruling has to survive a history long enough to exhaust the snapshot's whole budget.
+
+const { catalogEventViews: projectedHistory } = require("../dist/conversations/catalogViews.js");
+
+const hugeRulingPayload = () => ({
+  stepId: "step-1",
+  round: 2,
+  policy: "arbiter",
+  status: "ruled",
+  candidateId: "DABC123",
+  candidate: `Use the selected implementation. ${"padding ".repeat(40_000)}`,
+  participants: [
+    { agentId: "lead", valid: true, accepted: true, candidateHash: "a", validationErrors: [] },
+    { agentId: "worker", valid: true, accepted: false, candidateHash: "b", validationErrors: [] },
+  ],
+  objections: [{ agentId: "worker", text: "Needs another check", accepted: false }],
+  unresolvedRisks: ["Provider DOM may change"],
+  ruledBy: "lead",
+  apiKey: "sk-live-must-not-travel-abcdef",
+  sessionId: "sess-must-not-travel",
+});
+
+test("a ruling the projection had to cut still renders as the run's conclusion", () => {
+  const harness = bootWebview(
+    managerState({
+      eventsByConversation: {
+        "run-1": [catalogEventView({
+          id: 1,
+          type: "decision.published",
+          status: "ruled",
+          title: "DABC123",
+          createdAt: timestamp,
+          payload: hugeRulingPayload(),
+        })],
+      },
+    }),
+    panelState(),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /Lead’s Final Ruling/u);
+    assert.match(html, /Use the selected implementation/u);
+    assert.match(html, /Overruled/u);
+    assert.match(html, /Provider DOM may change/u);
+    assert.match(html, /DABC123/u);
+    // The candidate was cut, and says so rather than being silently shortened.
+    assert.match(html, /more characters not shown/u);
+    // Nothing the projection withholds reached the page, decision or not.
+    assert.equal(html.includes("sk-live-must-not-travel"), false, "a credential reached the panel");
+    assert.equal(html.includes("sess-must-not-travel"), false, "a session handle reached the panel");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("the newest ruling still renders after a history long enough to spend the whole budget", () => {
+  const noisy = (id) => ({
+    id,
+    type: "step.started",
+    status: "running",
+    title: `step ${String(id)}`,
+    createdAt: timestamp,
+    payload: {
+      stepId: "plan",
+      stdout: "x".repeat(8_000),
+      extra: Object.fromEntries(
+        Array.from({ length: 24 }, (_, field) => [`k${String(field)}`, "y".repeat(1_024)]),
+      ),
+    },
+  });
+  const events = projectedHistory([
+    { id: 1, type: "decision.published", status: "ruled", title: "DABC123", createdAt: timestamp, payload: hugeRulingPayload() },
+    ...Array.from({ length: 499 }, (_, index) => noisy(index + 2)),
+  ]);
+  const harness = bootWebview(
+    managerState({ eventsByConversation: { "run-1": events } }),
+    panelState(),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /Lead’s Final Ruling/u, "the oldest row in the window took the ruling with it");
+    assert.match(html, /Provider DOM may change/u);
+    assert.ok(html.includes("Raw event history · 500 recorded"));
+    assert.equal(html.includes("sk-live-must-not-travel"), false);
   } finally {
     harness.restore();
   }

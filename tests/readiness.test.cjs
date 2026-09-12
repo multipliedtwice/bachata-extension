@@ -572,3 +572,46 @@ for (const writeScope of ["workspace", "configured", "readOnly"]) {
     assert.equal(evaluateReadiness(input).status, "blocked");
   });
 }
+
+/**
+ * Browser Bridge is not a local-model consumer. Its readiness is connection, a selected session of
+ * the right provider, and that session's reported capabilities — nothing else. A reader who selects
+ * Bridge and has no local model installed, or has turned local interpretation off, is ready.
+ */
+test("Bridge readiness turns on connection, session and capabilities, and nothing about a local model", () => {
+  const catalog = [pipeline("browser", "claude-browser")];
+  const session = (overrides = {}) => ({
+    id: "s1", provider: "claude", tabId: 1, frameId: 0, documentToken: "d",
+    conversationUrl: "https://claude.ai/new", conversationIdentity: "new",
+    status: "ready", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    capabilities: {
+      submission: "verifiedSend", completion: "verifiedLifecycle",
+      interruption: "confirmed", assets: "textOnly", conversationState: "confirmed",
+    },
+    ...overrides,
+  });
+  const withBridge = (bridge) => {
+    const input = base("browser", catalog);
+    input.bridge = bridge;
+    return evaluateReadiness(input);
+  };
+
+  // The three things that do decide it, each failing on its own.
+  assert.equal(withBridge({ enabled: true, connected: false, sessions: [] }).status, "needsSetup");
+  assert.equal(withBridge({ enabled: true, connected: true, sessions: [session()] }).status, "needsSetup");
+  assert.equal(
+    withBridge({ enabled: true, connected: true, selectedSessionId: "s1", sessions: [session({ capabilities: undefined })] }).status,
+    "needsSetup",
+  );
+
+  // All three satisfied is ready, with no local interpreter anywhere in the input. evaluateReadiness
+  // takes no local-model argument at all, so selecting Bridge cannot wait on, require, or fail over
+  // a model that is absent, disabled, or still being checked.
+  const ready = withBridge({ enabled: true, connected: true, selectedSessionId: "s1", sessions: [session()] });
+  assert.equal(ready.status, "ready");
+  assert.deepEqual(
+    ready.findings.filter((entry) => /local|interpreter|ollama|lm ?studio|model/iu.test(entry.detail ?? "")),
+    [],
+    "no finding sends the reader to a local model",
+  );
+});

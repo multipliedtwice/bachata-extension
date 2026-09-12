@@ -3,6 +3,7 @@ const test = require("node:test");
 
 const {
   checkpointAppliesTo,
+  parseRunExecutionPlan,
   droppedRunSettings,
   droppedRunSettingsNotice,
   pipelineFailurePlan,
@@ -261,4 +262,72 @@ test("a resume that failed before replacing its own record puts that record back
       .restoreResume,
     false,
   );
+});
+
+// A persisted execution plan is read back from disk, so its shape is not guaranteed by anything on
+// this side. It is either the plan that was recorded or nothing: a restart under half a plan is a
+// restart under a plan nobody chose.
+
+test("a recorded execution plan is read back as it was written", () => {
+  assert.deepEqual(
+    parseRunExecutionPlan({ iterationCount: 3, iterationMode: "fixed", requiredCleanPasses: 1 }),
+    { iterationCount: 3, iterationMode: "fixed", requiredCleanPasses: 1 },
+  );
+  assert.deepEqual(
+    parseRunExecutionPlan({
+      iterationCount: 2,
+      iterationMode: "untilClean",
+      requiredCleanPasses: 2,
+      trackWorkspaceChanges: true,
+    }),
+    {
+      iterationCount: 2,
+      iterationMode: "untilClean",
+      requiredCleanPasses: 2,
+      trackWorkspaceChanges: true,
+    },
+  );
+});
+
+test("workspace tracking is claimed only where it was recorded as true", () => {
+  const plan = parseRunExecutionPlan({
+    iterationCount: 1,
+    iterationMode: "fixed",
+    requiredCleanPasses: 1,
+    trackWorkspaceChanges: "yes",
+  });
+  assert.equal(Object.hasOwn(plan, "trackWorkspaceChanges"), false);
+});
+
+test("a plan that did not survive persistence is refused whole", () => {
+  const valid = { iterationCount: 1, iterationMode: "fixed", requiredCleanPasses: 1 };
+  for (const [label, value] of [
+    ["not an object", "fixed"],
+    ["null", null],
+    ["no count", { ...valid, iterationCount: undefined }],
+    ["fractional count", { ...valid, iterationCount: 1.5 }],
+    ["zero count", { ...valid, iterationCount: 0 }],
+    ["unknown mode", { ...valid, iterationMode: "whenever" }],
+    ["no clean passes", { ...valid, requiredCleanPasses: undefined }],
+    ["fractional clean passes", { ...valid, requiredCleanPasses: 1.5 }],
+    ["zero clean passes", { ...valid, requiredCleanPasses: 0 }],
+  ]) {
+    assert.equal(parseRunExecutionPlan(value), undefined, label);
+  }
+});
+
+test("an empty assignment map is not carried, and a populated one is copied", () => {
+  assert.equal(Object.hasOwn(workflow({ assignments: {} }), "assignments"), false);
+  const assignments = { lead: { adapter: "codex-app-server" } };
+  const carried = workflow({ assignments });
+  assert.deepEqual(carried.assignments, assignments);
+  assert.notEqual(carried.assignments, assignments, "the assignment map is shared with the caller");
+  assert.notEqual(carried.assignments.lead, assignments.lead);
+});
+
+test("a recorded execution plan travels with the resumable record, as a copy", () => {
+  const executionPlan = { iterationCount: 2, iterationMode: "fixed", requiredCleanPasses: 1 };
+  const carried = workflow({ executionPlan });
+  assert.deepEqual(carried.executionPlan, executionPlan);
+  assert.notEqual(carried.executionPlan, executionPlan, "the plan is shared with the caller");
 });

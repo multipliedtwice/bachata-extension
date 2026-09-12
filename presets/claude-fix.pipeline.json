@@ -3,7 +3,7 @@
   "id": "claude-fix",
   "name": "Fix with Claude",
   "description": "Claude Code diagnoses and implements the fix inside a declared write scope. Verification is controller-owned, not model-reviewed. No commit is created.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "claude",

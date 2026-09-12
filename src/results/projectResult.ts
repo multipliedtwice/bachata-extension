@@ -35,13 +35,26 @@ export type EvidenceEntry = {
   detail: string;
 };
 
-export type FinalAssessmentOutcome = "completed" | "verificationFailed" | "inconclusive" | "notApplicable";
+/**
+ * `failedBeforeRuling` is separate from `inconclusive` on purpose. Inconclusive is a run that ran
+ * and could not decide; a run that errored out before consensus never reached the question, and
+ * presenting it as an ordinary assessment with no findings told the reader the participants had
+ * looked and found nothing.
+ */
+export type FinalAssessmentOutcome =
+  | "completed"
+  | "verificationFailed"
+  | "inconclusive"
+  | "failedBeforeRuling"
+  | "notApplicable";
 export type FinalAssessmentMethod = "consensus" | "arbiter" | "singleProvider" | "controller" | "none";
 export type FinalAssessment = {
   outcome: FinalAssessmentOutcome;
   method: FinalAssessmentMethod;
   summary: string;
   producedBy: ResultProvider[];
+  /** Present only on `failedBeforeRuling`, naming what stopped the run. */
+  failure?: RunFailure;
 };
 
 export type VerificationResult = {
@@ -60,7 +73,33 @@ export type RunRecheckRecord = {
   recordedAt: string;
   checks: VerificationResult[];
 };
-export type ResultProvider = { name: string; adapter: string; model?: string };
+export type ResultProvider = {
+  name: string;
+  adapter: string;
+  model?: string;
+  /** The pipeline participant this provider answered for, when the run recorded one. */
+  agentId?: string;
+  /** The site a browser participant answered from. A CLI participant has none. */
+  provider?: string;
+};
+
+/**
+ * The participant, provider and step a run died on.
+ *
+ * A run that stops before a ruling has one fact worth reading, and it is not "inconclusive": it is
+ * which provider failed, on which step, with what error. Every field is optional because a run can
+ * fail before it knows any of them — a run-scoped error carries no agent and no step — and stating
+ * an unknown as a name would be worse than leaving it out.
+ */
+export type RunFailure = {
+  error: string;
+  agentId?: string;
+  participant?: string;
+  adapter?: string;
+  provider?: string;
+  model?: string;
+  step?: string;
+};
 export type RunResultCenter = {
   status: WorkflowStatus;
   changedFiles: string[];
@@ -81,6 +120,8 @@ export type RunResultCenter = {
   evidence: EvidenceEntry[];
   evidenceGaps: string[];
   finalAssessment: FinalAssessment;
+  /** What ended a run that stopped before a ruling. Absent on a run that reached one. */
+  failure?: RunFailure;
   verificationProvenance?: VerificationProvenance;
   applyBlockedReason?: string;
   applyOverrideReason?: string;
@@ -125,6 +166,36 @@ const errorIsRecovered = (
     }
     return false;
   });
+
+/**
+ * The unrecovered error a failed run died on, resolved against the providers that executed.
+ *
+ * The last unrecovered error is taken rather than the first: an earlier failure a later step
+ * recovered from is not what ended the run. The participant is looked up by agent id among the
+ * providers actually recorded for the run, so the adapter and model named here are the ones that
+ * ran, not the ones the saved pipeline shipped with.
+ */
+export const runFailureFrom = (
+  transcript: TranscriptEntry[],
+  providers: ResultProvider[],
+): RunFailure | undefined => {
+  const unrecovered = transcript.filter((entry, index) =>
+    entry.kind === "error" && !errorIsRecovered(entry, transcript.slice(index + 1)));
+  const last = unrecovered.at(-1);
+  if (!last) {
+    return undefined;
+  }
+  const participant = providers.find((candidate) => candidate.agentId === last.agentId);
+  return {
+    error: last.text,
+    ...(last.agentId === undefined ? {} : { agentId: last.agentId }),
+    ...(last.step === undefined ? {} : { step: last.step }),
+    ...(participant?.name === undefined ? {} : { participant: participant.name }),
+    ...(participant?.adapter === undefined ? {} : { adapter: participant.adapter }),
+    ...(participant?.provider === undefined ? {} : { provider: participant.provider }),
+    ...(participant?.model === undefined ? {} : { model: participant.model }),
+  };
+};
 
 const partitionTranscriptErrors = (
   transcript: TranscriptEntry[],
@@ -179,6 +250,26 @@ const parseChecks = (value: unknown): VerificationResult[] => Array.isArray(valu
     })
   : [];
 
+export const parseRunFailure = (value: unknown): RunFailure | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  const error = optionalString(candidate.error);
+  if (error === undefined) return undefined;
+  const field = (name: string): Record<string, string> => {
+    const text = optionalString(candidate[name]);
+    return text === undefined ? {} : { [name]: text };
+  };
+  return {
+    error,
+    ...field("agentId"),
+    ...field("participant"),
+    ...field("adapter"),
+    ...field("provider"),
+    ...field("model"),
+    ...field("step"),
+  };
+};
+
 export const parseVerificationProvenance = (
   value: unknown,
 ): VerificationProvenance | undefined => {
@@ -227,6 +318,8 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
               name: provider.name,
               adapter: provider.adapter,
               ...(typeof provider.model === "string" ? { model: provider.model } : {}),
+              ...(typeof provider.agentId === "string" ? { agentId: provider.agentId } : {}),
+              ...(typeof provider.provider === "string" ? { provider: provider.provider } : {}),
             }]
           : [];
       })
@@ -260,6 +353,7 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
     expectations,
   });
   const evidenceGaps = evidenceGapsFrom(evidence);
+  const failure = parseRunFailure(candidate.failure);
   const finalAssessment = finalAssessmentFor({
     status,
     checks,
@@ -272,6 +366,7 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
     expectations,
     evidenceGaps,
     consensus: consensusRuling,
+    ...(failure === undefined ? {} : { failure }),
   });
   const diffSummary = optionalString(candidate.diffSummary);
   return {
@@ -294,6 +389,7 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
     evidence,
     evidenceGaps,
     finalAssessment,
+    ...(failure === undefined ? {} : { failure }),
     ...withVerificationState(
       { checks, expectations, assessment: finalAssessment },
       parseVerificationProvenance(candidate.verificationProvenance),
@@ -501,6 +597,30 @@ const consensusRulingFor = (
   ? legacyConsensus
   : provenance.kind === "unanimousConsensus";
 
+/**
+ * What a failed run says instead of a ruling: which participant, on which provider and model, at
+ * which step, and the provider's own error. Every part that is unknown is left out rather than
+ * filled in, so the sentence never states a participant or a step the run did not record.
+ */
+export const failedBeforeRulingSummary = (failure: RunFailure): string => {
+  const identity = [failure.participant, failure.agentId].find((value) => value !== undefined);
+  const qualifiers = [failure.provider ?? failure.adapter, failure.model].filter(
+    (value): value is string => value !== undefined,
+  );
+  const who = identity === undefined
+    ? undefined
+    : qualifiers.length === 0
+      ? identity
+      : `${identity} (${qualifiers.join(" · ")})`;
+  return [
+    "Failed before final ruling",
+    who === undefined ? "" : `: ${who}`,
+    failure.step === undefined ? "" : ` at step ${failure.step}`,
+    who === undefined && failure.step === undefined ? ": " : " — ",
+    failure.error,
+  ].join("");
+};
+
 export const finalAssessmentFor = (input: {
   status: WorkflowStatus;
   checks: VerificationResult[];
@@ -513,14 +633,35 @@ export const finalAssessmentFor = (input: {
   consensus?: boolean;
   rulingProvenance?: RulingProvenance;
   unresolvedFindingCount?: number;
+  failure?: RunFailure | undefined;
 }): FinalAssessment => {
   const producedBy = input.providers;
   const method: FinalAssessmentMethod = input.checks.length > 0
     ? "controller"
     : assessmentMethodFrom(input.rulingProvenance, input.consensus === true, input.providers.length);
   if (input.status !== "completed") {
+    if (input.status === "idle" || input.status === "running") {
+      return {
+        outcome: "notApplicable",
+        method,
+        summary: `The run ended as ${input.status}, so no final assessment was produced`,
+        producedBy,
+      };
+    }
+    // A run that died on a provider error never reached the question a ruling answers. Saying so,
+    // with the participant and the error, is the finding; "inconclusive" would claim the
+    // participants looked and could not decide.
+    if (input.failure !== undefined) {
+      return {
+        outcome: "failedBeforeRuling",
+        method,
+        summary: failedBeforeRulingSummary(input.failure),
+        producedBy,
+        failure: input.failure,
+      };
+    }
     return {
-      outcome: input.status === "idle" || input.status === "running" ? "notApplicable" : "inconclusive",
+      outcome: "inconclusive",
       method,
       summary: `The run ended as ${input.status}, so no final assessment was produced`,
       producedBy,
@@ -654,7 +795,11 @@ export const mergeRunResults = (
   const status = live.status === "idle" ? persisted.status : live.status;
   const reconciled = reconcileErrorClassification(persisted, live);
   const expectations = live.expectations ?? persisted.expectations ?? UNKNOWN_EVIDENCE_EXPECTATIONS;
-  const providers = live.providers.length > 0 ? live.providers : persisted.providers;
+  // The persisted result was recorded when the run reached its end, so its providers are the ones
+  // that executed. The live projection is rebuilt from whatever the conversation is assigned NOW,
+  // and preferring it let a reassignment made after the fact rewrite a finished run's provenance.
+  const providers = persisted.providers.length > 0 ? persisted.providers : live.providers;
+  const failure = persisted.failure ?? live.failure;
   const findings = mergeModelFindings(persisted.findings, live.findings);
   const evidence = evidenceLedgerFor({
     status,
@@ -683,6 +828,7 @@ export const mergeRunResults = (
     expectations,
     evidenceGaps,
     consensus: consensusRuling,
+    ...(failure === undefined ? {} : { failure }),
   });
   const mergedDiffSummary = live.diffSummary ?? persisted.diffSummary;
   return {
@@ -711,6 +857,7 @@ export const mergeRunResults = (
     evidence,
     evidenceGaps,
     finalAssessment,
+    ...(failure === undefined ? {} : { failure }),
     ...withVerificationState(
       { checks, expectations, assessment: finalAssessment },
       verificationProvenance,
@@ -748,6 +895,7 @@ export const projectRunResult = (input: {
     legacyModelFindingsFromRuling(input.finalRuling, rulingBy),
   );
   const unresolvedRisks = unique([...(input.unresolvedRisks ?? []), ...errors.unresolved]);
+  const failure = runFailureFrom(input.transcript, providers);
   const evidence = evidenceLedgerFor({
     status: input.status,
     changedFiles: input.changedFiles ?? [],
@@ -771,6 +919,7 @@ export const projectRunResult = (input: {
     expectations,
     evidenceGaps,
     consensus: consensusRuling,
+    ...(failure === undefined ? {} : { failure }),
   });
   return {
     status: input.status,
@@ -794,6 +943,7 @@ export const projectRunResult = (input: {
     evidence,
     evidenceGaps,
     finalAssessment,
+    ...(failure === undefined ? {} : { failure }),
     ...withVerificationState(
       { checks: input.checks ?? [], expectations, assessment: finalAssessment },
       input.verificationProvenance,

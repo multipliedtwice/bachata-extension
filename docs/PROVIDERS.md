@@ -39,6 +39,26 @@ every payload was accepted.
 If the installed CLI rejects one, Bachata reports the server's own message and refuses to
 run Codex. It does not silently move the work to another provider.
 
+### Which model a Codex run uses
+
+A probe proves the command speaks the app-server protocol. It proves nothing about the model
+the run selected, and the two are separate facts.
+
+Before a thread or a transcript turn exists, Bachata asks the installed executable for its
+model list with `model/list`. That is a listing call: it starts no thread and no turn, so
+asking costs nothing. If the selected model is not in what that executable reported, the run
+is refused with the command path, the runtime version that answered, the selected model, and
+what the executable offers instead.
+
+Bachata ships no model catalog of its own. A catalog written into the extension would go
+stale silently, and a stale catalog is worse than none, because it presents a name the
+installed executable rejects as a name you may choose. So a name this build has never heard of
+is still selectable, and is sent verbatim.
+
+Where the installed executable cannot answer `model/list`, nothing is refused: an unlistable
+provider is not evidence against a model, and refusing there would make your own knowledge of
+your provider unusable. Bachata never switches the executable or the model for you.
+
 ### What Codex cannot do, stated plainly
 
 The installed Codex app-server protocol has no per-path readable-root capability. Its
@@ -81,6 +101,30 @@ you name the provider you prefer, and lets you disable providers outright.
   silently runs on a provider you did not choose.
 - `bachata.disabledProviders` — a disabled provider is refused before any turn starts, and
   Setup never offers a workflow bound to it.
+
+## Choosing a model per participant
+
+Providers are assigned per participant in the Agents popover, for one conversation's next run;
+the saved pipeline is never edited. Each role card offers a model once its provider is settled,
+because a model name belongs to one provider's catalog and means nothing before that provider
+is known.
+
+- **Provider default** sends no model name and lets the provider choose. On the provider the
+  pipeline ships with, this is the pipeline's own model.
+- **A model the provider reported** is offered as a choice. Codex reports its own; a provider
+  that cannot be asked offers none, which is not the same as offering nothing.
+- **An explicit model field** stays available in either case, so a model you know your provider
+  accepts is usable whether or not the provider will list it.
+
+The chosen model is sent with the real request, persists with the assignment across a reload
+and a recovery, and is left behind when you move that participant to a different provider —
+a name from one provider's catalog is not a name in another's. Choose one for the receiving
+provider and it applies there. Bachata never substitutes a model for the one you chose, and a
+model you chose that the provider stops listing stays selected rather than disappearing.
+
+A Browser Bridge participant cannot be given a model. The website owns that selection, and the
+Bridge does not report it, so the card says the model is selected in the browser and unreported
+rather than showing a value nobody set. Run results record the same thing.
 
 ## Claude Code
 

@@ -81,8 +81,12 @@ export const deletionActiveChoice = (input: {
  * The order is the order a reader can act on: unarchive first, because nothing else can be judged
  * while the run is read-only; then whether there is a checkpoint at all; then whether that
  * checkpoint still describes the pipeline the runtime holds — a snapshot that moved would resume
- * the recorded prompt against a different workflow; then whether the run really has an interrupted
+ * the recorded prompt against a different workflow; then whether the run really has an unfinished
  * iteration to continue, rather than a checkpoint left over from one that finished.
+ *
+ * A `failed` iteration counts as unfinished. Runs recorded before failures with a surviving
+ * checkpoint were classified as interrupted are still on disk, and refusing those would leave a
+ * reader holding a valid checkpoint they can never use.
  */
 export const resumeRefusal = (input: {
   archived: boolean;
@@ -101,7 +105,7 @@ export const resumeRefusal = (input: {
   ) {
     return "The recoverable workflow pipeline snapshot does not match";
   }
-  if (input.latestIterationStatus !== "interrupted") {
+  if (input.latestIterationStatus !== "interrupted" && input.latestIterationStatus !== "failed") {
     return "The recoverable workflow has no matching interrupted iteration";
   }
   return undefined;

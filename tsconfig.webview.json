@@ -27,6 +27,7 @@
   "include": [
     "src/webview-ui/types.ts",
     "src/webview-ui/optionalProperty.ts",
+    "src/webview-ui/boundedAgentOutput.ts",
     "src/webview-ui/render.ts",
     "src/webview-ui/readOnlyRender.ts",
     "src/webview-ui/state.ts",

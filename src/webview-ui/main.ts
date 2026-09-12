@@ -445,7 +445,7 @@ const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOn
         <div class="message-text markdown">${entry.eventType === "provider.recovery" ? "" : renderMarkdown(entry.text || fallback)}</div>
         ${entry.eventType === "provider.recovery" ? providerRecoveryHtml(entry) : ""}
         ${entry.eventType === "browser.response" ? capturedAssetsHtml(entry, readOnly) : ""}
-        ${entry.eventType !== "provider.recovery" && (entry.step || entry.data !== undefined) ? jsonDetailsHtml(entry.step ? `Activity · ${entry.step}` : "Activity", entry.data ?? null, `${entry.id}:activity`) : ""}
+        ${entry.eventType !== "provider.recovery" && (entry.step || entry.data !== undefined) ? jsonDetailsHtml(entry.eventType === "provider.failure" ? "Technical detail" : entry.step ? `Activity · ${entry.step}` : "Activity", entry.data ?? null, `${entry.id}:activity`) : ""}
         <time>${escapeHtml(messageTime(entry.createdAt))}</time>
       </div>
     </article>`;
@@ -454,9 +454,47 @@ const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOn
   return `<article class="system-message ${entry.kind === "error" ? "system-error" : ""} ${exactPrompt ? "exact-prompt" : ""}" data-entry="${escapeAttribute(entry.id)}">
     <div class="activity-kicker">${escapeHtml(eventLabel(entry))}${entry.step ? ` · ${escapeHtml(entry.step)}` : ""}</div>
     ${exactPrompt ? `<details ${disclosureAttributes(`prompt:${entry.id}`)}><summary>Exact prompt</summary><div class="markdown exact-prompt-body">${renderMarkdown(entry.text)}</div></details>` : `<div class="markdown">${renderMarkdown(entry.text)}</div>`}
-    ${entry.data === undefined ? "" : jsonDetailsHtml("Structured data", entry.data, `${entry.id}:structured`)}
+    ${entry.data === undefined ? "" : jsonDetailsHtml(entry.eventType === "provider.failure" ? "Technical detail" : "Structured data", entry.data, `${entry.id}:structured`)}
     <time>${escapeHtml(messageTime(entry.createdAt))}</time>
   </article>`;
+};
+
+/**
+ * Event types the primary chat keeps even though they are not a participant's answer: a request,
+ * a decision the reader has to act on, or a statement that the run changed course.
+ */
+const primaryChatEventTypes = new Set<string>([
+  "user.message",
+  "provider.recovery",
+  "browser.action.detected",
+  "browser.action.result",
+  "browser.response",
+  "workflow.resumed",
+  "workflow.restarted",
+  "workflow.settingsRejected",
+]);
+
+/**
+ * Whether an entry is bookkeeping rather than conversation.
+ *
+ * The chat is where a reader follows what was asked and what came back. Exact prompts, step
+ * transitions and status lines are provenance: each one true, and together the reason a four-step
+ * run scrolled past several screens of "AGENT PROMPT · INDEPENDENT SPECIALIST ANALYSIS" cards
+ * before the first answer. They are kept, in order, inside one disclosure — nothing is dropped,
+ * and the reader decides when to read it.
+ */
+const isRunInformationEntry = (entry: TranscriptEntry): boolean => {
+  if (entry.eventType !== undefined && primaryChatEventTypes.has(entry.eventType)) return false;
+  if (entry.kind === "error") return false;
+  if (entry.agentId !== undefined && (entry.kind === "answer" || entry.kind === "interrupted")) {
+    return false;
+  }
+  return true;
+};
+
+const runInformationHtml = (panel: PanelState, entries: TranscriptEntry[], readOnly: boolean): string => {
+  if (entries.length === 0) return "";
+  return `<details class="info-disclosure run-information" ${disclosureAttributes("run-information")}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Run information · ${String(entries.length)} recorded ${entries.length === 1 ? "entry" : "entries"}</summary><div class="run-information-body">${entries.map((entry) => transcriptMessageHtml(panel, entry, readOnly)).join("")}</div></details>`;
 };
 
 const liveMessagesHtml = (panel: PanelState): string =>
@@ -481,8 +519,12 @@ const queueHtml = (panel: PanelState): string => {
   if (panel.queuedMessages.length === 0 && !panel.resumableWorkflow) {
     return "";
   }
+  const recoveryBusy = panel.running || panel.workflowStatus === "running";
+  const recoveryBlocked = recoveryBusy
+    ? ` disabled title="Interrupt the active run before restarting it"`
+    : "";
   const recovery = panel.resumableWorkflow
-    ? `<article class="recovery-card"><div><strong>Recoverable pipeline</strong><span>${escapeHtml(panel.resumableWorkflow.pipelineName)} · step ${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}</span></div><div class="compact-actions"><button data-action="workflow-resume">Resume from checkpoint</button><button data-action="workflow-discard">Discard</button></div></article>`
+    ? `<article class="recovery-card"><div><strong>Recoverable pipeline</strong><span>${escapeHtml(panel.resumableWorkflow.pipelineName)} · stopped at step ${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}</span></div><div class="compact-actions"><button class="primary" data-action="workflow-restart"${recoveryBlocked}>Restart pipeline</button><button data-action="workflow-resume"${recoveryBlocked}>Retry failed step</button><button data-action="workflow-discard"${recoveryBlocked}>Discard</button></div></article>`
     : "";
   const queued = panel.queuedMessages
     .map((message, index) => {
@@ -1054,6 +1096,15 @@ const applyFieldErrors = (): void => {
   });
 };
 
+// The popover that owns focus for as long as it is open. Both are dismissed by focus leaving them,
+// so neither may have focus put back outside it by a render.
+const openPopoverSelector = (): string | undefined =>
+  state.pipelinePickerOpen
+    ? ".pipeline-picker"
+    : state.agentsPickerOpen
+      ? ".agents-picker"
+      : undefined;
+
 const render = (): void => {
   if (!state.hydrated) {
     root.innerHTML = `<div class="app-shell">${tabsHtml()}<div class="workspace-shell"><main class="room-empty" aria-busy="true"><p class="muted">Loading runs…</p></main></div></div>`;
@@ -1115,7 +1166,7 @@ const render = (): void => {
   }
   transcriptGrewAbove = false;
   settleCodeBlockFocus();
-  restoreControl(control);
+  restoreControl(control, openPopoverSelector());
   rememberEditorLocally();
   focusEmptyComposer(control !== undefined);
   refreshVisibleCountdowns();
@@ -1896,6 +1947,22 @@ const runHumanE2eUiScenario = async (
   }
   await settleUi();
 
+// Pipeline editing is reached through the composer's settings panel, and a modal editor opened
+// over that panel dismisses it: a click inside the editor is a click outside the panel. A person
+// coming back to Edit therefore opens Settings again first, and waits for the control to be
+// offered rather than pressing at whatever moment the render happens to reach.
+const openPipelineEditorThroughSettings = async (): Promise<void> => {
+  if (!state.composerSettingsOpen) {
+    root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
+    await settleUi();
+  }
+  await waitForUi(() =>
+    root.querySelector<HTMLButtonElement>('[data-action="pipeline-edit"]')?.disabled === false
+  );
+  root.querySelector<HTMLElement>('[data-action="pipeline-edit"]:not([disabled])')?.click();
+  await settleUi();
+};
+
   // Pipeline editing lives inside the composer's settings panel now, so it is opened the way a
   // person would before the New-pipeline control can be reached.
   root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
@@ -1926,8 +1993,7 @@ const runHumanE2eUiScenario = async (
     activePanel().selectedPipelineDefinition?.id === message.pipeline.id
   );
 
-  root.querySelector<HTMLElement>('[data-action="pipeline-edit"]:not([disabled])')?.click();
-  await settleUi();
+  await openPipelineEditorThroughSettings();
   const editorOpened = root.querySelector(".pipeline-editor") !== null;
   const sourcePipelineIdLocked =
     root.querySelector<HTMLInputElement>('[data-editor-meta="id"]')?.disabled === true;
@@ -1950,8 +2016,7 @@ const runHumanE2eUiScenario = async (
   let invalidJsonKeepsText = false;
   let invalidJsonErrorLines = -1;
   const editedDescription = "Edited through the JSON view";
-  root.querySelector<HTMLElement>('[data-action="pipeline-edit"]:not([disabled])')?.click();
-  await settleUi();
+  await openPipelineEditorThroughSettings();
   if (root.querySelector(".pipeline-editor") !== null) {
     root.querySelector<HTMLButtonElement>('[data-action="editor-mode"][data-mode="json"]:not([disabled])')?.click();
     const reachedJson = await waitForUi(() => root.querySelector("#pipeline-raw") !== null);

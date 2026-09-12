@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { DoctorDependencies } from "../process/doctorChecks";
 import { readTimeoutSetting } from "../state/timeoutBounds";
 import { createScopedDoctorDependencies, selectDoctorWorkspace } from "./doctorDependencies";
+import { resolveCodexCommandSetting } from "../providers/codexExecutable";
 import {
   ZAI_ANTHROPIC_ENDPOINT,
   ZAI_DEFAULT_TOKEN_SOURCE_VARIABLE,
@@ -29,7 +30,9 @@ export const createDoctorDependencies = (): DoctorDependencies => {
   return createScopedDoctorDependencies({
     ...(workspace === undefined ? {} : { workspace }),
     timeoutMs,
-    codexCommand: String(configuration.get("codexCommand", "codex")),
+    codexCommand: resolveCodexCommandSetting((key, fallback) =>
+      String(configuration.get(key, fallback)),
+    ),
     claudeCommand: String(configuration.get("claudeCommand", "claude")),
     providerEnvironmentVariables,
     zai: {

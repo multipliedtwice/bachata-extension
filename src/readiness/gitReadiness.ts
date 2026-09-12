@@ -18,6 +18,14 @@ export type GitReadiness = {
   clean?: boolean;
   statusDetail?: string;
   dirtyPaths?: string[];
+  /**
+   * Whether the selected root is a Git repository, as opposed to Git being absent or unusable.
+   *
+   * These are two different blockers with two different remedies: installing Git does nothing for
+   * a folder that simply is not a repository, and a parent directory holding one is a common and
+   * entirely ordinary layout. Present only once Git itself has answered.
+   */
+  repository?: boolean;
 };
 
 export type GitProbeOutcome =
@@ -45,6 +53,7 @@ export const gitReadinessFrom = (probe: GitProbeOutcome): GitReadiness => {
       available: false,
       detail: errorText(probe.error),
       statusDetail: "The selected root is not a usable Git repository",
+      repository: false,
     };
   }
   const clean = probe.status.length === 0;
@@ -54,5 +63,6 @@ export const gitReadinessFrom = (probe: GitProbeOutcome): GitReadiness => {
     clean,
     statusDetail: clean ? "Workspace is clean" : "Workspace has uncommitted changes",
     dirtyPaths: parsePorcelainDirtyPaths(probe.status),
+    repository: true,
   };
 };

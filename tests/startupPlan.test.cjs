@@ -10,6 +10,23 @@ const {
   startupTaskDirty,
 } = require("../dist/runtime/startupPlan.js");
 
+test("an attachment on an unexecuted draft is an input, not work that pins the definition", () => {
+  // Counting it kept a draft on a stale built-in preset, so attaching a screenshot re-imposed a
+  // requirement the shipped preset had dropped. A queued or recoverable run carries its own
+  // attachment ids and is pinned by those entries instead.
+  assert.equal(persistedHasDurableState({ attachments: [{ id: "a" }] }), false);
+  assert.equal(
+    persistedHasDurableState({ attachments: [{ id: "a" }], queuedMessages: [{ id: "q" }] }),
+    true,
+    "a queued run still pins the definition it was queued against",
+  );
+  assert.equal(
+    persistedHasDurableState({ attachments: [{ id: "a" }], resumableWorkflow: { pipelineId: "r" } }),
+    true,
+    "an interrupted run still resumes against the definition it started under",
+  );
+});
+
 test("a record with nothing in progress carries no durable state", () => {
   assert.equal(persistedHasDurableState(undefined), false);
   assert.equal(
@@ -26,7 +43,6 @@ test("a record with nothing in progress carries no durable state", () => {
 test("any one sign of work in progress makes the record durable", () => {
   for (const persisted of [
     { taskDirty: true },
-    { attachments: [{ id: "a" }] },
     { queuedMessages: [{ id: "q" }] },
     { queueStart: { messageId: "q", claimedAt: "now" } },
     { resumableWorkflow: { pipelineId: "review" } },

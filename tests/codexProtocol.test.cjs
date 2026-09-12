@@ -17,7 +17,13 @@ const {
   isCodexScopeError,
 } = require("../dist/adapters/codexWire.js");
 const { createCodexAppServerAdapter } = require("../dist/adapters/codexAppServer.js");
-const { classifyProviderFailure, providerFallbackFailureCodes } = require("../dist/adapters/providerFailure.js");
+const {
+  classifyProviderFailure,
+  extractProviderErrorMessage,
+  isClientVersionFailure,
+  providerFailureRequiresHumanChoice,
+  providerFallbackFailureCodes,
+} = require("../dist/adapters/providerFailure.js");
 const {
   providerRecovery,
   providerRecoveryStatement,
@@ -530,4 +536,90 @@ test("a recovery statement names what happened and every choice", () => {
   assert.match(statement, /will not run this somewhere else on its own/u);
   assert.match(statement, /- Run Doctor:/u);
   assert.match(statement, /- Disable this provider:/u);
+});
+
+const OUTDATED_CODEX_ENVELOPE = JSON.stringify({
+  type: "error",
+  status: 400,
+  error: {
+    type: "invalid_request_error",
+    message:
+      "The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+  },
+});
+
+test("a nested 400 envelope becomes one readable protocol failure that keeps its wire form", () => {
+  const failure = classifyProviderFailure(
+    new Error(OUTDATED_CODEX_ENVELOPE),
+    "codex-app-server",
+    "codex-cli:default",
+    "none",
+  );
+  assert.equal(
+    failure.message,
+    "The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+    "the readable sentence is what the primary result shows",
+  );
+  assert.equal(failure.code, "protocolError");
+  assert.equal(failure.retryable, false, "a client too old for the request is not a transient condition");
+  assert.equal(providerFallbackFailureCodes.has(failure.code), false);
+  assert.equal(providerFailureRequiresHumanChoice(failure), true);
+  assert.equal(isClientVersionFailure(failure), true);
+  assert.equal(failure.evidence, OUTDATED_CODEX_ENVELOPE, "the envelope is kept as technical detail");
+  assert.equal(
+    failure.message.includes("invalid_request_error"),
+    false,
+    "no wire framing reaches the reader's sentence",
+  );
+});
+
+test("an outdated client is offered the executable setting first, not a retry", () => {
+  const failure = classifyProviderFailure(
+    new Error(OUTDATED_CODEX_ENVELOPE),
+    "codex-app-server",
+    "codex-cli:default",
+    "none",
+  );
+  const recovery = providerRecovery(failure);
+  assert.ok(recovery);
+  assert.equal(recovery.title, "The installed codex-app-server is older than this request needs");
+  assert.equal(recovery.choices[0].id, "openProviderSettings");
+  assert.equal(recovery.statement, failure.message);
+});
+
+test("envelope extraction prefers the nested error message and refuses unbounded input", () => {
+  assert.equal(
+    extractProviderErrorMessage(JSON.stringify({ message: "outer", error: { message: "inner" } })),
+    "inner",
+  );
+  assert.equal(
+    extractProviderErrorMessage('codex said: {"error":{"message":"prefixed envelope"}}'),
+    "prefixed envelope",
+    "a provider's own prose before the envelope does not hide the sentence inside it",
+  );
+  assert.equal(extractProviderErrorMessage("plain text failure"), undefined);
+  assert.equal(extractProviderErrorMessage("{not json"), undefined);
+  assert.equal(extractProviderErrorMessage(JSON.stringify({ error: {} })), undefined);
+  assert.equal(
+    extractProviderErrorMessage(`{"error":{"message":"${"x".repeat(20_000)}"}}`),
+    undefined,
+    "an envelope past the bound is not parsed at all",
+  );
+  // Depth is bounded too: a message buried deeper than a provider would ever nest is not found,
+  // and the classifier falls back to the text as it arrived.
+  let deep = { message: "too deep" };
+  for (let level = 0; level < 12; level += 1) deep = { nested: deep };
+  assert.equal(extractProviderErrorMessage(JSON.stringify(deep)), undefined);
+});
+
+test("a plain provider message is classified exactly as it arrived, with no evidence invented", () => {
+  const failure = classifyProviderFailure(
+    new Error("Codex rate limit reached"),
+    "codex-app-server",
+    "codex-cli:default",
+    "none",
+  );
+  assert.equal(failure.message, "Codex rate limit reached");
+  assert.equal(failure.evidence, undefined);
+  assert.equal(isClientVersionFailure(failure), false);
 });

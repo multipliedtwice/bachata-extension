@@ -111,7 +111,7 @@ export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
     fallback: "auto",
     allowed: ["auto", "lmstudio", "ollama"],
   },
-  { key: "browserSelectorHealingModel", kind: "string", fallback: "prism-ml/Bonsai-27B-mlx-1bit" },
+  { key: "browserSelectorHealingModel", kind: "string", fallback: "" },
   { key: "browserSelectorHealingTimeoutMs", kind: "number", fallback: 30_000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
   {
     key: "browserSemanticInterpreterBackend",
@@ -119,7 +119,7 @@ export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
     fallback: "auto",
     allowed: ["auto", "lmstudio", "ollama"],
   },
-  { key: "browserSemanticInterpreterModel", kind: "string", fallback: "prism-ml/Bonsai-27B-mlx-1bit" },
+  { key: "browserSemanticInterpreterModel", kind: "string", fallback: "" },
   { key: "browserSemanticInterpreterTimeoutMs", kind: "number", fallback: 30_000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
   {
     key: "browserSemanticInterpreterMaxInputBytes",

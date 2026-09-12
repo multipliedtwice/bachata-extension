@@ -230,6 +230,12 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
         resetSessionsError: undefined,
         beforePipelineRun: undefined,
         resumeCalls: [],
+        restartCalls: [],
+        executionPlans: [],
+        lastExecutionPlan: undefined,
+        lastRunConstraints: {},
+        recordedExecutionPlan: undefined,
+        recordedRunConstraints: {},
         state,
         run,
         beforeRun,
@@ -360,6 +366,18 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
             if (instance.preflightError) {
               throw instance.preflightError;
             }
+            // The real runtime refuses an ordinary preflight while a recovery checkpoint exists,
+            // and answers a restart against the record it replays. A double that skipped this
+            // hid a restart route that could never reach the runtime.
+            if (preflightOptions.restart === true) {
+              if (!state.resumableWorkflow) {
+                throw new Error("This run has no recorded workflow to restart");
+              }
+            } else if (state.resumableWorkflow) {
+              throw new Error(
+                "Resume, restart, or discard the interrupted workflow before starting another pipeline",
+              );
+            }
             return harnessOptions.preflightSnapshot
               ? harnessOptions.preflightSnapshot(snapshot)
               : snapshot;
@@ -378,6 +396,19 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
               sourceQueueMessageId: runOptions.sourceQueueMessageId,
               hasOnAccepted: typeof runOptions.onAccepted === "function",
             });
+            instance.executionPlans.push(
+              runOptions.executionPlan ? { ...runOptions.executionPlan } : undefined,
+            );
+            instance.lastExecutionPlan = runOptions.executionPlan
+              ? { ...runOptions.executionPlan }
+              : instance.lastExecutionPlan;
+            instance.lastRunConstraints = {
+              ...(runOptions.allowedPaths === undefined
+                ? {}
+                : { allowedPaths: [...runOptions.allowedPaths] }),
+              ...(runOptions.writeScope === undefined ? {} : { writeScope: runOptions.writeScope }),
+              ...(runOptions.commitMode === undefined ? {} : { commitMode: runOptions.commitMode }),
+            };
             await instance.beforePipelineRun?.({ prompt, attachmentIds: [...attachmentIds] });
             await runOptions.onAccepted?.();
             if (instance.reportPipelineStep) {
@@ -419,6 +450,15 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
                     : {}),
                 }
               : undefined;
+            if (state.resumableWorkflow) {
+              instance.recordedExecutionPlan = instance.lastExecutionPlan
+                ? { ...instance.lastExecutionPlan }
+                : undefined;
+              instance.recordedRunConstraints = { ...instance.lastRunConstraints };
+            } else {
+              instance.recordedExecutionPlan = undefined;
+              instance.recordedRunConstraints = {};
+            }
             return result;
           },
           resumePipeline: async (runOptions = {}) => {
@@ -456,6 +496,46 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
             }
             return result;
           },
+          restartPipeline: async (runOptions = {}) => {
+            const recovery = state.resumableWorkflow;
+            if (!recovery) {
+              throw new Error("This run has no recorded workflow to restart");
+            }
+            instance.restartCalls.push({ recovery: structuredClone(recovery) });
+            if (instance.restartError) {
+              throw instance.restartError;
+            }
+            await runOptions.onAccepted?.();
+            const result = instance.pipelineResults.shift() ?? {
+              status: "completed",
+              answers: {},
+              outputs: {},
+              decisions: [],
+              roles: {},
+            };
+            state.workflowStatus = result.status === "completed" ? "completed" : "interrupted";
+            state.running = false;
+            if (result.status === "completed") {
+              state.resumableWorkflow = undefined;
+            }
+            return result;
+          },
+          getRecoveryExecutionPlan: () =>
+            state.resumableWorkflow && instance.recordedExecutionPlan
+              ? { ...instance.recordedExecutionPlan }
+              : undefined,
+          getRecoveryRunConstraints: () =>
+            state.resumableWorkflow ? { ...(instance.recordedRunConstraints ?? {}) } : {},
+          getRecoveryPipelineSnapshot: () =>
+            state.resumableWorkflow
+              ? {
+                  version: 1,
+                  definition: definitionFor(state.resumableWorkflow.pipelineId)
+                    ?? definitionFor(state.selectedPipelineId),
+                  hash: `hash-${state.resumableWorkflow.pipelineId}`,
+                  scopeKey: "extension",
+                }
+              : undefined,
           interrupt: async () => undefined,
           shutdownIdleProviders: async () => {
             instance.shutdownIdleProvidersCalls += 1;
@@ -2344,6 +2424,112 @@ test("interrupt cancels persisted interactions and releases waiting provider hoo
   }
 });
 
+const browserPairDefinition = {
+  version: 1,
+  id: "browser-pair",
+  name: "Browser pair",
+  agents: [
+    { id: "chatgpt", name: "ChatGPT Browser", adapter: "chatgpt-browser" },
+    { id: "claude", name: "Claude Browser", adapter: "claude-browser" },
+  ],
+  steps: [],
+};
+
+// The saved pipeline ships two browser participants; this conversation reassigned both to CLIs.
+// That is the shape the reader hit: the run executed on Claude CLI and Codex CLI and the result
+// still named chatgpt-browser and claude-browser, because provenance was read from the pipeline.
+const reassignedRuntimeState = (runtime) => {
+  runtime.state.selectedPipelineDefinition = structuredClone(browserPairDefinition);
+  runtime.state.executionParticipants = [
+    { agentId: "chatgpt", name: "ChatGPT Browser", adapter: "claude-code" },
+    { agentId: "claude", name: "Claude Browser", adapter: "codex-app-server", model: "gpt-5.5" },
+  ];
+};
+
+test("a completed run records the providers it executed on, never the pipeline's browser defaults", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversationId = harness.manager.getState().activeConversationId;
+    const runtime = harness.runtimeInstances[0];
+    reassignedRuntimeState(runtime);
+    await runtime.emit({ type: "state.snapshot", state: runtime.state });
+    await waitFor(() =>
+      (harness.manager.getState().conversations[0].participants ?? []).length === 2);
+
+    await harness.manager.runConversation(conversationId, "review this change");
+    const summary = harness.manager
+      .getState()
+      .conversations.find((conversation) => conversation.id === conversationId);
+    assert.deepEqual(summary.participants.map((participant) => participant.adapter), [
+      "claude-code",
+      "codex-app-server",
+    ]);
+    const providers = harness.manager.getState().resultsByConversation[conversationId].providers;
+    assert.deepEqual(providers.map((provider) => provider.adapter), [
+      "claude-code",
+      "codex-app-server",
+    ]);
+    assert.equal(
+      providers.some((provider) => provider.adapter.endsWith("-browser")),
+      false,
+      "the providers the saved pipeline ships with never stand in for the ones that ran",
+    );
+    assert.equal(providers.find((provider) => provider.agentId === "claude").model, "gpt-5.5");
+  } finally {
+    harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());
+    harness.runtimeInstances.forEach((instance) => instance.run.resolve());
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("a failed run names the reassigned provider that failed, not an inconclusive assessment", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversationId = harness.manager.getState().activeConversationId;
+    const runtime = harness.runtimeInstances[0];
+    reassignedRuntimeState(runtime);
+    await runtime.emit({ type: "state.snapshot", state: runtime.state });
+    await waitFor(() =>
+      (harness.manager.getState().conversations[0].participants ?? []).length === 2);
+
+    runtime.state.transcript.push({
+      id: "error-1",
+      kind: "error",
+      agentId: "claude",
+      step: "Cross-check",
+      text: "Codex 0.146.0 does not offer the selected model \"gpt-6-astra\"",
+      createdAt: new Date().toISOString(),
+    });
+    runtime.pipelineResults.push({
+      status: "interrupted",
+      answers: {},
+      outputs: {},
+      decisions: [],
+      roles: {},
+    });
+
+    await harness.manager.runConversation(conversationId, "review this change");
+    const result = harness.manager.getState().resultsByConversation[conversationId];
+    assert.equal(result.finalAssessment.outcome, "failedBeforeRuling");
+    assert.equal(result.finalAssessment.failure.adapter, "codex-app-server");
+    assert.equal(result.finalAssessment.failure.participant, "Claude Browser");
+    assert.equal(result.finalAssessment.failure.step, "Cross-check");
+    assert.match(result.finalAssessment.failure.error, /does not offer the selected model/u);
+    assert.deepEqual(result.providers.map((provider) => provider.adapter), [
+      "claude-code",
+      "codex-app-server",
+    ]);
+  } finally {
+    harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());
+    harness.runtimeInstances.forEach((instance) => instance.run.resolve());
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
 test("a second execution never inherits the first execution's terminal evidence", async () => {
   const harness = loadHarness();
   try {
@@ -3623,9 +3809,11 @@ test("decision events expose the final ruling without duplicating participant ca
         ruledBy: "claude",
       },
     }]);
-    assert.equal(
+    // Not a ruling, so it carries the bounded projection rather than its payload whole: enough for
+    // the step's "Technical detail" disclosure, and nothing the primary flow renders.
+    assert.deepEqual(
       state.eventsByConversation.default.find((event) => event.type === "run.started").payload,
-      undefined,
+      { iterationMode: "fixed", iterations: 1 },
     );
   } finally {
     harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());
@@ -4246,9 +4434,11 @@ test("run participants are published with the conversation summary and persist f
     ));
     const snapshot = harness.posted.findLast((message) => message.type === "manager.snapshot");
     const summary = snapshot.state.conversations.find((conversation) => conversation.participants);
+    // The agent id travels with each participant so a failure can be attributed to the provider
+    // that answered for it rather than to a name that recurs across pipelines.
     assert.deepEqual(summary.participants, [
-      { name: "Lead", adapter: "codex-app-server", model: "gpt-5-codex" },
-      { name: "Worker", adapter: "claude-code" },
+      { name: "Lead", adapter: "codex-app-server", agentId: "lead", model: "gpt-5-codex" },
+      { name: "Worker", adapter: "claude-code", agentId: "worker" },
     ]);
   } finally {
     harness.subscription.dispose();
@@ -4285,7 +4475,7 @@ test("participants recorded for a run are restored after the manager restarts", 
     const snapshot = second.posted.findLast((message) => message.type === "manager.snapshot");
     const restored = snapshot.state.conversations.find((conversation) => conversation.participants);
     assert.deepEqual(restored?.participants, [
-      { name: "Lead", adapter: "codex-app-server", model: "gpt-5-codex" },
+      { name: "Lead", adapter: "codex-app-server", agentId: "lead", model: "gpt-5-codex" },
     ]);
   } finally {
     second.subscription.dispose();
@@ -7378,5 +7568,217 @@ test("a conversation releases its execution lease while a second message waits f
     await running?.catch(() => undefined);
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
+  }
+});
+
+// The ordinary path this product exists for: choose a pipeline, assign agents, type a task, Send.
+// No Direction detour, no Setup, no acknowledgement checkbox.
+const specialistDefinition = (intent) => ({
+  ...readOnlyReviewDefinition("specialist-browser-review"),
+  name: "Builder + lead + QA + UX",
+  longitudinalIntent: intent,
+});
+
+test("a specialist run starts in a repository with no initiative and nothing acknowledged", async () => {
+  const definition = specialistDefinition("runLocal");
+  const harness = loadHarness(undefined, {
+    pipelineDefinitions: { "specialist-browser-review": definition },
+    preflightSnapshot: () => ({
+      version: 1,
+      definition,
+      hash: "hash-specialist",
+      scopeKey: "workspace:/repo",
+    }),
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    // No initiative is created, and nothing acknowledges a contract. The run simply executes.
+    const result = await harness.manager.runConversation("default", "perform UI/UX review of extension");
+    assert.ok(result, "Send did not start the run");
+    const conversation = harness.manager.getState().conversations.find((entry) => entry.id === "default");
+    assert.equal(conversation.longitudinalIntent, "runLocal");
+    assert.equal(conversation.input, "perform UI/UX review of extension", "the prompt is recorded");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("a workflow that records durable state still refuses without an initiative", async () => {
+  // The requirement is preserved exactly where it is real: this pipeline's result belongs to an
+  // initiative, so starting it without one would discard what it produced.
+  const definition = specialistDefinition("initiativeRequired");
+  const harness = loadHarness(undefined, {
+    pipelineDefinitions: { "specialist-browser-review": definition },
+    preflightSnapshot: () => ({
+      version: 1,
+      definition,
+      hash: "hash-specialist",
+      scopeKey: "workspace:/repo",
+    }),
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    await assert.rejects(
+      harness.manager.runConversation("default", "deliver the feature"),
+      /records its result against an initiative/u,
+    );
+    assert.deepEqual(
+      harness.runtimeInstances.flatMap((instance) =>
+        (instance.messages ?? []).filter((message) => message.type === "pipeline.run")),
+      [],
+      "a provider was started by a run that should have been refused",
+    );
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("an idle conversation carrying the old preset snapshot runs once the snapshot is refreshed", async () => {
+  // The conversation on screen was created against the previous built-in preset. Its prompt is
+  // preserved, and the run proceeds against the refreshed definition rather than the stale one.
+  let definition = specialistDefinition("initiativeRequired");
+  const harness = loadHarness(undefined, {
+    pipelineDefinitions: { "specialist-browser-review": definition },
+    preflightSnapshot: () => ({
+      version: 1,
+      definition,
+      hash: "hash-specialist",
+      scopeKey: "workspace:/repo",
+    }),
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    await harness.manager.handleMessage({
+      type: "conversation.saveDraft",
+      conversationId: "default",
+      text: "perform UI/UX review of extension",
+    });
+    // The old snapshot still refuses, which is why the conversation was stuck.
+    await assert.rejects(
+      harness.manager.runConversation("default", "perform UI/UX review of extension"),
+      /records its result against an initiative/u,
+    );
+    const stillDrafted = harness.manager.getState().conversations.find((entry) => entry.id === "default");
+    assert.equal(stillDrafted.preparedDraft ?? stillDrafted.input, "perform UI/UX review of extension");
+
+    // The refreshed preset is the one the run now uses.
+    definition = specialistDefinition("runLocal");
+    const result = await harness.manager.runConversation("default", "perform UI/UX review of extension");
+    assert.ok(result, "the refreshed snapshot did not start the run");
+    const conversation = harness.manager.getState().conversations.find((entry) => entry.id === "default");
+    assert.equal(conversation.input, "perform UI/UX review of extension", "the prompt survived");
+    assert.equal(conversation.longitudinalIntent, "runLocal");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("restarting a failed run replays the recorded request as a new attempt, without a second prompt", async () => {
+  // A local workflow, so the restart under test is not also a longitudinal-intent test.
+  const harness = loadHarness(undefined, {
+    pipelineDefinitions: {
+      "cross-reference-development": {
+        ...readOnlyReviewDefinition("cross-reference-development"),
+        longitudinalIntent: "runLocal",
+      },
+    },
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversation = await harness.manager.createConversation({
+      title: "Restart me",
+      pipelineId: "cross-reference-development",
+      workingDirectory: "/workspace",
+    });
+    const runtime = harness.runtimeInstances.at(-1);
+    runtime.pipelineResults.push({
+      status: "interrupted",
+      answers: {},
+      outputs: {},
+      decisions: [],
+      roles: {},
+    });
+    await harness.manager.runConversation(conversation.id, "Build the thing");
+
+    await harness.manager.handleMessage({
+      type: "conversation.runtime",
+      conversationId: conversation.id,
+      message: { type: "workflow.restart" },
+    });
+
+    assert.equal(runtime.restartCalls.length, 1, "restart did not reach the runtime");
+    assert.equal(
+      runtime.restartCalls[0].recovery.userPrompt,
+      "Build the thing",
+      "restart replayed something other than the recorded request",
+    );
+    assert.equal(runtime.resumeCalls.length, 0, "restart must not resume the checkpoint");
+    const events = harness.manager.getState().eventsByConversation[conversation.id] ?? [];
+    const types = events.map((event) => event.type);
+    assert.ok(types.includes("run.restarted"), "no restart is recorded in the catalog");
+    assert.equal(
+      types.filter((type) => type === "iteration.started").length,
+      2,
+      "a restart is a new attempt, so it gets its own iteration",
+    );
+    const summary = harness.manager.getState().conversations.find(
+      (item) => item.id === conversation.id,
+    );
+    assert.equal(summary.workflowStatus, "completed");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("a restart that the runtime refuses is reported and leaves the run recoverable", async () => {
+  // A local workflow, so the restart under test is not also a longitudinal-intent test.
+  const harness = loadHarness(undefined, {
+    pipelineDefinitions: {
+      "cross-reference-development": {
+        ...readOnlyReviewDefinition("cross-reference-development"),
+        longitudinalIntent: "runLocal",
+      },
+    },
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversation = await harness.manager.createConversation({
+      title: "Refused restart",
+      pipelineId: "cross-reference-development",
+      workingDirectory: "/workspace",
+    });
+    const runtime = harness.runtimeInstances.at(-1);
+    runtime.pipelineResults.push({
+      status: "interrupted",
+      answers: {},
+      outputs: {},
+      decisions: [],
+      roles: {},
+    });
+    await harness.manager.runConversation(conversation.id, "Build the thing");
+    runtime.restartError = new Error("restart preflight refused");
+
+    await assert.rejects(
+      harness.manager.handleMessage({
+        type: "conversation.runtime",
+        conversationId: conversation.id,
+        message: { type: "workflow.restart" },
+      }),
+      /restart preflight refused/u,
+    );
+    assert.ok(
+      runtime.state.resumableWorkflow,
+      "a refused restart must leave the checkpoint the reader had",
+    );
+    const types = (harness.manager.getState().eventsByConversation[conversation.id] ?? [])
+      .map((event) => event.type);
+    assert.ok(types.includes("run.restart.failed"), "the refusal is not recorded as a restart failure");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
   }
 });

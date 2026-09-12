@@ -77,7 +77,7 @@ const webview = JSON.parse(read("tsconfig.webview.json"))
   .include.map((file) => read(file))
   .join("\n");
 
-check("version", packageJson.version === "0.7.0", `version=${packageJson.version}`);
+check("version", packageJson.version === "0.7.1", `version=${packageJson.version}`);
 
 check("workspacePolicy:explicitScope", /resolveWorkspaceWritePolicy/.test(workspacePolicyAudit) && /writeScope === "task"/.test(workspacePolicyAudit) && /writeScope === "workspace"/.test(workspacePolicyAudit) && /Task-scoped execution requires an explicit file or directory path/.test(workspacePolicyAudit), "task-scoped local and browser agents derive a deterministic write boundary while whole-workspace authority is explicit");
 check("managedPair:verificationRecovery", /"WORKER_VERIFY"/.test(managedPair) && /case "workerNeedsContext"/.test(managedPair), "managed Worker can request additional context after verification or stale-hash failure");
@@ -193,7 +193,7 @@ check("local:commonContextFiles", /Dockerfile/.test(localInterpretation) && /con
 check("local:repairValidate", /jsonrepair/.test(localInterpretation) && /Ajv/.test(localInterpretation) && /valid\.has/.test(localInterpretation), "local model output is repaired, schema checked, and restricted to known IDs");
 check("local:boundedQueue", /concurrency.*1|worker.*1|createQueue.*1|fastq/i.test(localBroker), "local-model broker serializes requests through a bounded queue");
 check("local:absoluteDeadline", /const timeoutMs/.test(localBroker) && /const controller = new AbortController\(\)/.test(localBroker) && /localModelBroker\.run/.test(localBroker) && /controller\.signal/.test(localBroker), "semantic local-model queue and backend fallback share one operation-level cancellation deadline");
-check("local:abortPropagates", /signal\?\.aborted\) throw error/.test(localInterpretation) && /if \(signal\.aborted\) \{[\s\S]{0,40}throw error/.test(semantic), "semantic interpretation propagates cancellation instead of converting it into normal abstention/fallback");
+check("local:abortPropagates", /if \(signal\?\.aborted\) throw new Error/.test(localInterpretation) && /if \(signal\.aborted\) \{[\s\S]{0,40}throw error/.test(semantic), "semantic interpretation propagates cancellation instead of converting it into normal abstention/fallback");
 check("context:tsJs", /\.tsx/.test(contextIndex) && /\.mjs/.test(contextIndex) && /\.cjs/.test(contextIndex), "TypeScript and JavaScript variants are indexed");
 check("context:exactFileScopes", /exactFiles/.test(contextIndex) && /directoryRoots/.test(contextIndex) && /fs\.stat\(absolute\)/.test(contextIndex), "managed context distinguishes exact-file scopes from recursive directory scopes");
 check("context:envExample", /base === ["']\.env\.example["']/.test(contextIndex) && mutationPolicy.includes("^\\.env(?!(?:\\.example)$)"), "sanitized .env.example templates are supported without opening real environment files");

@@ -458,6 +458,24 @@ lines.on("line", (line) => {
   if (message.method === "initialized") {
     return;
   }
+  // Only answered when a test asks for it, so every other test keeps exercising the "this server
+  // does not list models" path the older Codex builds actually take.
+  if (message.method === "model/list" && process.env.MOCK_CODEX_MODELS) {
+    const ids = process.env.MOCK_CODEX_MODELS.split(",").map((entry) => entry.trim()).filter(Boolean);
+    send({
+      id: message.id,
+      result: {
+        data: ids.map((id, index) => ({
+          id,
+          model: id,
+          displayName: id.toUpperCase(),
+          hidden: false,
+          isDefault: index === 0,
+        })),
+      },
+    });
+    return;
+  }
   if (message.method === "thread/start") {
     const rejection = approvalPolicyError(message.params.approvalPolicy)
       ?? sandboxModeError(message.params.sandbox);

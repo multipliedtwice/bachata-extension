@@ -3,7 +3,7 @@
   "id": "debug",
   "name": "Debug",
   "description": "Codex and Claude diagnose a defect independently, converge on the cause, implement the fix, and model-review the result. Verification here is a second model review, not a controller-owned check.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",

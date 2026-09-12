@@ -675,3 +675,79 @@ test("a working directory wins over the grant root, and a browser action travels
   assert.equal(approval.requestId, "a-2");
   assert.equal(approval.kind, "browserAction");
 });
+
+// An approval request is provider-originated from end to end: the reason, the command, the
+// directory and five free-form JSON structures. None of them had a bound, so an approval was
+// another way an unbounded payload reached a reader — on the one message a reader is asked to act
+// on. Bounding it is not softening it: a command that had to be cut says so.
+
+const TOKEN = "sk-live-ABCDEFGHIJKLMNOPQRSTUV";
+
+test("an approval request is bounded and redacted before it reaches the panel", () => {
+  const started = Date.now();
+  const approval = pendingApprovalFrom("codex", {
+    requestId: "r1",
+    kind: "command",
+    reason: `${"why ".repeat(5_000_000)}`,
+    command: `deploy --api-key ${TOKEN} ${"--flag ".repeat(2_000_000)}`,
+    cwd: "/".repeat(1_000_000),
+    commandActions: { deep: Array.from({ length: 100_000 }, (_unused, index) => index) },
+    additionalPermissions: Object.fromEntries(
+      Array.from({ length: 50_000 }, (_unused, index) => [`k${String(index)}`, "v".repeat(1_000)]),
+    ),
+    requestedPermissions: { authorization: `Bearer ${TOKEN}` },
+    browserAction: { note: "n".repeat(5_000_000) },
+    proposedExecpolicyAmendment: Array.from({ length: 10_000 }, () => "p".repeat(10_000)),
+    proposedNetworkPolicyAmendments: Array.from({ length: 10_000 }, () => ({ host: "h".repeat(10_000) })),
+    choices: [{ id: "approve", label: "L".repeat(100_000) }, { id: "deny", label: "Deny" }],
+  });
+  assert.ok(Date.now() - started < 2_000, "the request was walked whole before it was bounded");
+  const bytes = (value) => Buffer.byteLength(JSON.stringify(value ?? null), "utf8");
+  assert.ok(bytes(approval.reason) <= 4 * 1_024 + 2, `${String(bytes(approval.reason))} bytes of reason`);
+  assert.ok(bytes(approval.command) <= 4 * 1_024 + 2);
+  assert.ok(bytes(approval.cwd) <= 1_024 + 2);
+  assert.ok(bytes(approval.commandActions) <= 8 * 1_024);
+  assert.ok(bytes(approval.additionalPermissions) <= 8 * 1_024);
+  assert.ok(bytes(approval.browserAction) <= 8 * 1_024);
+  assert.ok(bytes(approval.proposedExecpolicyAmendment) <= 16 * (1_024 + 4) + 64);
+  assert.ok(bytes(approval.proposedNetworkPolicyAmendments) <= 8 * 1_024);
+  assert.equal(approval.choices.length, 2);
+  assert.ok(bytes(approval.choices[0].label) <= 256 + 2);
+  assert.equal(approval.command.includes("sk-live"), false, "a credential travelled in the command");
+  assert.equal(
+    JSON.stringify(approval.requestedPermissions).includes("sk-live"),
+    false,
+    "a credential travelled in the requested permissions",
+  );
+  assert.match(approval.command, /more characters not shown\]$/u);
+});
+
+test("an ordinary approval is untouched", () => {
+  const approval = pendingApprovalFrom("codex", {
+    requestId: "r2",
+    kind: "command",
+    reason: "Run the project checks",
+    command: "npm test",
+    cwd: "/workspace",
+    choices: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+  });
+  assert.equal(approval.reason, "Run the project checks");
+  assert.equal(approval.command, "npm test");
+  assert.equal(approval.cwd, "/workspace");
+  assert.deepEqual(approval.choices, [
+    { id: "approve", label: "Approve" },
+    { id: "deny", label: "Deny" },
+  ]);
+});
+
+test("a policy-amendment field that is not a list is dropped rather than reshaped", () => {
+  const approval = pendingApprovalFrom("codex", {
+    requestId: "r3",
+    kind: "command",
+    command: "npm test",
+    // Provider data, so its shape is not guaranteed by anything on this side.
+    proposedNetworkPolicyAmendments: "allow everything",
+    choices: [{ id: "approve", label: "Approve" }],
+  });
+  assert.equal(approval.proposedNetworkPolicyAmendments, undefined);
+});

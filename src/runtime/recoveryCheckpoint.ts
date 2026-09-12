@@ -20,8 +20,10 @@ export type RecoveryCheckpoint = ResumableWorkflow & {
 };
 
 /**
- * Whether two assignment maps name the same provider, and the same browser conversation, for every
- * participant. Compared field by field rather than by serialisation so key order cannot decide it.
+ * Whether two assignment maps name the same provider, the same model, and the same browser
+ * conversation, for every participant. Compared field by field rather than by serialisation so key
+ * order cannot decide it. The model is part of the identity: resuming a checkpoint that ran on one
+ * model under another would continue a run nobody interrupted.
  */
 const assignmentsEqual = (
   left: AgentAssignments | undefined,
@@ -33,6 +35,7 @@ const assignmentsEqual = (
     leftEntries.length === Object.keys(rightMap).length &&
     leftEntries.every(([agentId, override]) =>
       rightMap[agentId]?.adapter === override.adapter &&
+      rightMap[agentId]?.model === override.model &&
       rightMap[agentId]?.browserSessionId === override.browserSessionId,
     )
   );

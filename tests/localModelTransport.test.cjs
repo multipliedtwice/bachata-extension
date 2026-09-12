@@ -128,3 +128,35 @@ test("remote authority reaches the authorized remote endpoint; default and opt-o
     globalThis.fetch = realFetch;
   }
 });
+
+const { interpretLocalCandidates } = require("../dist/browser/localInterpretation.js");
+
+// A cancelled interpretation is a cancellation, not a model that abstained. Reading the second as
+// the first told a caller that had already stopped asking that the model had declined.
+test("a cancellation during interpretation propagates instead of becoming abstention", async () => {
+  const controller = new AbortController();
+  const server = await listen((_request, response) => {
+    controller.abort();
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      message: { content: JSON.stringify({ execute: ["r1"], reject: [], ambiguous: [] }) },
+    }));
+  });
+  try {
+    await assert.rejects(
+      interpretLocalCandidates(
+        [{ id: "r1", kindHint: "read", evidence: "read src/index.ts", parsedArguments: { path: "src/index.ts" } }],
+        {
+          backend: "ollama",
+          endpoint: `http://127.0.0.1:${String(server.address().port)}`,
+          model: "stub-interpreter",
+          timeoutMs: 5_000,
+        },
+        controller.signal,
+      ),
+      /interrupted/u,
+    );
+  } finally {
+    await close(server);
+  }
+});

@@ -3,6 +3,7 @@ import type { FSWatcher } from "node:fs";
 import * as path from "node:path";
 
 import { conversationSummaryFromCatalog } from "../conversations/catalogSummary";
+import { catalogEventHistories } from "../conversations/catalogViews";
 import {
   emptyOrchestrationSummary,
   retainedOrchestrationSummary,
@@ -15,7 +16,6 @@ import type {
   ConversationSummary,
   WorkflowEventSummary,
 } from "../webview/protocol";
-import type { JsonValue } from "../adapters/types";
 import type { RunResultCenter } from "../results/projectResult";
 import { openReadOnlyStateCatalog } from "./readOnlyCatalog";
 import type { ReadOnlyStateCatalog } from "./readOnlyCatalog";
@@ -76,20 +76,25 @@ const emptyState = (
   readOnly: ownership,
 });
 
-const eventSummaries = (
+/**
+ * The history a read-only window shows, projected exactly as the writing window projects it.
+ *
+ * This used to send a published decision's payload whole and nothing at all for every other event:
+ * the same unbounded ruling the writing window sent, and the same empty disclosures beside it. It
+ * shares the one projection now, so a read-only window is bounded, redacted and as informative as
+ * the window that owns the workspace.
+ */
+const eventHistories = (
   catalog: ReadOnlyStateCatalog,
-  conversation: ConversationSummary,
-): WorkflowEventSummary[] =>
-  catalog.listEvents(conversation.runRef, 500).map((event) => ({
-    id: event.id,
-    type: event.type,
-    ...(event.status === undefined ? {} : { status: event.status }),
-    ...(event.title === undefined ? {} : { title: event.title }),
-    ...(event.type === "decision.published" && event.payload !== undefined
-      ? { payload: event.payload as JsonValue }
-      : {}),
-    createdAt: event.createdAt,
-  }));
+  conversations: readonly ConversationSummary[],
+  activeConversationId: string,
+): Record<string, WorkflowEventSummary[]> => catalogEventHistories({
+  histories: conversations.map((conversation) => ({
+    conversationId: conversation.id,
+    events: catalog.listEvents(conversation.runRef, 500),
+  })),
+  activeConversationId,
+});
 
 /**
  * The product a window shows when another window owns the workspace.
@@ -190,10 +195,7 @@ export const createReadOnlyProductService = (
       defaultPipelineIterations,
       maxPipelineIterations,
       interactions: [],
-      eventsByConversation: Object.fromEntries(conversations.map((conversation) => [
-        conversation.id,
-        eventSummaries(catalog, conversation),
-      ])),
+      eventsByConversation: eventHistories(catalog, conversations, active?.id ?? ""),
       resultsByConversation: results,
       orchestration: orchestrationSummary,
       direction: catalog.longitudinalSummary(input.repositoryRoot),

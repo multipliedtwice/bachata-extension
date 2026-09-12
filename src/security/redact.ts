@@ -20,7 +20,7 @@ const sensitiveJsonKeys = new Set([
   "credentials",
 ]);
 
-const isSensitiveJsonKey = (key: string): boolean =>
+export const isSensitiveJsonKey = (key: string): boolean =>
   sensitiveJsonKeys.has(key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase());
 
 const structuredTextKeys = new Set([
@@ -38,7 +38,7 @@ const structuredTextKeys = new Set([
   "uri",
 ]);
 
-const isStructuredTextKey = (key: string): boolean =>
+export const isStructuredTextKey = (key: string): boolean =>
   structuredTextKeys.has(key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase());
 
 type RedactionRule = {
@@ -255,3 +255,74 @@ const redactJsonValueInternal = (
 
 export const redactJsonValue = (value: JsonValue): JsonValue =>
   redactJsonValueInternal(value);
+
+/**
+ * How far back from a bounded prefix's end a secret may begin.
+ *
+ * A projection that only ever looks at a fixed prefix of a provider string cannot see whether a
+ * credential that starts near the end of that prefix continues past it. Redaction rules terminate
+ * their value match at the end of the input, so an unterminated quoted secret or an armour block
+ * whose fence falls past the cut can survive in part. The answer is not to look further — that is
+ * the unbounded scan the prefix exists to refuse — but to stop emitting earlier: nothing from the
+ * point where a secret construct may have begun travels at all.
+ *
+ * This window is the longest run of characters that may be discarded for that reason.
+ */
+export const SECRET_BOUNDARY_WINDOW = 256;
+
+/**
+ * Lowercase markers that a secret construct may begin here. Deliberately broader than the
+ * redaction rules: a quote or a dash run costs at most this window's characters of a string that
+ * is being truncated anyway, and being wrong in the other direction emits half a credential.
+ */
+const boundaryIndicators: readonly string[] = [
+  ...SECRET_WORD_NEEDLES,
+  "bearer",
+  "://",
+  "sk-",
+  "rk-",
+  "pk-",
+  "ghp_",
+  "gho_",
+  "ghu_",
+  "ghs_",
+  "ghr_",
+  "eyj",
+  "-----",
+  "\"",
+  "'",
+];
+
+const HYPHEN = 0x2d;
+
+/**
+ * Where a prefix of `head` may safely end when the source continues past it.
+ *
+ * Returns the index of the earliest point within the last `SECRET_BOUNDARY_WINDOW` characters at
+ * which a secret construct may begin — counting a marker the prefix only starts, such as a string
+ * ending in `passwo` or in a partial armour fence. When nothing in the window suggests one,
+ * `head.length` is returned and the whole prefix travels.
+ *
+ * The scan is over a fixed-size window, so its cost does not depend on the source's length.
+ */
+export const secretBoundaryCut = (head: string): number => {
+  const from = head.length <= SECRET_BOUNDARY_WINDOW ? 0 : head.length - SECRET_BOUNDARY_WINDOW;
+  const tail = head.slice(from).toLowerCase();
+  let cut = tail.length;
+  for (const indicator of boundaryIndicators) {
+    const found = tail.indexOf(indicator);
+    if (found >= 0 && found < cut) cut = found;
+    for (let length = indicator.length - 1; length > 0; length -= 1) {
+      const start = tail.length - length;
+      if (start >= cut) continue;
+      if (tail.endsWith(indicator.slice(0, length))) {
+        cut = start;
+        break;
+      }
+    }
+  }
+  let dashes = tail.length;
+  while (dashes > 0 && tail.charCodeAt(dashes - 1) === HYPHEN) dashes -= 1;
+  if (dashes < cut) cut = dashes;
+  return from + cut;
+};

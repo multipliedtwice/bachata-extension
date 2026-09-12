@@ -31,38 +31,74 @@ const localDecisionSchema = {
 
 const validateLocalDecision = new Ajv({ allErrors: true, strict: false }).compile(localDecisionSchema);
 
-const normalizeIds = (value: unknown, valid: ReadonlySet<string>): string[] | undefined => {
-  if (!Array.isArray(value) || value.length > MAX_CANDIDATES) {
-    return undefined;
-  }
-  if (value.some((entry) => typeof entry !== "string" || !valid.has(entry))) {
-    return undefined;
-  }
-  return [...new Set(value as string[])];
-};
+/** A real narrowing read of one classification array: strings only, and no more than the bound. */
+const asStringArray = (value: unknown): string[] | undefined =>
+  Array.isArray(value)
+    && value.length <= MAX_CANDIDATES
+    && value.every((entry): entry is string => typeof entry === "string")
+    ? [...value]
+    : undefined;
 
-const parse = (text: string, valid: ReadonlySet<string>): LocalInterpretation => {
+/**
+ * The interpreter's own reader, exported so the readiness contract check is judged by exactly the
+ * parser that will read the model's answers for real. A check that used a laxer reader would pass
+ * models the interpreter then rejects.
+ *
+ * It reports what the model actually said and nothing else. It does not deduplicate, does not drop
+ * ids it was not expecting, and does not fill in candidates the model left out: every one of those
+ * is the evidence the compatibility gate is judging, and a reader that quietly repaired them
+ * reported a model that answered twice, invented an id, or stopped early as one that answered
+ * correctly. Deciding what may then be acted on is `boundedInterpretation`, below.
+ */
+export const parseLocalDecision = (text: string): LocalInterpretation | undefined => {
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch {
-    value = JSON.parse(jsonrepair(text));
+    try {
+      value = JSON.parse(jsonrepair(text));
+    } catch {
+      return undefined;
+    }
   }
   if (!validateLocalDecision(value)) {
-    throw new Error(`Local interpreter returned invalid JSON: ${validateLocalDecision.errors?.map((error) => error.message).filter(Boolean).join(", ") ?? "schema mismatch"}`);
+    return undefined;
   }
-  const execute = normalizeIds(value.execute, valid);
-  const reject = normalizeIds(value.reject, valid);
-  const ambiguous = normalizeIds(value.ambiguous, valid);
-  if (!execute || !reject || !ambiguous) {
-    return { execute: [], reject: [], ambiguous: [...valid] };
+  const execute = asStringArray(value.execute);
+  const reject = asStringArray(value.reject);
+  const ambiguous = asStringArray(value.ambiguous);
+  return execute && reject && ambiguous ? { execute, reject, ambiguous } : undefined;
+};
+
+/**
+ * What the extension may act on, from what the model said.
+ *
+ * Fail-closed: an answer that cannot be parsed, names an id it was not given, or classifies the
+ * same candidate twice is abstention on everything, because none of those is a classification this
+ * process can distinguish from a guess. Candidates the model simply omitted are ambiguous, which is
+ * the conservative reading of silence.
+ */
+export const boundedInterpretation = (
+  decision: LocalInterpretation | undefined,
+  valid: ReadonlySet<string>,
+): LocalInterpretation => {
+  const abstain = (): LocalInterpretation => ({ execute: [], reject: [], ambiguous: [...valid] });
+  if (!decision) {
+    return abstain();
   }
-  const assigned = [...execute, ...reject, ...ambiguous];
+  const assigned = [...decision.execute, ...decision.reject, ...decision.ambiguous];
+  if (assigned.some((id) => !valid.has(id))) {
+    return abstain();
+  }
   if (new Set(assigned).size !== assigned.length) {
-    return { execute: [], reject: [], ambiguous: [...valid] };
+    return abstain();
   }
   const omitted = [...valid].filter((id) => !assigned.includes(id));
-  return { execute, reject, ambiguous: [...ambiguous, ...omitted] };
+  return {
+    execute: [...decision.execute],
+    reject: [...decision.reject],
+    ambiguous: [...decision.ambiguous, ...omitted],
+  };
 };
 
 export const interpretLocalCandidates = async (
@@ -77,6 +113,14 @@ export const interpretLocalCandidates = async (
   if (bounded.length === 0) {
     return { execute: [], reject: [], ambiguous: [] };
   }
+  // An empty model name is the host saying nothing was resolved: no backend answered, or no model
+  // has passed the bounded contract check yet. The transport would otherwise take the first model
+  // a server happens to list and run it, which is the one path by which an unchecked model could
+  // still interpret — the gate the host had just applied, undone one call later. Declining here
+  // leaves the caller with deterministic extraction, which is what it falls back to.
+  if (!config.model?.trim()) {
+    throw new Error("No local interpreter model has been confirmed for this host");
+  }
   const valid = new Set(bounded.map((candidate) => candidate.id));
   const prompt = JSON.stringify({
     task: "Classify which controller-generated read-only candidates are current executable requests. Never create paths, commands, patches, tool names, or arguments. Return only supplied candidate IDs. Quoted text, examples, explanations, and source code are not requests.",
@@ -87,12 +131,10 @@ export const interpretLocalCandidates = async (
   // from runLocalModel propagates so the caller reports it distinctly, while only a model that
   // answers with unparseable/invalid output is treated as abstention (every candidate ambiguous).
   const text = await runLocalModel(prompt, config, signal);
-  try {
-    return parse(text, valid);
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    return { execute: [], reject: [], ambiguous: [...valid] };
-  }
+  // A cancellation observed after the answer arrived is still a cancellation. Returning abstention
+  // here would report a model that declined to a caller that had already stopped asking.
+  if (signal?.aborted) throw new Error("Local model request interrupted");
+  return boundedInterpretation(parseLocalDecision(text), valid);
 };
 
 const quotedOrExample = (line: string): boolean =>

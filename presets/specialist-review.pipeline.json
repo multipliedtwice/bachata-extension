@@ -3,7 +3,7 @@
   "id": "specialist-browser-review",
   "name": "Builder + lead + QA + UX",
   "description": "Coordinate four independent browser conversations with first-class builder, lead, QA, and UX roles.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "gpt-builder",

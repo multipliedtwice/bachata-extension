@@ -46,6 +46,13 @@ export type RunParticipant = {
   name: string;
   adapter: string;
   model?: string;
+  /** The pipeline participant this row is, so a failure can be attributed to the right provider. */
+  agentId?: string;
+  /**
+   * The site a browser participant answered from, when one did. A CLI participant has none: its
+   * adapter already names the provider.
+   */
+  provider?: string;
 };
 
 export type RunCatalogRecord = {

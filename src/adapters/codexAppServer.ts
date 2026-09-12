@@ -24,6 +24,8 @@ import {
 } from "./codexWire";
 import { commandInvocation } from "../process/commandInvocation";
 import { spawnScopedProviderProcess } from "../process/processScope";
+import { parseCodexModelList, providerModelRefusal } from "./providerModels";
+import type { ProviderModelCatalog } from "./providerModels";
 
 const textAttachmentExtensions = new Set([".txt", ".md", ".json"]);
 import {
@@ -406,6 +408,10 @@ export const createCodexAppServerAdapter = (
   let child: ChildProcessWithoutNullStreams | undefined;
   let requestId = 1;
   let initialized = false;
+  // The catalog describes the installed executable, which does not change while this process
+  // lives, so it is asked once per transport rather than once per turn. Cleared wherever the
+  // transport is, because the next one may be a different executable.
+  let modelCatalog: ProviderModelCatalog | undefined;
   let serverUserAgent: string | undefined;
   let startPromise: Promise<void> | undefined;
   let activeThreadId: string | undefined;
@@ -1054,6 +1060,7 @@ export const createCodexAppServerAdapter = (
       rejectPending(error);
       failActiveOperations(error);
       initialized = false;
+      modelCatalog = undefined;
       activeThreadId = undefined;
       activeTurnId = undefined;
       requestByTurn.clear();
@@ -1195,10 +1202,78 @@ export const createCodexAppServerAdapter = (
     }
   };
 
+  /** The runtime version the running app-server reported, parsed out of its user agent. */
+  const runtimeVersion = (): string | undefined =>
+    /^[^/\s]+\/(\S+)/u.exec(serverUserAgent ?? "")?.[1];
+
+  /**
+   * The models this Codex executable offers.
+   *
+   * `model/list` is a listing call: it names what the server will accept and starts no thread and
+   * no turn, so asking costs nothing. A server that does not answer it, or answers with something
+   * that is not a model list, is reported as unable to list rather than as offering none — the
+   * difference decides whether a selected model may be refused.
+   */
+  const listModels = async (): Promise<ProviderModelCatalog> => {
+    if (modelCatalog) {
+      return modelCatalog;
+    }
+    const identity = {
+      commandPath: options.command,
+      ...(runtimeVersion() === undefined ? {} : { runtimeVersion: runtimeVersion() as string }),
+    };
+    let result;
+    try {
+      result = await request("model/list", {}, options.commandCheckTimeoutMs);
+    } catch (error) {
+      return {
+        supported: false,
+        reason: `Codex did not answer model/list: ${errorMessage(error)}`,
+        ...identity,
+      };
+    }
+    const models = parseCodexModelList(result);
+    modelCatalog = models === undefined
+      ? {
+          supported: false,
+          reason: "Codex answered model/list without a model list, so its catalog is unknown",
+          ...identity,
+        }
+      : { supported: true, models, ...identity };
+    return modelCatalog;
+  };
+
+  /**
+   * Refuse a model this executable does not offer, before any thread exists.
+   *
+   * A provider handshake proves the command speaks the protocol; it proves nothing about the model
+   * the run selected. The two are separate facts, and a run that names a model the installed Codex
+   * rejects fails part-way through a turn with the provider's own wording, after a thread and a
+   * transcript entry already exist. Asking the catalog first turns that into a refusal that names
+   * the executable, its version, the selected model and what it offers instead.
+   */
+  const assertModelSupported = async (model: string | undefined): Promise<void> => {
+    if (model === undefined) {
+      return;
+    }
+    const refusal = providerModelRefusal({
+      providerLabel: "Codex",
+      commandPath: options.command,
+      ...(runtimeVersion() === undefined ? {} : { runtimeVersion: runtimeVersion() as string }),
+      selectedModel: model,
+      catalog: await listModels(),
+    });
+    if (refusal !== undefined) {
+      throw new Error(refusal);
+    }
+  };
+
   const openThread = async (requestData: SendRequest): Promise<string> => {
     // Refuse before spawning. A run Bachata will not allow must not start a provider process.
     assertCodexScopeSupported(requestData.workspacePolicy, workspaceScope);
     await start();
+    // Before a thread exists, so a rejected model never leaves a session or a transcript turn.
+    await assertModelSupported(requestData.model);
 
     if (requestData.sessionId) {
       const result = await request("thread/resume", {
@@ -1317,6 +1392,7 @@ export const createCodexAppServerAdapter = (
       }
     } finally {
       initialized = false;
+      modelCatalog = undefined;
       await terminateTransport();
     }
     const agent = serverUserAgent ?? "";
@@ -1683,6 +1759,18 @@ export const createCodexAppServerAdapter = (
     adapterType: "codex-app-server",
     capabilities: { streaming: true, resume: true, interrupt: true, attachments: true, repositoryTools: true, browserSessionSelection: false, passiveActionLoop: false },
     checkAvailability: () => handshake(),
+    listModels: async () => {
+      try {
+        await start();
+        return await listModels();
+      } catch (error) {
+        return {
+          supported: false,
+          reason: `Codex app-server did not start: ${errorMessage(error)}`,
+          commandPath: options.command,
+        };
+      }
+    },
     send,
     interrupt: async () => {
       if (!activeThreadId || !activeTurnId) {
@@ -1713,6 +1801,7 @@ export const createCodexAppServerAdapter = (
       child = undefined;
       failTransport = undefined;
       initialized = false;
+      modelCatalog = undefined;
       startPromise = undefined;
       activeThreadId = undefined;
       activeTurnId = undefined;

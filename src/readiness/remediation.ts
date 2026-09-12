@@ -3,6 +3,12 @@ import { verifiedDocumentationUrl } from "./providerDocs";
 
 export type RemediationAction =
   | { kind: "openExternal"; label: string; url: string }
+  /**
+   * Take the reader to working-directory selection. Its own kind rather than a `runCommand`,
+   * because the choice belongs to the panel that holds the run: the command form would ask VS Code
+   * to open a folder, which is a different act with different consequences.
+   */
+  | { kind: "chooseWorkingDirectory"; label: string }
   | { kind: "openDocument"; label: string; document: string }
   | { kind: "openSettings"; label: string; setting: string }
   | { kind: "runInTerminal"; label: string; command: string; args: string[] }
@@ -179,6 +185,25 @@ export const remediationPlan = (
       recheck: { kind: "git", label: "Recheck Git" },
     };
   }
+  if (remediationId === "workspace.selectRepository") {
+    return {
+      id: remediationId,
+      title: "The selected folder is not a Git repository",
+      condition: detail
+        ?? "Git answered here, but the folder Bachata is working in holds no repository.",
+      steps: [
+        "Git is installed and working. What is missing is a repository at the folder this run is pointed at, which is often a child of the folder that is open — a workspace root holding one or more checkouts.",
+        "Choose the working directory that is the repository. Bachata's Git audit stays in force against whichever root you choose; it is not relaxed or skipped.",
+        "Changing the working directory starts a new task in this conversation and clears queued or recoverable work, so do it before you send.",
+        "If the folder should be a repository, run \"git init\" there yourself. Bachata never creates a repository for you.",
+      ],
+      actions: [
+        { kind: "chooseWorkingDirectory", label: "Choose working directory" },
+        { kind: "runCommand", label: "Open Source Control", command: "workbench.view.scm" },
+      ],
+      recheck: { kind: "gitStatus", label: "Recheck workspace state" },
+    };
+  }
   if (remediationId === "doctor.run") {
     return {
       id: remediationId,
@@ -188,10 +213,12 @@ export const remediationPlan = (
         "Run Doctor to verify Git availability.",
         "Checklist steps create worktrees from HEAD. Before running a checklist, review changes in Source Control and commit or stash them. The active custom pipeline catalog may stay dirty.",
         "Pipelines that work in the current checkout can start with uncommitted changes.",
+        "A worktree is cut from the repository at the working directory. If that folder is not the repository this run is about, choose the one that is.",
         "Recheck the Git workspace state.",
       ],
       actions: [
         { kind: "runCommand", label: "Open Source Control", command: "workbench.view.scm" },
+        { kind: "chooseWorkingDirectory", label: "Choose working directory" },
       ],
       recheck: { kind: "gitStatus", label: "Recheck workspace state" },
     };

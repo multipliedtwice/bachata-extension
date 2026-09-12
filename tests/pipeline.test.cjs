@@ -794,6 +794,9 @@ test("capability errors name the provider, the step, and the missing ability", (
 
 test("a declared artifact promotion validates and an undeclared one is refused", () => {
   const withPromotion = readPreset();
+  // A promotion writes durable initiative state, so the schema requires the matching intent; this
+  // test is about the promotion's shape, not about that rule, which is exercised on its own below.
+  withPromotion.longitudinalIntent = "initiativeRequired";
   withPromotion.steps[0].artifactPromotion = {
     type: "requirement",
     titleField: "title",
@@ -805,6 +808,7 @@ test("a declared artifact promotion validates and an undeclared one is refused",
   assert.equal(accepted.success, true, accepted.success ? undefined : accepted.errors.join("\n"));
 
   const unknownType = readPreset();
+  unknownType.longitudinalIntent = "initiativeRequired";
   unknownType.steps[0].artifactPromotion = {
     type: "model", producedBy: unknownType.steps[0].participants[0],
   };
@@ -926,6 +930,7 @@ test("a role may name its own model, and the pipeline still validates without on
 
 test("a promotion on a paired step must name which participant produces the artifact", () => {
   const paired = readPreset();
+  paired.longitudinalIntent = "initiativeRequired";
   const step = paired.steps.find((item) => (item.participants ?? []).length > 1);
   assert.ok(step, "this preset has no paired step to exercise");
 
@@ -995,13 +1000,8 @@ test("longitudinal intent is declared, and durable promotion cannot claim run-lo
   );
 });
 
-test("every shipped preset declares its longitudinal intent", () => {
+test("every shipped preset declares its longitudinal intent, and only recorders require one", () => {
   const directory = path.join(__dirname, "..", "presets");
-  const journeyWorkflows = new Set([
-    "review-only", "codex-review", "claude-review", "plan", "codex-plan", "claude-plan",
-    "debug", "managed-fix", "paired-managed-fix", "codex-fix", "claude-fix",
-    "core-decisions", "cross-reference-development", "specialist-browser-review",
-  ]);
   for (const name of fs.readdirSync(directory).filter((value) => value.endsWith(".json"))) {
     const pipeline = JSON.parse(fs.readFileSync(path.join(directory, name), "utf8"));
     assert.ok(
@@ -1009,13 +1009,19 @@ test("every shipped preset declares its longitudinal intent", () => {
         pipeline.longitudinalIntent === "runLocal",
       `${name} declares no longitudinal intent`,
     );
-    if (journeyWorkflows.has(pipeline.id)) {
-      assert.equal(
-        pipeline.longitudinalIntent,
-        "initiativeRequired",
-        `${name} is a user-facing journey workflow but records nothing`,
-      );
-    }
+    // The rule is what the preset does, not a list someone keeps by hand: a preset that promotes an
+    // artifact or records a core decision writes durable initiative state and must say so. Every
+    // other preset is an ordinary run and must not demand an initiative before it will start.
+    const records = (pipeline.steps ?? []).some(
+      (step) => step.artifactPromotion !== undefined || step.coreDecisionOutput !== undefined,
+    );
+    assert.equal(
+      pipeline.longitudinalIntent,
+      records ? "initiativeRequired" : "runLocal",
+      records
+        ? `${name} writes durable initiative state but does not require an initiative`
+        : `${name} records nothing durable, so it must not require an initiative to run`,
+    );
   }
 });
 
@@ -1030,4 +1036,66 @@ test("a core decision has one durable representation, not two", () => {
   assert.equal(refused.success, false, "a decision was promotable as a generic artifact");
   assert.match(refused.errors.join("\n"), /cannot be decision/u);
   assert.match(refused.errors.join("\n"), /recorded as a DecisionRecord/u);
+});
+
+// A pipeline's step list and its user-visible names travel to the panel as an attempt boundary,
+// outside the payload budget, because they are what the run's progress is read from. That only
+// holds while they are small, and nothing said they were. The limits are stated where a definition
+// is accepted or refused, so the projection can refuse a plan rather than cut it down into a
+// shorter one that never ran.
+
+const {
+  MAX_DISPLAY_NAME_LENGTH,
+  MAX_IDENTIFIER_LENGTH,
+  MAX_PIPELINE_STEPS,
+} = require("../dist/pipeline/schema.js");
+
+test("every shipped preset is well inside the declared limits", () => {
+  const directory = path.join(__dirname, "..", "presets");
+  fs.readdirSync(directory)
+    .filter((name) => name.endsWith(".pipeline.json"))
+    .forEach((name) => {
+      const pipeline = JSON.parse(fs.readFileSync(path.join(directory, name), "utf8"));
+      assert.ok(pipeline.steps.length <= MAX_PIPELINE_STEPS, name);
+      assert.ok(pipeline.id.length <= MAX_IDENTIFIER_LENGTH, name);
+      assert.ok(pipeline.name.length <= MAX_DISPLAY_NAME_LENGTH, name);
+      pipeline.steps.forEach((step) => {
+        assert.ok(step.id.length <= MAX_IDENTIFIER_LENGTH, `${name} ${step.id}`);
+        assert.ok(step.name.length <= MAX_DISPLAY_NAME_LENGTH, `${name} ${step.name}`);
+      });
+    });
+});
+
+test("a definition declaring more steps than the limit is refused", () => {
+  const pipeline = readPreset();
+  const step = pipeline.steps[0];
+  pipeline.steps = Array.from({ length: MAX_PIPELINE_STEPS + 1 }, (_unused, index) => ({
+    ...step,
+    id: `step${String(index)}`,
+  }));
+  const result = validatePipelineDefinition(pipeline);
+  assert.equal(result.success, false);
+  assert.ok(result.errors.some((error) => error.includes("at most")), result.errors.join("\n"));
+});
+
+test("an identifier or a name longer than the limit is refused", () => {
+  const longId = readPreset();
+  longId.steps[0].id = `s${"x".repeat(MAX_IDENTIFIER_LENGTH)}`;
+  assert.equal(validatePipelineDefinition(longId).success, false);
+
+  const longName = readPreset();
+  longName.steps[0].name = "N".repeat(MAX_DISPLAY_NAME_LENGTH + 1);
+  const named = validatePipelineDefinition(longName);
+  assert.equal(named.success, false);
+  assert.ok(
+    named.errors.some((error) => error.includes("at most")),
+    named.errors.join("\n"),
+  );
+});
+
+test("a definition exactly at the limits is still accepted", () => {
+  const pipeline = readPreset();
+  pipeline.name = "N".repeat(MAX_DISPLAY_NAME_LENGTH);
+  pipeline.steps[0].name = "S".repeat(MAX_DISPLAY_NAME_LENGTH);
+  assert.equal(validatePipelineDefinition(pipeline).success, true);
 });

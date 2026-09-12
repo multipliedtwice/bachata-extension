@@ -104,11 +104,21 @@ const connect = (profile) =>
 // A pointer user arrives at a control by moving onto it, and the move can change what is drawn
 // before the press lands. The rect is read again after the move, so the press goes where the
 // control actually is rather than where it was at rest.
+//
+// The control is waited for rather than assumed present after a fixed delay. A snapshot this
+// fixture sends is rendered asynchronously, and a fixed 200 ms was enough on an idle machine and
+// not enough under load — which made this gate report a render that had not happened yet as a
+// missing control. Absence is still a failure: the wait is bounded and then throws.
 const press = async (session, selector) => {
-  const first = await session.evaluate(
+  const locate = () => session.evaluate(
     `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`,
   );
-  if (!first) throw new Error(`No element for ${selector}`);
+  let first = await locate();
+  for (let attempt = 0; attempt < 50 && !first; attempt += 1) {
+    await delay(100);
+    first = await locate();
+  }
+  if (!first) throw new Error(`No element for ${selector} after 5s`);
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: first.x, y: first.y });
   await delay(120);
   const point = await session.evaluate(
@@ -288,6 +298,61 @@ const agentsDismissed = `(() => ({
   focusReturned: document.activeElement === document.querySelector("#agents-picker-button"),
 }))()`;
 
+/*
+ * The execution view a reader stands in when a run has stopped: the compact pipeline summary, the
+ * failure, and the two ways back into the run. Measured at every width because these are the
+ * widest strings the product draws — a step name, a provider sentence and two action labels on
+ * one row — and a 320px pane is where they escape their card.
+ */
+const executionMeasure = `(() => {
+  const summary = document.querySelector(".pipeline-summary");
+  const rows = Array.from(document.querySelectorAll(".pipeline-step"));
+  const restart = document.querySelector('[data-action="workflow-restart"]');
+  const retry = document.querySelector('[data-action="workflow-resume"]');
+  const disclosures = Array.from(document.querySelectorAll(".info-disclosure"));
+  if (!summary || rows.length === 0 || !restart || !retry) {
+    return {
+      present: false,
+      summary: summary !== null,
+      rows: rows.length,
+      restart: restart !== null,
+      retry: retry !== null,
+    };
+  }
+  const viewport = document.documentElement.clientWidth;
+  const box = summary.getBoundingClientRect();
+  const inside = (element, container) => {
+    const r = element.getBoundingClientRect();
+    return r.left >= container.left - 1 && r.right <= container.right + 1;
+  };
+  const hits = (el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit === el || el.contains(hit);
+  };
+  const restartBox = restart.getBoundingClientRect();
+  const retryBox = retry.getBoundingClientRect();
+  return {
+    present: true,
+    width: viewport,
+    rows: rows.length,
+    rowsContained: rows.every((row) => inside(row, box)),
+    summaryWithinViewport: box.left >= -1 && box.right <= viewport + 1,
+    // Every information disclosure starts closed, which is the whole point of moving background
+    // and provenance behind one.
+    disclosureCount: disclosures.length,
+    disclosuresClosed: disclosures.every((entry) => entry.open === false),
+    restartHit: hits(restart),
+    retryHit: hits(retry),
+    actionsSized: [restartBox, retryBox].every((r) => r.width > 0 && r.height >= 22),
+    actionsWithinViewport: [restartBox, retryBox].every((r) => r.left >= -1 && r.right <= viewport + 1),
+    restartFocusable: restart.tabIndex >= 0,
+    retryFocusable: retry.tabIndex >= 0,
+    failureStated: document.body.innerText.includes("requires a newer version of Codex"),
+    horizontalScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  };
+})()`;
+
 const menuState = `(() => {
   const menu = document.querySelector(${JSON.stringify(MENU)});
   const details = menu ? menu.closest("details") : null;
@@ -306,6 +371,7 @@ const run = async () => {
   let session;
   const failures = [];
   const rows = [];
+  const executionRows = [];
   try {
     session = await connect(profile);
     const readyUntil = Date.now() + 20_000;
@@ -425,6 +491,36 @@ const run = async () => {
       if (!row.focusRestored) failures.push(`${String(width)}px: closing the action menu did not return focus to it`);
       if (!row.focusable) failures.push(`${String(width)}px: the action menu does not take keyboard focus`);
     }
+    // The execution view: booted once, then measured at every width. It replaces the fixture's
+    // idle state, so it runs after every idle-state measurement is done.
+    await session.evaluate("window.__bootExecution()");
+    await delay(200);
+    await press(session, '[data-action="room-view"][data-view="execution"]');
+    await delay(200);
+    for (const width of WIDTHS) {
+      await session.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await delay(250);
+      const execution = await session.evaluate(executionMeasure);
+      if (!execution.present) {
+        failures.push(
+          `${String(width)}px: the stopped run's execution view did not render ` +
+          `(summary=${String(execution.summary)} rows=${String(execution.rows)} restart=${String(execution.restart)} retry=${String(execution.retry)})`,
+        );
+        continue;
+      }
+      if (execution.rows !== 4) failures.push(`${String(width)}px: the pipeline summary drew ${String(execution.rows)} step rows, not one per enabled step`);
+      if (!execution.rowsContained) failures.push(`${String(width)}px: a pipeline step row escaped the summary card`);
+      if (!execution.summaryWithinViewport) failures.push(`${String(width)}px: the pipeline summary escaped the viewport`);
+      if (execution.disclosureCount < 2) failures.push(`${String(width)}px: background and provenance are not behind information disclosures`);
+      if (!execution.disclosuresClosed) failures.push(`${String(width)}px: an information disclosure is drawn open`);
+      if (!execution.restartHit || !execution.retryHit) failures.push(`${String(width)}px: a recovery action is not what a pointer meets at its own centre`);
+      if (!execution.actionsSized) failures.push(`${String(width)}px: a recovery action was drawn too small to press`);
+      if (!execution.actionsWithinViewport) failures.push(`${String(width)}px: a recovery action escaped the viewport`);
+      if (!execution.restartFocusable || !execution.retryFocusable) failures.push(`${String(width)}px: a recovery action does not take keyboard focus`);
+      if (!execution.failureStated) failures.push(`${String(width)}px: the failure that stopped the run is not stated in the result`);
+      if (execution.horizontalScroll) failures.push(`${String(width)}px: the execution view forced the page to scroll horizontally`);
+      executionRows.push(execution);
+    }
   } finally {
     // Cleanup runs whether the browser started, attached, measured or threw. A gate that leaves a
     // browser or a profile behind is a gate that degrades the next run.
@@ -456,6 +552,14 @@ const run = async () => {
       `${String(row.width).padStart(4)}px menu=${JSON.stringify(row.menuBox)} new=${JSON.stringify(row.createBox)} overlap=${String(row.overlap)} hits=${String(row.menuHit && row.createHit)} opens=${String(row.opened)} createdRun=${String(row.created)} closes=${String(row.dismissed)} focusBack=${String(row.focusRestored)} focusable=${String(row.focusable)}`,
     );
   });
+  executionRows.forEach((row) => {
+    console.log(
+      `${String(row.width).padStart(4)}px execution steps=${String(row.rows)} contained=${String(row.rowsContained)} disclosures=${String(row.disclosureCount)} closed=${String(row.disclosuresClosed)} restart=${String(row.restartHit)} retry=${String(row.retryHit)} failureStated=${String(row.failureStated)} hScroll=${String(row.horizontalScroll)}`,
+    );
+  });
+  if (executionRows.length !== WIDTHS.length) {
+    failures.push(`only ${String(executionRows.length)} of ${String(WIDTHS.length)} widths were measured in the execution view`);
+  }
   if (rows.length !== WIDTHS.length) {
     failures.push(`only ${String(rows.length)} of ${String(WIDTHS.length)} widths were measured`);
   }
@@ -464,7 +568,7 @@ const run = async () => {
     process.exitCode = 1;
     return;
   }
-  console.log(`Run tab strip hit regions verified at ${WIDTHS.map((width) => `${String(width)}px`).join(", ")}.`);
+  console.log(`Run tab strip and stopped-run execution view verified at ${WIDTHS.map((width) => `${String(width)}px`).join(", ")}.`);
 };
 
 await run();

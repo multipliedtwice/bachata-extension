@@ -1,4 +1,23 @@
 import { readTimeoutSetting } from "./state/timeoutBounds";
+import { ProviderModel, createProviderRegistry, providerKey } from "./providers/providerRegistry";
+import {
+  configuredProviderIdentities,
+  probeLocalBackendIdentity,
+  probeProvider,
+} from "./providers/providerDiscovery";
+import { localBackendForAdapterType } from "./providers/localModelDiscovery";
+import { createLocalBackendFetch } from "./providers/localBackendFetch";
+import { registerCodexExtensionHost } from "./providers/codexExecutable";
+import {
+  LocalBackendRequest,
+  LocalModelService,
+  LocalModelSettings,
+  createLocalModelService,
+  localBackendIdentities,
+  localBackendRequests,
+} from "./providers/localModelService";
+import { runLocalModelAnswer } from "./browser/localModelBroker";
+
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
@@ -303,6 +322,16 @@ const registerContextKeys = (
 
 export const activate = async (context: vscode.ExtensionContext): Promise<BachataExtensionApi> => {
   const output = vscode.window.createOutputChannel("Bachata");
+  // Which Codex this host may run is the host's own answer, and only the host can give it: on
+  // macOS and Linux every target's binary is called `codex`, so a scan across the Stable, Insiders
+  // and server trees can otherwise pick a build for the wrong host, OS or CPU.
+  registerCodexExtensionHost({
+    ...((): { openAiExtensionPath?: string } => {
+      const installed = vscode.extensions.getExtension("openai.chatgpt")?.extensionPath;
+      return installed === undefined ? {} : { openAiExtensionPath: installed };
+    })(),
+    extensionsDirectory: path.dirname(context.extensionUri.fsPath),
+  });
   const storageRoot = (context.storageUri ?? context.globalStorageUri).fsPath;
   try {
     resourceBroker = createResourceBroker({
@@ -476,7 +505,202 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
       assertWritable: () => workspaceStateLease?.assertValid(),
     });
     const withWorkspaceMutation = workspaceMutationFence.run;
+    /**
+     * Provider discovery belongs to the host, not to a conversation. It starts here, once, so a
+     * reader who opens the panel and picks a pipeline finds providers already discovered instead
+     * of being asked to press Check; every conversation this host opens reads these records.
+     *
+     * The pass is deliberately not awaited. Activation must not wait on three child processes, and
+     * the editor has a state for "discovering" that is not "missing".
+     */
+    const providerDiscoverySettings = () => {
+      const configuration = vscode.workspace.getConfiguration("bachata");
+      return { get: <Value,>(key: string, fallback: Value): Value => configuration.get<Value>(key, fallback) };
+    };
+    const localModelSettings = (): LocalModelSettings => {
+      const configuration = vscode.workspace.getConfiguration("bachata");
+      // Through the shared clamp, like every other timeout that reaches a child process or a
+      // network call: an unbounded value here would let one discovery request hang the pass.
+      const timeout = (key: string): number =>
+        readTimeoutSetting(
+          (settingKey, settingFallback) => configuration.get(settingKey, settingFallback),
+          key,
+          30_000,
+        );
+      // Only semantic interpretation documents a remote opt-in, and only it reads a credential.
+      // Both are read here rather than where the request is made, so that selector healing cannot
+      // be handed either by sharing a decision with the interpreter.
+      const semanticApiKeyEnvironment = configuration
+        .get<string>("browserSemanticInterpreterApiKeyEnvironment", "")
+        .trim();
+      const semanticApiKey = semanticApiKeyEnvironment
+        ? process.env[semanticApiKeyEnvironment]
+        : undefined;
+      // Each consumer's own backend, endpoint and model. They travel together: a model name is only
+      // meaningful beside the server it was found on, so reading one consumer's name into another
+      // consumer's endpoint produced a tuple nobody configured and verified it for both.
+      return {
+        consumers: {
+          semanticInterpreter: {
+            enabled: configuration.get<boolean>("browserSemanticInterpreterEnabled", false),
+            backend: configuration.get<"auto" | "ollama" | "lmstudio">(
+              "browserSemanticInterpreterBackend",
+              "auto",
+            ),
+            endpoint: configuration.get<string>("browserSemanticInterpreterEndpoint", ""),
+            model: configuration.get<string>("browserSemanticInterpreterModel", "").trim(),
+            timeoutMs: timeout("browserSemanticInterpreterTimeoutMs"),
+            allowRemote: configuration.get<boolean>("browserSemanticInterpreterAllowRemote", false),
+            apiKeyEnvironment: semanticApiKeyEnvironment,
+            ...(semanticApiKey === undefined ? {} : { apiKey: semanticApiKey }),
+          },
+          selectorHealing: {
+            enabled: configuration.get<boolean>("browserSelectorHealingEnabled", false),
+            backend: configuration.get<"auto" | "ollama" | "lmstudio">(
+              "browserSelectorHealingBackend",
+              "auto",
+            ),
+            endpoint: configuration.get<string>("browserSelectorHealingEndpoint", ""),
+            model: configuration.get<string>("browserSelectorHealingModel", "").trim(),
+            timeoutMs: timeout("browserSelectorHealingTimeoutMs"),
+            // Selector healing is loopback-only and unauthenticated by documentation. Stated as
+            // literals rather than read from a setting, so no configuration change can grant the
+            // browser healer reach or a credential the semantic interpreter opted into.
+            allowRemote: false,
+            apiKeyEnvironment: "",
+          },
+        },
+      };
+    };
+    /**
+     * The policy each discovered local identity is asked under. Rebuilt from the current settings on
+     * every pass, so a changed endpoint, credential, reach or deadline is in force for the request
+     * it changes rather than for the one after it.
+     */
+    const localRequestPolicies = (): Map<string, LocalBackendRequest["policy"]> =>
+      new Map(
+        localBackendRequests(localModelSettings()).map((request) => [
+          providerKey(request.identity),
+          request.policy,
+        ]),
+      );
+    const hostProviderIdentities = () => [
+      ...configuredProviderIdentities(providerDiscoverySettings(), workspaceRoot()),
+      ...localBackendIdentities(localModelSettings()),
+    ];
+    let localModelService: LocalModelService | undefined;
+    // The registry asks for reachability and for the model list as two calls. Answering each with
+    // its own round trip asked the reader's server the same question twice per pass and let the two
+    // answers disagree, so the single call's models are held here for the paired request.
+    const localModelsByIdentity = new Map<string, ProviderModel[]>();
+    const providerRegistry = createProviderRegistry({
+      probe: async (identity) => {
+        const backend = localBackendForAdapterType(identity.adapterType);
+        if (!backend) {
+          return probeProvider({
+            identity,
+            settings: providerDiscoverySettings(),
+            log: (message) => output.appendLine(message),
+          });
+        }
+        // A backend nobody currently asks for is not discovered on a policy invented for it: the
+        // loopback-only, unauthenticated default is the conservative answer when the settings no
+        // longer name this identity at all.
+        const policy = localRequestPolicies().get(providerKey(identity))
+          ?? { timeoutMs: 5_000, allowRemote: false };
+        const probed = await probeLocalBackendIdentity({
+          identity,
+          backend,
+          fetchJson: createLocalBackendFetch(policy),
+        });
+        localModelsByIdentity.set(providerKey(identity), probed.models);
+        return probed.outcome;
+      },
+      probeModels: async (identity) =>
+        localBackendForAdapterType(identity.adapterType) === undefined
+          ? undefined
+          : localModelsByIdentity.get(providerKey(identity)) ?? [],
+      log: (message) => output.appendLine(message),
+    });
+    /**
+     * Discovery, and then the one bounded question that turns a discovered model into a usable one.
+     *
+     * Splitting these left automatic selection permanently "unverified": nothing ran the contract
+     * check unless a reader opened the Agents view and picked a model by hand, which is exactly the
+     * manual step this feature exists to remove. The check is chained onto discovery so the whole
+     * sequence — startup, discovery, compatibility, both consumers ready — completes on its own.
+     */
+    const discoverConfiguredProviders = (): void => {
+      void providerRegistry
+        .discover(hostProviderIdentities())
+        .then(() => localModelService?.verifySelection())
+        .catch((error: unknown) => {
+          output.appendLine(
+            `Provider discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+    };
+    /**
+     * The one decision about which local backend and model both halves use. The extension's
+     * interpreter and the bridge's selector healing read this same answer, so they cannot disagree
+     * about what is ready or run on different models.
+     */
+    localModelService = createLocalModelService({
+      registry: providerRegistry,
+      settings: localModelSettings,
+      runPrompt: (target, prompt, signal) =>
+        runLocalModelAnswer(
+          prompt,
+          {
+            backend: target.backend,
+            endpoint: target.endpoint,
+            model: target.model,
+            timeoutMs: target.timeoutMs,
+            allowRemoteEndpoint: target.allowRemote,
+            ...(target.apiKey === undefined ? {} : { apiKey: target.apiKey }),
+          },
+          signal,
+        ),
+      log: (message) => output.appendLine(message),
+    });
+    discoverConfiguredProviders();
+    // A changed executable path is a different provider, so its cached answer is dropped and only
+    // the affected entries are asked again. Everything else keeps the answer it already had.
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        const changed = [
+          "bachata.codexCommand",
+          "bachata.claudeCommand",
+          "bachata.zaiCommand",
+          "bachata.browserSelectorHealingBackend",
+          "bachata.browserSelectorHealingEndpoint",
+          "bachata.browserSelectorHealingModel",
+          "bachata.browserSemanticInterpreterBackend",
+          "bachata.browserSemanticInterpreterEndpoint",
+          "bachata.browserSemanticInterpreterModel",
+          "bachata.browserSelectorHealingEnabled",
+          "bachata.browserSemanticInterpreterEnabled",
+          // Everything else that changes what discovery and the contract check actually send: the
+          // deadline each consumer allows, whether the interpreter may leave the loopback, and
+          // which environment variable its credential is read from. Omitting these left a changed
+          // setting with a verdict earned under the previous one.
+          "bachata.browserSelectorHealingTimeoutMs",
+          "bachata.browserSemanticInterpreterTimeoutMs",
+          "bachata.browserSemanticInterpreterAllowRemote",
+          "bachata.browserSemanticInterpreterApiKeyEnvironment",
+        ].some((key) => event.affectsConfiguration(key));
+        if (!changed) {
+          return;
+        }
+        const current = new Set(hostProviderIdentities().map((identity) => providerKey(identity)));
+        providerRegistry.invalidate((record) => !current.has(providerKey(record)));
+        localModelService?.invalidate();
+        discoverConfiguredProviders();
+      }),
+    );
     manager = createConversationManager(context, output, {
+      providerRegistry,
+      localModelService,
       resourceBroker,
       workspaceLease: workspaceStateLease,
       withWorkspaceMutation,

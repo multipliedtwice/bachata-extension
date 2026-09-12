@@ -1,4 +1,7 @@
 import { BrowserConversationBinding, CapturedResponse } from "../browser/protocol";
+import type { ProviderModelCatalog } from "./providerModels";
+
+export type { ProviderModelCatalog, ProviderModelOption } from "./providerModels";
 
 export type AgentId = string;
 
@@ -118,6 +121,14 @@ export type AgentAdapter = {
     signal: AbortSignal,
   ) => AsyncIterable<AgentEvent>;
   interrupt: (sessionId?: string) => Promise<void>;
+  /**
+   * The models this provider will accept, asked of the installed provider itself. Absent on a
+   * provider Bachata has no way to ask, which is not the same as a provider with no models: the
+   * caller keeps a validated explicit model name in that case rather than refusing to run.
+   *
+   * Listing must never start a billable turn.
+   */
+  listModels?: () => Promise<ProviderModelCatalog>;
   resetSession?: () => Promise<void>;
   dispose: () => Promise<void>;
 };

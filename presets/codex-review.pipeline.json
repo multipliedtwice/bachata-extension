@@ -3,7 +3,7 @@
   "id": "codex-review",
   "name": "Review with Codex",
   "description": "Read-only repository review with Codex.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",

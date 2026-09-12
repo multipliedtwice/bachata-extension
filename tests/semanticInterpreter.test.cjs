@@ -27,7 +27,7 @@ const startServer = async (handler) => {
 
 const options = (endpoint) => ({
   endpoint,
-  model: "prism-ml/Bonsai-27B-mlx-1bit",
+  model: "qwen2.5-coder:7b",
   timeoutMs: 2_000,
   maxInputBytes: 1_048_576,
   allowRemote: false,
@@ -82,7 +82,7 @@ test("semantic interpretation can select a controller-generated read candidate w
 
     assert.equal(result.warning, undefined);
     assert.deepEqual(result.actions, [deterministic]);
-    assert.equal(requestBody.model, "prism-ml/Bonsai-27B-mlx-1bit");
+    assert.equal(requestBody.model, "qwen2.5-coder:7b");
     assert.equal(requestBody.temperature, 0);
     assert.equal(requestBody.response_format, undefined);
     const prompt = JSON.parse(requestBody.messages[1].content);
@@ -239,7 +239,7 @@ test("Ollama requests propagate the configured bearer token", async () => {
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      assert.equal(body.model, "prism-ml/Bonsai-27B-mlx-1bit");
+      assert.equal(body.model, "qwen2.5-coder:7b");
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({
         message: {
@@ -298,7 +298,7 @@ test("opt-in remote interpretation reaches the exact configured endpoint with th
       [],
       {
         endpoint: "http://model.remote.test:1234",
-        model: "prism-ml/Bonsai-27B-mlx-1bit",
+        model: "qwen2.5-coder:7b",
         timeoutMs: 2_000,
         maxInputBytes: 1_048_576,
         allowRemote: true,
@@ -331,7 +331,7 @@ test("opt-out never touches the network for a remote endpoint", async () => {
       [],
       {
         endpoint: "http://model.remote.test:1234",
-        model: "prism-ml/Bonsai-27B-mlx-1bit",
+        model: "qwen2.5-coder:7b",
         timeoutMs: 2_000,
         maxInputBytes: 1_048_576,
         allowRemote: false,
@@ -363,7 +363,7 @@ test("an HTTP 503 from the interpreter is a transport failure, not abstention", 
       [],
       {
         endpoint: "http://model.remote.test:1234",
-        model: "prism-ml/Bonsai-27B-mlx-1bit",
+        model: "qwen2.5-coder:7b",
         timeoutMs: 2_000,
         maxInputBytes: 1_048_576,
         allowRemote: true,
@@ -395,7 +395,7 @@ test("a model that answers with unparseable output stays safely ambiguous", asyn
       [],
       {
         endpoint: "http://127.0.0.1:1234",
-        model: "prism-ml/Bonsai-27B-mlx-1bit",
+        model: "qwen2.5-coder:7b",
         timeoutMs: 2_000,
         maxInputBytes: 1_048_576,
         allowRemote: false,
@@ -504,6 +504,45 @@ test("managed semantic fallback may select dependency graph actions", async () =
       { kind: "context.dependencies", path: "talents-backend/src/routes/jobs.ts" },
       { kind: "context.dependents", path: "talents-backend/src/services/jobService.ts" },
     ]);
+  } finally {
+    await server.close();
+  }
+});
+
+/**
+ * Deterministic browser extraction is the product; the local model is an optional refinement over
+ * it. With no model resolved — the feature off, nothing installed, or the host's check not yet
+ * passed — the host hands the interpreter an empty model name, and what the reader gets is the
+ * deterministic actions, unchanged, with no request leaving the machine.
+ */
+test("deterministic extraction stands on its own when no local model is resolved", async () => {
+  const responseText = "Please read `src/config.ts` and list `src/providers`.";
+  const deterministic = createBrowserActionCandidate({
+    kind: "workspace.read",
+    risk: "readOnly",
+    origin: "heuristic",
+    confidence: "medium",
+    source: { start: 0, end: responseText.length, text: responseText },
+    path: "src/config.ts",
+  });
+  let requests = 0;
+  const server = await startServer((_request, response) => {
+    requests += 1;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ choices: [{ message: { content: "{}" } }] }));
+  });
+  try {
+    const result = await interpretBrowserActions(
+      responseText,
+      [],
+      [deterministic],
+      // Exactly what createRuntime passes when hostLocalModelService resolves nothing.
+      { ...options(server.endpoint), model: "" },
+      new AbortController().signal,
+    );
+    assert.deepEqual(result.actions, [deterministic], "the deterministic action survives untouched");
+    assert.equal(requests, 0, "no inference request was made without a resolved model");
+    assert.match(result.warning, /deterministic extraction continued/u);
   } finally {
     await server.close();
   }

@@ -173,6 +173,10 @@ const run = async () => {
       editorOpened: result.editorOpened,
       editorSaved: result.editorSaved,
       editorModeRoundTrip: result.editorModeRoundTrip,
+      // The width the tab strip was actually measured at, and what it answered there. A pass that
+      // does not say which width it proved is evidence nobody can compare against a report of a
+      // failure at one particular width.
+      tabStripHitRegions: result.tabStripHitRegions,
       globalAlertCount: result.globalAlertCount,
     }, null, 2)}\n`, "utf8");
   }

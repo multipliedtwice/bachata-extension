@@ -10,6 +10,7 @@ export type ReadinessRemediationId =
   | "workspace.open"
   | "workspace.trust"
   | "git.install"
+  | "workspace.selectRepository"
   | "doctor.run"
   | "provider.install.codex"
   | "provider.install.claude"
@@ -54,6 +55,19 @@ export type ReadinessInput = {
     gitDetail?: string | undefined;
     gitClean?: boolean | undefined;
     dirtyPaths?: string[] | undefined;
+    /**
+     * Whether the selected root is a Git repository. `false` is a different blocker from an absent
+     * Git and takes a different remedy: the repository is often a child of the folder that is
+     * open, and the reader has to be able to point Bachata at it.
+     */
+    gitRepository?: boolean | undefined;
+    /**
+     * The root under which Bachata's own managed worktrees live, when this runtime has one.
+     *
+     * A task worktree is outside every open workspace folder by construction, and running there
+     * is the point of it, so the selected-root check has to know it is legitimate.
+     */
+    managedRoot?: string | undefined;
   };
   adapters: AdapterReadiness[];
   bridge: BridgeReadiness;
@@ -133,6 +147,23 @@ const finding = (
   ...(remediationId === undefined ? {} : { remediationId }),
 });
 
+/**
+ * Whether the root this run is pointed at is inside the window's open workspace.
+ *
+ * A folder holding two checkouts is an ordinary layout, and pointing a run at one of them is the
+ * documented remedy for "the selected folder is not a Git repository". Requiring the selected
+ * root to be an open root exactly refused that remedy: the reader picked the repository, and
+ * readiness answered that the repository was not open.
+ */
+const selectedRootIsOpen = (selectedRoot: string, roots: readonly string[]): boolean => {
+  const trimmed = selectedRoot.replace(/[\\/]+$/u, "");
+  return roots.some((root) => {
+    const base = root.replace(/[\\/]+$/u, "");
+    if (base.length === 0) return false;
+    return trimmed === base || trimmed.startsWith(`${base}/`) || trimmed.startsWith(`${base}\\`);
+  });
+};
+
 export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
   const findings: ReadinessFinding[] = [];
   if (input.workspace.roots.length === 0) {
@@ -142,7 +173,13 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
   } else {
     findings.push(finding("workspace", "Workspace", "ready", input.workspace.roots.join(", ")));
   }
-  if (input.selectedRoot && !input.workspace.roots.includes(input.selectedRoot)) {
+  if (
+    input.selectedRoot &&
+    !selectedRootIsOpen(input.selectedRoot, [
+      ...input.workspace.roots,
+      ...(input.workspace.managedRoot === undefined ? [] : [input.workspace.managedRoot]),
+    ])
+  ) {
     findings.push(finding("workspace.selectedRoot", "Selected root", "blocked", "The selected root is not open", "workspace.open"));
   }
   if (input.catalogError) {
@@ -160,13 +197,27 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
   }
   const requiresCleanGit = pipeline.steps.some((step) => step.enabled && step.type === "executeChecklist");
   const requiresGit = requiresCleanGit || pipeline.managedPolicy !== undefined;
+  // Git answered but the selected root holds no repository. Naming that as "Git is unavailable"
+  // sent the reader to install a Git they already have; the root is what has to change.
+  const rootIsNotARepository = input.workspace.gitAvailable === false &&
+    input.workspace.gitRepository === false;
   findings.push(input.workspace.gitAvailable === true
     ? finding("git", "Git", "ready", input.workspace.gitDetail ?? "Available")
-    : requiresGit && input.workspace.gitAvailable === false
-      ? finding("git", "Git", "blocked", input.workspace.gitDetail ?? "Git is unavailable", "git.install")
-      : requiresGit && input.workspace.gitAvailable === undefined
-        ? finding("git", "Git", "needsSetup", input.workspace.gitDetail ?? "Run Doctor to verify Git", "doctor.run")
-        : finding("git", "Git", "ready", input.workspace.gitDetail ?? "Not required by this pipeline"));
+    : requiresGit && rootIsNotARepository
+      ? finding(
+          "git",
+          "Git",
+          "blocked",
+          input.selectedRoot === undefined
+            ? "The selected folder is not a Git repository"
+            : `${input.selectedRoot} is not a Git repository`,
+          "workspace.selectRepository",
+        )
+      : requiresGit && input.workspace.gitAvailable === false
+        ? finding("git", "Git", "blocked", input.workspace.gitDetail ?? "Git is unavailable", "git.install")
+        : requiresGit && input.workspace.gitAvailable === undefined
+          ? finding("git", "Git", "needsSetup", input.workspace.gitDetail ?? "Run Doctor to verify Git", "doctor.run")
+          : finding("git", "Git", "ready", input.workspace.gitDetail ?? "Not required by this pipeline"));
   const blockingDirtyPaths = input.workspace.gitClean === false &&
     (input.workspace.dirtyPaths === undefined ||
       input.workspace.dirtyPaths.some(
@@ -307,6 +358,72 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
   });
 
   return { pipelineId: pipeline.id, status: combineStatus(findings), findings };
+};
+
+/**
+ * The findings that must stop a run, as opposed to the ones a reader may still be waiting on.
+ *
+ * `blocked` was the whole test, and it let a browser pipeline start with no bridge connected and no
+ * session selected. Those are reported as `needsSetup`, which describes the remedy — it was never a
+ * statement that the requirement is optional — and the run reached the participants anyway, where
+ * it failed on a transport nobody could have supplied by then.
+ *
+ * A local provider's availability is deliberately not treated this way. It is transient in both
+ * directions: the host may still be discovering it, and one refused turn is not a provider that
+ * has gone away. The run's own preflight validates the capabilities the pipeline needs against the
+ * adapters it actually built, which is the later, and truer, answer.
+ */
+export const runBlockingFindings = (
+  findings: readonly ReadinessFinding[],
+  options: { participatingAgentIds?: readonly string[] | undefined } = {},
+): ReadinessFinding[] => {
+  const participants = options.participatingAgentIds === undefined
+    ? undefined
+    : new Set(options.participatingAgentIds);
+  const aboutAParticipant = (id: string): boolean => {
+    const agentId = /^(?:adapter|bridge)\.(.+)$/u.exec(id)?.[1];
+    // A finding about a provider that no enabled step runs is not this run's problem. A pipeline
+    // names every provider it could use — a browser candidate for a role filled by a local agent,
+    // for one — and refusing on those would refuse every run on a machine without a bridge.
+    return agentId === undefined || participants === undefined || participants.has(agentId);
+  };
+  return findings.filter((entry) =>
+    aboutAParticipant(entry.id) &&
+    (entry.status === "blocked" ||
+      entry.status === "unsupported" ||
+      (entry.status === "needsSetup" && entry.id.startsWith("bridge."))));
+};
+
+/**
+ * The providers an enabled step will actually hand a turn to.
+ *
+ * A role that is statically assigned resolves to its agent. A role that is not is deliberately left
+ * out: none of its candidates is yet the participant, so a requirement missing on one of them is
+ * not a requirement missing for this run.
+ */
+export const participatingAgentIds = (pipeline: PipelineDefinition): string[] => {
+  const assigned = new Map<string, string>();
+  pipeline.steps.forEach((step) => {
+    if (step.type === "assignRoles") {
+      step.roleAssignments.forEach((assignment) => assigned.set(assignment.role, assignment.agentId));
+    }
+  });
+  const roleIds = new Set((pipeline.roles ?? []).map((role) => role.id));
+  const participants = new Set<string>();
+  pipeline.steps.forEach((step) => {
+    if (!step.enabled) return;
+    if (step.type !== "agent" && step.type !== "checklist") return;
+    step.participants.forEach((participant) => {
+      const viaRole = assigned.get(participant);
+      if (viaRole !== undefined) {
+        participants.add(viaRole);
+        return;
+      }
+      if (roleIds.has(participant)) return;
+      participants.add(participant);
+    });
+  });
+  return Array.from(participants);
 };
 
 export const recommendedPipelineId = (

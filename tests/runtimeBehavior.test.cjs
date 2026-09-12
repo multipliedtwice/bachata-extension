@@ -9,6 +9,13 @@ const {
   createPipelineSnapshot,
 } = require("../dist/pipeline/identity.js");
 const { removeScratchSync, scratchRootSync } = require("./support/scratch.cjs");
+const { resolveCodexExecutable } = require("../dist/providers/codexExecutable.js");
+
+// The executable a default `codex` resolves to on the machine running these tests. Discovery,
+// readiness and the adapter all ask the same resolver, so a test asserting "Codex was probed"
+// has to ask it too rather than hard-coding the bare name, which is only the answer on a machine
+// with no OpenAI VS Code extension installed.
+const CODEX_EXECUTABLE = resolveCodexExecutable("codex");
 
 const {
   deferred,
@@ -28,6 +35,22 @@ const createBrowserSession = (id, title) => ({
   status: "ready",
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
+});
+
+/**
+ * A browser session a run may actually use: connected, ready, and reporting the capabilities the
+ * readiness model requires. A browser pipeline cannot start without one, which is what the harness
+ * has to supply for any test whose subject is the run rather than the bridge.
+ */
+const readyBrowserSession = (id = "chatgpt-session", provider = "chatgpt") => ({
+  ...createBrowserSession(id, "A ready tab"),
+  provider,
+  capabilities: {
+    submission: "verifiedSend",
+    completion: "verifiedLifecycle",
+    interruption: "confirmed",
+    conversationState: "confirmed",
+  },
 });
 
 const createCapturedBrowserResponse = (text, segments, requestId) => {
@@ -223,6 +246,208 @@ test("an assignment survives a reload of the same workspace, and is dropped when
     await elsewhere.runtime.dispose();
     elsewhere.cleanup();
     removeScratchSync(workspace);
+  }
+});
+
+test("a chosen model survives a reload, and reaches the definition the run executes", async () => {
+  const workspace = scratchRootSync("bachata-assignment-model-workspace-");
+  const first = assignmentHarness({ workspaceDirectories: [workspace] });
+  let persisted;
+  try {
+    await first.runtime.handleMessage({ type: "ready" });
+    await first.runtime.configure({ pipelineId: "codex-review" });
+    await first.runtime.handleMessage({
+      type: "agents.model.select",
+      agentId: "codex",
+      model: "gpt-6-astra",
+    });
+    const slot = first.runtime.getState().agentAssignments.slots[0];
+    assert.equal(slot.assignedModel, "gpt-6-astra");
+    assert.equal(
+      first.runtime.getState().executionParticipants.find((entry) => entry.agentId === "codex").model,
+      "gpt-6-astra",
+      "the model must reach the participants the run is recorded against",
+    );
+    persisted = structuredClone(first.workspaceState.get("bachata.runtimeState.v5"));
+    assert.equal(persisted.agentAssignments.assignments.codex.model, "gpt-6-astra");
+  } finally {
+    await first.runtime.dispose();
+    first.cleanup();
+  }
+
+  const second = assignmentHarness({
+    workspaceDirectories: [workspace],
+    initialWorkspaceState: { "bachata.runtimeState.v5": structuredClone(persisted) },
+  });
+  try {
+    await second.runtime.handleMessage({ type: "ready" });
+    assert.equal(
+      second.runtime.getState().agentAssignments.slots[0].assignedModel,
+      "gpt-6-astra",
+      "a reload restores the exact model the reader chose",
+    );
+  } finally {
+    await second.runtime.dispose();
+    second.cleanup();
+    removeScratchSync(workspace);
+  }
+});
+
+test("changing provider drops the previous provider's model rather than carrying it across", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.handleMessage({
+      type: "agents.model.select",
+      agentId: "codex",
+      model: "gpt-6-astra",
+    });
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].assignedModel, "gpt-6-astra");
+
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "claude-code",
+    });
+    const moved = harness.runtime.getState().agentAssignments.slots[0];
+    assert.equal(moved.assignedAdapter, "claude-code");
+    assert.equal(moved.assignedModel, undefined, "a Codex model must not reach Claude");
+    assert.equal(
+      harness.runtime.getState().executionParticipants.find((entry) => entry.agentId === "codex").model,
+      undefined,
+    );
+
+    // Named for the receiving provider, it applies; cleared, the reader is back to its default.
+    await harness.runtime.handleMessage({
+      type: "agents.model.select",
+      agentId: "codex",
+      model: "claude-opus-5",
+    });
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].assignedModel, "claude-opus-5");
+    await harness.runtime.handleMessage({ type: "agents.model.select", agentId: "codex" });
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].assignedModel, undefined);
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].assignedAdapter, "claude-code");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a model change replaces the participant's provider session rather than resuming the old one", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    const controls = () =>
+      harness.adapterControlHistory.filter((control) => control.agentId === "codex");
+    const before = controls();
+    const previous = before.at(-1);
+
+    await harness.runtime.handleMessage({
+      type: "agents.model.select",
+      agentId: "codex",
+      model: "gpt-6-astra",
+    });
+
+    // A provider session carries the model it was opened with, so a resumed one would keep
+    // answering on the old model while the editor showed the new one.
+    assert.equal(controls().length, before.length + 1, "the participant is rebuilt on the chosen model");
+    assert.equal(previous.disposeCount, 1, "the session opened on the previous model is disposed");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a provider that fails to answer its model list is unaskable, never stuck discovering", async () => {
+  const harness = assignmentHarness({
+    onListModels: () => {
+      throw new Error("codex app-server did not start");
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.handleMessage({ type: "agents.model.discover", agentId: "codex" });
+    const catalog = harness.runtime.getState().agentAssignments.adapterModels["codex-app-server"];
+    assert.equal(catalog.status, "unsupported");
+    assert.match(catalog.detail, /could not be asked for its models/u);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a model cannot be chosen for a browser participant, whose site owns the selection", async () => {
+  const harness = assignmentHarness();
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    // browser-pair ships both participants on the Bridge, which is the case where the model is the
+    // website's and Bachata has no way to read it back.
+    await harness.runtime.configure({ pipelineId: "browser-pair" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "agents.model.select",
+        agentId: "chatgpt",
+        model: "gpt-6-astra",
+      }),
+      /whatever model the website has selected/u,
+    );
+    const slot = harness.runtime
+      .getState()
+      .agentAssignments.slots.find((entry) => entry.agentId === "chatgpt");
+    assert.equal(slot.assignedAdapter, "chatgpt-browser");
+    assert.equal(slot.assignedModel, undefined);
+    assert.equal(
+      harness.runtime
+        .getState()
+        .executionParticipants.find((entry) => entry.agentId === "chatgpt").model,
+      undefined,
+      "no browser model may be invented for the record",
+    );
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("model discovery reports what a provider answered, and says so when it cannot be asked", async () => {
+  const listing = assignmentHarness({
+    onListModels: () => ({
+      supported: true,
+      models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", isDefault: true }],
+    }),
+  });
+  try {
+    await listing.runtime.handleMessage({ type: "ready" });
+    await listing.runtime.configure({ pipelineId: "codex-review" });
+    assert.equal(
+      listing.runtime.getState().agentAssignments.adapterModels["codex-app-server"],
+      undefined,
+      "a provider nobody asked has no catalog, which is not an empty one",
+    );
+    await listing.runtime.handleMessage({ type: "agents.model.discover", agentId: "codex" });
+    const catalog = listing.runtime.getState().agentAssignments.adapterModels["codex-app-server"];
+    assert.equal(catalog.status, "listed");
+    assert.deepEqual(catalog.models.map((model) => model.id), ["gpt-5.6-sol"]);
+  } finally {
+    await listing.runtime.dispose();
+    listing.cleanup();
+  }
+
+  const silent = assignmentHarness();
+  try {
+    await silent.runtime.handleMessage({ type: "ready" });
+    await silent.runtime.configure({ pipelineId: "codex-review" });
+    await silent.runtime.handleMessage({ type: "agents.model.discover", agentId: "codex" });
+    const catalog = silent.runtime.getState().agentAssignments.adapterModels["codex-app-server"];
+    assert.equal(catalog.status, "unsupported");
+    assert.deepEqual(catalog.models, []);
+    assert.match(catalog.detail, /does not report a model list/u);
+  } finally {
+    await silent.runtime.dispose();
+    silent.cleanup();
   }
 });
 
@@ -975,7 +1200,11 @@ test("workflow recovery retains its exact pipeline snapshot after the catalog ch
   const selectedPipelineSnapshot = createPipelineSnapshot(original, "builtin");
   const extensionRoot = createSingleAgentPipelineRoot(replacement);
   const prompts = [];
-  const harness = loadRuntimeHarness({
+  let harness;
+  const releaseAll = () => {
+    harness?.adapterControlHistory.forEach((control) => control.release.resolve());
+  };
+  harness = loadRuntimeHarness({
     extensionRoot,
     initialWorkspaceState: {
       "bachata.runtimeState.v5": {
@@ -2564,6 +2793,7 @@ test("browser action loop accepts a terminal continuation after the last action 
   ];
   const harness = loadRuntimeHarness({
     extensionRoot,
+    bridgeSessions: [readyBrowserSession()],
     configuration: {
       browserActionMaxRounds: 1,
       browserActionReadOnlyPolicy: "auto",
@@ -2619,6 +2849,7 @@ test("browser action loop fails when the terminal-only continuation requests ano
   ];
   const harness = loadRuntimeHarness({
     extensionRoot,
+    bridgeSessions: [readyBrowserSession()],
     configuration: {
       browserActionMaxRounds: 1,
       browserActionReadOnlyPolicy: "auto",
@@ -2663,7 +2894,7 @@ test("browser action loop fails when the terminal-only continuation requests ano
 });
 
 test("a pipeline can continue through its own human gate", async () => {
-  const harness = loadRuntimeHarness();
+  const harness = loadRuntimeHarness({ bridgeSessions: [readyBrowserSession()] });
   try {
     const webview = { postMessage: async () => true };
     const subscription = harness.runtime.attachWebview(webview);
@@ -4792,7 +5023,7 @@ const managedBrowserPipelineDefinition = () => ({
 
 test("managed conversation rollover opens a fresh role conversation and rehydrates controller state", async () => {
   const extensionRoot = createSingleAgentPipelineRoot(managedBrowserPipelineDefinition());
-  const first = createBrowserSession("managed-session", "Managed");
+  const first = readyBrowserSession("managed-session");
   let freshCount = 0;
   const tracked = createTrackedBridge([first], {
     onOpenConversation: ({ fresh }) => {
@@ -4882,8 +5113,11 @@ test("managed conversation rollover opens a fresh role conversation and rehydrat
   }
 });
 
-test("composer authorization is re-checked after preflight refreshes policy and acknowledgement", async () => {
-  const harness = loadRuntimeHarness({ enforceContractAcknowledgement: true });
+test("a write-capable pipeline preflights from the composer with nothing to acknowledge", async () => {
+  // Reading an execution contract is no longer a gate. A managed pipeline that can write to the
+  // repository starts from the composer directly; what still restricts it are its real permissions,
+  // its capability requirements and its configured human gates, not a checkbox.
+  const harness = loadRuntimeHarness();
   try {
     await harness.runtime.handleMessage({ type: "ready" });
     await harness.runtime.handleMessage({
@@ -4891,23 +5125,16 @@ test("composer authorization is re-checked after preflight refreshes policy and 
       requestId: "select-managed",
       pipelineId: "managed-fix",
     });
-    const contract = harness.runtime.getState().contractAcknowledgement;
+    const contract = harness.runtime.getState().executionContract;
+    assert.ok(contract, "the run details are still published for the reader to open");
     assert.equal(
-      contract?.acknowledgementRequired,
-      true,
-      "this harness pipeline does not require acknowledgement, so the test proves nothing",
+      harness.runtime.getState().contractAcknowledgement,
+      undefined,
+      "no acknowledgement state is published any more",
     );
-
-    await assert.rejects(
-      harness.runtime.preflightPipeline("do the work", [], undefined, { composerAuthorized: true }),
-      /acknowledge this run's execution contract/u,
-      "preflight accepted a composer run whose contract was never acknowledged",
-    );
-
-    await harness.runtime.preflightPipeline("do the work", []);
-
-    await harness.acknowledgeCurrentContract();
+    // Both the composer path and the programmatic path start without a prior acknowledgement.
     await harness.runtime.preflightPipeline("do the work", [], undefined, { composerAuthorized: true });
+    await harness.runtime.preflightPipeline("do the work", []);
   } finally {
     harness.cleanup();
   }
@@ -4951,7 +5178,7 @@ test("a queued composer run carries its origin and is reauthorized when it is de
   }
 });
 
-test("a persisted queued composer run keeps its origin, and one without an origin is blocked", async () => {
+test("a persisted queued run keeps its origin, and an older one is runnable rather than blocked", async () => {
   const authorized = loadRuntimeHarness({
     initialWorkspaceState: {
       "bachata.runtimeState.v5": {
@@ -4964,16 +5191,15 @@ test("a persisted queued composer run keeps its origin, and one without an origi
     await authorized.runtime.handleMessage({ type: "ready" });
     const restored = authorized.runtime.getState().queuedMessages[0];
     assert.ok(restored, "the queued request did not survive a restart");
-    assert.equal(
-      restored.composerAuthorized,
-      true,
-      "a restored composer run lost its origin, so it can never be reauthorized",
-    );
+    assert.equal(restored.composerAuthorized, true, "a restored composer run keeps its origin");
     assert.equal(restored.blockedReason, undefined);
   } finally {
     authorized.cleanup();
   }
 
+  // A request queued before the origin was recorded used to be blocked, because its execution
+  // contract could not be re-acknowledged. Nothing needs acknowledging now, so it simply runs; the
+  // queued snapshot itself is untouched, which is what a restart must never rewrite.
   const legacyEntry = queuedPipelineState("queued-legacy");
   delete legacyEntry.composerAuthorized;
   const legacy = loadRuntimeHarness({
@@ -4988,12 +5214,9 @@ test("a persisted queued composer run keeps its origin, and one without an origi
     await legacy.runtime.handleMessage({ type: "ready" });
     const restored = legacy.runtime.getState().queuedMessages[0];
     assert.ok(restored);
-    assert.equal(restored.composerAuthorized, undefined);
-    assert.match(
-      restored.blockedReason ?? "",
-      /predates recorded run authorization/u,
-      "a queued run with unknown origin was left runnable",
-    );
+    assert.equal(restored.composerAuthorized, undefined, "the stored request is unchanged");
+    assert.equal(restored.prompt, legacyEntry.prompt, "its prompt is preserved verbatim");
+    assert.equal(restored.blockedReason, undefined, "and it is no longer blocked");
   } finally {
     legacy.cleanup();
   }
@@ -6794,7 +7017,7 @@ test("opening a chat checks its providers without Doctor or setup", async () => 
     await harness.runtime.handleMessage({ type: "ready" });
     assert.equal(harness.runtime.getState().readiness.status, "ready");
     assert.ok(commands.includes("claude"));
-    assert.ok(commands.includes("codex"));
+    assert.ok(commands.includes(CODEX_EXECUTABLE));
     for (const pipeline of harness.runtime.getState().pipelines) {
       assert.equal(pipeline.participantNames.length, pipeline.participantCount);
       assert.ok(pipeline.stepCount > 0);
@@ -6804,7 +7027,7 @@ test("opening a chat checks its providers without Doctor or setup", async () => 
     assert.equal(commands.length, count, "reattaching a chat must reuse its completed checks");
     await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "claude-review" });
     assert.equal(harness.runtime.getState().readiness.status, "ready");
-    assert.equal(commands.slice(count).includes("codex"), false, "only the selected pipeline's providers are checked");
+    assert.equal(commands.slice(count).includes(CODEX_EXECUTABLE), false, "only the selected pipeline's providers are checked");
   } finally {
     await harness.runtime.dispose();
     harness.cleanup();
@@ -6875,3 +7098,853 @@ for (const [override, unavailable] of [[undefined, false], ["/configured/claude"
     }
   });
 }
+
+const {
+  createProviderRegistry,
+  providerKey,
+} = require("../dist/providers/providerRegistry.js");
+
+// A host registry shared the way the extension host shares one, with a probe that counts how often
+// the machine is actually asked.
+const sharedRegistryHarness = () => {
+  const probes = [];
+  const registry = createProviderRegistry({
+    probe: async (identity) => {
+      probes.push(providerKey(identity));
+      return { outcome: "version", command: identity.command, version: "mock-1.0.0" };
+    },
+  });
+  return { registry, probes };
+};
+
+const sharedWorkspace = scratchRootSync("bachata-provider-workspace-");
+
+const registryHarness = (registry, extra = {}) =>
+  loadRuntimeHarness({
+    workspaceDirectories: [sharedWorkspace],
+    onCommandCheck: ({ command, args }) => {
+      if (command === "git" && args[0] === "--version") return "git version 2.39.5";
+      if (command === "git" && args[0] === "status") return "";
+      return `${command} mock-1.0.0`;
+    },
+    ...extra,
+    runtimeOptions: { ...(extra.runtimeOptions ?? {}), providerRegistry: registry },
+  });
+
+test("two conversations share one host discovery instead of each probing", async () => {
+  const { registry, probes } = sharedRegistryHarness();
+  const first = registryHarness(registry);
+  try {
+    await first.runtime.handleMessage({ type: "ready" });
+    await first.runtime.configure({ pipelineId: "review-only" });
+    await first.runtime.inspectReadiness();
+    const afterFirst = probes.length;
+    assert.ok(afterFirst > 0, "the first conversation caused discovery");
+
+    const second = registryHarness(registry);
+    try {
+      await second.runtime.handleMessage({ type: "ready" });
+      await second.runtime.configure({ pipelineId: "review-only" });
+      await second.runtime.inspectReadiness();
+      // The second conversation reads the same records; asking the machine again would be asking a
+      // question that is already answered.
+      assert.equal(probes.length, afterFirst, "a second conversation caused no further probes");
+    } finally {
+      await second.runtime.dispose();
+      second.cleanup();
+    }
+  } finally {
+    await first.runtime.dispose();
+    first.cleanup();
+  }
+});
+
+test("reassigning a role reuses cached discovery and launches no probe", async () => {
+  const { registry, probes } = sharedRegistryHarness();
+  const harness = registryHarness(registry);
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.inspectReadiness();
+    const afterDiscovery = probes.length;
+    assert.ok(afterDiscovery > 0);
+
+    for (const adapter of ["claude-code", "codex-app-server", "claude-code"]) {
+      await harness.runtime.handleMessage({
+        type: "agents.assign",
+        agentId: "codex",
+        adapter,
+      });
+    }
+    await harness.runtime.handleMessage({ type: "agents.reset" });
+    assert.equal(
+      probes.length,
+      afterDiscovery,
+      "repeated assignment and reset asked the machine nothing further",
+    );
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a reassigned participant reports the assigned provider's readiness, not 'not checked yet'", async () => {
+  const { registry } = sharedRegistryHarness();
+  const harness = registryHarness(registry);
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.inspectReadiness();
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "claude-code",
+    });
+    await harness.runtime.inspectReadiness(["codex-review"]);
+    assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
+    const finding = harness.runtime
+      .getState()
+      .readiness.findings.find((entry) => entry.id === "adapter.codex");
+    assert.ok(finding, "the reassigned participant has a readiness finding");
+    // The regression: readiness was cached under the pipeline's shipped agent and read under the
+    // assigned one, so the reader was left looking at a participant nobody had checked.
+    assert.equal(finding.status, "ready");
+    assert.equal(finding.detail, "claude: mock-1.0.0", "the assigned provider's own answer");
+    assert.notEqual(finding.detail, "Provider availability has not been checked yet");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("the editor is told discovery is running rather than that providers are missing", async () => {
+  let gate;
+  // The first pass answers at once so the conversation can open; only the pass after invalidation
+  // is held, which is where the editor's temporary state is observable.
+  let hold = false;
+  const registry = createProviderRegistry({
+    probe: async (identity) => {
+      if (hold) {
+        await gate;
+      }
+      return { outcome: "version", command: identity.command, version: "mock-1.0.0" };
+    },
+  });
+  const harness = registryHarness(registry);
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.inspectReadiness();
+    assert.equal(harness.runtime.getState().agentAssignments.discovering, false);
+    assert.ok(harness.runtime.getState().agentAssignments.availableAdapters.includes("codex-app-server"));
+
+    let release;
+    gate = new Promise((resolve) => { release = resolve; });
+    hold = true;
+    registry.invalidate(() => true);
+    const pending = harness.runtime.inspectReadiness();
+    // The pass awaits initialization before it asks anything, so the observation point is after
+    // the first turn of the loop rather than the moment the call was made.
+    await new Promise((resolve) => { setImmediate(resolve); });
+    // Nothing has answered yet, so nothing is claimed available — and nothing is claimed missing.
+    assert.equal(registry.discovering(), true);
+    assert.equal(harness.runtime.getState().agentAssignments.discovering, true);
+    assert.deepEqual(harness.runtime.getState().agentAssignments.availableAdapters, []);
+    release();
+    await pending;
+    assert.equal(harness.runtime.getState().agentAssignments.discovering, false);
+    assert.ok(harness.runtime.getState().agentAssignments.availableAdapters.includes("codex-app-server"));
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a provider that fails during a turn is invalidated and asked again, alone", async () => {
+  const { registry, probes } = sharedRegistryHarness();
+  const harness = registryHarness(registry);
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "review-only" });
+    await harness.runtime.inspectReadiness();
+    const discovered = probes.length;
+    const before = registry.records().filter((record) => record.state === "available").length;
+    assert.ok(before > 0);
+
+    registry.invalidate((record) => record.adapterType === "codex-app-server");
+    assert.equal(
+      registry.records().filter((record) => record.state === "available").length,
+      before - 1,
+      "only the named provider lost its answer",
+    );
+    await harness.runtime.inspectReadiness();
+    assert.equal(probes.length, discovered + 1, "exactly one provider was asked again");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a queued run refuses a local model change at the runtime, not only in the editor", async () => {
+  const executionStarted = deferred();
+  const releaseExecution = deferred();
+  const harness = assignmentHarness({
+    runtimeOptions: {
+      executeQueuedPipeline: async (_request, onAccepted) => {
+        executionStarted.resolve();
+        await releaseExecution.promise;
+        await onAccepted();
+      },
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "codex-review" });
+    const run = harness.runtime.handleMessage({
+      type: "pipeline.run",
+      requestId: "local-model-lock",
+      prompt: "Queue this",
+      attachmentIds: [],
+      iterationCount: 1,
+      delivery: "queue",
+    });
+    await executionStarted.promise;
+    // The editor disables the control; this proves the host refuses the message regardless.
+    await assert.rejects(
+      harness.runtime.handleMessage({ type: "localModel.select", model: "some-model" }),
+      /Clear the queue/,
+    );
+    releaseExecution.resolve();
+    await run;
+  } finally {
+    releaseExecution.resolve();
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+// A host whose resolution refused the configured model: the settings still name it, and the
+// question is whether anything will act on that name.
+const refusingLocalModelService = () => ({
+  discover: async () => undefined,
+  readiness: () => ({
+    enabled: true,
+    discovering: false,
+    probes: [],
+    selection: { status: "noSuitableModel", detail: "pinned-bad failed the interpreter contract" },
+  }),
+  resolvedConfig: () => undefined,
+  verifySelection: async () => undefined,
+  invalidate: () => undefined,
+});
+
+test("a model the host refused is not sent to the bridge under its configured name", async () => {
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+    configuration: {
+      browserSelectorHealingEnabled: true,
+      browserSelectorHealingModel: "pinned-bad",
+    },
+    runtimeOptions: { localModelService: refusingLocalModelService(), startBridge: true },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    const config = harness.bridgeOptions.localModelConfig?.();
+    assert.ok(config, "the runtime supplies a local-model configuration to the bridge");
+    // The configured name is still in settings; what matters is that it does not reach the bridge.
+    assert.equal(config.model, "", "a refused model is not handed to selector healing");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a runtime with no host service still honours the reader's own settings", async () => {
+  // Standalone and programmatic callers have nothing resolving for them; removing their fallback
+  // would have disabled local interpretation entirely rather than gating it.
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+    configuration: {
+      browserSelectorHealingEnabled: true,
+      browserSelectorHealingModel: "reader-choice",
+    },
+    runtimeOptions: { startBridge: true },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(harness.bridgeOptions.localModelConfig?.().model, "reader-choice");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+// The conversation on screen: created against a built-in preset that demanded an initiative, left
+// idle with a draft attachment and reassigned agents, then reopened after the shipped preset
+// dropped that demand. Everything below goes through real persistence and a real reload — no mocked
+// definition is swapped in.
+const specialistPresetRoot = (intent) => {
+  const definition = {
+    ...builtInPipelineDefinition(),
+    longitudinalIntent: intent,
+  };
+  const extensionRoot = scratchRootSync("bachata-specialist-preset-");
+  fs.mkdirSync(path.join(extensionRoot, "presets"), { recursive: true });
+  fs.writeFileSync(
+    path.join(extensionRoot, "presets", "cross-reference.pipeline.json"),
+    JSON.stringify(definition),
+  );
+  return { extensionRoot, definition };
+};
+
+test("reloading an idle draft with attachments adopts the updated built-in preset and keeps its inputs", async () => {
+  const workspace = scratchRootSync("bachata-preset-refresh-workspace-");
+  const { extensionRoot, definition } = specialistPresetRoot("initiativeRequired");
+  const pipelineId = definition.id;
+  let persisted;
+
+  const first = loadRuntimeHarness({
+    extensionRoot,
+    workspaceDirectories: [workspace],
+    onCommandCheck: ({ command, args }) => {
+      if (command === "git" && args[0] === "--version") return "git version 2.39.5";
+      if (command === "git" && args[0] === "status") return "";
+      return `${command} mock-1.0.0`;
+    },
+  });
+  try {
+    await first.runtime.handleMessage({ type: "ready" });
+    await first.runtime.configure({ pipelineId });
+    assert.equal(
+      first.runtime.getState().selectedPipelineDefinition.longitudinalIntent,
+      "initiativeRequired",
+      "the conversation started on the preset that demanded an initiative",
+    );
+    const agentId = definition.agents[0].id;
+    await first.runtime.handleMessage({
+      type: "agents.assign",
+      agentId,
+      adapter: "claude-code",
+    });
+    persisted = structuredClone(first.workspaceState.get("bachata.runtimeState.v5"));
+    // An attachment sits on the draft, which is what used to pin the stale snapshot.
+    persisted.attachments = [{
+      id: "draft-shot",
+      name: "screenshot.png",
+      mimeType: "image/png",
+      size: 1234,
+      relativePath: "attachments/draft-shot.png",
+    }];
+    assert.equal(persisted.selectedPipelineSnapshot.definition.longitudinalIntent, "initiativeRequired");
+    assert.equal(persisted.agentAssignments.assignments[agentId].adapter, "claude-code");
+  } finally {
+    await first.runtime.dispose();
+    first.cleanup();
+  }
+
+  // The shipped preset is updated in place, exactly as installing a new build does.
+  fs.writeFileSync(
+    path.join(extensionRoot, "presets", "cross-reference.pipeline.json"),
+    JSON.stringify({ ...definition, longitudinalIntent: "runLocal" }),
+  );
+
+  const second = loadRuntimeHarness({
+    extensionRoot,
+    workspaceDirectories: [workspace],
+    initialWorkspaceState: { "bachata.runtimeState.v5": persisted },
+    onCommandCheck: ({ command, args }) => {
+      if (command === "git" && args[0] === "--version") return "git version 2.39.5";
+      if (command === "git" && args[0] === "status") return "";
+      return `${command} mock-1.0.0`;
+    },
+  });
+  try {
+    await second.runtime.handleMessage({ type: "ready" });
+    const state = second.runtime.getState();
+    // The refreshed preset is what the next run executes.
+    assert.equal(
+      state.selectedPipelineDefinition.longitudinalIntent,
+      "runLocal",
+      "the reloaded draft kept the stale preset and would still demand an initiative",
+    );
+    assert.equal(state.selectedPipelineId, pipelineId);
+    // And the reader's inputs are all still there.
+    assert.deepEqual(
+      state.attachments.map((entry) => entry.id),
+      ["draft-shot"],
+      "the draft attachment was lost",
+    );
+    const agentId = definition.agents[0].id;
+    assert.equal(state.agents[agentId].adapterType, "claude-code", "the agent assignment was lost");
+    assert.equal(state.agentAssignments.slots.find((slot) => slot.agentId === agentId).overridden, true);
+  } finally {
+    await second.runtime.dispose();
+    second.cleanup();
+    removeScratchSync(workspace);
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("a queued run still resumes against the definition it was queued under", async () => {
+  // The narrow fix must not let a pinned execution drift onto a newer preset.
+  const workspace = scratchRootSync("bachata-preset-pinned-workspace-");
+  const { extensionRoot, definition } = specialistPresetRoot("initiativeRequired");
+  const queued = queuedPipelineState("queued-pinned", definition);
+  const harness = loadRuntimeHarness({
+    extensionRoot,
+    workspaceDirectories: [workspace],
+    initialWorkspaceState: {
+      "bachata.runtimeState.v5": {
+        taskDirty: false,
+        selectedPipelineId: definition.id,
+        selectedPipelineSnapshot: createPipelineSnapshot(definition, "builtin"),
+        queuedMessages: [queued],
+        attachments: [],
+      },
+    },
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+  });
+  try {
+    fs.writeFileSync(
+      path.join(extensionRoot, "presets", "cross-reference.pipeline.json"),
+      JSON.stringify({ ...definition, longitudinalIntent: "runLocal" }),
+    );
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(
+      harness.runtime.getState().selectedPipelineDefinition.longitudinalIntent,
+      "initiativeRequired",
+      "a queued run drifted onto a preset it was not queued against",
+    );
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(workspace);
+    removeScratchSync(extensionRoot);
+  }
+});
+
+const twoStepPipelineDefinition = () => ({
+  version: 1,
+  id: "cross-reference-development",
+  name: "Two-step pipeline",
+  agents: [{ id: "codex", name: "Codex", adapter: "codex-app-server" }],
+  steps: [
+    {
+      id: "implementation",
+      name: "Implementation",
+      enabled: true,
+      participants: ["codex"],
+      promptTemplate: "{{userPrompt}}",
+      parallel: false,
+      consensus: false,
+      humanGate: "none",
+      type: "agent",
+    },
+    {
+      id: "review",
+      name: "Review",
+      enabled: true,
+      participants: ["codex"],
+      promptTemplate: "Review: {{userPrompt}}",
+      parallel: false,
+      consensus: false,
+      humanGate: "none",
+      type: "agent",
+    },
+  ],
+});
+
+test("the executable discovery probed is the executable the adapter is built with", async () => {
+  const probed = [];
+  const built = [];
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command, args }) => {
+      probed.push(command);
+      if (command === "git") return args[0] === "--version" ? "git version 2.43.0" : "";
+      return `${command} test-version`;
+    },
+    onAdapterCreate: ({ definition }) => {
+      if (definition.adapter === "codex-app-server") built.push(definition.command);
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.ok(built.length > 0, "no Codex adapter was built");
+    // One resolution, asked once, used everywhere. Two answers to "which Codex" is how a probe
+    // reported a version that a run then did not use.
+    assert.deepEqual(new Set(built), new Set([CODEX_EXECUTABLE]));
+    assert.ok(
+      probed.includes(CODEX_EXECUTABLE),
+      "discovery probed an executable the adapter was not built with",
+    );
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a selected root holding no repository refuses the run before any provider is sent to", async () => {
+  const extensionRoot = createSingleAgentPipelineRoot(
+    (() => {
+      const definition = singleAgentPipelineDefinition();
+      return { ...definition, managedPolicy: { writeScope: "task", allowedPaths: ["src"] } };
+    })(),
+  );
+  const harness = loadRuntimeHarness({
+    extensionRoot,
+    onCommandCheck: ({ command, args }) => {
+      // Git answers, and the selected root is not a repository: two different blockers, and this
+      // is the one whose remedy is choosing a different root.
+      if (command === "git") {
+        if (args[0] === "--version") return "git version 2.43.0";
+        throw new Error("fatal: not a git repository (or any of the parent directories): .git");
+      }
+      return `${command} test-version`;
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    const readiness = harness.runtime.getState().readiness;
+    assert.equal(readiness.status, "blocked");
+    assert.ok(
+      readiness.findings.some((finding) =>
+        finding.remediationId === "workspace.selectRepository" &&
+        /is not a Git repository/u.test(finding.detail)),
+      "readiness does not name the root as the problem",
+    );
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "pipeline.run",
+        requestId: "blocked-root",
+        prompt: "Do the work",
+        attachmentIds: [],
+        iterationCount: 1,
+        delivery: "immediate",
+      }),
+      /is not a Git repository/u,
+    );
+    assert.equal(
+      harness.adapterControls.get("codex").sendCount,
+      0,
+      "a refused run must not reach a provider",
+    );
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("a repository chosen inside the open workspace is a ready root, and the run is allowed", async () => {
+  const workspaceRoot = scratchRootSync("bachata-parent-folder-");
+  const repositoryRoot = path.join(workspaceRoot, "extension");
+  fs.mkdirSync(repositoryRoot, { recursive: true });
+  const extensionRoot = createSingleAgentPipelineRoot();
+  const harness = loadRuntimeHarness({
+    extensionRoot,
+    workspaceDirectories: [workspaceRoot],
+    configuration: { workingDirectory: repositoryRoot },
+    onCommandCheck: ({ command, args }) => {
+      if (command === "git") return args[0] === "--version" ? "git version 2.43.0" : "";
+      return `${command} test-version`;
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    const readiness = harness.runtime.getState().readiness;
+    assert.equal(
+      readiness.findings.some((finding) => finding.id === "workspace.selectedRoot"),
+      false,
+      "a child checkout of the open folder is not an unopened root",
+    );
+    assert.equal(readiness.status, "ready");
+    assert.equal(harness.runtime.pipelineRunRefusal(), undefined);
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(workspaceRoot);
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("an initial provider failure leaves a checkpoint that retry continues from the stopped step", async () => {
+  const extensionRoot = createSingleAgentPipelineRoot(twoStepPipelineDefinition());
+  const prompts = [];
+  let failFirstSend = true;
+  const harness = loadRuntimeHarness({
+    extensionRoot,
+    onAdapterSend: async ({ request }) => {
+      prompts.push(request.prompt);
+      if (failFirstSend) {
+        failFirstSend = false;
+        throw new Error("provider refused the first attempt");
+      }
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "pipeline.run",
+        requestId: "initial-failure",
+        prompt: "Build the thing",
+        attachmentIds: [],
+        iterationCount: 1,
+        delivery: "immediate",
+      }),
+      /provider refused the first attempt/u,
+    );
+    const recovery = harness.runtime.getState().resumableWorkflow;
+    assert.ok(recovery, "an initial failure must still leave the checkpoint it had established");
+    assert.equal(recovery.nextStepIndex, 0);
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.handleMessage({ type: "workflow.resume" });
+    // Retry continues the stopped step rather than replaying the run, so step one is asked twice
+    // in total and step two once.
+    assert.deepEqual(prompts, ["Build the thing", "Build the thing", "Review: Build the thing"]);
+    assert.equal(harness.runtime.getState().resumableWorkflow, undefined);
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("restart replays the recorded request from step one and keeps the recorded settings", async () => {
+  const extensionRoot = createSingleAgentPipelineRoot(twoStepPipelineDefinition());
+  const prompts = [];
+  let failAt = "Review: Build the thing";
+  let harness;
+  // A restart builds fresh adapters, so every send releases whatever control is current rather
+  // than a snapshot taken before the restart began.
+  const releaseAll = () => {
+    harness?.adapterControlHistory.forEach((control) => control.release.resolve());
+  };
+  harness = loadRuntimeHarness({
+    extensionRoot,
+    onAdapterSend: async ({ request }) => {
+      prompts.push(request.prompt);
+      releaseAll();
+      if (request.prompt === failAt) throw new Error("provider refused the review step");
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "pipeline.run",
+        requestId: "restart-source",
+        prompt: "Build the thing",
+        attachmentIds: [],
+        iterationCount: 1,
+        delivery: "immediate",
+      }),
+      /provider refused the review step/u,
+    );
+    const stopped = harness.runtime.getState().resumableWorkflow;
+    assert.ok(stopped);
+    assert.equal(stopped.nextStepIndex, 1, "the run stopped on the second step");
+    prompts.length = 0;
+    failAt = undefined;
+    releaseAll();
+    await harness.runtime.handleMessage({ type: "workflow.restart" });
+    assert.deepEqual(
+      prompts,
+      ["Build the thing", "Review: Build the thing"],
+      "restart begins at the first enabled step with the recorded request",
+    );
+    const transcript = await harness.runtime.loadTranscript();
+    assert.equal(
+      transcript.filter((entry) => entry.eventType === "user.message").length,
+      1,
+      "restart must not write the reader's request into the chat a second time",
+    );
+    assert.equal(
+      transcript.some((entry) => entry.eventType === "workflow.restarted"),
+      true,
+      "the chat says the run was restarted",
+    );
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("a restart that fails before its own checkpoint is durable restores the one it started from", async () => {
+  const extensionRoot = createSingleAgentPipelineRoot(twoStepPipelineDefinition());
+  let failRecoveryWrite = false;
+  let harness;
+  const releaseAll = () => {
+    harness?.adapterControlHistory.forEach((control) => control.release.resolve());
+  };
+  harness = loadRuntimeHarness({
+    extensionRoot,
+    onAdapterSend: async ({ request }) => {
+      releaseAll();
+      if (request.prompt === "Review: Build the thing") {
+        throw new Error("provider refused the review step");
+      }
+    },
+    beforeWorkspaceStateUpdate: ({ value }) => {
+      // The replacement checkpoint is what a restart owes before the previous one may go. A
+      // restart that cannot write one has to leave the reader exactly the recovery they had.
+      if (failRecoveryWrite && value?.resumableWorkflow?.nextStepIndex === 0) {
+        throw new Error("restart checkpoint persistence failed");
+      }
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "pipeline.run",
+        requestId: "restart-preflight-source",
+        prompt: "Build the thing",
+        attachmentIds: [],
+        iterationCount: 1,
+        delivery: "immediate",
+      }),
+      /provider refused the review step/u,
+    );
+    const before = harness.runtime.getState().resumableWorkflow;
+    assert.ok(before);
+    assert.equal(before.nextStepIndex, 1);
+    failRecoveryWrite = true;
+    releaseAll();
+    await assert.rejects(
+      harness.runtime.handleMessage({ type: "workflow.restart" }),
+      /restart checkpoint persistence failed/u,
+    );
+    const after = harness.runtime.getState().resumableWorkflow;
+    assert.ok(after, "the previous checkpoint was destroyed by a restart that never started");
+    assert.equal(after.nextStepIndex, 1);
+    assert.equal(after.userPrompt, before.userPrompt);
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("a run persisted as failed before this build still restarts from its checkpoint", async () => {
+  const definition = twoStepPipelineDefinition();
+  const extensionRoot = createSingleAgentPipelineRoot(definition);
+  const recovery = singleAgentRecoveryState(undefined, definition);
+  const prompts = [];
+  let harness;
+  const releaseAll = () => {
+    harness?.adapterControlHistory.forEach((control) => control.release.resolve());
+  };
+  harness = loadRuntimeHarness({
+    extensionRoot,
+    initialWorkspaceState: {
+      // A record written when an initial failure was catalogued as failed rather than interrupted.
+      "bachata.runtimeState.v5": {
+        selectedPipelineId: definition.id,
+        taskDirty: true,
+        agents: {},
+        attachments: [],
+        queuedMessages: [],
+        queuePaused: false,
+        resumableWorkflow: { ...recovery, nextStepIndex: 1 },
+      },
+    },
+    onAdapterSend: async ({ request }) => { prompts.push(request.prompt); releaseAll(); },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(harness.runtime.getState().resumableWorkflow?.nextStepIndex, 1);
+    await harness.runtime.handleMessage({ type: "workflow.restart" });
+    assert.deepEqual(
+      prompts,
+      ["Recover this request", "Review: Recover this request"],
+      "an older persisted failure restarts from step one with its recorded request",
+    );
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("a browser pipeline refuses to start while its bridge is not connected", async () => {
+  // The refusal used to consume only `blocked` findings, and a disconnected bridge is reported as
+  // `needsSetup`. The run reached the participants with no transport, and failed there instead.
+  const extensionRoot = createSingleAgentPipelineRoot(browserActionPipelineDefinition());
+  const harness = loadRuntimeHarness({ extensionRoot });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "pipeline.run",
+        prompt: "Read something.",
+        attachmentIds: [],
+      }),
+      /Connect the Browser Bridge/u,
+    );
+    assert.equal(
+      harness.runtime.pipelineRunRefusal(),
+      "ChatGPT: Connect the Browser Bridge",
+      "the refusal a reader is shown is not the one the run enforces",
+    );
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
+test("a working-directory change re-asks Git before the next run decides", async () => {
+  // Pointing Bachata at the repository is the remedy for "this folder is not a Git repository".
+  // The Git answer on hand belongs to the folder the reader just moved away from, so a run
+  // preflighted after the change has to ask about the directory it is actually about.
+  const extensionRoot = createSingleAgentPipelineRoot();
+  const workspace = scratchRootSync("bachata-parent-folder-");
+  // The repository is a child of the folder that is open, which is the shape the remedy exists for.
+  const child = path.join(workspace, "packages", "app");
+  fs.mkdirSync(child, { recursive: true });
+  const statusDirectories = [];
+  const harness = loadRuntimeHarness({
+    extensionRoot,
+    workspaceDirectories: [workspace],
+    onCommandCheck: ({ command, args, commandOptions }) => {
+      if (command !== "git") return `${command} mock-1.0.0`;
+      if (args[0] === "--version") return "git version 2.43.0";
+      statusDirectories.push(commandOptions?.workingDirectory);
+      return "";
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.inspectReadiness();
+    assert.ok(statusDirectories.length > 0, "Git was never asked about the opened folder");
+    const asked = statusDirectories.length;
+
+    await harness.runtime.configure({
+      pipelineId: "cross-reference-development",
+      workingDirectory: child,
+      preserveHistory: true,
+    });
+    await harness.runtime.preflightPipeline("Build the thing", []);
+    assert.ok(
+      statusDirectories.slice(asked).includes(child),
+      "the run decided on the previous directory's Git answer",
+    );
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+    removeScratchSync(workspace);
+  }
+});

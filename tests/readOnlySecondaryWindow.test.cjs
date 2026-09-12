@@ -292,6 +292,10 @@ const createVscodeStub = (context) => {
       },
     },
     env: { openExternal: async () => true },
+    // The host's own extension registry. Activation asks it which OpenAI extension this window
+    // loaded, so that the Codex binary it starts belongs to this host rather than to whichever
+    // tree on the machine happened to carry the highest version.
+    extensions: { getExtension: () => undefined },
   };
   return {
     vscode,

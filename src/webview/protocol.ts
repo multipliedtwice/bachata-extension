@@ -13,11 +13,11 @@ import { PipelineSnapshot } from "../pipeline/identity";
 import { HumanGateAction } from "../pipeline/runner";
 import { RunParticipant } from "../state/catalog";
 import { PipelineDefinition } from "../pipeline/types";
+import { isWellFormedAssignmentModel } from "../pipeline/agentAssignment";
 import type { LongitudinalSummary, ResolutionTarget } from "../longitudinal/service";
 import type { CycleType, HumanResolutionAction } from "../longitudinal/types";
 import { PipelineReadiness } from "../readiness/model";
 import type { ExecutionContract } from "../contract/executionContract";
-import type { ContractAcknowledgement } from "../contract/authority";
 import type { RunResultCenter } from "../results/projectResult";
 import type { ReviewCandidate } from "../context/reviewScope";
 import type { PatchFileSummary, PatchHunkReference } from "../orchestrator/patchSelection";
@@ -155,16 +155,76 @@ export type AgentAssignmentSlot = {
   assignedAdapter: string;
   browserSessionId?: string;
   overridden: boolean;
+  /** The model the saved pipeline names for this participant, when it names one. */
+  defaultModel?: string;
+  /**
+   * The model this participant will actually run on. Absent means the provider's own default was
+   * left in place: Bachata sends no model name and the provider chooses. A browser slot is always
+   * absent — the website owns the selection and the Bridge does not report it — which the editor
+   * states rather than filling in.
+   */
+  assignedModel?: string;
+};
+
+/**
+ * What one provider answered when asked which models it accepts.
+ *
+ * "listed" is the only state that can refuse a model. "unsupported" means the provider cannot be
+ * asked, so the reader keeps an explicit model field and Bachata judges nothing; "unknown" means
+ * nobody has asked yet, and "discovering" that the question is in flight. Collapsing any of these
+ * into an empty list would present "we did not ask" as "it offers nothing".
+ */
+export type AdapterModelCatalog = {
+  status: "listed" | "unsupported" | "unknown" | "discovering";
+  models: Array<{ id: string; label: string; isDefault?: boolean }>;
+  detail?: string;
 };
 
 export type AgentAssignmentState = {
   slots: AgentAssignmentSlot[];
   /** Adapter types a slot may be assigned to on this machine. */
   assignableAdapters: string[];
+  /**
+   * Adapter types the host has finished discovering and found installed. A type absent from this
+   * list has not necessarily failed — see `discovering` — so the editor must not present it as
+   * missing while discovery is still running.
+   */
+  availableAdapters: string[];
+  /** A host discovery pass is in flight, so unanswered providers are pending rather than absent. */
+  discovering: boolean;
+  /** What each provider answered when asked for its models, keyed by adapter type. */
+  adapterModels: Record<string, AdapterModelCatalog>;
   /** Stated when a responsibility exists that no single slot can stand for. */
   constraint?: string;
   /** Why reassignment is refused right now, if it is. */
   lockReason?: string;
+};
+
+/**
+ * What the Agents view shows about local interpretation: which backend answered, which model was
+ * selected and why, and whether the reader pinned it. Distinct statuses so a reader is sent to the
+ * right remedy — a server that is not running is not the same problem as a server with no usable
+ * model, and neither is the same as a model the reader named that is now gone.
+ */
+export type LocalInterpreterState = {
+  enabled: boolean;
+  discovering: boolean;
+  status:
+    | "ready"
+    | "unverified"
+    | "serverUnavailable"
+    | "noSuitableModel"
+    | "configuredModelUnavailable"
+    | "disabled";
+  detail: string;
+  backend?: string;
+  backendLabel?: string;
+  endpoint?: string;
+  model?: string;
+  /** True when the model came from the reader's setting rather than automatic selection. */
+  explicit: boolean;
+  /** Every model the reachable backends reported, for the override list. */
+  availableModels: Array<{ id: string; backend: string; availability: string }>;
 };
 
 export type PipelineSummary = {
@@ -203,10 +263,17 @@ export type PanelState = {
   pipelines: PipelineSummary[];
   selectedPipelineId?: string;
   selectedPipelineDefinition?: PipelineDefinition;
+  /**
+   * The providers this run will actually execute on, after this conversation's reassignments.
+   *
+   * `selectedPipelineDefinition` is the saved pipeline, which is what the reader chose to change,
+   * so recording a result from it names providers the run did not use. This names the ones it did:
+   * one entry per built participant, with the adapter and model a turn will be sent with.
+   */
+  executionParticipants?: RunParticipant[];
   selectedPipelineHash?: string;
   readiness: PipelineReadiness;
   executionContract?: ExecutionContract;
-  contractAcknowledgement?: ContractAcknowledgement;
   pipelineScopeKey: string;
   pipelineScopeRoot?: string;
   pipelineMutable: boolean;
@@ -221,6 +288,7 @@ export type PanelState = {
   adapterTypes: string[];
   agents: Record<AgentId, AgentPanelState>;
   agentAssignments: AgentAssignmentState;
+  localInterpreter: LocalInterpreterState;
   roles: Record<string, AgentId>;
   running: boolean;
   workflowStatus: WorkflowStatus;
@@ -278,12 +346,33 @@ export type ConversationSummary = {
   orchestrationPaths?: string[] | undefined;
 };
 
+/** One step of the pipeline revision an attempt actually executed, as that attempt recorded it. */
+export type WorkflowAttemptStep = { id: string; name: string };
+
+/**
+ * The boundary of one attempt at a run, carried by the event that opened it.
+ *
+ * A restart is a new attempt at the same run, and its summary must not inherit the state of the
+ * attempt before it. The revision is recorded with the attempt because the catalog may have been
+ * edited since — the reader is owed the steps that ran, not the steps that would run now.
+ */
+export type WorkflowAttempt = {
+  pipelineHash: string;
+  steps: WorkflowAttemptStep[];
+};
+
 export type WorkflowEventSummary = {
   id: number;
   type: string;
   status?: string | undefined;
   title?: string | undefined;
   payload?: JsonValue | undefined;
+  /**
+   * The step this event belongs to, where it belongs to one. A controller-generated identifier, not
+   * free-form provider text, which is why it travels to the panel when the payload does not.
+   */
+  stepId?: string | undefined;
+  attempt?: WorkflowAttempt | undefined;
   createdAt: string;
 };
 
@@ -547,7 +636,6 @@ export type ConversationManagerToWebviewMessage =
 export type WebviewToExtensionMessage =
   | { type: "ready" }
   | { type: "availability.check" }
-  | { type: "contract.acknowledge"; fingerprint: string }
   | {
       type: "message.send";
       recipients: AgentId[];
@@ -599,13 +687,19 @@ export type WebviewToExtensionMessage =
       adapter?: string;
       browserSessionId?: string;
     }
+  /** Choose the model one participant runs on, or clear it back to the provider's own default. */
+  | { type: "agents.model.select"; agentId: AgentId; model?: string }
+  | { type: "agents.model.discover"; agentId: AgentId }
   | { type: "agents.reset" }
+  | { type: "localModel.select"; model?: string }
   | { type: "browser.asset.save"; assetId: string }
   | { type: "browser.asset.reveal"; assetId: string }
   | { type: "transcript.export" }
   | { type: "queue.cancel"; messageId: string }
   | { type: "queue.resume" }
   | { type: "workflow.resume" }
+  /** Replay the recorded run from its first enabled step, keeping the checkpoint until it does. */
+  | { type: "workflow.restart" }
   | { type: "workflow.discard" }
   | { type: "run.interrupt"; agentId?: AgentId }
   | {
@@ -813,13 +907,6 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
     };
   }
 
-  if (value.type === "contract.acknowledge") {
-    if (!hasOnlyKeys(value, ["type", "fingerprint"]) || typeof value.fingerprint !== "string") {
-      throw new Error("Invalid contract.acknowledge message");
-    }
-    return { type: "contract.acknowledge", fingerprint: value.fingerprint };
-  }
-
   if (
     value.type === "ready" ||
     value.type === "availability.check" ||
@@ -830,6 +917,7 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
     value.type === "transcript.export" ||
     value.type === "queue.resume" ||
     value.type === "workflow.resume" ||
+    value.type === "workflow.restart" ||
     value.type === "workflow.discard" ||
     value.type === "agents.reset"
   ) {
@@ -1151,6 +1239,54 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
       type: "browser.session.select",
       agentId,
       ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    };
+  }
+
+  if (value.type === "localModel.select") {
+    if (!hasOnlyKeys(value, ["type", "model"])) {
+      throw new Error("Invalid localModel.select message");
+    }
+    if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) {
+      throw new Error("localModel.select contains an invalid model");
+    }
+    return {
+      type: "localModel.select",
+      ...(typeof value.model === "string" ? { model: value.model.trim() } : {}),
+    };
+  }
+
+  if (value.type === "agents.model.discover") {
+    if (!hasOnlyKeys(value, ["type", "agentId"])) {
+      throw new Error("Invalid agents.model.discover message");
+    }
+    const agentId = parseAgentId(value.agentId);
+    if (!agentId) {
+      throw new Error("agents.model.discover contains an invalid participant");
+    }
+    return { type: "agents.model.discover", agentId };
+  }
+
+  if (value.type === "agents.model.select") {
+    if (!hasOnlyKeys(value, ["type", "agentId", "model"])) {
+      throw new Error("Invalid agents.model.select message");
+    }
+    const agentId = parseAgentId(value.agentId);
+    if (!agentId) {
+      throw new Error("agents.model.select contains an invalid participant");
+    }
+    // A model name is carried to the provider verbatim, so the wire form refuses anything that is
+    // not a name: empty text, surrounding space, and any character a provider id never contains.
+    // Whether the provider offers this model is a separate question, asked of the provider.
+    if (
+      value.model !== undefined &&
+      (typeof value.model !== "string" || !isWellFormedAssignmentModel(value.model))
+    ) {
+      throw new Error("agents.model.select contains an invalid model");
+    }
+    return {
+      type: "agents.model.select",
+      agentId,
+      ...(typeof value.model === "string" ? { model: value.model } : {}),
     };
   }
 

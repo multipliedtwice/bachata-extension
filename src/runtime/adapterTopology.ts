@@ -4,6 +4,7 @@ import { AgentDefinition } from "../pipeline/types";
 import { AgentPanelState } from "../webview/protocol";
 import { BrowserConversationBinding } from "../browser/protocol";
 import { ProviderEnvironmentProfile } from "../process/safeEnvironment";
+import { resolveCodexExecutable } from "../providers/codexExecutable";
 
 export type PersistedAgentState = Pick<
   AgentPanelState,
@@ -38,12 +39,17 @@ export const effectiveAgentDefinition = (
   readSetting: (settingKey: string, fallback: string) => string,
 ): AgentDefinition => {
   const command = commandSettings[definition.adapter];
-  return command === undefined
-    ? definition
-    : {
-        ...definition,
-        command: readSetting(command.setting, definition.command ?? command.fallback),
-      };
+  if (command === undefined) return definition;
+  const configured = readSetting(command.setting, definition.command ?? command.fallback);
+  return {
+    ...definition,
+    // Codex's default name resolves to more than one build on a machine that has the OpenAI VS
+    // Code extension installed. The same resolution runs during discovery, so the binary a probe
+    // reported a version for is the binary this adapter starts.
+    command: definition.adapter === "codex-app-server"
+      ? resolveCodexExecutable(configured)
+      : configured,
+  };
 };
 
 export type ProviderEnvironmentRequest = {

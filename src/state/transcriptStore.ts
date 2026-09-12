@@ -10,6 +10,7 @@ import {
 import * as path from "node:path";
 
 import { TranscriptEntry, parseTranscriptEntry } from "../webview/protocol";
+import { boundedTranscriptEntry } from "./transcriptBounds";
 
 export type TranscriptPage = {
   entries: TranscriptEntry[];
@@ -22,6 +23,7 @@ export type TranscriptStoreOptions = {
   maxFileBytes?: number;
   maxTextBytes?: number;
   maxDataBytes?: number;
+  maxLineBytes?: number;
   withMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -61,6 +63,15 @@ const reverseChunkBytes = 64 * 1024;
 const offsetCacheLimit = 10_000;
 const defaultMaxEntries = 2_000;
 const defaultMaxFileBytes = 2 * 1024 * 1024;
+/**
+ * The most one line of the file may be before it is refused rather than parsed.
+ *
+ * Every entry this store writes is bounded — text, data and all — and lands far below this. A line
+ * above it was not written by this store, and parsing it is the unbounded read the bound exists to
+ * refuse: `JSON.parse` of an arbitrarily large line allocates the whole of it before anything can
+ * be trimmed. Refusing it is the same answer already given to a malformed line.
+ */
+const defaultMaxLineBytes = 256 * 1024;
 const defaultMaxTextBytes = 8 * 1024;
 const defaultMaxDataBytes = 16 * 1024;
 const truncatedTextSuffix = "\n\n[Local preview truncated. Open the provider chat for the full response.]";
@@ -176,6 +187,7 @@ export const createTranscriptStore = (
   const maxFileBytes = positiveInteger(options.maxFileBytes, defaultMaxFileBytes);
   const maxTextBytes = positiveInteger(options.maxTextBytes, defaultMaxTextBytes);
   const maxDataBytes = positiveInteger(options.maxDataBytes, defaultMaxDataBytes);
+  const maxLineBytes = positiveInteger(options.maxLineBytes, defaultMaxLineBytes);
   const withMutation = options.withMutation ?? (async <T>(operation: () => Promise<T>): Promise<T> => operation());
   const filePath = path.join(storageDirectory, "transcript.jsonl");
   const metadataPath = path.join(storageDirectory, "transcript.index.json");
@@ -225,12 +237,24 @@ export const createTranscriptStore = (
     lineNumber: number | undefined,
     offset: Offset,
   ): ParsedLine | undefined => {
+    if (bytes.length > maxLineBytes) {
+      log(
+        lineNumber === undefined
+          ? `Ignored oversized transcript entry at byte ${String(offset.start)}`
+          : `Ignored oversized transcript line ${String(lineNumber)}`,
+      );
+      return undefined;
+    }
     const text = bytes.toString("utf8").replace(/\r$/, "");
     if (!text.trim()) {
       return undefined;
     }
     try {
-      const entry = parseTranscriptEntry(JSON.parse(text));
+      // A line read back off disk is bounded again on the way in. The file this store wrote is
+      // already bounded, but a file it did not write is not, and a reload must not be the way an
+      // unbounded entry reaches memory and the panel.
+      const parsed = parseTranscriptEntry(JSON.parse(text));
+      const entry = parsed === undefined ? undefined : boundedTranscriptEntry(parsed);
       if (!entry) {
         log(
           lineNumber === undefined
@@ -255,11 +279,14 @@ export const createTranscriptStore = (
     metadata = value;
   };
 
+  // The shared bound first, so what is written is exactly what memory and the panel hold; the
+  // store's own configured ceilings then apply on top, for a caller that asked for less.
   const compactEntry = (entry: TranscriptEntry): TranscriptEntry => {
-    const data = compactJsonValue(entry.data, maxDataBytes);
+    const bounded = boundedTranscriptEntry(entry);
+    const data = compactJsonValue(bounded.data, maxDataBytes);
     return {
-      ...entry,
-      text: truncateUtf8(entry.text, maxTextBytes),
+      ...bounded,
+      text: truncateUtf8(bounded.text, maxTextBytes),
       ...(data === undefined ? {} : { data }),
     };
   };

@@ -78,17 +78,32 @@ test("a resume that failed while a recoverable workflow remains is an interrupti
   });
 });
 
-test("every other failure is a failure that drops the queued directory", () => {
+test("a first attempt that failed while a checkpoint survives is retryable, and still called a failure", () => {
+  assert.deepEqual(iterationFailurePlan({ resume: false, hasResumableWorkflow: true, displayIndex: 1, error: new Error("provider refused") }), {
+    status: "interrupted",
+    workflowStatus: "interrupted",
+    eventType: "iteration.failed",
+    title: "Iteration 1 failed",
+    message: "provider refused",
+    dropPendingWorkingDirectory: false,
+  });
+});
+
+test("a failure with no checkpoint is a failure that drops the queued directory", () => {
   for (const input of [
-    { resume: false, hasResumableWorkflow: true },
-    { resume: true, hasResumableWorkflow: false },
-    { resume: false, hasResumableWorkflow: false },
+    { resume: true, hasResumableWorkflow: false, eventType: "iteration.resume.failed", title: "Iteration 1 resume failed" },
+    { resume: false, hasResumableWorkflow: false, eventType: "iteration.failed", title: "Iteration 1 failed" },
   ]) {
-    const plan = iterationFailurePlan({ ...input, displayIndex: 1, error: "text" });
+    const plan = iterationFailurePlan({
+      resume: input.resume,
+      hasResumableWorkflow: input.hasResumableWorkflow,
+      displayIndex: 1,
+      error: "text",
+    });
     assert.equal(plan.status, "failed", JSON.stringify(input));
     assert.equal(plan.workflowStatus, "error");
-    assert.equal(plan.eventType, "iteration.failed");
-    assert.equal(plan.title, "Iteration 1 failed");
+    assert.equal(plan.eventType, input.eventType);
+    assert.equal(plan.title, input.title);
     assert.equal(plan.message, "text");
     assert.equal(plan.dropPendingWorkingDirectory, true);
   }

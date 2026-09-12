@@ -3,7 +3,7 @@
   "id": "core-decisions",
   "name": "Surface core decisions",
   "description": "Codex and Claude independently inspect the repository and converge on the decisions that need human judgment, without proposing an answer the evidence does not support.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",

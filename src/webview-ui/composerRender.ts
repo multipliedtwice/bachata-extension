@@ -83,20 +83,13 @@ const runContractHtml = (panel: PanelState, draft: ConversationDraft): string =>
       <h4>Never sent</h4>${contractList(manifest.exclusions, "")}
       <h4>Redaction</h4>${contractList(manifest.redactions, "")}
     </details>`).join("")}</section>`;
-  const acknowledgement = panel.contractAcknowledgement;
-  // EX-UI-02. What changed is evidence and belongs inside the contract; asking for the
-  // acknowledgement is an action and belongs beside Send, where it is what holds the run. Both
-  // used to be drawn twice inside this one footer, with two buttons that do the same thing.
-  const authorityDiffHtml = acknowledgement && acknowledgement.diff.changes.length > 0
-    ? `<section class="contract-authority-diff"><h3>Authority change since you last acknowledged this contract</h3><ul class="contract-list">${acknowledgement.diff.changes.map((change) => `<li class="${change.expands ? "authority-expanded" : "authority-narrowed"}"><strong>${escapeHtml(change.label)}</strong> ${escapeHtml(change.expands ? "widened" : "changed")} from ${escapeHtml(authorityChangeValue(change.label, change.from))} to ${escapeHtml(authorityChangeValue(change.label, change.to))}</li>`).join("")}</ul></section>`
-    : "";
   // A policy refusal is already stated under its own heading; the blockers list repeats it only
   // because the host folds refusals into blockers, so it is filtered back out here.
   const refusals = new Set(contract.policyRefusals ?? []);
   const unresolved = contract.blockers.filter((blocker) => !refusals.has(blocker));
   // Inside the settings panel this is evidence a reader opens on request, not the first thing an
-  // empty room shows; it stays closed unless the host asks for it after an authority change.
-  const openByDefault = acknowledgement?.open ?? false;
+  // empty room shows. Run details describe what the run may do; reading them is never a gate.
+  const openByDefault = false;
   return `<details class="run-contract" ${disclosureAttributes("composer:contract", openByDefault)}>
     <summary><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i><h2 class="contract-kicker">Run details</h2><span class="contract-badge">${escapeHtml(safetyLevelLabels[contract.safetyLevel])}</span>${contract.assuranceLabel ? `<span class="contract-assurance">${escapeHtml(contract.assuranceLabel)}</span>` : ""}<span class="contract-pipeline" title="${escapeAttribute(contract.pipelineName)}">${escapeHtml(contract.pipelineName)}</span>${contract.blockers.length > 0 ? `<span class="contract-blockers">${String(contract.blockers.length)} unresolved</span>` : ""}</summary>
     <div class="contract-grid">
@@ -111,7 +104,6 @@ const runContractHtml = (panel: PanelState, draft: ConversationDraft): string =>
       <section><h3>Completion</h3>${contractList(contract.completion, "No completion criteria were resolved.")}</section>
       <section><h3>Provenance</h3>${contractList(provenance, "No provenance was resolved.")}</section>
       ${outbound}
-      ${authorityDiffHtml}
       ${refusals.size > 0 ? `<section class="contract-policy-refusals"><h3>Repository policy refuses this run</h3>${contractList(contract.policyRefusals ?? [], "")}<p class="muted">Change the pipeline, or edit the repository policy file, before this run can start.</p></section>` : ""}
       ${unresolved.length > 0 ? `<section><h3>Unresolved before running</h3>${contractList(unresolved, "")}</section>` : ""}
     </div>
@@ -119,8 +111,8 @@ const runContractHtml = (panel: PanelState, draft: ConversationDraft): string =>
 };
 
 // One place a pipeline is chosen, whether by pointer or by keyboard. The optimistic pending write
-// and the runtime message it awaits are the same the native select used, so switching, locking and
-// acknowledgement behave exactly as before.
+// and the runtime message it awaits are the same the native select used, so switching and locking
+// behave exactly as before.
 const selectPipeline = (pipelineId: string): void => {
   const conversationId = activeId();
   const panel = activePanel();
@@ -347,20 +339,104 @@ const agentSlotSessionsHtml = (slot: AgentAssignmentSlot, panel: PanelState): st
   return `<div class="agents-session-list" role="listbox" aria-label="Browser conversation for ${escapeAttribute(slot.responsibility)}">${options.join("")}</div>`;
 };
 
+// The model a slot runs on, offered only after its provider is settled, because a model name
+// belongs to one provider's catalog and means nothing before that provider is known.
+//
+// Three honest states, never collapsed into one another. A provider that reported a catalog offers
+// exactly what it reported. A provider that cannot be asked keeps an explicit field, so the
+// reader's own knowledge of their provider stays usable. A browser conversation says the website
+// owns the choice: the Bridge reports no model, and printing one would be an invention.
+const agentSlotModelHtml = (
+  slot: AgentAssignmentSlot,
+  panel: PanelState,
+  locked: boolean,
+): string => {
+  if (isBrowserAssignment(slot.assignedAdapter)) {
+    return `<p class="agents-model-note">Model: selected in the browser · unreported</p>`;
+  }
+  const catalog = panel.agentAssignments.adapterModels?.[slot.assignedAdapter];
+  const status = catalog?.status ?? "unknown";
+  const listed = catalog?.models ?? [];
+  const defaultLabel = slot.assignedAdapter === slot.defaultAdapter && slot.defaultModel !== undefined
+    ? `Provider default · ${slot.defaultModel}`
+    : "Provider default";
+  const choices = [
+    agentsChoiceHtml({
+      id: `agents-model-${slot.agentId}-default`,
+      checked: slot.assignedModel === undefined,
+      label: defaultLabel,
+      attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}"`,
+      disabled: locked,
+      title: "Send no model name and let the provider choose",
+    }),
+    ...listed.map((model) => agentsChoiceHtml({
+      id: `agents-model-${slot.agentId}-${model.id}`,
+      checked: slot.assignedModel === model.id,
+      label: model.isDefault === true ? `${model.label} · provider default` : model.label,
+      attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}" data-model="${escapeAttribute(model.id)}"`,
+      disabled: locked,
+      ...(model.label === model.id ? {} : { title: model.id }),
+    })),
+    // A model the reader chose that the provider no longer lists stays visible and selected. It is
+    // their choice, and silently dropping it is exactly the substitution this must never make.
+    ...(slot.assignedModel !== undefined && !listed.some((model) => model.id === slot.assignedModel)
+      ? [agentsChoiceHtml({
+          id: `agents-model-${slot.agentId}-chosen`,
+          checked: true,
+          label: slot.assignedModel,
+          attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}" data-model="${escapeAttribute(slot.assignedModel)}"`,
+          disabled: locked,
+          title: status === "listed"
+            ? "This provider did not list this model"
+            : "Chosen by name; this provider does not report a model list",
+        })]
+      : []),
+  ].join("");
+  const draft = state.agentsModelDrafts[slot.agentId] ?? "";
+  const explicit = locked
+    ? ""
+    : `<div class="agents-model-explicit"><label for="agents-model-input-${escapeAttribute(slot.agentId)}">Model name</label><input type="text" id="agents-model-input-${escapeAttribute(slot.agentId)}" class="agents-model-input" data-agents-model-for="${escapeAttribute(slot.agentId)}" value="${escapeAttribute(draft)}" placeholder="Type a model this provider accepts" spellcheck="false" autocomplete="off"><button type="button" data-action="agents-model-apply" data-agent="${escapeAttribute(slot.agentId)}"${draft.trim() ? "" : " disabled"}>Use this model</button></div>`;
+  const detail = status === "discovering"
+    ? "Asking this provider which models it accepts…"
+    : status === "unknown"
+      ? "This provider has not been asked which models it accepts."
+      : status === "unsupported"
+        ? catalog?.detail ?? "This provider does not report a model list, so a name is taken as written."
+        : listed.length === 0
+          ? "This provider reported no models, so a name is taken as written."
+          : "";
+  const check = locked || status === "discovering"
+    ? ""
+    : `<button type="button" class="agents-model-check" data-action="agents-model-discover" data-agent="${escapeAttribute(slot.agentId)}">${status === "listed" ? "Recheck models" : "Check models"}</button>`;
+  return `<div class="agents-model">
+    <div class="agents-model-head"><span class="agents-model-title">Model</span>${check}</div>
+    <div class="agents-choices" role="radiogroup" aria-label="Model for ${escapeAttribute(slot.responsibility)}">${choices}</div>
+    ${detail ? `<p class="agents-model-detail"${status === "discovering" ? ` ${liveRegionAttributes(`agents:model:${slot.agentId}`, "status", detail)}` : ""}>${escapeHtml(detail)}</p>` : ""}
+    ${explicit}
+  </div>`;
+};
+
 const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boolean): string => {
   const isBrowser = isBrowserAssignment(slot.assignedAdapter);
   const showSessions = isBrowser || state.agentsBrowserFor === slot.agentId;
   const cliChoices = panel.agentAssignments.assignableAdapters
     .filter((adapter) => !isBrowserAssignment(adapter) && adapter !== slot.defaultAdapter)
-    .map((adapter) =>
-      agentsChoiceHtml({
+    .map((adapter) => {
+      const discovered = panel.agentAssignments.availableAdapters.includes(adapter);
+      const pending = !discovered && panel.agentAssignments.discovering;
+      return agentsChoiceHtml({
         id: `agents-choice-${slot.agentId}-${adapter}`,
         checked: slot.overridden && slot.assignedAdapter === adapter,
-        label: assignedAdapterLabel(adapter),
+        label: pending
+          ? `${assignedAdapterLabel(adapter)} · checking…`
+          : assignedAdapterLabel(adapter),
         attributes: `data-action="agents-assign" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}"`,
         disabled: locked,
-      }),
-    )
+        ...(discovered || pending
+          ? {}
+          : { title: `${assignedAdapterLabel(adapter)} was not found on this machine` }),
+      });
+    })
     .join("");
   const defaultChoice = agentsChoiceHtml({
     id: `agents-choice-${slot.agentId}-default`,
@@ -382,7 +458,9 @@ const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boo
     : "";
   const actual = isBrowser && slot.browserSessionId === undefined
     ? `${assignedAdapterLabel(slot.assignedAdapter)} · no conversation bound`
-    : assignedAdapterLabel(slot.assignedAdapter);
+    : slot.assignedModel === undefined
+      ? assignedAdapterLabel(slot.assignedAdapter)
+      : `${assignedAdapterLabel(slot.assignedAdapter)} · ${slot.assignedModel}`;
   const agentState = panel.agents[slot.agentId];
   const statusError = agentState?.error
     ? `<p class="agents-slot-error">${escapeHtml(agentState.error)}</p>`
@@ -394,8 +472,42 @@ const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boo
     </div>
     <div class="agents-choices" role="radiogroup" aria-label="Provider for ${escapeAttribute(slot.responsibility)}">${defaultChoice}${cliChoices}${browserChoice}</div>
     ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
+    ${agentSlotModelHtml(slot, panel, locked)}
     ${statusError}
   </article>`;
+};
+
+// Local interpretation is a property of the machine, not of a role, so it reads as its own section
+// under the responsibilities rather than as a fourth provider choice inside each of them.
+const localInterpreterHtml = (panel: PanelState, locked: boolean): string => {
+  const local = panel.localInterpreter;
+  if (!local.enabled && local.status === "disabled") {
+    return "";
+  }
+  const stateClass = local.status === "ready"
+    ? " is-ready"
+    : local.status === "unverified" || local.discovering
+      ? " is-pending"
+      : " is-blocked";
+  const chosen = local.model;
+  // Changing the model re-resolves the configuration the bridge is already healing with, so the
+  // override is refused for exactly as long as reassignment is: while a run holds it.
+  const options = local.availableModels.map((model) => {
+    const selected = model.id === chosen;
+    return `<button type="button" role="option" class="agents-session-option${selected ? " selected" : ""}" data-action="local-model-select" data-model="${escapeAttribute(model.id)}" aria-selected="${selected ? "true" : "false"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(model.id)}</span><span class="agents-session-meta">${escapeHtml(model.backend)} · ${escapeHtml(model.availability)}</span></button>`;
+  });
+  const automatic = `<button type="button" role="option" class="agents-session-option${local.explicit ? "" : " selected"}" data-action="local-model-select" aria-selected="${local.explicit ? "false" : "true"}"${locked ? " disabled" : ""}><span class="agents-session-name">Choose automatically</span><span class="agents-session-meta">checked against the interpreter contract</span></button>`;
+  const list = options.length > 0
+    ? `<div class="agents-session-list" role="listbox" aria-label="Local interpreter model">${automatic}${options.join("")}</div>`
+    : "";
+  return `<section class="agents-local${stateClass}">
+    <div class="agents-slot-head">
+      <div class="agents-slot-title"><strong>Local interpreter</strong><small>${escapeHtml(local.status === "serverUnavailable" || local.status === "noSuitableModel" || local.status === "configuredModelUnavailable" ? "unavailable" : local.explicit ? "your choice" : "automatic")}</small></div>
+      <span class="agents-slot-actual">${escapeHtml(local.backendLabel ?? (local.discovering ? "checking…" : "not available"))}</span>
+    </div>
+    <p class="agents-constraint"${local.discovering ? ` ${liveRegionAttributes("agents:local", "status", local.detail)}` : ""}>${escapeHtml(local.detail)}</p>
+    ${list}
+  </section>`;
 };
 
 const agentsPickerHtml = (panel: PanelState): string => {
@@ -406,7 +518,11 @@ const agentsPickerHtml = (panel: PanelState): string => {
   const open = state.agentsPickerOpen && hasPipeline;
   const disabled = !hasPipeline;
   const title = lockReason ?? (hasPipeline ? "Assign a provider to each role" : "Select a pipeline to assign providers");
-  const label = overrides > 0 ? `Agents · ${String(overrides)} reassigned` : "Agents";
+  const label = assignments.discovering
+    ? "Discovering agents…"
+    : overrides > 0
+      ? `Agents · ${String(overrides)} reassigned`
+      : "Agents";
   const button = `<button id="agents-picker-button" data-action="agents-picker-toggle" class="agents-picker-button${overrides > 0 ? " has-overrides" : ""}" aria-haspopup="dialog" aria-label="${escapeAttribute(label)}" ${expandedControlAttributes(open, AGENTS_POPOVER_ID)}${disabled ? " disabled" : ""} title="${escapeAttribute(title)}"><i class="codicon codicon-organization" aria-hidden="true"></i><span class="agents-picker-label">${escapeHtml(label)}</span></button>`;
   if (!open) {
     return `<div class="agents-picker" data-agents-picker>${button}</div>`;
@@ -415,8 +531,10 @@ const agentsPickerHtml = (panel: PanelState): string => {
   const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="Agent assignments">
     <div class="agents-popover-head"><div><h2>Agents</h2><p>Assign a provider to each role for this conversation's next run. The saved pipeline is unchanged.</p></div>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">Reset to defaults</button>` : ""}</div>
     ${locked ? `<p class="agents-locked">${escapeHtml(lockReason)}</p>` : ""}
+    ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>Discovering agents on this machine…</p>` : ""}
     ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
     <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, locked)).join("")}</div>
+    ${localInterpreterHtml(panel, locked)}
   </div>`;
   return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;
 };

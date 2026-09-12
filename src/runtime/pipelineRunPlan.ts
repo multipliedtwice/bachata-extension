@@ -21,9 +21,25 @@ import type { RunSettingRejection, RunSettingsSnapshot } from "./settingsSnapsho
  * Nothing here takes the run's options object. A decision that reads the whole bag is the closure
  * relocated, not extracted.
  */
+/**
+ * The whole plan the run was started under, not only the part the runtime executes.
+ *
+ * Iteration count, iteration mode and the clean-pass requirement are decided above the runtime, so
+ * a restart that replayed only the runtime's record would silently run a different plan: a
+ * five-pass until-clean run would come back as two fixed passes. Recorded with the checkpoint
+ * because the checkpoint is what a restart replays.
+ */
+export type RunExecutionPlan = {
+  iterationCount: number;
+  iterationMode: "fixed" | "untilClean";
+  requiredCleanPasses: number;
+  trackWorkspaceChanges?: boolean | undefined;
+};
+
 export type PersistedResumableWorkflow = ResumableWorkflow & {
   checkpoint: PipelineResumeState;
   pipelineSnapshot: PipelineSnapshot;
+  executionPlan?: RunExecutionPlan | undefined;
   // Which provider actually answered for each participant. The snapshot above is the pipeline as
   // the catalog holds it, so on its own it describes a run with the shipped providers — not the
   // reassigned ones this run used. Recorded separately so the executed run stays reproducible and
@@ -77,6 +93,34 @@ export const resolvedRunConstraints = (input: {
 };
 
 /**
+ * The recorded plan, or nothing. A plan whose count or clean-pass requirement did not survive
+ * persistence is refused whole rather than half-applied: a restart under half a plan is a restart
+ * under a plan nobody chose.
+ */
+export const parseRunExecutionPlan = (
+  value: unknown,
+): RunExecutionPlan | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const { iterationCount, iterationMode, requiredCleanPasses } = record;
+  if (
+    !Number.isSafeInteger(iterationCount) ||
+    Number(iterationCount) < 1 ||
+    (iterationMode !== "fixed" && iterationMode !== "untilClean") ||
+    !Number.isSafeInteger(requiredCleanPasses) ||
+    Number(requiredCleanPasses) < 1
+  ) {
+    return undefined;
+  }
+  return {
+    iterationCount: Number(iterationCount),
+    iterationMode,
+    requiredCleanPasses: Number(requiredCleanPasses),
+    ...(record.trackWorkspaceChanges === true ? { trackWorkspaceChanges: true } : {}),
+  };
+};
+
+/**
  * The record a run can be resumed from. The pipeline snapshot is cloned on the way in: the record
  * outlives the run, and a definition the catalog later mutates must not change what an interrupted
  * run says it was executing.
@@ -94,6 +138,7 @@ export const resumableWorkflowFrom = (input: {
   runSettings: RunSettingsSnapshot;
   constraints: RunConstraints;
   updatedAt: string;
+  executionPlan?: RunExecutionPlan | undefined;
   sourceQueueMessageId?: string | undefined;
   resumeSourceQueueMessageId?: string | undefined;
 }): PersistedResumableWorkflow => ({
@@ -112,6 +157,7 @@ export const resumableWorkflowFrom = (input: {
     ? {}
     : { assignments: structuredClone(input.assignments) }),
   ...input.constraints,
+  ...(input.executionPlan === undefined ? {} : { executionPlan: { ...input.executionPlan } }),
   ...(input.sourceQueueMessageId !== undefined
     ? { sourceQueueMessageId: input.sourceQueueMessageId }
     : input.resumeSourceQueueMessageId !== undefined
@@ -193,12 +239,17 @@ export const pipelineTerminalPlan = (
  * accepted and before its recovery record existed was never visible as a run, so marking it failed
  * would report a run the reader never saw start; and a resume whose own record was never replaced
  * must be put back, or the failure would consume the only way back into the interrupted run.
+ *
+ * A restart owes the same debt for the same reason. It begins from the recorded run rather than
+ * from the checkpoint's step, but until its own record is durable the checkpoint it started from
+ * is still the only way back, so a restart that fails before that point restores it too.
  */
 export const pipelineFailurePlan = (input: {
   accepted: boolean;
   recoveryEstablished: boolean;
   resuming: boolean;
+  restarting?: boolean;
 }): { recordFailure: boolean; restoreResume: boolean } => ({
   recordFailure: input.accepted || input.recoveryEstablished,
-  restoreResume: !input.recoveryEstablished && input.resuming,
+  restoreResume: !input.recoveryEstablished && (input.resuming || input.restarting === true),
 });

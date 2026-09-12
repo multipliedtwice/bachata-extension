@@ -117,6 +117,17 @@ test("a checkpoint without an interrupted iteration is left over, not resumable"
   assert.equal(refusal(), undefined);
 });
 
+test("a failed iteration holding a valid checkpoint is unfinished work, not a dead run", () => {
+  // Runs recorded before a first-attempt failure was classified as an interruption are still on
+  // disk. Refusing them would leave a reader holding a checkpoint they can never use.
+  assert.equal(refusal({ latestIterationStatus: "failed" }), undefined);
+  assert.equal(
+    refusal({ latestIterationStatus: "failed", hasRecovery: false }),
+    "No recoverable workflow is available",
+    "a failed run with no checkpoint still has nothing to resume",
+  );
+});
+
 test("a resume never runs more passes than configured, nor from a pass outside the run", () => {
   assert.deepEqual(resumeIterationWindow({ iterationCount: 3, activeIteration: 2, maximumIterations: 10 }), { requestedIterations: 3, displayIndex: 2 });
   assert.deepEqual(resumeIterationWindow({ iterationCount: 99, activeIteration: 50, maximumIterations: 4 }), { requestedIterations: 4, displayIndex: 4 });

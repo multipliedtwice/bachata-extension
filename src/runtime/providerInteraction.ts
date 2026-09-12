@@ -18,6 +18,10 @@ import type {
   AgentApprovalRequest,
   JsonValue,
 } from "../adapters/types";
+import {
+  boundedRedactedText,
+  boundedTranscriptData,
+} from "../conversations/eventDetail";
 import type { PendingApproval } from "../webview/protocol";
 import type {
   CodexUserInputQuestion,
@@ -640,6 +644,50 @@ export type ApprovalRequestSource = {
   choices: AgentApprovalChoice[];
 };
 
+/**
+ * Ceilings on an approval request, which is provider-originated from end to end.
+ *
+ * Every field below is written by the provider: the reason it gives, the command it wants to run,
+ * the directory it names, and five free-form JSON structures describing permissions, actions and
+ * policy amendments. None of them had a bound, so an approval was another way an unbounded payload
+ * reached the panel — the same defect as an unbounded event payload, on a message a reader is
+ * asked to act on.
+ *
+ * Bounding it is not softening it. A command a reader cannot see in full must not be approved on a
+ * summary, so a command that had to be cut says so, in the marker the shared projector writes.
+ */
+const APPROVAL_TEXT_BYTES = 4 * 1_024;
+const APPROVAL_TEXT_UNITS = 4 * 1_024;
+const APPROVAL_PATH_BYTES = 1_024;
+const APPROVAL_STRUCTURE_BYTES = 8 * 1_024;
+const APPROVAL_LABEL_BYTES = 256;
+const MAX_APPROVAL_CHOICES = 16;
+
+const boundedApprovalText = (value: string | undefined, maxBytes: number): string | undefined =>
+  value === undefined
+    ? undefined
+    : boundedRedactedText(value, maxBytes, { structured: true, maxUnits: APPROVAL_TEXT_UNITS });
+
+const boundedApprovalStructure = (value: JsonValue | undefined): JsonValue | undefined =>
+  value === undefined ? undefined : boundedTranscriptData(value, APPROVAL_STRUCTURE_BYTES);
+
+const boundedApprovalList = (
+  value: readonly JsonValue[] | undefined,
+): JsonValue[] | undefined => {
+  if (value === undefined) return undefined;
+  const projected = boundedTranscriptData(
+    value.slice(0, MAX_APPROVAL_CHOICES),
+    APPROVAL_STRUCTURE_BYTES,
+  );
+  return Array.isArray(projected) ? projected : undefined;
+};
+
+const boundedStringList = (value: readonly string[] | undefined): string[] | undefined =>
+  value === undefined
+    ? undefined
+    : value.slice(0, MAX_APPROVAL_CHOICES).map((entry) =>
+      boundedRedactedText(entry, APPROVAL_PATH_BYTES, { structured: true }));
+
 export const pendingApprovalFrom = (
   agentId: string,
   request: ApprovalRequestSource,
@@ -647,15 +695,18 @@ export const pendingApprovalFrom = (
   agentId,
   requestId: request.requestId,
   kind: request.kind,
-  reason: request.reason,
-  command: request.command,
-  cwd: request.cwd ?? request.grantRoot,
+  reason: boundedApprovalText(request.reason, APPROVAL_TEXT_BYTES),
+  command: boundedApprovalText(request.command, APPROVAL_TEXT_BYTES),
+  cwd: boundedApprovalText(request.cwd ?? request.grantRoot, APPROVAL_PATH_BYTES),
   networkApprovalContext: request.networkApprovalContext,
-  commandActions: request.commandActions,
-  browserAction: request.browserAction,
-  additionalPermissions: request.additionalPermissions,
-  requestedPermissions: request.requestedPermissions,
-  proposedExecpolicyAmendment: request.proposedExecpolicyAmendment,
-  proposedNetworkPolicyAmendments: request.proposedNetworkPolicyAmendments,
-  choices: approvalChoices(request.choices),
+  commandActions: boundedApprovalStructure(request.commandActions),
+  browserAction: boundedApprovalStructure(request.browserAction),
+  additionalPermissions: boundedApprovalStructure(request.additionalPermissions),
+  requestedPermissions: boundedApprovalStructure(request.requestedPermissions),
+  proposedExecpolicyAmendment: boundedStringList(request.proposedExecpolicyAmendment),
+  proposedNetworkPolicyAmendments: boundedApprovalList(request.proposedNetworkPolicyAmendments),
+  choices: approvalChoices(request.choices).slice(0, MAX_APPROVAL_CHOICES).map((choice) => ({
+    id: choice.id,
+    label: boundedRedactedText(choice.label, APPROVAL_LABEL_BYTES),
+  })),
 });

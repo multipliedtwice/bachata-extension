@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 const Module = require("node:module");
 const test = require("node:test");
 
+const { resolveCodexExecutable } = require("../dist/providers/codexExecutable.js");
+
 const injectModule = (filename, exports) => {
   const module = new Module(filename);
   module.filename = filename;
@@ -306,7 +308,11 @@ const loadCommands = (snapshot, options = {}) => {
   };
   const definedInitiatives = [];
   const adoptedConversations = [];
+  const workingDirectoryPicks = [];
   const manager = {
+    chooseWorkingDirectory: async () => {
+      workingDirectoryPicks.push("pick");
+    },
     createConversation: async (createOptions) => {
       createdConversations.push(createOptions);
       return { id: `conversation-${String(createdConversations.length)}` };
@@ -368,6 +374,7 @@ const loadCommands = (snapshot, options = {}) => {
   return {
     commands,
     treeViews,
+    workingDirectoryPicks,
     onboardingRecords,
     informationMessages,
     errors,
@@ -845,8 +852,10 @@ test("Doctor resolves a missing local provider with provider-specific steps and 
   assert.match(steps, /^1\. Install the Codex CLI/mu);
   assert.match(steps, /bachata\.codexCommand/u);
   assert.match(steps, /^5\. Recheck Codex/mu);
+  // The action names the executable Bachata would actually start, which on a machine carrying the
+  // OpenAI VS Code extension is that extension's Codex rather than whatever the PATH answers.
   assert.deepEqual(guidance.actions, [
-    "Run codex --version",
+    `Run ${resolveCodexExecutable("codex")} --version`,
     "Set bachata.codexCommand",
     "Open provider setup notes",
     "Recheck Codex",
@@ -858,6 +867,60 @@ test("Doctor resolves a missing local provider with provider-specific steps and 
     true,
   );
   assert.equal(harness.executedCommands.filter((id) => id === "bachata.doctor").length, 0);
+});
+
+test("a root that is not a repository is fixed by choosing the repository, not by relaxing the audit", async () => {
+  const harness = loadCommands({ active: false, retainedRuns: [] }, {
+    workspaceFolders: ["/work"],
+    pickInformationLabel: "Choose working directory",
+    warningChoice: "Fix a Problem",
+    pickRemediation: "workspace.selectRepository",
+    readiness: {
+      pipelines: [{
+        pipelineId: "managed",
+        status: "blocked",
+        findings: [{
+          id: "git",
+          label: "Git",
+          status: "blocked",
+          detail: "/work is not a Git repository",
+          remediationId: "workspace.selectRepository",
+        }],
+      }],
+      pipelineNames: { managed: "Managed" },
+      pipelineSafetyLevels: { managed: "managed" },
+      selectedPipelineId: "managed",
+      adapters: [],
+      git: {
+        available: false,
+        detail: "fatal: not a git repository",
+        repository: false,
+        statusDetail: "The selected root is not a usable Git repository",
+      },
+      bridge: { enabled: true, connected: false, sessions: [] },
+      workspaceRoots: ["/work"],
+      trusted: true,
+    },
+  });
+
+  await harness.commands.get("bachata.doctor")();
+
+  // Fix is the picker. A notification standing between the button and the folder chooser asked
+  // the reader to press a second button to reach the only action the plan offers.
+  assert.equal(
+    harness.informationDetails.some((entry) =>
+      entry.message === "The selected folder is not a Git repository"
+    ),
+    false,
+    "the repository remedy no longer routes through an informational notification",
+  );
+  assert.deepEqual(harness.workingDirectoryPicks, ["pick"]);
+  assert.equal(harness.openCalls.length > 0, true, "the panel is brought forward to choose in");
+  // The guidance is still recorded, where it is readable and copyable.
+  const steps = harness.outputLines.join("\n");
+  assert.match(steps, /The selected folder is not a Git repository/u);
+  assert.match(steps, /Git audit stays in force/u);
+  assert.match(steps, /Bachata never creates a repository for you/u);
 });
 
 test("Doctor guides Browser Bridge pairing step by step", async () => {

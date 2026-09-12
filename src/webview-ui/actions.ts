@@ -106,6 +106,26 @@ root.addEventListener("click", (event) => {
   dismissTransientMenus(event.target instanceof Element ? event.target : null);
 }, true);
 
+/**
+ * A disclosure the reader is opening is recorded now, not when the browser gets round to `toggle`.
+ *
+ * `toggle` is dispatched asynchronously. A render scheduled in the same frame — a snapshot
+ * arriving, or a picker closing behind the click — rebuilds the panel from the recorded state,
+ * which still says closed, and the menu the reader just opened is drawn shut. It reads as the
+ * press having missed, and it happens only when a render lands in that window, which is why it
+ * comes and goes. The click is the reader's intent, so the click is what records it; the `toggle`
+ * that follows then finds the state already correct and does nothing.
+ */
+root.addEventListener("click", (event) => {
+  const summary = event.target instanceof Element ? event.target.closest("summary") : null;
+  const details = summary?.parentElement instanceof HTMLDetailsElement
+    ? summary.parentElement
+    : undefined;
+  const disclosureKey = details?.dataset.disclosureKey;
+  // Read before the default action runs, so `open` is still what the reader is toggling away from.
+  if (details && disclosureKey) recordDisclosure(disclosureKey, !details.open);
+}, true);
+
 // The initiative panel is a real form, so Enter in its title field submits it. Nothing in the
 // webview navigates: the submission is refused and routed to the same save the button runs.
 root.addEventListener("submit", (event) => {
@@ -547,14 +567,30 @@ root.addEventListener("click", (event) => {
       adapter: target.dataset.adapter,
       ...(target.dataset.session ? { browserSessionId: target.dataset.session } : {}),
     });
+  } else if (action === "agents-model" && target.dataset.agent) {
+    // No model attribute means the reader chose the provider's own default, which clears theirs.
+    postRuntime({
+      type: "agents.model.select",
+      agentId: target.dataset.agent,
+      ...(target.dataset.model ? { model: target.dataset.model } : {}),
+    });
+  } else if (action === "agents-model-apply" && target.dataset.agent) {
+    const agentId = target.dataset.agent;
+    const typed = (state.agentsModelDrafts[agentId] ?? "").trim();
+    if (typed) {
+      postRuntime({ type: "agents.model.select", agentId, model: typed });
+    }
+  } else if (action === "agents-model-discover" && target.dataset.agent) {
+    postRuntime({ type: "agents.model.discover", agentId: target.dataset.agent });
   } else if (action === "agents-reset-all") {
     postRuntime({ type: "agents.reset" });
+  } else if (action === "local-model-select") {
+    postRuntime({
+      type: "localModel.select",
+      ...(target.dataset.model ? { model: target.dataset.model } : {}),
+    });
   } else if (action === "availability-check") postRuntime({ type: "availability.check" });
   else if (action === "working-directory") postRuntime({ type: "workingDirectory.pick" });
-  else if (action === "contract-acknowledge") {
-    const fingerprint = target.dataset.fingerprint;
-    if (fingerprint) postRuntime({ type: "contract.acknowledge", fingerprint });
-  }
   else if (action === "task-reset") openDialog({
     kind: "resetTask",
     title: "Reset run state?",
@@ -660,6 +696,7 @@ root.addEventListener("click", (event) => {
   } else if (action === "queue-cancel" && target.dataset.messageId) postRuntime({ type: "queue.cancel", messageId: target.dataset.messageId });
   else if (action === "queue-resume") postRuntime({ type: "queue.resume" });
   else if (action === "workflow-resume") postRuntime({ type: "workflow.resume" });
+  else if (action === "workflow-restart") postRuntime({ type: "workflow.restart" });
   else if (action === "workflow-discard") openDialog({
     kind: "discardWorkflow",
     title: "Discard the recovery checkpoint?",
@@ -963,6 +1000,11 @@ root.addEventListener("input", (event) => {
   } else if (target.id === "run-search") {
     state.roomSearch = target.value;
     queueHistorySearch();
+    scheduleRender();
+  } else if (target.dataset.agentsModelFor) {
+    state.agentsModelDrafts[target.dataset.agentsModelFor] = target.value;
+    // Re-rendered so the apply control follows what has been typed; the popover is small and the
+    // field keeps its own focus through the render's focus-return path.
     scheduleRender();
   } else if (target.dataset.interactionText) {
     vscode.postMessage({ type: "interaction.update", interactionRef: target.dataset.interactionText, freeText: target.value });

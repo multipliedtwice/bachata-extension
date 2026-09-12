@@ -48,12 +48,19 @@ const reconstructionLabel: Record<"available" | "unavailable" | "unknown", strin
   unknown: "unknown",
 };
 
+/**
+ * Where the provider's own history lives, behind an information disclosure.
+ *
+ * It is provenance: true, worth keeping, and never the thing a reader came to the execution view
+ * to find. Drawn open it pushed the run's actual state down the page behind a paragraph of
+ * background, so it states its own subject in the summary and stays closed until asked.
+ */
 const providerHistoryHtml = (conversationId: string): string => {
   const locators = state.manager.conversationLocators?.[conversationId] ?? [];
   if (locators.length === 0) return "";
-  return `<section class="provider-history"><h2>Where does this run's provider history live?</h2><ul>${locators
+  return `<details class="info-disclosure provider-history" ${disclosureAttributes(`provider-history:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Where this run's provider history lives · ${String(locators.length)} recorded</summary><div class="provider-history-body"><ul>${locators
     .map((locator) => `<li><div><strong>${escapeHtml(`${locator.role} · ${locator.provider}`)}</strong><small>${escapeHtml(`${locator.adapter} · history ${reconstructionLabel[locator.reconstruction]} · last seen ${formatDateTime(locator.lastSeenAt)}`)}</small></div><p class="muted">${escapeHtml(locator.reconstructionDetail)}</p></li>`)
-    .join("")}</ul><p class="muted">Bachata keeps a locator, compact typed outputs, and a bounded local transcript. It never stores a full provider transcript, and exports carry no session or conversation identity.</p></section>`;
+    .join("")}</ul><p class="muted">Bachata keeps a locator, compact typed outputs, and a bounded local transcript. It never stores a full provider transcript, and exports carry no session or conversation identity.</p></div></details>`;
 };
 
 const notificationBubbleHtml = (): string => {

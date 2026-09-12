@@ -223,19 +223,6 @@ const sendBlockers = (
       quiet: true,
     });
   }
-  const acknowledgement = panel.contractAcknowledgement;
-  if (acknowledgement?.acknowledgementRequired === true) {
-    blockers.push({
-      condition: acknowledgement.diff.changes.length > 0
-        ? "This run's authority is wider than the contract you last acknowledged."
-        : "This run can write to the repository and its contract has not been acknowledged.",
-      requirement: "Read the execution contract, then acknowledge it.",
-      action: {
-        label: "Acknowledge contract",
-        attributes: `data-action="contract-acknowledge" data-fingerprint="${escapeAttribute(acknowledgement.fingerprint)}"`,
-      },
-    });
-  }
   (panel.readiness?.findings ?? [])
     .filter((finding) => finding.status !== "ready")
     .forEach((finding) => blockers.push({
@@ -343,10 +330,16 @@ const mainRoomHtml = (): string => {
         ? `<section class="conversation-intro">${bachataMarkHtml}<h2>Archived run</h2><p>No transcript entries were stored for this run.</p></section>`
         : `<section class="conversation-intro">${bachataMarkHtml}<h2>Start a run</h2><p>Pick a pipeline, enter a job, and watch it execute.</p></section>${recentActivityHtml()}`
       : "";
-    const transcript = panel.transcript.map((entry) => transcriptMessageHtml(panel, entry, readOnly)).join("");
+    // EX-UI-03. Primary chat carries the conversation; everything the run recorded about itself
+    // goes into one disclosure at the end, in the order it happened.
+    const information = panel.transcript.filter(isRunInformationEntry);
+    const transcript = panel.transcript
+      .filter((entry) => !isRunInformationEntry(entry))
+      .map((entry) => transcriptMessageHtml(panel, entry, readOnly))
+      .join("");
     // The decision that stops the run sits where the run is being read, not one view away.
     const decisions = has.decisions ? `${gateHtml(panel)}${approvalsHtml(panel)}` : "";
-    return `${notificationBubbleHtml()}${has.interactions ? interactionsHtml(conversation.id) : ""}<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${decisions}${has.result ? resultSummaryHtml(conversation.id) : ""}${readOnly ? "" : queueHtml(panel)}`;
+    return `${notificationBubbleHtml()}${has.interactions ? interactionsHtml(conversation.id) : ""}<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${runInformationHtml(panel, information, readOnly)}${decisions}${has.result ? resultSummaryHtml(conversation.id) : ""}${readOnly ? "" : queueHtml(panel)}`;
   };
   const executionContent = (): string => `${has.result ? resultCenterHtml(conversation.id, panel) : ""}${has.providerHistory ? providerHistoryHtml(conversation.id) : ""}${has.orchestration ? orchestrationHtml() : ""}${has.workflow ? workflowHtml(conversation.id) : ""}${has.childRuns ? childRunsHtml(conversation.id) : ""}${has.decisions ? `${gateHtml(panel)}${approvalsHtml(panel)}` : ""}${has.interactions ? interactionsHtml(conversation.id) : ""}${hasExecutionState ? "" : `<section class="conversation-intro">${bachataMarkHtml}<h2>Execution view</h2><p>Pipeline stages, task runs, gates, evidence, and final rulings appear here while the run executes.</p></section>`}`;
   const content = state.roomView === "direction"
@@ -361,7 +354,16 @@ const mainRoomHtml = (): string => {
 const resultSummaryHtml = (conversationId: string): string => {
   const result = state.manager.resultsByConversation?.[conversationId];
   if (!result) return "";
-  const assessment = result.finalAssessment?.summary;
+  const failure = result.finalAssessment?.failure;
+  // A failed run's assessment summary embeds the provider's own sentence, and the chat has just
+  // shown that sentence where the failure happened. Printing it again two rows below reads as a
+  // second problem, so the card says where the run stopped and routes to the result instead.
+  const assessment = failure
+    ? [
+        failure.participant ?? failure.agentId,
+        failure.step === undefined ? undefined : `at ${failure.step}`,
+      ].filter((part): part is string => part !== undefined).join(" ")
+    : result.finalAssessment?.summary;
   return `<section class="result-summary"><div><span class="decision-label">Run result</span><strong>${escapeHtml(resultHeadlineLabel(result))}</strong>${assessment ? `<p>${escapeHtml(assessment)}</p>` : ""}</div><button data-action="room-view" data-view="execution">Open the result</button></section>`;
 };
 

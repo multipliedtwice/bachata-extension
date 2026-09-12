@@ -2,7 +2,7 @@
   "name": "bachata-vscode",
   "displayName": "Bachata",
   "description": "Build your own AI workflow in VS Code: choose assistants, give each a job, and arrange planning, coding, review, and revision steps.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "Rememo",
   "license": "MIT",
   "repository": {
@@ -1029,8 +1029,8 @@
           },
           "bachata.browserSelectorHealingModel": {
             "type": "string",
-            "default": "prism-ml/Bonsai-27B-mlx-1bit",
-            "description": "Model identifier Bachata asks the selector-healing backend to use. The default prism-ml/Bonsai-27B-mlx-1bit is an MLX build that loads only on Apple Silicon and is a large download; on Windows and Linux set this to a model your LM Studio or Ollama installation already has.",
+            "default": "",
+            "description": "Model identifier Bachata asks the selector-healing backend to use. Leave empty to let Bachata choose automatically from the models your Ollama or LM Studio installation already has, checked against the interpreter contract. Set a value to pin one model.",
             "scope": "machine",
             "order": 31
           },
@@ -1068,8 +1068,8 @@
           },
           "bachata.browserSemanticInterpreterModel": {
             "type": "string",
-            "default": "prism-ml/Bonsai-27B-mlx-1bit",
-            "description": "Model identifier Bachata asks the semantic interpreter backend to use. The default prism-ml/Bonsai-27B-mlx-1bit is an MLX build that loads only on Apple Silicon and is a large download; on Windows and Linux set this to a model your LM Studio or Ollama installation already has.",
+            "default": "",
+            "description": "Model identifier Bachata asks the semantic interpreter backend to use. Leave empty to let Bachata choose automatically from the models your Ollama or LM Studio installation already has, checked against the interpreter contract. Set a value to pin one model.",
             "scope": "machine",
             "order": 23
           },

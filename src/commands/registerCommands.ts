@@ -41,6 +41,7 @@ import {
   verifierRegistryDigest,
 } from "../orchestrator/verifierApproval";
 import { createDoctorDependencies } from "./doctor";
+import { resolveCodexCommandSetting } from "../providers/codexExecutable";
 import { createLauncherProvider, LAUNCHER_VIEW_ID } from "./launcherView";
 import { evaluateGitVersionSupport } from "../process/gitVersionSupport";
 import { parsePorcelainDirtyPaths } from "../readiness/gitStatus";
@@ -427,6 +428,13 @@ export const registerCommands = (
     );
   };
   const performRemediationAction = async (action: RemediationAction): Promise<void> => {
+    if (action.kind === "chooseWorkingDirectory") {
+      // The panel owns the run, so the choice is made there. Opening a folder through VS Code
+      // would change the window instead of the root this run is pointed at.
+      openPipelinePanel(context, manager);
+      await manager.chooseWorkingDirectory();
+      return;
+    }
     if (action.kind === "runCommand") {
       await vscode.commands.executeCommand(action.command);
       return;
@@ -514,7 +522,9 @@ export const registerCommands = (
     const configuration = vscode.workspace.getConfiguration("bachata");
     const plan = remediationPlan(remediationId, {
       ...(detail === undefined ? {} : { detail }),
-      codexCommand: String(configuration.get("codexCommand", "codex")),
+      codexCommand: resolveCodexCommandSetting((key, fallback) =>
+        String(configuration.get(key, fallback)),
+      ),
       claudeCommand: String(configuration.get("claudeCommand", "claude")),
       ...(vscode.env.remoteName === undefined ? {} : { remoteName: vscode.env.remoteName }),
     });
@@ -533,6 +543,19 @@ export const registerCommands = (
     const numberedSteps = plan.steps.map((step, index) => `${String(index + 1)}. ${step}`);
     output.appendLine(`${plan.title}: ${plan.condition}`);
     numberedSteps.forEach((step) => output.appendLine(step));
+    // A plan whose first action is the remedy itself opens that remedy. Choosing the working
+    // directory is the whole of "the selected folder is not a Git repository", and a notification
+    // asking the reader to press a second button to reach the picker explained nothing the panel
+    // had not already said. The guidance is still written to the Output channel above.
+    const [leadAction] = plan.actions;
+    if (leadAction?.kind === "chooseWorkingDirectory") {
+      await performRemediationAction(leadAction);
+      await reportRecheck(
+        plan.recheck.kind === "none" ? plan.id : plan.recheck.label,
+        await runRemediationRecheck(plan.recheck),
+      );
+      return;
+    }
     const choice = await vscode.window.showInformationMessage(
       plan.title,
       { modal: false },

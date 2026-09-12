@@ -21,10 +21,11 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
     if (agent) agent.output = "";
   } else if (message.type === "agent.delta") {
     const agent = panel.agents[message.agentId];
-    if (agent) agent.output += message.text;
+    // The panel accumulates the same stream the host does, and bounds it the same way.
+    if (agent) agent.output = boundedAgentOutput(agent.output + message.text);
   } else if (message.type === "agent.replace") {
     const agent = panel.agents[message.agentId];
-    if (agent) agent.output = message.text;
+    if (agent) agent.output = boundedAgentOutput(message.text);
   } else if (message.type === "agent.patch") {
     const agent = panel.agents[message.agentId];
     if (agent) Object.assign(agent, message.patch);

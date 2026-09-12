@@ -3,7 +3,7 @@
   "id": "claude-plan",
   "name": "Plan with Claude",
   "description": "Read-only implementation plan produced by Claude Code alone. No second provider is required.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "claude",

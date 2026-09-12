@@ -87,9 +87,17 @@ export const iterationEndEvent = (input: {
 });
 
 /**
- * How a failed iteration is classified. A resume that failed while the runtime still holds a
- * recoverable workflow is an interruption — the run can still be taken up again — and every other
- * failure is a failure, which also drops any working-directory change the run had queued.
+ * How a failed iteration is classified.
+ *
+ * What decides it is whether a checkpoint survived, not whether this attempt was a resume. The
+ * runtime saves a recoverable workflow as soon as a step is reached, so a provider that fails on
+ * the very first attempt leaves a checkpoint behind exactly as a failed resume does. Recording
+ * that first attempt as `failed` while the checkpoint existed is what produced "The recoverable
+ * workflow has no matching interrupted iteration": the run held everything needed to continue and
+ * the catalog said it did not.
+ *
+ * `resume` still decides what the event is called, because "resume failed" and "failed" describe
+ * different things to a reader, and only the classification was ever wrong.
  */
 export const iterationFailurePlan = (input: {
   resume: boolean;
@@ -104,12 +112,12 @@ export const iterationFailurePlan = (input: {
   message: string;
   dropPendingWorkingDirectory: boolean;
 } => {
-  const recoverable = input.resume && input.hasResumableWorkflow;
+  const recoverable = input.hasResumableWorkflow;
   return {
     status: recoverable ? "interrupted" : "failed",
     workflowStatus: recoverable ? "interrupted" : "error",
-    eventType: recoverable ? "iteration.resume.failed" : "iteration.failed",
-    title: recoverable
+    eventType: input.resume ? "iteration.resume.failed" : "iteration.failed",
+    title: input.resume
       ? `Iteration ${String(input.displayIndex)} resume failed`
       : `Iteration ${String(input.displayIndex)} failed`,
     message: input.error instanceof Error ? input.error.message : String(input.error),

@@ -3,7 +3,7 @@
   "id": "cross-reference-development",
   "name": "Review and prepare checklist",
   "description": "Codex and Claude review in parallel, converge on one result, and prepare a selectable execution checklist without modifying the repository.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "codex",

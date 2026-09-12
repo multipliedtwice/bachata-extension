@@ -75,7 +75,7 @@ const validateResourceDependencies = (
     if (!isNonEmptyString(entry.kind) || !RESOURCE_DEPENDENCY_KINDS.has(entry.kind)) {
       errors.push(`${entryPath}.kind must be one of ${[...RESOURCE_DEPENDENCY_KINDS].sort().join(", ")}`);
     }
-    if (!isNonEmptyString(entry.name)) errors.push(`${entryPath}.name is required`);
+    validateDisplayName(entry.name, `${entryPath}.name`, errors);
     if (typeof entry.required !== "boolean") errors.push(`${entryPath}.required must be a boolean`);
     (["version", "configurationDigest"] as const).forEach((field) => {
       if (entry[field] !== undefined && !isNonEmptyString(entry[field])) {
@@ -356,6 +356,43 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
+/**
+ * Fixed limits on the parts of a pipeline the panel later has to render.
+ *
+ * A pipeline's step list and its user-visible names travel to the webview as an attempt boundary,
+ * outside the payload budget, because they are what the run's progress is read from rather than
+ * free-form provider text. That only holds while they are small, and nothing said they were: a
+ * definition could declare any number of steps with names of any length, and the projection on the
+ * other side would either copy all of it or silently truncate an execution plan into a pipeline
+ * that never ran.
+ *
+ * So the limit is stated here, where a definition is accepted or refused, rather than hidden in the
+ * projection. The values are conservative against everything shipped — the largest preset has eight
+ * steps, the longest identifier is 28 characters and the longest name is 47 — and against every
+ * existing valid fixture, so no pipeline that validates today stops validating.
+ */
+export const MAX_PIPELINE_STEPS = 64;
+export const MAX_IDENTIFIER_LENGTH = 128;
+export const MAX_DISPLAY_NAME_LENGTH = 256;
+
+const validateDisplayName = (
+  value: unknown,
+  valuePath: string,
+  errors: string[],
+): value is string => {
+  if (!isNonEmptyString(value)) {
+    errors.push(`${valuePath} is required`);
+    return false;
+  }
+  if (value.length > MAX_DISPLAY_NAME_LENGTH) {
+    errors.push(
+      `${valuePath} must be at most ${String(MAX_DISPLAY_NAME_LENGTH)} characters`,
+    );
+    return false;
+  }
+  return true;
+};
+
 const validateIdentifier = (
   value: unknown,
   valuePath: string,
@@ -369,6 +406,10 @@ const validateIdentifier = (
     errors.push(
       `${valuePath} must start with a letter or underscore and contain only letters, numbers, underscores, or hyphens`,
     );
+    return false;
+  }
+  if (value.length > MAX_IDENTIFIER_LENGTH) {
+    errors.push(`${valuePath} must be at most ${String(MAX_IDENTIFIER_LENGTH)} characters`);
     return false;
   }
   return true;
@@ -664,9 +705,7 @@ const validateBaseStep = (
   if (validateIdentifier(step.id, `${stepPath}.id`, errors)) {
     stepIds.push(step.id);
   }
-  if (!isNonEmptyString(step.name)) {
-    errors.push(`${stepPath}.name is required`);
-  }
+  validateDisplayName(step.name, `${stepPath}.name`, errors);
   if (typeof step.enabled !== "boolean") {
     errors.push(`${stepPath}.enabled must be boolean`);
   }
@@ -691,9 +730,7 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
     errors.push("version must be 1");
   }
   validateIdentifier(value.id, "id", errors);
-  if (!isNonEmptyString(value.name)) {
-    errors.push("name is required");
-  }
+  validateDisplayName(value.name, "name", errors);
   validateOptionalString(value.description, "description", errors);
 
   if (value.managedPolicy !== undefined) {
@@ -746,6 +783,8 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
   }
   if (!Array.isArray(value.steps) || value.steps.length === 0) {
     errors.push("steps must be a non-empty array");
+  } else if (value.steps.length > MAX_PIPELINE_STEPS) {
+    errors.push(`steps must declare at most ${String(MAX_PIPELINE_STEPS)} steps`);
   }
 
   const agents = Array.isArray(value.agents) ? value.agents : [];
@@ -771,9 +810,7 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
     if (validateIdentifier(agent.id, `${agentPath}.id`, errors)) {
       agentIds.push(agent.id);
     }
-    if (!isNonEmptyString(agent.name)) {
-      errors.push(`${agentPath}.name is required`);
-    }
+    validateDisplayName(agent.name, `${agentPath}.name`, errors);
     if (!isNonEmptyString(agent.adapter)) {
       errors.push(`${agentPath}.adapter is required`);
     }
@@ -815,9 +852,7 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
         errors.push(`${rolePath}.id must not shadow an agent id`);
       }
     }
-    if (!isNonEmptyString(role.name)) {
-      errors.push(`${rolePath}.name is required`);
-    }
+    validateDisplayName(role.name, `${rolePath}.name`, errors);
     if (!isNonEmptyString(role.instructions)) {
       errors.push(`${rolePath}.instructions is required`);
     }

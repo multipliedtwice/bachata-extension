@@ -1,4 +1,8 @@
-import { ProviderFailure, providerFailureRequiresHumanChoice } from "./providerFailure";
+import {
+  isClientVersionFailure,
+  ProviderFailure,
+  providerFailureRequiresHumanChoice,
+} from "./providerFailure";
 
 export type ProviderRecoveryChoiceId =
   | "runDoctor"
@@ -101,6 +105,18 @@ export const providerRecovery = (
         disableProvider,
         stop,
       ],
+    };
+  }
+  if (isClientVersionFailure(failure)) {
+    // The provider itself named the remedy, so the title says which fact is wrong rather than
+    // repeating the sentence underneath it, and the executable setting leads the choices because
+    // pointing Bachata at a newer build is the only one that changes the answer.
+    return {
+      provider: failure.provider,
+      code: failure.code,
+      title: `The installed ${failure.provider} is older than this request needs`,
+      statement: failure.message,
+      choices: [openProviderSettings, runDoctor, chooseAnotherProvider, disableProvider, stop],
     };
   }
   return {

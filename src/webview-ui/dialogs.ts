@@ -123,12 +123,23 @@ const reachableControls = (container: HTMLElement): HTMLElement[] =>
     return collapsed === null || (control.tagName === "SUMMARY" && control.parentElement === collapsed);
   });
 
-const restoreControl = (snapshot: ControlSnapshot | undefined): void => {
+/**
+ * `openPopover` names the popover the reader is inside, when one is open.
+ *
+ * A render is not evidence that focus moved. Restoring the control that held focus before the
+ * tree was replaced sends focus outside an open popover, and focus leaving a popover is exactly
+ * what dismisses it, so the popover a person just opened closed itself in the next frame. The
+ * popover owns focus while it is open and puts it on its own trigger.
+ */
+const restoreControl = (snapshot: ControlSnapshot | undefined, openPopover?: string): void => {
   if (!snapshot) {
     return;
   }
   const element = findControl(snapshot);
   if (!element) {
+    return;
+  }
+  if (openPopover !== undefined && element.closest(openPopover) === null) {
     return;
   }
   // The render restores every scroll container deliberately just before this runs. A plain focus()

@@ -152,8 +152,6 @@ import {
 } from "../process/safeEnvironment";
 import {
   ZAI_ANTHROPIC_ENDPOINT,
-  ZAI_DEFAULT_TOKEN_SOURCE_VARIABLE,
-  ZAI_TOKEN_TARGET_VARIABLE,
 } from "../adapters/zaiProfile";
 import { checkCommand } from "../process/checkCommand";
 import { evaluateGitVersionSupport } from "../process/gitVersionSupport";
@@ -170,7 +168,6 @@ import {
   CodexMcpElicitationResponse,
   CodexUserInputRequest,
   CodexUserInputResponse,
-  probeCodexAppServer,
 } from "../adapters/codexAppServer";
 import {
   AgentAdapter,
@@ -224,10 +221,11 @@ import {
   pipelineFailurePlan,
   pipelineTerminalPlan,
   resolvedRunConstraints,
+  parseRunExecutionPlan,
   resumableWorkflowFrom,
   workspaceChangeFrom,
 } from "./pipelineRunPlan";
-import type { PersistedResumableWorkflow } from "./pipelineRunPlan";
+import type { PersistedResumableWorkflow, RunConstraints, RunExecutionPlan } from "./pipelineRunPlan";
 import {
   requiresWritableHost,
   unsupportedWebviewMessage,
@@ -256,7 +254,7 @@ import {
   pipelineFactIndexes,
   pipelineNameIndex,
   pipelineProviderIndex,
-  providerReadinessFrom,
+  AdapterProbeReadiness,
   requestedPipelineIds,
 } from "../readiness/readinessReport";
 import type { ProviderProbeOutcome } from "../readiness/readinessReport";
@@ -334,15 +332,31 @@ import {
 } from "../pipeline/catalogStorage";
 import { parseJsonResponse } from "../pipeline/output";
 import {
+  ProviderIdentity,
+  ProviderRegistry,
+  createProviderRegistry,
+  providerKey,
+} from "../providers/providerRegistry";
+import type { LocalModelService } from "../providers/localModelService";
+import { localModelStatusText } from "../providers/localModelService";
+import { localBackendForAdapterType } from "../providers/localModelDiscovery";
+import {
+  ProviderDiscoverySettings,
+  configuredProviderIdentities,
+  probeProvider,
+} from "../providers/providerDiscovery";
+import {
   AgentAssignments,
   AssignmentSlots,
   ScopedAgentAssignments,
+  adapterAcceptsModel,
   adapterTypeForBrowserProvider,
   assignedPipelineDefinition,
   assignmentLockReason,
   assignmentRefusals,
   assignmentSlots,
   isBrowserAdapterType,
+  isWellFormedAssignmentModel,
   parseScopedAgentAssignments,
   usableAssignments,
 } from "../pipeline/agentAssignment";
@@ -423,22 +437,29 @@ import {
   type ExecutionContract,
   type ExecutionSafetyLevel,
 } from "../contract/executionContract";
-import { contractAcknowledgement } from "../contract/authority";
-import type { ContractAuthority } from "../contract/authority";
 import { loadRepositoryPolicy, REPOSITORY_POLICY_PATH } from "../policy/repositoryPolicy";
 import type { RepositoryPolicy } from "../policy/repositoryPolicy";
 import {
   AdapterReadiness,
   evaluateReadiness,
   PipelineReadiness,
+  participatingAgentIds,
+  runBlockingFindings,
 } from "../readiness/model";
-import { gitReadinessFrom } from "../readiness/gitReadiness";
+import { gitReadinessFrom, type GitReadiness } from "../readiness/gitReadiness";
 import { guardrailSummary } from "../workflows/guardrails";
 import type { GuardrailSummary } from "../workflows/guardrails";
-import { redactFreeFormText, redactJsonValue, redactText } from "../security/redact";
+import { redactText } from "../security/redact";
+import { boundedRedactedText } from "../conversations/eventDetail";
+import { boundedAgentOutput } from "../state/boundedAgentOutput";
+import {
+  boundedTranscriptEntry,
+  boundedTranscriptWindow,
+} from "../state/transcriptBounds";
 import { unattendedPipelineSafetyErrors } from "../security/unattendedPipeline";
 import { createTranscriptStore } from "../state/transcriptStore";
 import {
+  AdapterModelCatalog,
   AgentPanelState,
   ExtensionToWebviewMessage,
   InteractionMode,
@@ -509,6 +530,18 @@ export type Runtime = {
   attachWebview: (webview: RuntimeWebview) => vscode.Disposable;
   getState: () => PanelState;
   getSelectedPipelineSnapshot: () => PipelineSnapshot | undefined;
+  /**
+   * The exact pipeline revision the recorded checkpoint executed, so a restart replays that
+   * revision rather than whatever the catalog holds now.
+   */
+  getRecoveryPipelineSnapshot: () => PipelineSnapshot | undefined;
+  /**
+   * The whole plan the recorded run was started under, so a restart replays that plan instead of
+   * the caller's defaults.
+   */
+  getRecoveryExecutionPlan: () => RunExecutionPlan | undefined;
+  /** The write scope, allowed paths and commit mode the recorded run executed under. */
+  getRecoveryRunConstraints: () => RunConstraints;
   pipelineRequiresInitiative: (pipelineId?: string) => boolean;
   loadTranscript: () => Promise<TranscriptEntry[]>;
   inspectReadiness: (pipelineIds?: string[]) => Promise<RuntimeReadinessReport>;
@@ -519,7 +552,16 @@ export type Runtime = {
     prompt: string,
     attachmentIds?: string[],
     pipelineSnapshot?: PipelineSnapshot,
-    options?: { requireCurrentCatalog?: boolean; composerAuthorized?: boolean },
+    options?: {
+      requireCurrentCatalog?: boolean;
+      composerAuthorized?: boolean;
+      /**
+       * Preflight a replay of the recorded run rather than a new one. Without it the recovery
+       * checkpoint makes every preflight refuse, which is what left a restart unreachable through
+       * the route the editor actually takes.
+       */
+      restart?: boolean;
+    },
   ) => Promise<PipelineSnapshot>;
   pipelineRunRefusal: () => string | undefined;
   resolvePipelineSnapshotInScope: (
@@ -553,9 +595,14 @@ export type Runtime = {
       writeScope?: WorkspaceWriteScope;
       commitMode?: "never" | "allow";
       trackWorkspaceChanges?: boolean;
+      executionPlan?: RunExecutionPlan;
     },
   ) => Promise<PipelineRunResult>;
   resumePipeline: (options?: {
+    onAccepted?: () => Promise<void> | void;
+  }) => Promise<PipelineRunResult>;
+  /** Replay the recorded run from its first enabled step, keeping its recorded inputs and settings. */
+  restartPipeline: (options?: {
     onAccepted?: () => Promise<void> | void;
   }) => Promise<PipelineRunResult>;
   interrupt: () => Promise<void>;
@@ -590,13 +637,7 @@ export type RuntimeReadinessReport = {
   remoteName?: string;
   catalogError?: string;
   adapters: AdapterReadiness[];
-  git: {
-    available: boolean;
-    detail: string;
-    clean?: boolean;
-    statusDetail?: string;
-    dirtyPaths?: string[];
-  };
+  git: GitReadiness;
   bridge: PanelState["browserBridge"];
 };
 
@@ -612,6 +653,13 @@ export type RuntimeOptions = {
   pipelineStorageDirectory?: string | undefined;
   pipelineScopeRoot?: string | undefined;
   bridge?: BrowserBridgeServer | undefined;
+  // The extension host's shared provider discovery. Supplied by the host so every conversation
+  // reads one set of answers; a runtime built without one keeps its own, which is what standalone
+  // and programmatic callers get.
+  providerRegistry?: ProviderRegistry | undefined;
+  // The host's shared local-interpreter resolution. Absent for a standalone runtime, which then
+  // falls back to the reader's explicit settings and nothing else.
+  localModelService?: LocalModelService | undefined;
   startBridge?: boolean | undefined;
   closeBridge?: boolean | undefined;
   managedWorkingDirectoryRoot?: string | undefined;
@@ -1110,9 +1158,7 @@ const parseQueuedMessage = (value: unknown): QueuedMessage | undefined => {
         pipelineSnapshot &&
         !pipelineSnapshotHasCompleteTaskDependencies(pipelineSnapshot)
       ? "This queued request predates immutable task-pipeline snapshots. Cancel it and queue the request again."
-      : value.kind === "pipeline" && value.composerAuthorized !== true
-        ? "This queued request predates recorded run authorization, so Bachata cannot re-check its execution contract. Cancel it and queue the request again."
-        : undefined;
+      : undefined;
   return {
     id: value.id,
     kind: value.kind as QueuedMessage["kind"],
@@ -1209,6 +1255,10 @@ const parsePersistedResumableWorkflow = (
       ? { writeScope: value.writeScope as WorkspaceWriteScope }
       : {}),
     ...(value.commitMode === "never" || value.commitMode === "allow" ? { commitMode: value.commitMode } : {}),
+    ...((): { executionPlan?: RunExecutionPlan } => {
+      const executionPlan = parseRunExecutionPlan(value.executionPlan);
+      return executionPlan === undefined ? {} : { executionPlan };
+    })(),
     ...(typeof value.sourceQueueMessageId === "string"
       ? { sourceQueueMessageId: value.sourceQueueMessageId }
       : {}),
@@ -1280,6 +1330,13 @@ const parsePersistedRuntimeState = (
 
 const getWorkspaceRoots = (): string[] =>
   vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+
+/**
+ * How much of a provider's failure message the panel is given. Generous, because an actionable
+ * error is the whole point of showing one, and fixed, because the message is the provider's.
+ */
+const AGENT_ERROR_BYTES = 4 * 1_024;
+const AGENT_ERROR_UNITS = 4 * 1_024;
 
 const createEntry = (
   kind: TranscriptEntry["kind"],
@@ -1498,6 +1555,7 @@ export const createRuntime = (
   let queueDrainOperation: Promise<void> | undefined;
   let scheduleQueueDrain: () => void = () => undefined;
   const enqueueCodexInteraction = createInteractionQueue();
+  const hostLocalModelService = options.localModelService;
   let taskDirty = persisted?.taskDirty ?? false;
   let queueStartClaim = persisted?.queueStart;
   let selectedPipelineSnapshot = persisted?.selectedPipelineSnapshot;
@@ -1518,11 +1576,15 @@ export const createRuntime = (
       : { scopeKey: stored.scopeKey, pipelineId: stored.pipelineId, assignments };
   })();
   let readinessAdapterProbes: AdapterReadiness[] = [];
-  const readinessCommandProbes = new Map<string, ReturnType<typeof providerReadinessFrom>>();
   let readinessGit: RuntimeReadinessReport["git"] = {
     available: false,
     detail: "Git has not been checked",
   };
+  // Which directory the answer above is about. Git readiness is the one readiness fact that changes
+  // with the working directory, and pointing Bachata at a child repository — the remedy for "this
+  // folder is not a repository" — used to leave the previous folder's answer in place until
+  // something happened to ask again.
+  let readinessGitDirectory: string | undefined;
 
   let resumableWorkflowData = persisted?.resumableWorkflow;
 
@@ -1552,7 +1614,21 @@ export const createRuntime = (
     },
     adapterTypes: registry.types(),
     agents: {},
-    agentAssignments: { slots: [], assignableAdapters: registry.types() },
+    agentAssignments: {
+      slots: [],
+      assignableAdapters: registry.types(),
+      adapterModels: {},
+      availableAdapters: [],
+      discovering: false,
+    },
+    localInterpreter: {
+      enabled: false,
+      discovering: false,
+      status: "disabled",
+      detail: "Local interpretation is off. Deterministic extraction runs on its own.",
+      explicit: false,
+      availableModels: [],
+    },
     roles: {},
     running: false,
     workflowStatus: resumableWorkflowData ? "interrupted" : "idle",
@@ -1751,6 +1827,7 @@ export const createRuntime = (
     refreshRuntimeLimits();
     refreshReadiness();
     refreshAgentAssignments();
+    refreshLocalInterpreter();
     post({ type: "state.snapshot", state: structuredClone(state) });
   };
 
@@ -1814,14 +1891,18 @@ export const createRuntime = (
         readySessionCount: readySessions.length,
         providerName: browserProviderName(provider),
       });
+      // Bounded here as well as in `patchAgent`: this path writes the agent's error directly.
+      const boundedError = error === undefined
+        ? undefined
+        : boundedRedactedText(error, AGENT_ERROR_BYTES, { structured: true, maxUnits: AGENT_ERROR_UNITS });
       const patch = {
         status: nextStatus,
-        error,
+        error: boundedError,
         sessionId: agent.sessionId,
         browserBinding: agent.browserBinding,
       };
       agent.status = nextStatus;
-      setOptionalProperty(agent, "error", error);
+      setOptionalProperty(agent, "error", boundedError);
       setOptionalProperty(agent, "sessionId", agent.sessionId);
       setOptionalProperty(agent, "browserBinding", agent.browserBinding);
       post({ type: "agent.patch", agentId, patch });
@@ -1844,11 +1925,19 @@ export const createRuntime = (
       port: configuration().get<number>("browserBridgePort", 43127),
       localModelConfig: () => {
         const endpoint = configuration().get<string>("browserSelectorHealingEndpoint", "").trim();
+        // The bridge is handed the host's resolution so both halves heal and interpret with the
+        // same backend and model; with nothing resolved it carries no model and the bridge refuses.
+        // The host's resolution is the authority whenever there is a host to ask; falling back to
+        // the configured name let a model that failed the contract be sent anyway.
+        const resolved = hostLocalModelService?.resolvedConfig("selectorHealing");
         return {
           enabled: configuration().get<boolean>("browserSelectorHealingEnabled", false),
-          backend: configuration().get<"auto" | "lmstudio" | "ollama">("browserSelectorHealingBackend", "auto"),
-          ...(endpoint ? { endpoint } : {}),
-          model: configuration().get<string>("browserSelectorHealingModel", "prism-ml/Bonsai-27B-mlx-1bit").trim() || "prism-ml/Bonsai-27B-mlx-1bit",
+          backend: resolved?.backend
+            ?? configuration().get<"auto" | "lmstudio" | "ollama">("browserSelectorHealingBackend", "auto"),
+          ...(resolved?.endpoint ? { endpoint: resolved.endpoint } : endpoint ? { endpoint } : {}),
+          model: hostLocalModelService
+            ? resolved?.model ?? ""
+            : configuration().get<string>("browserSelectorHealingModel", "").trim(),
           timeoutMs: Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "browserSelectorHealingTimeoutMs", 30_000)),
         };
       },
@@ -1909,14 +1998,152 @@ export const createRuntime = (
   };
 
   /**
+   * What the Agents view is told about local interpretation. Read from the host's shared service,
+   * so the readiness a reader sees is the same one the interpreter and the bridge will act on.
+   */
+  const refreshLocalInterpreter = (): void => {
+    const readinessValue = hostLocalModelService?.readiness();
+    if (!readinessValue) {
+      state.localInterpreter = {
+        enabled: false,
+        discovering: false,
+        status: "disabled",
+        detail: "Local interpretation is off. Deterministic extraction runs on its own.",
+        explicit: false,
+        availableModels: [],
+      };
+      return;
+    }
+    const selection = readinessValue.selection;
+    const backend = selection.status === "ready" || selection.status === "unverified"
+      ? localBackendForAdapterType(`local-${selection.backend}`)
+      : undefined;
+    state.localInterpreter = {
+      enabled: readinessValue.enabled,
+      discovering: readinessValue.discovering,
+      status: readinessValue.enabled ? selection.status : "disabled",
+      detail: localModelStatusText(readinessValue),
+      ...(selection.status === "ready" || selection.status === "unverified"
+        ? {
+            backend: selection.backend,
+            ...(backend === undefined ? {} : { backendLabel: backend.label }),
+            endpoint: selection.endpoint,
+            model: selection.model.id,
+          }
+        : {}),
+      explicit: selection.status === "ready" ? selection.explicit : false,
+      availableModels: readinessValue.probes
+        .filter((probe) => probe.reachable)
+        .flatMap((probe) => probe.models.map((model) => ({
+          id: model.id,
+          backend: probe.backend,
+          availability: model.availability,
+        }))),
+    };
+  };
+
+  /**
+   * What each provider answered when asked which models it accepts, keyed by adapter type.
+   *
+   * Kept per runtime rather than per participant because a catalog belongs to the installed
+   * executable, not to the slot that happened to ask for it. An adapter with no entry has not been
+   * asked; that is not the same as one that answered with nothing, and the editor is told which.
+   */
+  const adapterModelCatalogs = new Map<string, AdapterModelCatalog>();
+
+  /**
+   * Ask the provider bound to one participant which models it accepts.
+   *
+   * The question goes to the live adapter, so the answer describes the executable this run would
+   * actually start. A provider with no way to be asked records "unsupported", which keeps the
+   * reader's explicit model field usable instead of refusing every name Bachata cannot confirm.
+   */
+  const discoverAgentModels = async (agentId: string): Promise<void> => {
+    const adapter = adapters[agentId];
+    if (!adapter) {
+      throw new Error(`Unknown participant ${agentId}`);
+    }
+    const adapterType = adapter.adapterType;
+    const listModels = adapter.listModels;
+    if (!listModels) {
+      adapterModelCatalogs.set(adapterType, {
+        status: "unsupported",
+        models: [],
+        detail: "This provider does not report a model list, so a model name is taken as written.",
+      });
+    } else {
+      adapterModelCatalogs.set(adapterType, { status: "discovering", models: [] });
+      refreshAgentAssignments();
+      if (!disposed) {
+        emitSnapshot();
+      }
+      // A provider that fails to answer is a provider Bachata cannot ask, which is the same
+      // outcome as one with no listing method: the reader keeps their explicit model field. A
+      // thrown error must not leave the editor showing a discovery that never ends.
+      try {
+        const catalog = await listModels();
+        adapterModelCatalogs.set(
+          adapterType,
+          catalog.supported
+            ? { status: "listed", models: catalog.models }
+            : { status: "unsupported", models: [], detail: catalog.reason },
+        );
+      } catch (error) {
+        adapterModelCatalogs.set(adapterType, {
+          status: "unsupported",
+          models: [],
+          detail: `This provider could not be asked for its models: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      }
+    }
+    refreshAgentAssignments();
+    if (!disposed) {
+      emitSnapshot();
+    }
+  };
+
+  /**
    * What the editor draws the Agents control from: the responsibilities this pipeline resolves,
    * each with the provider it ships with and the one actually assigned. Derived here, from the same
    * role resolution execution uses, so a row the reader can change is always a participant the run
    * will use.
    */
+  /**
+   * The providers this run will actually execute on, taken from the definitions the adapters were
+   * built from rather than from the saved pipeline.
+   *
+   * A result recorded from the saved pipeline names the providers the pipeline shipped with, which
+   * is exactly what a reassigned run did not use. Reading the built definitions instead means the
+   * name, adapter and model here are the ones a turn will be sent with. A browser participant
+   * carries the site's own provider and no model: the website owns the selection and the Bridge
+   * does not report it, so recording one would be an invention.
+   */
+  const refreshExecutionParticipants = (): void => {
+    const participants = Object.values(definitions).map((definition) => {
+      const agent = state.agents[definition.id];
+      const provider = agent?.browserBinding?.provider;
+      return {
+        name: definition.name,
+        adapter: definition.adapter,
+        agentId: definition.id,
+        ...(provider === undefined ? {} : { provider }),
+        ...(definition.model === undefined ? {} : { model: definition.model }),
+      };
+    });
+    setOptionalProperty(
+      state,
+      "executionParticipants",
+      participants.length === 0 ? undefined : participants,
+    );
+  };
+
   const refreshAgentAssignments = (): void => {
+    refreshExecutionParticipants();
     const pipeline = selectedPipelineSnapshot?.definition;
     const assignments = activeAssignments();
+    const assignableTypes = registry.types();
     const resolved: AssignmentSlots = pipeline
       ? assignmentSlots(pipeline)
       : { slots: [] };
@@ -1924,17 +2151,44 @@ export const createRuntime = (
       slots: resolved.slots.map((slot) => {
         const assigned = assignments[slot.agentId];
         const sessionId = state.agents[slot.agentId]?.sessionId;
+        // The model that will actually be sent: the reader's choice where they made one, the
+        // pipeline's own only while the participant is still on the provider that pipeline named.
+        // A slot moved to another provider carries no model until the reader chooses one there.
+        const assignedAdapter = assigned?.adapter ?? slot.defaultAdapter;
+        const assignedModel = assigned?.model
+          ?? (assignedAdapter === slot.defaultAdapter ? slot.defaultModel : undefined);
         return {
           agentId: slot.agentId,
           responsibility: slot.responsibility,
           ...(slot.roleId === undefined ? {} : { roleId: slot.roleId }),
           defaultAdapter: slot.defaultAdapter,
-          assignedAdapter: assigned?.adapter ?? slot.defaultAdapter,
+          assignedAdapter,
           ...(sessionId === undefined ? {} : { browserSessionId: sessionId }),
           overridden: assigned !== undefined && assigned.adapter !== slot.defaultAdapter,
+          ...(slot.defaultModel === undefined ? {} : { defaultModel: slot.defaultModel }),
+          ...(assignedModel === undefined ? {} : { assignedModel }),
         };
       }),
-      assignableAdapters: registry.types(),
+      assignableAdapters: assignableTypes,
+      // Only providers that were actually asked appear here. A provider with no entry has not been
+      // asked, which the editor states as such rather than drawing it as having no models.
+      adapterModels: Object.fromEntries(
+        assignableTypes.flatMap((adapterType) => {
+          const catalog = adapterModelCatalogs.get(adapterType);
+          return catalog === undefined ? [] : [[adapterType, catalog] as const];
+        }),
+      ),
+      // Only providers the host actually finished discovering. A type still being asked about is
+      // absent from here and named by `discovering` instead, so the editor never draws "missing"
+      // over a provider nobody has finished checking.
+      availableAdapters: providerRegistry
+        .records()
+        .filter((record) => record.state === "available")
+        .map((record) => record.adapterType)
+        // A local inference backend is discovered through the same registry but is not something a
+        // role can be assigned to; leaving it here would offer Ollama as if it were a participant.
+        .filter((adapterType) => registry.types().includes(adapterType)),
+      discovering: providerRegistry.discovering(),
       ...(resolved.constraint === undefined ? {} : { constraint: resolved.constraint }),
       ...((): { lockReason?: string } => {
         const reason = assignmentLockReason({
@@ -1978,15 +2232,6 @@ export const createRuntime = (
       ? assignedPipelineDefinition(pipeline, scopedAssignments.assignments)
       : pipeline;
 
-  const agentProbeKey = (definition: AgentDefinition): string => {
-    const effective = effectiveDefinition(definition);
-    return JSON.stringify([
-      effective.adapter,
-      effective.command,
-      effective.workingDirectory ?? state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory,
-    ]);
-  };
-
   const currentAdapterReadiness = (pipelineId?: string): AdapterReadiness[] => {
     const agentReadiness = Object.entries(state.agents).map(([agentId, agent]) => ({
       agentId,
@@ -2000,7 +2245,7 @@ export const createRuntime = (
         : { detail: agent.error }),
     }));
     const pipelineProbes = (withAssignments(pipelines.get(pipelineId ?? ""))?.agents ?? []).flatMap((agent) => {
-      const probe = readinessCommandProbes.get(agentProbeKey(agent))?.readiness;
+      const probe = providerProbeFor(agent)?.readiness;
       if (!probe) return [];
       const current = agentReadiness.find((entry) => entry.agentId === agent.id && entry.type === agent.adapter);
       return [{ ...current, ...probe, agentId: agent.id }];
@@ -2010,9 +2255,10 @@ export const createRuntime = (
 
   const pipelineProviderVersions = (pipeline: PipelineDefinition): Record<string, string> => {
     const versions: Record<string, string> = {};
-    for (const type of new Set(pipeline.agents.map((agent) => agent.adapter))) {
-      const agentVersions = pipeline.agents.filter((agent) => agent.adapter === type)
-        .map((agent) => readinessCommandProbes.get(agentProbeKey(agent))?.version);
+    const assigned = withAssignments(pipeline) ?? pipeline;
+    for (const type of new Set(assigned.agents.map((agent) => agent.adapter))) {
+      const agentVersions = assigned.agents.filter((agent) => agent.adapter === type)
+        .map((agent) => providerProbeFor(agent)?.version);
       const version = agentVersions[0];
       if (version !== undefined && agentVersions.every((candidate) => candidate === version)) {
         versions[type] = version;
@@ -2051,6 +2297,10 @@ export const createRuntime = (
         gitDetail: readinessGit.detail,
         gitClean: readinessGit.clean,
         dirtyPaths: readinessGit.dirtyPaths,
+        gitRepository: readinessGit.repository,
+        ...(options.managedWorkingDirectoryRoot === undefined
+          ? {}
+          : { managedRoot: options.managedWorkingDirectoryRoot }),
       },
       adapters: currentAdapterReadiness(pipelineId),
       bridge: state.browserBridge,
@@ -2112,29 +2362,9 @@ export const createRuntime = (
     });
   };
 
-  let acknowledgedAuthority: ContractAuthority | undefined;
-
-  const refreshContractAcknowledgement = (): void => {
-    setOptionalProperty(
-      state,
-      "contractAcknowledgement",
-      state.executionContract
-        ? contractAcknowledgement(state.executionContract, acknowledgedAuthority)
-        : undefined,
-    );
-  };
-
-  const acknowledgeContractAuthority = (fingerprint: string): void => {
-    const current = state.contractAcknowledgement;
-    if (!current || current.fingerprint !== fingerprint) return;
-    acknowledgedAuthority = current.authority;
-    refreshContractAcknowledgement();
-  };
-
   const refreshReadiness = (): void => {
     state.readiness = evaluatePipelineReadiness(state.selectedPipelineId);
     setOptionalProperty(state, "executionContract", currentExecutionContract());
-    refreshContractAcknowledgement();
   };
 
   const pipelineFilePath = (directory: string, pipelineId: string): string =>
@@ -2964,6 +3194,88 @@ export const createRuntime = (
     );
   };
 
+  /** The settings a provider probe reads, taken from this runtime's configuration. */
+  const providerDiscoverySettings = (): ProviderDiscoverySettings => {
+    const config = configuration();
+    return { get: <Value,>(key: string, fallback: Value): Value => config.get<Value>(key, fallback) };
+  };
+
+  // The host's registry when it supplied one, so every conversation shares its answers; otherwise
+  // this runtime's own, which is what a programmatic or test caller gets.
+  const providerRegistry: ProviderRegistry =
+    options.providerRegistry ?? createProviderRegistry({
+      probe: (identity) => probeProvider({
+        identity,
+        settings: providerDiscoverySettings(),
+        log: logOutput,
+      }),
+      log: logOutput,
+    });
+
+  // The shared registry answers on its own schedule — a host pass, another conversation's refresh,
+  // an invalidation — so the editor is told when its answers change rather than waiting for the
+  // next message this conversation happens to handle.
+  const providerRegistrySubscription = providerRegistry.subscribe(() => {
+    if (disposed) {
+      return;
+    }
+    refreshAgentAssignments();
+    refreshLocalInterpreter();
+    post({ type: "state.snapshot", state: structuredClone(state) });
+  });
+
+  /**
+   * The provider identity a participant resolves to, or nothing when it is not a local executable.
+   * Built from the definition the run would actually execute, so a reassigned role resolves to the
+   * provider it was assigned to rather than the one the pipeline shipped with — which is what lets
+   * an assignment read a cached answer instead of asking the machine again.
+   */
+  const providerIdentityFor = (
+    definition: AgentDefinition,
+  ): ProviderIdentity | undefined => {
+    const effective = effectiveDefinition(definition);
+    if (!effective.command || isBrowserAdapterType(effective.adapter)) {
+      return undefined;
+    }
+    return {
+      adapterType: effective.adapter,
+      command: effective.command,
+      workingDirectory: effective.workingDirectory
+        ?? state.workingDirectory
+        ?? state.workspaceRoots[0]
+        ?? storageDirectory,
+    };
+  };
+
+  /** The provider identities this machine is configured to offer, whatever any pipeline names. */
+  const runtimeProviderIdentities = (): ProviderIdentity[] =>
+    configuredProviderIdentities(
+      providerDiscoverySettings(),
+      state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory,
+    );
+
+  /** What a cached record says, in the shape the readiness report has always consumed. */
+  const providerProbeFor = (
+    definition: AgentDefinition,
+  ): { readiness: AdapterProbeReadiness; version?: string } | undefined => {
+    const identity = providerIdentityFor(definition);
+    if (!identity) {
+      return undefined;
+    }
+    const record = providerRegistry.record(identity);
+    if (record.state === "unknown" || record.state === "discovering") {
+      return undefined;
+    }
+    return {
+      readiness: {
+        type: record.adapterType,
+        available: record.state === "available",
+        detail: record.detail ?? "",
+      },
+      ...(record.version === undefined ? {} : { version: record.version }),
+    };
+  };
+
   const adapterFactoryContext = (
     workingDirectory: string | undefined = state.workingDirectory,
   ) => {
@@ -3033,6 +3345,7 @@ export const createRuntime = (
     adapters = topology.adapters;
     definitions = topology.definitions;
     state.agents = topology.agents;
+    refreshExecutionParticipants();
   };
 
   const createAdaptersForPipeline = async (
@@ -3107,82 +3420,16 @@ export const createRuntime = (
       .map((checkpoint) => structuredClone(checkpoint)),
   });
 
-  const inspectReadiness = async (pipelineIds?: string[], selectedOnly = false): Promise<RuntimeReadinessReport> => {
-    await awaitInitialization();
-    const config = configuration();
-    const workingDirectory = state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory;
-    const timeoutMs = readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "commandCheckTimeoutMs", 15_000);
-    const providerCandidates: Array<readonly [string, string]> = selectedOnly ? [] : [
-      ["codex-app-server", config.get<string>("codexCommand", "codex")],
-      ["claude-code", config.get<string>("claudeCommand", "claude")],
-      ["zai-glm", config.get<string>("zaiCommand", "claude")],
-    ];
-    const probeProvider = async (
-      type: string,
-      command: string,
-      directory = workingDirectory,
-    ): Promise<ProviderProbeOutcome> => {
-      const environment = scopedProviderEnvironment(type, directory);
-      if (type === "zai-glm" && environment[ZAI_TOKEN_TARGET_VARIABLE] === undefined) {
-        return {
-          outcome: "missingToken",
-          tokenVariable: config
-            .get<string>("zaiAuthTokenEnvironment", ZAI_DEFAULT_TOKEN_SOURCE_VARIABLE)
-            .trim(),
-          endpoint: config.get<string>("zaiBaseUrl", ZAI_ANTHROPIC_ENDPOINT).trim(),
-        };
-      }
-      try {
-        const version = type === "codex-app-server"
-          ? await probeCodexAppServer({
-              command,
-              commandCheckTimeoutMs: timeoutMs,
-              requestTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "codexRequestTimeoutMs", 30_000),
-              interruptGraceMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "interruptGraceMs", 5_000),
-              environment,
-              workingDirectory: directory,
-              log: logOutput,
-            })
-          : await checkCommand(command, ["--version"], {
-              workingDirectory: directory,
-              environment,
-              timeoutMs,
-            });
-        return { outcome: "version", command, version };
-      } catch (error) {
-        return { outcome: "failed", command, error };
-      }
-    };
-    const providerReadiness = await Promise.all(
-      providerCandidates.map(async ([type, command]) =>
-        providerReadinessFrom(type, await probeProvider(type, command)),
-      ),
-    );
-    if (!selectedOnly) readinessAdapterProbes = providerReadiness.map((entry) => entry.readiness);
-    const requested = requestedPipelineIds(pipelineIds, pipelines.keys());
-    const pendingProbes = new Map<string, Promise<ReturnType<typeof providerReadinessFrom>>>();
-    for (const pipelineId of requested) {
-      for (const agent of pipelines.get(pipelineId)?.agents ?? []) {
-        const effective = effectiveDefinition(agent);
-        if (!effective.command || effective.adapter.endsWith("-browser")) continue;
-        const key = agentProbeKey(agent);
-        if (!pendingProbes.has(key)) {
-          const directory = effective.workingDirectory ?? workingDirectory;
-          const matchingDefault = directory === workingDirectory
-            ? providerCandidates.findIndex(([type, command]) =>
-                type === effective.adapter && command === effective.command)
-            : -1;
-          const matched = providerReadiness[matchingDefault];
-          pendingProbes.set(key, matched
-            ? Promise.resolve(matched)
-            : probeProvider(effective.adapter, effective.command, directory)
-              .then((outcome) => providerReadinessFrom(effective.adapter, outcome)));
-        }
-      }
-    }
-    for (const [key, pending] of pendingProbes) {
-      readinessCommandProbes.set(key, await pending);
-    }
+  /**
+   * Ask Git about one directory and remember which directory the answer belongs to.
+   *
+   * EX-3. What each probe outcome means is `readiness/gitReadiness.ts`'s; running Git is this
+   * runtime's.
+   */
+  const refreshGitReadiness = async (
+    workingDirectory: string,
+    timeoutMs: number,
+  ): Promise<void> => {
     try {
       const environment = gitProcessEnvironment(workingDirectory);
       const version = await checkCommand("git", ["--version"], {
@@ -3192,8 +3439,6 @@ export const createRuntime = (
       });
       const support = evaluateGitVersionSupport(version);
       if (!support.supported) {
-        // EX-3. What each probe outcome means is `readiness/gitReadiness.ts`'s; running Git is
-        // this runtime's.
         readinessGit = gitReadinessFrom({
           outcome: "unsupported",
           requirementText: support.requirementText,
@@ -3213,6 +3458,66 @@ export const createRuntime = (
     } catch (error) {
       readinessGit = gitReadinessFrom({ outcome: "versionFailed", error });
     }
+    readinessGitDirectory = workingDirectory;
+  };
+
+  /**
+   * Re-ask Git when the answer on hand is about a different directory than the one that would run.
+   *
+   * The remedy for "this folder is not a Git repository" is to point Bachata at the repository,
+   * which changes the working directory — and the readiness that refused is the readiness of the
+   * folder the reader just moved away from.
+   */
+  const refreshGitReadinessIfStale = async (): Promise<void> => {
+    const workingDirectory = state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory;
+    if (readinessGitDirectory === workingDirectory) return;
+    const config = configuration();
+    await refreshGitReadiness(
+      workingDirectory,
+      readTimeoutSetting(
+        (settingKey, settingFallback) => config.get(settingKey, settingFallback),
+        "commandCheckTimeoutMs",
+        15_000,
+      ),
+    );
+  };
+
+  const inspectReadiness = async (pipelineIds?: string[], selectedOnly = false): Promise<RuntimeReadinessReport> => {
+    await awaitInitialization();
+    const config = configuration();
+    const workingDirectory = state.workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory;
+    const timeoutMs = readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "commandCheckTimeoutMs", 15_000);
+    // Discovery is the registry's, and it answers once per provider identity. A readiness pass
+    // therefore asks for identities rather than running probes: the ones this machine is configured
+    // to offer, plus any a requested pipeline resolves to after its assignments are applied. An
+    // identity already answered costs nothing here, which is what makes this safe to call often.
+    const requested = requestedPipelineIds(pipelineIds, pipelines.keys());
+    const pipelineIdentities = requested.flatMap((pipelineId) =>
+      (withAssignments(pipelines.get(pipelineId))?.agents ?? [])
+        .flatMap((agent) => {
+          const identity = providerIdentityFor(agent);
+          return identity ? [identity] : [];
+        }));
+    await providerRegistry.discover([
+      ...(selectedOnly ? [] : runtimeProviderIdentities()),
+      ...pipelineIdentities,
+    ]);
+    if (!selectedOnly) {
+      // Only settled records are reported. A provider nobody has finished asking about is absent
+      // from the report rather than present and unavailable, because "not checked yet" and "not
+      // installed" are different answers and only one of them is a problem to fix.
+      readinessAdapterProbes = runtimeProviderIdentities().flatMap((identity) => {
+        const record = providerRegistry.record(identity);
+        return record.state === "available" || record.state === "unavailable"
+          ? [{
+              type: record.adapterType,
+              available: record.state === "available",
+              detail: record.detail ?? "",
+            }]
+          : [];
+      });
+    }
+    await refreshGitReadiness(workingDirectory, timeoutMs);
     refreshReadiness();
     const maxIterations = Math.max(1, configuration().get<number>("maxPipelineIterations", 10));
     const pipelineFacts = requested.map((pipelineId) => {
@@ -3407,7 +3712,7 @@ export const createRuntime = (
     });
     const restoredOutputs = latestAgentOutputs(state.transcript, Object.keys(state.agents));
     for (const [agentId, output] of Object.entries(restoredOutputs)) {
-      agentStateFor(agentId).output = output;
+      agentStateFor(agentId).output = boundedAgentOutput(output);
     }
     if (options.startBridge ?? ownsBridge) {
       await bridge.start();
@@ -3491,8 +3796,23 @@ export const createRuntime = (
     if (!agent) {
       return;
     }
-    Object.assign(agent, patch);
-    post({ type: "agent.patch", agentId, patch });
+    // A provider's failure message is free-form provider text like any other, and it travels in
+    // every snapshot from here until the agent is reset. It is bounded where it is written rather
+    // than at each of the places that write one.
+    const bounded = patch.error === undefined
+      ? patch
+      : { ...patch, error: boundedRedactedText(patch.error, AGENT_ERROR_BYTES, { structured: true, maxUnits: AGENT_ERROR_UNITS }) };
+    Object.assign(agent, bounded);
+    // A provider that failed during an actual turn is evidence the cached answer is stale — the
+    // executable may have been removed, moved or replaced since discovery. Its record is dropped so
+    // the next readiness pass asks again; nothing else is invalidated, and no probe runs here.
+    if (patch.status === "error") {
+      const identity = definitions[agentId] ? providerIdentityFor(definitions[agentId]) : undefined;
+      if (identity) {
+        providerRegistry.invalidate((record) => providerKey(record) === providerKey(identity));
+      }
+    }
+    post({ type: "agent.patch", agentId, patch: bounded });
     options.onAgentState?.(agentId, structuredClone(agent));
     if (persist) {
       schedulePersist();
@@ -3501,14 +3821,9 @@ export const createRuntime = (
 
   const appendTranscript = async (entry: TranscriptEntry): Promise<void> => {
     hostCallbacks.assertWritable?.();
-    const sanitizedEntry: TranscriptEntry = {
-      ...entry,
-      text:
-        entry.kind === "error" || entry.kind === "event"
-          ? redactText(entry.text)
-          : redactFreeFormText(entry.text),
-      ...(entry.data === undefined ? {} : { data: redactJsonValue(entry.data) }),
-    };
+    // Bounded before it is persisted, retained or posted — not redacted whole and trimmed later.
+    // See `boundedTranscriptEntry`.
+    const sanitizedEntry = boundedTranscriptEntry(entry);
     try {
       await transcriptStore.append(sanitizedEntry);
     } catch (error) {
@@ -3529,6 +3844,9 @@ export const createRuntime = (
     while (state.transcript.length > windowSize) {
       state.transcript.shift();
     }
+    // A count of entries is not a bound on their size. The oldest leave until the retained window
+    // is under its byte ceiling as well; everything dropped here is still on disk.
+    state.transcript = boundedTranscriptWindow(state.transcript);
     state.transcriptHasMore = state.transcriptTotal > state.transcript.length;
     post({ type: "transcript.append", entry: sanitizedEntry });
   };
@@ -3556,13 +3874,14 @@ export const createRuntime = (
     const text = deltaBuffers.get(agentId) ?? "";
     deltaBuffers.delete(agentId);
     if (text) {
-      post({ type: "agent.delta", agentId, text });
+      post({ type: "agent.delta", agentId, text: boundedAgentOutput(text) });
     }
   };
 
   const queueDelta = (agentId: string, text: string): void => {
-    agentStateFor(agentId).output += text;
-    deltaBuffers.set(agentId, `${deltaBuffers.get(agentId) ?? ""}${text}`);
+    const agent = agentStateFor(agentId);
+    agent.output = boundedAgentOutput(agent.output + text);
+    deltaBuffers.set(agentId, boundedAgentOutput(`${deltaBuffers.get(agentId) ?? ""}${text}`));
     if (deltaTimers.has(agentId)) {
       return;
     }
@@ -3575,8 +3894,9 @@ export const createRuntime = (
 
   const replaceAgentOutput = (agentId: string, text: string): void => {
     flushDelta(agentId);
-    agentStateFor(agentId).output = text;
-    post({ type: "agent.replace", agentId, text });
+    const bounded = boundedAgentOutput(text);
+    agentStateFor(agentId).output = bounded;
+    post({ type: "agent.replace", agentId, text: bounded });
   };
 
   const removeApproval = (agentId: string, requestId: string): void => {
@@ -4769,19 +5089,32 @@ export const createRuntime = (
         const apiKeyEnvironment = configuration()
           .get<string>("browserSemanticInterpreterApiKeyEnvironment", "")
           .trim();
+        // Backend, endpoint and model travel together or not at all, and they are this feature's
+        // own. Taking a model name resolved for selector healing and sending it to this feature's
+        // endpoint asked a server for a model it may not have, on the strength of a check that was
+        // never run against it.
+        const resolved = hostLocalModelService?.resolvedConfig("semanticInterpreter");
+        const pinnedModel = configuration().get<string>("browserSemanticInterpreterModel", "").trim();
+        const pinnedEndpoint = configuration().get<string>("browserSemanticInterpreterEndpoint", "").trim();
+        // A pin names a model; it does not vouch for it. Where a host is resolving, a pinned model
+        // is only used once that resolution says it is ready — the same gate an automatic choice
+        // passes. Otherwise a model that had just failed the contract could still be asked, simply
+        // because its name was typed into a setting.
+        const pinnedIsResolved = pinnedModel !== "" && resolved?.model === pinnedModel;
+        const usablePinnedModel = hostLocalModelService === undefined || pinnedIsResolved
+          ? pinnedModel
+          : "";
         return {
-          backend: configuration().get<"auto" | "lmstudio" | "ollama">(
-            "browserSemanticInterpreterBackend",
-            "auto",
-          ),
-          endpoint: configuration().get<string>(
-            "browserSemanticInterpreterEndpoint",
-            "",
-          ),
-          model: configuration().get<string>(
-            "browserSemanticInterpreterModel",
-            "prism-ml/Bonsai-27B-mlx-1bit",
-          ),
+          backend: resolved?.backend
+            ?? configuration().get<"auto" | "lmstudio" | "ollama">(
+                "browserSemanticInterpreterBackend",
+                "auto",
+              ),
+          endpoint: resolved?.endpoint ?? pinnedEndpoint,
+          // An explicit setting wins; otherwise this feature's own resolution names the model, and
+          // the endpoint above is that same resolution's. An empty string means nothing was
+          // resolved, and the interpreter declines rather than asking a model nobody confirmed.
+          model: usablePinnedModel || resolved?.model || "",
           apiKey: apiKeyEnvironment ? process.env[apiKeyEnvironment] : undefined,
           timeoutMs: Math.max(
             1_000,
@@ -6050,6 +6383,15 @@ export const createRuntime = (
     pipelineId?: string | undefined;
     pipelineSnapshot?: PipelineSnapshot | undefined;
     resume?: PersistedResumableWorkflow | undefined;
+    /**
+     * The recorded run a restart replays from its first enabled step.
+     *
+     * It is not a resume: the checkpoint's step index is deliberately discarded, which is the
+     * whole point of restarting. Everything else the record carries — run settings, write scope,
+     * allowed paths, commit mode — is kept, because a restart that silently ran under different
+     * settings would not be a restart of the run the reader is looking at.
+     */
+    restartFrom?: PersistedResumableWorkflow | undefined;
     appendPrompt?: boolean | undefined;
     sourceQueueMessageId?: string | undefined;
     onAccepted?: (() => Promise<void> | void) | undefined;
@@ -6061,6 +6403,11 @@ export const createRuntime = (
     commitMode?: "never" | "allow" | undefined;
     trackWorkspaceChanges?: boolean | undefined;
     composerAuthorized?: boolean | undefined;
+    /**
+     * The whole plan this run was started under, recorded with the checkpoint so a restart replays
+     * the plan rather than the runtime's defaults.
+     */
+    executionPlan?: RunExecutionPlan | undefined;
   };
 
   const enabledChecklistPipelineIds = (
@@ -6377,9 +6724,12 @@ export const createRuntime = (
     ) {
       throw new Error("Another pipeline or agent operation is active");
     }
-    if (!options.resume && resumableWorkflowData) {
+    // A restart is the third answer to "resume or discard": it neither continues the checkpoint
+    // nor throws it away, it replaces it with a record of the same run started again. Refusing it
+    // here is what left a failed run with a checkpoint and no way to start over.
+    if (!options.resume && !options.restartFrom && resumableWorkflowData) {
       throw new Error(
-        "Resume or discard the interrupted workflow before starting another pipeline",
+        "Resume, restart, or discard the interrupted workflow before starting another pipeline",
       );
     }
     const requestedPipelineSnapshot = options.resume?.pipelineSnapshot ??
@@ -6414,6 +6764,9 @@ export const createRuntime = (
       await assertCurrentPipelineCatalogSelection(requestedPipelineSnapshot);
     }
     await refreshRepositoryPolicy();
+    // Git's answer is about a directory. If the run is about a different one — because the reader
+    // took the "point Bachata at the repository" remedy — the answer on hand is not about this run.
+    await refreshGitReadinessIfStale();
     refreshReadiness();
     const policyRefusals = state.executionContract?.policyRefusals ?? [];
     if (policyRefusals.length > 0) {
@@ -6449,11 +6802,12 @@ export const createRuntime = (
     } else {
       lastResourceDependencyProvenance = [];
     }
-    if (options.composerAuthorized) {
-      const refreshedRefusal = pipelineRunRefusal();
-      if (refreshedRefusal) {
-        throw new Error(refreshedRefusal);
-      }
+    // The authoritative refusal, asked of the state this run is actually about and asked for every
+    // run, not only the ones the composer authorised. A queued message, a restart and a
+    // programmatic run reach here too, and each of them used to skip the question entirely.
+    const refreshedRefusal = pipelineRunRefusal();
+    if (refreshedRefusal) {
+      throw new Error(refreshedRefusal);
     }
     const pipelineSnapshot = await resolveExecutionPipelineSnapshot(
       requestedPipelineSnapshot,
@@ -6603,6 +6957,14 @@ export const createRuntime = (
               toJsonValue({ pipelineId: pipeline.id, attachmentIds }),
             ),
           );
+        } else if (options.restartFrom) {
+          await appendTranscript(
+            createEventEntry(
+              "workflow.restarted",
+              `Restarted ${pipeline.name} from step 1 of ${String(pipeline.steps.length)}.`,
+              toJsonValue({ pipelineId: pipeline.id, nextStepIndex: 0 }),
+            ),
+          );
         } else if (options.resume) {
           await appendTranscript(
             createEventEntry(
@@ -6623,10 +6985,12 @@ export const createRuntime = (
 
         const initialCheckpoint =
           options.resume?.checkpoint ?? emptyPipelineResumeState();
-        const runSettings = beginRunSettings(options.resume?.runSettings);
+        // A restart reuses everything the recorded run was executed under except its position.
+        const recordedRun = options.resume ?? options.restartFrom;
+        const runSettings = beginRunSettings(recordedRun?.runSettings);
         refreshReadiness();
         const droppedSettings = droppedRunSettings(
-          options.resume?.rejectedRunSettings,
+          recordedRun?.rejectedRunSettings,
           rejectedRecordedRunSettings,
         );
         rejectedRecordedRunSettings = [];
@@ -6644,7 +7008,7 @@ export const createRuntime = (
           allowedPaths: options.allowedPaths,
           writeScope: options.writeScope,
           commitMode: options.commitMode,
-          resume: options.resume,
+          resume: recordedRun,
         });
         const recovery = resumableWorkflowFrom({
           pipelineId: pipeline.id,
@@ -6659,6 +7023,7 @@ export const createRuntime = (
           runSettings,
           constraints: runConstraints,
           updatedAt: new Date().toISOString(),
+          executionPlan: options.executionPlan ?? recordedRun?.executionPlan,
           sourceQueueMessageId: options.sourceQueueMessageId,
           resumeSourceQueueMessageId: options.resume?.sourceQueueMessageId,
         });
@@ -6775,23 +7140,40 @@ export const createRuntime = (
           accepted,
           recoveryEstablished,
           resuming: options.resume !== undefined,
+          restarting: options.restartFrom !== undefined,
         });
         if (failurePlan.recordFailure) {
           patchRun(false, "error", {
             ...(state.activeStep === undefined ? {} : { activeStep: state.activeStep }),
             ...(state.activeStepId === undefined ? {} : { activeStepId: state.activeStepId }),
           });
+          // A provider's readable sentence is what the chat shows. Its wire envelope is kept with
+          // the entry, so the detail a reader needs to report the failure upstream is one
+          // disclosure away rather than pasted into the conversation.
+          const providerFailureDetail = isProviderFailureError(error)
+            ? toJsonValue({
+                code: error.failure.code,
+                provider: error.failure.provider,
+                retryable: error.failure.retryable,
+                ...(error.failure.evidence === undefined
+                  ? {}
+                  : { evidence: error.failure.evidence }),
+              })
+            : undefined;
           await appendTranscript(
             createEntry(
               "error",
               error instanceof Error ? error.message : String(error),
               undefined,
               state.activeStep,
+              providerFailureDetail === undefined ? undefined : "provider.failure",
+              providerFailureDetail,
             ),
           );
         }
-        if (failurePlan.restoreResume && options.resume) {
-          await setResumableWorkflow(options.resume);
+        const restoreTarget = options.resume ?? options.restartFrom;
+        if (failurePlan.restoreResume && restoreTarget) {
+          await setResumableWorkflow(restoreTarget);
         }
         throw error;
       } finally {
@@ -7528,16 +7910,47 @@ export const createRuntime = (
     }
   };
 
+  /**
+   * Readiness the run itself is refused on, not merely reported.
+   *
+   * The composer already draws every blocked finding and disables Send, but a run can reach the
+   * runtime without going through that button — a queued message, a restart, a command — and a
+   * preflight that only asked whether a working directory exists accepted those. The audit that
+   * would later refuse the turn runs after participants and providers have started, which is how
+   * a run pointed at a folder holding no repository got as far as "Resolve this before the run can
+   * start" printed underneath a run that had already started.
+   *
+   * Only `blocked` refuses here. `needsSetup` is the state of a provider nobody has asked about
+   * yet, and `unsupported` is already refused where the pipeline is bound; treating either as a
+   * refusal would stop runs this installation can complete.
+   */
+  const blockedReadinessRefusal = (): string | undefined => {
+    // Every concrete missing requirement of the selected pipeline, not only the ones drawn as
+    // "blocked": a browser pipeline with no bridge and no session reports `needsSetup`, which is
+    // the remedy's name and was never a statement that the run could proceed without it.
+    const selected = state.selectedPipelineId
+      ? pipelines.get(state.selectedPipelineId)
+      : undefined;
+    const executed = selected ? withAssignments(selected) ?? selected : undefined;
+    const blocking = runBlockingFindings(
+      evaluatePipelineReadiness(state.selectedPipelineId).findings,
+      executed === undefined
+        ? {}
+        : { participatingAgentIds: participatingAgentIds(executed) },
+    );
+    if (blocking.length === 0) return undefined;
+    return blocking
+      .map((finding) => `${finding.label}: ${finding.detail}`)
+      .join("; ");
+  };
+
   const pipelineRunRefusal = (): string | undefined => {
     if (state.workingDirectory === undefined && state.workspaceRoots.length !== 1) {
       return state.workspaceRoots.length === 0
         ? "Open a VS Code workspace folder before starting a session"
         : "Select a working directory before starting a session in a multi-root workspace";
     }
-    if (state.contractAcknowledgement?.acknowledgementRequired === true) {
-      return "Read and acknowledge this run's execution contract before starting it";
-    }
-    return undefined;
+    return blockedReadinessRefusal();
   };
 
   const deliverPipelineRequest = async (
@@ -7644,9 +8057,13 @@ export const createRuntime = (
       const checkAgent = async (agentId: string): Promise<void> => {
         const definition = definitions[agentId];
         const effective = definition ? effectiveDefinition(definition) : undefined;
+        // Manual Refresh is for troubleshooting, and its answer replaces the shared one: a reader
+        // who checks a provider here must not be told something different from every other
+        // conversation a moment later.
         const recordProbe = (outcome: ProviderProbeOutcome): void => {
-          if (definition && effective?.command && !effective.adapter.endsWith("-browser")) {
-            readinessCommandProbes.set(agentProbeKey(definition), providerReadinessFrom(effective.adapter, outcome));
+          const identity = definition ? providerIdentityFor(definition) : undefined;
+          if (identity) {
+            providerRegistry.adopt(identity, outcome);
           }
         };
         try {
@@ -8486,10 +8903,20 @@ export const createRuntime = (
     }
     const previousScoped = scopedAssignments ? structuredClone(scopedAssignments) : undefined;
     const previousAssignments = activeAssignments();
-    const changed = pipeline.agents
-      .map((agent) => agent.id)
-      .filter((agentId) => next[agentId]?.adapter !== previousAssignments[agentId]?.adapter);
-    if (changed.length === 0) {
+    const agentIds = pipeline.agents.map((agent) => agent.id);
+    const changed = agentIds.filter(
+      (agentId) => next[agentId]?.adapter !== previousAssignments[agentId]?.adapter,
+    );
+    // A model change moves no provider process, but a provider session carries the model it was
+    // opened with — Codex takes one on `thread/start` and none on `thread/resume` — so a resumed
+    // session would keep answering on the old model while the editor showed the new one. Both
+    // kinds of change are committed, and both start the participant's next turn on a fresh
+    // session, which is what makes the chosen model the one that actually runs.
+    const remodelled = agentIds.filter(
+      (agentId) =>
+        !changed.includes(agentId) && next[agentId]?.model !== previousAssignments[agentId]?.model,
+    );
+    if (changed.length === 0 && remodelled.length === 0) {
       return;
     }
     const refusals = assignmentRefusals(pipeline, next);
@@ -8504,7 +8931,7 @@ export const createRuntime = (
     // not evidence that the new one is installed, and its conversation belongs to the provider it
     // was opened against.
     const persistedAgents = persistedAgentsFromState();
-    changed.forEach((agentId) => {
+    [...changed, ...remodelled].forEach((agentId) => {
       persistedAgents[agentId] = {};
     });
     const previousTopology = currentTopology();
@@ -8586,13 +9013,23 @@ export const createRuntime = (
       assignableBrowserSession(adapter, browserSessionId);
     }
     const resetToDefault = adapter === undefined || adapter === base.adapter;
-    const next = { ...activeAssignments() };
+    const previous = activeAssignments();
+    const next = { ...previous };
     if (resetToDefault) {
       delete next[agentId];
     } else {
+      // A model belongs to the provider it was chosen for. Moving this slot to a different
+      // provider leaves the model behind with the rest of the old provider's vocabulary; it comes
+      // back only when the reader chooses one for the provider that now answers.
+      const carriedModel = previous[agentId]?.adapter === adapter
+        ? previous[agentId]?.model
+        : undefined;
       next[agentId] = {
         adapter,
         ...(browserSessionId ? { browserSessionId } : {}),
+        ...(carriedModel === undefined || !adapterAcceptsModel(adapter)
+          ? {}
+          : { model: carriedModel }),
       };
     }
     // A no-op when only the conversation changed: the adapter is already the assigned one, so no
@@ -8617,6 +9054,70 @@ export const createRuntime = (
         throw error;
       }
     }
+    await checkSelectedReadiness();
+    if (!disposed) {
+      emitSnapshot();
+    }
+  };
+
+  /**
+   * Choose the model one participant runs on, or clear it back to what the pipeline names.
+   *
+   * Separate from provider assignment because it is a separate decision with separate costs: a
+   * provider change replaces a process and drops a browser conversation, while a model change only
+   * alters what the next turn asks for. Clearing is the reader's own choice too — Bachata never
+   * substitutes a model of its own for one it cannot confirm.
+   */
+  const applyAgentModel = async (
+    agentId: string,
+    model: string | undefined,
+  ): Promise<void> => {
+    const refusal = agentAssignmentRefusal();
+    if (refusal) {
+      throw new Error(refusal);
+    }
+    const base = selectedPipelineSnapshot?.definition.agents.find((agent) => agent.id === agentId);
+    if (!base) {
+      throw new Error(`Unknown participant ${agentId}`);
+    }
+    const previous = activeAssignments();
+    const adapter = previous[agentId]?.adapter ?? base.adapter;
+    if (model !== undefined) {
+      if (!isWellFormedAssignmentModel(model)) {
+        throw new Error(`"${model}" is not a usable model name`);
+      }
+      if (!adapterAcceptsModel(adapter)) {
+        throw new Error(
+          `${adapter} runs whatever model the website has selected, so a model cannot be chosen for it here`,
+        );
+      }
+    }
+    const next = { ...previous };
+    if (model === undefined) {
+      const current = previous[agentId];
+      if (current === undefined) {
+        return;
+      }
+      if (current.adapter === base.adapter && current.browserSessionId === undefined) {
+        delete next[agentId];
+      } else {
+        next[agentId] = {
+          adapter: current.adapter,
+          ...(current.browserSessionId === undefined
+            ? {}
+            : { browserSessionId: current.browserSessionId }),
+        };
+      }
+    } else {
+      next[agentId] = {
+        adapter,
+        ...(previous[agentId]?.browserSessionId === undefined
+          ? {}
+          : { browserSessionId: previous[agentId]?.browserSessionId as string }),
+        model,
+      };
+    }
+    await commitAgentAssignments(next);
     await checkSelectedReadiness();
     if (!disposed) {
       emitSnapshot();
@@ -9024,7 +9525,19 @@ export const createRuntime = (
         workflowActive || activeWorkflow || activeForegroundOperations > 0 || checkingAvailability ||
         pickingWorkingDirectory || gateDecisionActive || queueDraining ||
         hostCallbacks.unattendedOrchestration || disposed) return;
-    const key = JSON.stringify([pipeline.id, pipeline.agents.map(agentProbeKey)]);
+    // Keyed by the providers this run would actually use. Keying it by the pipeline's shipped
+    // agents meant an assignment neither invalidated the key nor matched what readiness had cached,
+    // so a reassigned role stayed at "availability has not been checked yet" for the life of the
+    // window. Reaching a new key costs a registry lookup, not a probe.
+    const key = JSON.stringify([
+      pipeline.id,
+      // The root is part of the question. Git is probed against it, and a pipeline with only
+      // browser participants has no provider identity carrying it, so without this a run moved to
+      // a different repository kept the previous repository's Git answer.
+      state.workingDirectory ?? null,
+      (withAssignments(pipeline) ?? pipeline).agents.map((agent) =>
+        JSON.stringify(providerIdentityFor(agent) ?? agent.adapter)),
+    ]);
     if (automaticReadinessKey === key) return;
     if (automaticReadinessCheck) {
       await automaticReadinessCheck;
@@ -9041,7 +9554,7 @@ export const createRuntime = (
   };
 
   const handleSessionMessage = async (
-    message: Extract<WebviewToExtensionMessage, { type: "ready" | "availability.check" | "contract.acknowledge" | "session.reset" | "task.reset" | "workingDirectory.pick" }>,
+    message: Extract<WebviewToExtensionMessage, { type: "ready" | "availability.check" | "session.reset" | "task.reset" | "workingDirectory.pick" }>,
   ): Promise<void> => {
     if (message.type === "ready") {
       emitSnapshot();
@@ -9054,11 +9567,6 @@ export const createRuntime = (
       await checkAvailability();
       return;
     }
-    if (message.type === "contract.acknowledge") {
-      acknowledgeContractAuthority(message.fingerprint);
-      emitSnapshot();
-      return;
-    }
     if (message.type === "session.reset") {
       await resetSession(message.agentId);
       return;
@@ -9069,6 +9577,11 @@ export const createRuntime = (
     }
     if (message.type === "workingDirectory.pick") {
       await pickWorkingDirectory();
+      // Git and the providers were answered about the previous root. Send stays refused on stale
+      // findings until they are asked about the one the reader just chose, which is the whole
+      // point of having chosen it.
+      await checkSelectedReadiness();
+      if (!disposed) emitSnapshot();
       return;
     }
     throw unsupportedWebviewMessage(message);
@@ -9180,7 +9693,7 @@ export const createRuntime = (
   };
 
   const handleRunMessage = async (
-    message: Extract<WebviewToExtensionMessage, { type: "pipeline.run" | "run.interrupt" | "run.gate" | "workflow.resume" | "workflow.discard" }>,
+    message: Extract<WebviewToExtensionMessage, { type: "pipeline.run" | "run.interrupt" | "run.gate" | "workflow.resume" | "workflow.restart" | "workflow.discard" }>,
   ): Promise<void> => {
     if (message.type === "pipeline.run") {
       await deliverPipelineRequest(
@@ -9237,6 +9750,13 @@ export const createRuntime = (
         resume: recovery,
         appendPrompt: false,
       });
+      return;
+    }
+    if (message.type === "workflow.restart") {
+      if (activeWorkflow || workflowActive) {
+        throw new Error("Interrupt the active workflow before restarting it");
+      }
+      await restartProgrammaticPipeline();
       return;
     }
     if (message.type === "workflow.discard") {
@@ -9337,10 +9857,49 @@ export const createRuntime = (
   };
 
   const handleAssignmentMessage = async (
-    message: Extract<WebviewToExtensionMessage, { type: "agents.assign" | "agents.reset" }>,
+    message: Extract<
+      WebviewToExtensionMessage,
+      {
+        type:
+          | "agents.assign"
+          | "agents.model.select"
+          | "agents.model.discover"
+          | "agents.reset"
+          | "localModel.select";
+      }
+    >,
   ): Promise<void> => {
+    if (message.type === "localModel.select") {
+      // Changing the model re-resolves the configuration a running bridge is already healing with,
+      // so it is refused for exactly as long as reassignment is. The editor disables the control
+      // too, but a disabled control is a courtesy and this is the enforcement.
+      const refusal = agentAssignmentRefusal();
+      if (refusal) {
+        throw new Error(refusal);
+      }
+      // Writing the setting is the whole change: the shared service reads it, and the configuration
+      // listener invalidates the cached readiness so the new choice is resolved once, for everyone.
+      await vscode.workspace
+        .getConfiguration("bachata")
+        .update("browserSelectorHealingModel", message.model ?? "", vscode.ConfigurationTarget.Global);
+      hostLocalModelService?.invalidate();
+      await hostLocalModelService?.discover();
+      void hostLocalModelService?.verifySelection();
+      if (!disposed) {
+        emitSnapshot();
+      }
+      return;
+    }
     if (message.type === "agents.assign") {
       await applyAgentAssignment(message.agentId, message.adapter, message.browserSessionId);
+      return;
+    }
+    if (message.type === "agents.model.select") {
+      await applyAgentModel(message.agentId, message.model);
+      return;
+    }
+    if (message.type === "agents.model.discover") {
+      await discoverAgentModels(message.agentId);
       return;
     }
     if (message.type === "agents.reset") {
@@ -9533,7 +10092,6 @@ export const createRuntime = (
     switch (message.type) {
       case "ready":
       case "availability.check":
-      case "contract.acknowledge":
       case "session.reset":
       case "task.reset":
       case "workingDirectory.pick":
@@ -9544,6 +10102,7 @@ export const createRuntime = (
       case "run.interrupt":
       case "run.gate":
       case "workflow.resume":
+      case "workflow.restart":
       case "workflow.discard":
         return await handleRunMessage(message);
       case "pipeline.select":
@@ -9555,7 +10114,10 @@ export const createRuntime = (
       case "pipeline.export":
         return await handleCatalogMessage(message);
       case "agents.assign":
+      case "agents.model.select":
+      case "agents.model.discover":
       case "agents.reset":
+      case "localModel.select":
         return await handleAssignmentMessage(message);
       case "browser.session.select":
       case "browser.asset.save":
@@ -10023,14 +10585,26 @@ export const createRuntime = (
     prompt: string,
     attachmentIds: string[] = [],
     pipelineSnapshot?: PipelineSnapshot,
-    options: { requireCurrentCatalog?: boolean; composerAuthorized?: boolean } = {},
+    options: {
+      requireCurrentCatalog?: boolean;
+      composerAuthorized?: boolean;
+      restart?: boolean;
+    } = {},
   ): Promise<PipelineSnapshot> => {
     await awaitInitialization();
     await ensureAdaptersReady();
+    // A restart is preflighted against the record it replays. Asked as an ordinary run it would be
+    // refused by the very checkpoint it is trying to start over from, which is the refusal the
+    // reader saw instead of a restart.
+    const restartFrom = options.restart ? resumableWorkflowData : undefined;
+    if (options.restart && !restartFrom) {
+      throw new Error("This run has no recorded workflow to restart");
+    }
     const result = await preflightPipeline(prompt, attachmentIds, {
       pipelineSnapshot,
       requireCurrentCatalog: options.requireCurrentCatalog,
       composerAuthorized: options.composerAuthorized,
+      ...(restartFrom === undefined ? {} : { restartFrom }),
     });
     await disposeAttachmentSnapshot(result.disposeAttachments, "this preflight");
     return structuredClone(result.pipelineSnapshot);
@@ -10066,6 +10640,7 @@ export const createRuntime = (
       allowedPaths?: string[] | undefined;
       commitMode?: "never" | "allow" | undefined;
       trackWorkspaceChanges?: boolean | undefined;
+      executionPlan?: RunExecutionPlan | undefined;
     } = {},
   ): Promise<PipelineRunResult> => {
     if (disposed) {
@@ -10090,6 +10665,7 @@ export const createRuntime = (
         ...(options.allowedPaths === undefined ? {} : { allowedPaths: options.allowedPaths }),
         ...(options.commitMode === undefined ? {} : { commitMode: options.commitMode }),
         ...(options.trackWorkspaceChanges === undefined ? {} : { trackWorkspaceChanges: options.trackWorkspaceChanges }),
+        ...(options.executionPlan === undefined ? {} : { executionPlan: options.executionPlan }),
       });
     } finally {
       programmaticAutoProvisioning = false;
@@ -10103,6 +10679,69 @@ export const createRuntime = (
     return structuredClone(lastPipelineResult);
   };
 
+
+  /**
+   * Run the recorded run again from its first enabled step.
+   *
+   * The checkpoint is the record of what this run was: its request, its attachments, the exact
+   * pipeline revision it executed and the settings it executed under. A restart replays all of
+   * that and discards only the position, which is what separates it from a resume.
+   *
+   * The checkpoint is not cleared to make room. It is replaced by the restart's own, once the
+   * restart has reached the point where it has one; a restart that fails before then restores the
+   * record it started from, so the reader is never left with a failed run and no way back into it.
+   *
+   * Participant assignments are the live ones on purpose: a checkpoint stops being usable the
+   * moment assignments change, so a checkpoint that is still here already names the providers
+   * currently bound.
+   */
+  const restartProgrammaticPipeline = async (
+    options: { onAccepted?: () => Promise<void> | void } = {},
+  ): Promise<PipelineRunResult> => {
+    if (disposed) {
+      throw new Error("Bachata runtime is disposed");
+    }
+    await awaitInitialization();
+    await ensureAdaptersReady();
+    if (workflowActive) {
+      throw new Error("Interrupt the active workflow before restarting it");
+    }
+    const recorded = resumableWorkflowData;
+    if (!recorded) {
+      throw new Error("This run has no recorded workflow to restart");
+    }
+    lastPipelineResult = undefined;
+    programmaticAutoProvisioning = true;
+    try {
+      await runPipeline(recorded.userPrompt, recorded.attachmentIds, {
+        pipelineId: recorded.pipelineId,
+        pipelineSnapshot: structuredClone(recorded.pipelineSnapshot),
+        restartFrom: recorded,
+        requireCurrentCatalog: false,
+        appendPrompt: false,
+        ...(options.onAccepted === undefined ? {} : { onAccepted: options.onAccepted }),
+        ...(recorded.allowedPaths === undefined ? {} : { allowedPaths: recorded.allowedPaths }),
+        ...(recorded.writeScope === undefined ? {} : { writeScope: recorded.writeScope }),
+        ...(recorded.commitMode === undefined ? {} : { commitMode: recorded.commitMode }),
+      });
+    } catch (error) {
+      // Belt and braces over the restore the run itself performs: whatever path the failure took,
+      // a run that ended with no checkpoint at all is put back where it started.
+      if (resumableWorkflowData === undefined) {
+        await setResumableWorkflow(recorded);
+      }
+      throw error;
+    } finally {
+      programmaticAutoProvisioning = false;
+      programmaticResetBindings.clear();
+      managedFreshSessionKeys.clear();
+      managedTaskState.clear();
+    }
+    if (!lastPipelineResult) {
+      throw new Error("Pipeline ended without a result");
+    }
+    return structuredClone(lastPipelineResult);
+  };
 
   const resumeProgrammaticPipeline = async (
     options: { onAccepted?: () => Promise<void> | void } = {},
@@ -10189,7 +10828,13 @@ export const createRuntime = (
   return {
     handleMessage,
     attachWebview,
-    getState: () => structuredClone(state),
+    getState: () => {
+      // Discovery settles outside any message this runtime handled, so the assignment view is
+      // re-derived on read rather than only when a snapshot was last emitted.
+      refreshAgentAssignments();
+      refreshLocalInterpreter();
+      return structuredClone(state);
+    },
     // With no explicit id, the answer is about the pipeline this runtime would actually
     // run, which is the selected snapshot.
     pipelineRequiresInitiative: (pipelineId?: string) =>
@@ -10199,6 +10844,23 @@ export const createRuntime = (
     getSelectedPipelineSnapshot: () => selectedPipelineSnapshot
       ? structuredClone(selectedPipelineSnapshot)
       : undefined,
+    getRecoveryPipelineSnapshot: () => resumableWorkflowData
+      ? structuredClone(resumableWorkflowData.pipelineSnapshot)
+      : undefined,
+    getRecoveryExecutionPlan: () => resumableWorkflowData?.executionPlan
+      ? { ...resumableWorkflowData.executionPlan }
+      : undefined,
+    getRecoveryRunConstraints: () => ({
+      ...(resumableWorkflowData?.allowedPaths === undefined
+        ? {}
+        : { allowedPaths: [...resumableWorkflowData.allowedPaths] }),
+      ...(resumableWorkflowData?.writeScope === undefined
+        ? {}
+        : { writeScope: resumableWorkflowData.writeScope }),
+      ...(resumableWorkflowData?.commitMode === undefined
+        ? {}
+        : { commitMode: resumableWorkflowData.commitMode }),
+    }),
     loadTranscript: () => transcriptStore.load(),
     inspectReadiness,
     refreshPipelines: refreshProgrammaticPipelines,
@@ -10221,6 +10883,7 @@ export const createRuntime = (
     resetSessions: resetProgrammaticSessions,
     runPipeline: runProgrammaticPipeline,
     resumePipeline: resumeProgrammaticPipeline,
+    restartPipeline: restartProgrammaticPipeline,
     interrupt: interruptProgrammatic,
     answerSemanticQuestionWithLead,
     isBusy: runtimeIsBusy,
@@ -10245,6 +10908,7 @@ export const createRuntime = (
           managedTaskState.clear();
           workspaceSubscription.dispose();
           trustSubscription.dispose();
+          providerRegistrySubscription.dispose();
           browserSelectorHealingConfigurationSubscription?.dispose();
           const workflow = activeWorkflow;
           workflowController?.abort();

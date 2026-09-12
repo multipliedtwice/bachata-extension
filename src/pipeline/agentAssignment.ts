@@ -30,6 +30,13 @@ import {
 export type AgentAssignmentOverride = {
   adapter: string;
   browserSessionId?: string;
+  /**
+   * The model this participant runs on, when the reader named one. Absent means the provider's own
+   * default: Bachata sends no model and the provider chooses, which is not the same as Bachata
+   * choosing for the reader. A model belongs to the provider it was chosen for, so it is dropped
+   * whenever the adapter changes unless the reader names one for the receiving provider too.
+   */
+  model?: string;
 };
 
 export type AgentAssignments = Record<string, AgentAssignmentOverride>;
@@ -60,6 +67,32 @@ export const adapterTypeForBrowserProvider = (provider: string): string =>
   BROWSER_PROVIDER_ADAPTER[provider] ?? "generic-browser";
 
 export const isBrowserAdapterType = (adapter: string): boolean => adapter.endsWith("-browser");
+
+/**
+ * Whether a model name may be attached to this provider at all.
+ *
+ * A browser conversation runs whatever the website has selected. Bachata cannot set it and cannot
+ * read it back unless the Browser Bridge reports one, so accepting a model here would record a
+ * choice nobody made. Every CLI provider takes a model name on the wire and is offered one.
+ */
+export const adapterAcceptsModel = (adapter: string): boolean => !isBrowserAdapterType(adapter);
+
+/** The longest model name Bachata will carry, so a stored assignment cannot grow without bound. */
+export const MAX_ASSIGNMENT_MODEL_LENGTH = 200;
+
+/**
+ * A model name Bachata will send to a provider verbatim.
+ *
+ * Provider catalogs disagree about shape — `gpt-6-astra`, `claude-opus-5`, `glm-4.6` — so this
+ * refuses only what cannot be a name: empty text, surrounding space, control characters, quoting
+ * or shell metacharacters, and anything past the length bound. It does not decide whether the
+ * provider offers the model; only the provider can answer that, and it is asked separately.
+ */
+export const isWellFormedAssignmentModel = (value: string): boolean =>
+  value.length > 0 &&
+  value.length <= MAX_ASSIGNMENT_MODEL_LENGTH &&
+  value === value.trim() &&
+  /^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$/u.test(value);
 
 /**
  * Which agent holds each role as of each step.
@@ -135,14 +168,26 @@ export const assignedAgentDefinition = (
   definition: AgentDefinition,
   override: AgentAssignmentOverride | undefined,
 ): AgentDefinition => {
-  if (!override || override.adapter === definition.adapter) {
+  if (!override) {
     return definition;
+  }
+  if (override.adapter === definition.adapter) {
+    // Same provider, so nothing provider-specific is left behind. Only a model the reader named
+    // for this provider replaces the definition's own, and naming none leaves the pipeline's.
+    return override.model === undefined || override.model === definition.model
+      ? definition
+      : { ...definition, model: override.model };
   }
   const next: AgentDefinition = {
     id: definition.id,
     name: definition.name,
     adapter: override.adapter,
   };
+  // The old provider's model names a catalog the new one does not have, so it is left behind with
+  // the rest of that provider's vocabulary. It comes back only if the reader chose one here.
+  if (override.model !== undefined && adapterAcceptsModel(override.adapter)) {
+    next.model = override.model;
+  }
   if (definition.workingDirectory !== undefined) {
     next.workingDirectory = definition.workingDirectory;
   }
@@ -203,7 +248,20 @@ export const assignmentRefusals = (
   };
   pipeline.agents.forEach((agent) => {
     const override = overrides[agent.id];
-    if (!override || override.adapter === agent.adapter) {
+    if (!override) {
+      return;
+    }
+    if (override.model !== undefined) {
+      if (!adapterAcceptsModel(override.adapter)) {
+        refuse(
+          agent.id,
+          `${override.adapter} runs whatever model the website has selected, so a model cannot be chosen for it here`,
+        );
+      } else if (!isWellFormedAssignmentModel(override.model)) {
+        refuse(agent.id, `"${override.model}" is not a usable model name`);
+      }
+    }
+    if (override.adapter === agent.adapter) {
       return;
     }
     if (agent.permissionMode !== undefined) {
@@ -385,6 +443,8 @@ export type AssignmentSlot = {
   responsibility: string;
   roleId?: string;
   defaultAdapter: string;
+  /** The model the saved pipeline names for this participant, when it names one. */
+  defaultModel?: string;
 };
 
 export type AssignmentSlots = {
@@ -471,6 +531,7 @@ export const assignmentSlots = (pipeline: PipelineDefinition): AssignmentSlots =
         responsibility: role?.name ?? roleId ?? agent.name,
         ...(roleId === undefined ? {} : { roleId }),
         defaultAdapter: agent.adapter,
+        ...(agent.model === undefined ? {} : { defaultModel: agent.model }),
       };
     });
   return {
@@ -541,11 +602,21 @@ export const parseScopedAgentAssignments = (
     if (typeof override.adapter !== "string" || !isKnownAdapter(override.adapter)) {
       return;
     }
+    // A stored model is kept only where it can still mean something: a well-formed name on a
+    // provider that takes one. A row edited outside Bachata, or written before the receiving
+    // provider became a browser conversation, loses the model rather than the whole assignment.
+    const model = typeof override.model === "string" ? override.model : undefined;
+    const usableModel = model !== undefined &&
+      adapterAcceptsModel(override.adapter) &&
+      isWellFormedAssignmentModel(model)
+      ? model
+      : undefined;
     assignments[agentId] = {
       adapter: override.adapter,
       ...(typeof override.browserSessionId === "string" && override.browserSessionId
         ? { browserSessionId: override.browserSessionId }
         : {}),
+      ...(usableModel === undefined ? {} : { model: usableModel }),
     };
   });
   return Object.keys(assignments).length === 0

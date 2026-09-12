@@ -3,7 +3,7 @@
   "id": "claude-review",
   "name": "Review with Claude",
   "description": "Read-only repository review with Claude Code.",
-  "longitudinalIntent": "initiativeRequired",
+  "longitudinalIntent": "runLocal",
   "agents": [
     {
       "id": "claude",

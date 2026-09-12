@@ -9,6 +9,10 @@ duplicated here. Cross-repository and owner work lives in [`../TODO.md`](../TODO
 - [ ] **EX-AUD-08 / paired release:** prove the release job against real artifacts.
   Blocked on: `BRIDGE_ARTIFACT_READ_TOKEN` provisioning and one hosted run
   (PAIR-AUD-01).
+- [ ] **Human graphical acceptance gate:** run `docs/HUMAN_E2E.md` against the installed
+  VSIX, in a real VS Code window, with the owner present. Human-only by construction: no
+  automated gate substitutes for it, and the activation smoke does not cover it.
+  Blocked on: the owner running it.
 
 ## Existing safety: ignored writes
 
@@ -120,7 +124,8 @@ blocked lock-aware commands exactly.
 Requires the owner's provider accounts and local-model endpoint; not run automatically.
 
 - One authenticated browser smoke flow per provider profile after installation.
-- Benchmark the configured Qwen, Bonsai or DeepSeek endpoint against the bounded
-  candidate fixtures before enabling auto-heal unattended.
+- Run the automatically selected local model against the bounded candidate fixtures on a
+  real Ollama or LM Studio installation before enabling auto-heal unattended. Bachata's
+  startup contract check is a gate, not evidence of quality on the owner's own corpus.
 
 Stable support claims are governed by `docs/STABLE_RELEASE_GATE.md`.

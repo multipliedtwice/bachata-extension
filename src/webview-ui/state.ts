@@ -102,7 +102,21 @@ const emptyPanel = (): PanelState => ({
   pipelines: [],
   pipelineScopeKey: "extension",
   adapterTypes: [],
-  agentAssignments: { slots: [], assignableAdapters: [] },
+  agentAssignments: {
+    slots: [],
+    assignableAdapters: [],
+    availableAdapters: [],
+    discovering: false,
+    adapterModels: {},
+  },
+  localInterpreter: {
+    enabled: false,
+    discovering: false,
+    status: "disabled",
+    detail: "Local interpretation is off. Deterministic extraction runs on its own.",
+    explicit: false,
+    availableModels: [],
+  },
   agents: {},
   roles: {},
   running: false,
@@ -149,6 +163,9 @@ const state: {
   agentsPickerOpen: boolean;
   // The slot whose Browser Bridge conversation list is expanded, if any.
   agentsBrowserFor?: string;
+  // What the reader has typed into a slot's explicit model field, before they apply it. Kept per
+  // slot so an unapplied name is not carried from one participant to another.
+  agentsModelDrafts: Record<string, string>;
   roomView: "chat" | "execution" | "direction";
   historyFilter: string;
   directionRationale: string;
@@ -226,6 +243,7 @@ const state: {
   composerSettingsOpen: false,
   pipelinePickerOpen: false,
   agentsPickerOpen: false,
+  agentsModelDrafts: {},
   roomView: "chat",
   historyFilter: "",
   directionRationale: "",
@@ -406,6 +424,7 @@ const resetViewState = (): void => {
   delete state.pipelinePickerActiveId;
   state.agentsPickerOpen = false;
   delete state.agentsBrowserFor;
+  state.agentsModelDrafts = {};
   state.roomSearch = "";
   state.historyFilter = "";
   state.expandedEditorCards.clear();

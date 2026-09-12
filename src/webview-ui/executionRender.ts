@@ -163,6 +163,180 @@ const finalRulingHtml = (
   </article>`;
 };
 
+/**
+ * The pipeline summary: one row per enabled step, with the state the recorded events prove.
+ *
+ * A flat event stream answers "what happened" and not "where is this run", which is the question
+ * a reader has while a pipeline is executing and the first one they ask when it stops. The rows
+ * are derived, never stored: the immutable pipeline definition says which steps exist and in what
+ * order, and the recorded events say which of them started, which one the run was in when it
+ * ended, and how it ended. Nothing is inferred beyond that — a step with no recorded event is
+ * `waiting`, not `skipped`, because the run never said.
+ */
+type PipelineStepState = "waiting" | "running" | "completed" | "failed" | "interrupted";
+
+const pipelineStepStateLabel: Record<PipelineStepState, string> = {
+  waiting: "Waiting",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
+  interrupted: "Interrupted",
+};
+
+const pipelineStepStateIcon: Record<PipelineStepState, string> = {
+  waiting: "circle-outline",
+  running: "sync codicon-modifier-spin",
+  completed: "pass-filled",
+  failed: "error",
+  interrupted: "debug-pause",
+};
+
+type PipelineStepRow = {
+  id: string;
+  name: string;
+  position: number;
+  state: PipelineStepState;
+  events: WorkflowEventSummary[];
+  startedAt?: string;
+  lastEventAt?: string;
+};
+
+// The step an event belongs to. The panel does not receive payloads, so the identifier travels as
+// its own field; reading it out of a payload that was stripped before the message was sent is why
+// the summary showed every step waiting however far the run had got.
+const eventStepId = (event: WorkflowEventSummary): string | undefined =>
+  event.stepId ?? jsonString(jsonRecord(event.payload)?.stepId);
+
+/** The events belonging to the newest attempt, and the revision that attempt executed. */
+const currentAttempt = (
+  events: readonly WorkflowEventSummary[],
+): { events: readonly WorkflowEventSummary[]; steps?: readonly { id: string; name: string }[] } => {
+  // A restart opens a new attempt; a resume continues the one it interrupted, and keeps the steps
+  // that attempt had already completed.
+  const boundary = events.reduce<number>(
+    (found, event, index) =>
+      event.type === "run.started" || event.type === "run.restarted" ? index : found,
+    -1,
+  );
+  if (boundary < 0) return { events };
+  const opening = events[boundary];
+  return {
+    events: events.slice(boundary),
+    ...(opening?.attempt === undefined ? {} : { steps: opening.attempt.steps }),
+  };
+};
+
+/** Event types that end the run as a whole, and what they make the step it stopped in. */
+const terminalRunEventState: Record<string, PipelineStepState> = {
+  "run.failed": "failed",
+  "run.restart.failed": "failed",
+  "iteration.failed": "failed",
+  "run.resume.failed": "interrupted",
+  "iteration.resume.failed": "interrupted",
+  "run.interrupted": "interrupted",
+  "iteration.interrupted": "interrupted",
+  "run.completed": "completed",
+  "iteration.completed": "completed",
+};
+
+const pipelineStepRows = (
+  steps: readonly { id: string; name: string; enabled?: boolean }[],
+  events: readonly WorkflowEventSummary[],
+): PipelineStepRow[] => {
+  const attempt = currentAttempt(events);
+  // The revision the attempt recorded, where it recorded one. The selected definition is only the
+  // fallback: a restart replays the revision it failed on, which the catalog may no longer hold.
+  const enabled = attempt.steps ?? steps.filter((step) => step.enabled !== false);
+  const rows = new Map<string, PipelineStepRow>(
+    enabled.map((step, index) => [step.id, {
+      id: step.id,
+      name: step.name,
+      position: index + 1,
+      state: "waiting" as PipelineStepState,
+      events: [],
+    }]),
+  );
+  let active: PipelineStepRow | undefined;
+  attempt.events.forEach((event) => {
+    const stepId = eventStepId(event);
+    const row = stepId === undefined ? undefined : rows.get(stepId);
+    if (row) {
+      // A step the attempt has moved past is finished, even if the run was interrupted while it was
+      // the open one: the resume that followed started a later step, which is the run saying so.
+      if (active && active !== row && (active.state === "running" || active.state === "interrupted")) {
+        active.state = "completed";
+      }
+      row.state = "running";
+      row.startedAt ??= event.createdAt;
+      active = row;
+      // Only an event that names its step joins that step's activity. A run-level event belongs to
+      // the run, and filing it under whichever step happened to be open put "the run failed" inside
+      // a step that may never have been the one that failed.
+      row.events.push(event);
+      row.lastEventAt = event.createdAt;
+    }
+    const terminal = terminalRunEventState[event.type];
+    if (terminal !== undefined && active) {
+      active.state = terminal;
+      if (terminal === "completed") {
+        rows.forEach((candidate) => {
+          if (candidate.state === "running") candidate.state = "completed";
+        });
+      }
+    }
+  });
+  return Array.from(rows.values());
+};
+
+const pipelineStepRowHtml = (
+  conversationId: string,
+  row: PipelineStepRow,
+): string => {
+  const timing = row.startedAt === undefined
+    ? `<small class="pipeline-step-timing muted">Not started</small>`
+    // Only recorded timestamps are shown. A step whose own events span no measurable time gets a
+    // start time and nothing else rather than a duration nobody recorded.
+    : `<small class="pipeline-step-timing">Started ${escapeHtml(formatDateTime(row.startedAt))}</small>`;
+  // The row's own heading is the step name. An activity entry that repeats it says nothing the
+  // reader has not just read, so the step's own start event contributes its timestamp and its
+  // technical detail through the rows below rather than a line restating the name.
+  const activity = row.events.filter((event) => (event.title ?? event.type) !== row.name);
+  const activityHtml = activity.length === 0
+    ? `<p class="muted">No activity was recorded for this step.</p>`
+    : `<ul class="pipeline-step-activity">${activity.map((event) => `<li class="status-${escapeAttribute(event.status ?? "idle")}"><strong>${escapeHtml(event.title ?? event.type)}</strong><small>${escapeHtml(event.type)} · ${escapeHtml(formatDateTime(event.createdAt))}</small>${event.payload === undefined ? "" : jsonDetailsHtml("Technical detail", event.payload, `pipeline-step:${conversationId}:${row.id}:${String(event.id)}`)}</li>`).join("")}</ul>`;
+  return `<li class="pipeline-step pipeline-step-${escapeAttribute(row.state)}">
+    <details ${disclosureAttributes(`pipeline-step:${conversationId}:${row.id}`)}>
+      <summary>
+        <span class="pipeline-step-position" aria-hidden="true">${String(row.position)}</span>
+        <span class="pipeline-step-name">${escapeHtml(row.name)}</span>
+        <span class="pipeline-step-state"><i class="codicon codicon-${escapeAttribute(pipelineStepStateIcon[row.state])}" aria-hidden="true"></i> ${escapeHtml(pipelineStepStateLabel[row.state])}</span>
+        ${timing}
+      </summary>
+      <div class="pipeline-step-body">${activityHtml}</div>
+    </details>
+  </li>`;
+};
+
+const pipelineSummaryHtml = (conversationId: string): string => {
+  const events = state.manager.eventsByConversation[conversationId] ?? [];
+  const panel = state.panels.get(conversationId);
+  const steps = panel?.selectedPipelineDefinition?.steps ?? [];
+  if (steps.length === 0) return "";
+  const rows = pipelineStepRows(steps, events);
+  const counts = rows.reduce<Record<PipelineStepState, number>>((totals, row) => ({
+    ...totals,
+    [row.state]: totals[row.state] + 1,
+  }), { waiting: 0, running: 0, completed: 0, failed: 0, interrupted: 0 });
+  const headline = (["running", "failed", "interrupted", "completed", "waiting"] as PipelineStepState[])
+    .filter((stateName) => counts[stateName] > 0)
+    .map((stateName) => `${String(counts[stateName])} ${pipelineStepStateLabel[stateName].toLowerCase()}`)
+    .join(" · ");
+  return `<section class="pipeline-summary">
+    <header><h2>Pipeline</h2><p class="pipeline-summary-counts">${escapeHtml(`${String(rows.length)} step${rows.length === 1 ? "" : "s"} · ${headline}`)}</p></header>
+    <ol class="pipeline-step-list">${rows.map((row) => pipelineStepRowHtml(conversationId, row)).join("")}</ol>
+  </section>`;
+};
+
 const workflowHtml = (conversationId: string): string => {
   const events = state.manager.eventsByConversation[conversationId] ?? [];
   if (events.length === 0) {
@@ -181,10 +355,21 @@ const workflowHtml = (conversationId: string): string => {
     event.status !== "failed"
       ? ""
       : `<p class="workflow-event-failure">${escapeHtml(failureDetail(event.payload) ?? "This step failed.")} <span class="muted">The run stopped here; nothing was resent.</span></p>`;
-  return `${rulingTraceHtml(events, panel)}<section class="workflow-timeline"><h2>Pipeline</h2>${events.map((event) => finalRulingHtml(event, panel) ?? `<article class="workflow-event status-${escapeAttribute(event.status ?? "idle")}">
+  // EX-UI-03. The compact summary answers "where is this run"; the flat stream answers "what
+  // exactly was recorded". Only the first is a question a reader has on arrival, so the stream
+  // moves behind a disclosure rather than being the page.
+  const rulings = events
+    .map((event) => finalRulingHtml(event, panel))
+    .filter((html): html is string => html !== undefined)
+    .join("");
+  // The history keeps what each attempt recorded, not only that it happened. The detail is the
+  // bounded, redacted projection the manager sent, and it stays behind its own closed disclosure
+  // so the stream still reads as a list rather than as a dump.
+  const stream = events.map((event) => `<article class="workflow-event status-${escapeAttribute(event.status ?? "idle")}">
     <span class="workflow-dot"></span>
-    <div><strong>${escapeHtml(event.title ?? event.type)}</strong><small>${escapeHtml(event.type)} · ${escapeHtml(formatDateTime(event.createdAt))}</small>${failureNote(event)}</div>
-  </article>`).join("")}</section>`;
+    <div><strong>${escapeHtml(event.title ?? event.type)}</strong><small>${escapeHtml(event.type)} · ${escapeHtml(formatDateTime(event.createdAt))}</small>${failureNote(event)}${event.payload === undefined ? "" : jsonDetailsHtml("Technical detail", event.payload, `workflow-event:${conversationId}:${String(event.id)}`)}</div>
+  </article>`).join("");
+  return `${rulingTraceHtml(events, panel)}${pipelineSummaryHtml(conversationId)}${rulings}<details class="info-disclosure workflow-timeline" ${disclosureAttributes(`workflow-events:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Raw event history · ${String(events.length)} recorded</summary><div class="workflow-timeline-body">${stream}</div></details>`;
 };
 
 /**
@@ -409,6 +594,12 @@ const assessmentStatusLine = (result: RunResultCenter): string => {
   if (outcome === "notApplicable") {
     return "Not applicable";
   }
+  // A run that died before consensus is not an assessment. Reading "Inconclusive · 0 findings"
+  // there told the reader the participants had looked and could not decide, when in fact nobody
+  // ever answered.
+  if (outcome === "failedBeforeRuling") {
+    return "Failed before final ruling";
+  }
   if (outcome === "inconclusive") {
     const assurance = verificationPassed(result)
       ? [`controller-checked: ${passedCheckSummary(result)}`]
@@ -482,6 +673,13 @@ const recommendedNextAction = (result: RunResultCenter): string => {
   if (outcome === "verificationFailed") {
     return "Do not apply. Read the failing verification, then fix the cause and run again.";
   }
+  if (outcome === "failedBeforeRuling") {
+    const failure = result.finalAssessment?.failure;
+    const who = failure?.participant ?? failure?.agentId;
+    return who === undefined
+      ? "Do not apply. This run stopped on an error before any ruling was produced. Read the failure below, fix the cause, and run again."
+      : `Do not apply. This run stopped on an error from ${who} before any ruling was produced. Read the failure below, fix the cause, and run again.`;
+  }
   if (outcome === "inconclusive") {
     return "Read the evidence gaps and unresolved risks below before you decide. Rerun the approved checks if you want the evidence proven again.";
   }
@@ -520,7 +718,33 @@ const outcomeIcon: Record<string, string> = {
   completed: "pass",
   verificationFailed: "error",
   inconclusive: "question",
+  failedBeforeRuling: "error",
   notApplicable: "circle-slash",
+};
+
+// What stopped a run that never reached a ruling: the participant, the provider and model it was
+// actually running on, the step, and the provider's own words. Every part the run did not record
+// is left out rather than guessed at.
+const runFailureHtml = (result: RunResultCenter): string => {
+  const failure = result.finalAssessment?.failure;
+  if (!failure) return "";
+  const rows: Array<[string, string]> = [
+    ...(failure.participant ?? failure.agentId
+      ? [["Participant", failure.participant ?? failure.agentId] as [string, string]]
+      : []),
+    ...(failure.provider ?? failure.adapter
+      ? [["Provider", failure.provider ?? failure.adapter] as [string, string]]
+      : []),
+    ["Model", failure.model ?? "not recorded"],
+    ...(failure.step === undefined ? [] : [["Step", failure.step] as [string, string]]),
+    ["Provider error", failure.error],
+  ];
+  // The assessment line above already says the run failed before a ruling. This section says where
+  // and on what, so repeating the verdict as its heading spent a line saying nothing new.
+  return `<section class="result-failure" data-run-failure="true">
+    <h3>Where the run stopped</h3>
+    <dl class="result-decision-grid">${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>
+  </section>`;
 };
 
 const resultDecisionSummaryHtml = (result: RunResultCenter): string => {
@@ -560,6 +784,7 @@ const resultDecisionSummaryHtml = (result: RunResultCenter): string => {
     <!-- EX-UI-01. The next safe action is what the reader came for, so it is beside the outcome
          rather than at the bottom of a collapsed disclosure of assessment detail. -->
     <p class="result-next-action">${escapeHtml(recommendedNextAction(result))}</p>
+    ${runFailureHtml(result)}
     <p class="result-finding-summary"><strong>Findings · ${String(actionable)} actionable · ${String(unresolved)} need human</strong></p>
     <details class="result-finding-details"><summary>Finding details</summary>${findingDetails}</details>
     <details class="result-assessment-details"><summary>Assessment details</summary>
@@ -629,6 +854,27 @@ const resultHeadlineLabel = (result: RunResultCenter): string => {
   return statusLabel(result.status);
 };
 
+/**
+ * The two ways back into a stopped run, and the one way out of it.
+ *
+ * Restart is primary because it is the action that is always correct: it replays the recorded
+ * request against the recorded pipeline from the first step, so it does not depend on the
+ * checkpoint still describing a step worth continuing. Retry is offered beside it because
+ * repeating one failed step is much cheaper when that is all that went wrong. Discard stays a
+ * secondary destructive action behind its own confirmation.
+ *
+ * Both are refused while the room is busy. A second run started on top of the first is not a
+ * retry of anything, and a disabled control that does not say why is a dead end, so the reason
+ * travels on the control.
+ */
+const runRecoveryActionsHtml = (panel: PanelState): string => {
+  if (!panel.resumableWorkflow) return "";
+  const busy = panel.running || panel.workflowStatus === "running";
+  const blocked = busy ? ` disabled title="Interrupt the active run before restarting it"` : "";
+  const step = `${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}`;
+  return `<button class="primary" data-action="workflow-restart"${blocked}>Restart pipeline</button><button data-action="workflow-resume"${blocked} title="${escapeAttribute(`Resume the saved checkpoint at step ${step}`)}">Retry failed step</button>`;
+};
+
 const resultCenterHtml = (conversationId: string, panel: PanelState): string => {
   const result = state.manager.resultsByConversation?.[conversationId];
   if (!result) return "";
@@ -645,9 +891,16 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
     : result.expectations?.verification === false
       ? `<p class="muted">Not applicable: this pipeline declares no controller-owned verification.</p>`
       : `<p class="muted">No verification evidence was recorded.</p>`;
-  const risks = result.unresolvedRisks.length > 0
-    ? `<ul class="ruling-list risks">${result.unresolvedRisks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul>`
-    : `<p class="muted">No unresolved risks were recorded.</p>`;
+  // The failure section above states the error that stopped the run, in full, with the
+  // participant and model behind it. Printing the same sentence again under "Unresolved risks"
+  // reads as a second problem. The record still carries it; the result states it once.
+  const failureError = result.finalAssessment?.failure?.error;
+  const visibleRisks = result.unresolvedRisks.filter((risk) => risk !== failureError);
+  const risks = visibleRisks.length > 0
+    ? `<ul class="ruling-list risks">${visibleRisks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul>`
+    : result.unresolvedRisks.length > 0
+      ? `<p class="muted">The only unresolved risk recorded is the failure stated above.</p>`
+      : `<p class="muted">No unresolved risks were recorded.</p>`;
   const recovered = (result.recoveredErrors ?? []).length > 0
     ? `<section><h3>Recovered errors</h3><ul class="ruling-list">${result.recoveredErrors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul></section>`
     : "";
@@ -677,12 +930,24 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
       ${hunkPickerHtml(conversationId, orchestrationRunId)}
     </section>`
     : "";
-  return `<section class="result-center">
-    <header><div><span class="decision-label">Run result</span><h2>${escapeHtml(resultHeadlineLabel(result))}</h2></div><div class="compact-actions">${panel.resumableWorkflow ? `<button data-action="workflow-resume">Retry from recovery</button>` : ""}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">Reveal worktree</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="Run result actions" title="Run result actions">More</summary><div><button data-action="result-publish-findings">Publish findings to Problems</button><button data-action="result-source-control">Open Source Control</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">Run bundle (JSON)</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">Evidence report (Markdown)</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">Evidence findings (SARIF)</button></div></details></div></header>
-    ${resultDecisionSummaryHtml(result)}
-    <div class="result-grid"><section><h3>Changed files</h3>${files}${result.diffSummary ? `<pre>${escapeHtml(result.diffSummary)}</pre>` : ""}</section><section><h3>Verification</h3>${checks}${verificationCurrencyLine(result)}</section></div>
+  // A run that stopped before any participant answered has no changed files, no verification, no
+  // ruling and no risks — four headings whose whole content is "nothing was recorded". Stated once
+  // behind a disclosure they are still available and no longer bury the failure above them.
+  const evidenceSections = `<div class="result-grid"><section><h3>Changed files</h3>${files}${result.diffSummary ? `<pre>${escapeHtml(result.diffSummary)}</pre>` : ""}</section><section><h3>Verification</h3>${checks}${verificationCurrencyLine(result)}</section></div>
     <section><h3>Final ruling</h3>${result.finalRuling ? `<div class="markdown">${renderMarkdown(result.finalRuling)}</div>${rulingProvenanceLabel(result) ? `<p class="muted">${escapeHtml(rulingProvenanceLabel(result) ?? "")}</p>` : ""}` : result.expectations?.finalRuling === false ? `<p class="muted">Not applicable: this pipeline declares no consensus or checklist ruling.</p>` : `<p class="muted">No final ruling was recorded.</p>`}${(result.providers ?? []).length > 0 ? `<p class="muted">Providers: ${escapeHtml((result.providers ?? []).map((provider) => provider.model ? `${provider.name} (${provider.adapter} · ${provider.model})` : `${provider.name} (${provider.adapter})`).join(", "))}</p>` : ""}</section>
-    <section><h3>Unresolved risks</h3>${risks}</section>
+    <section><h3>Unresolved risks</h3>${risks}</section>`;
+  const nothingRecorded = result.finalAssessment?.outcome === "failedBeforeRuling" &&
+    result.changedFiles.length === 0 &&
+    result.checks.length === 0 &&
+    result.finalRuling === undefined &&
+    visibleRisks.length === 0;
+  const evidenceSectionsHtml = nothingRecorded
+    ? `<details class="info-disclosure result-empty-sections" ${disclosureAttributes(`result-empty:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Changed files, verification, final ruling and unresolved risks · nothing was recorded</summary><div class="result-empty-body">${evidenceSections}</div></details>`
+    : evidenceSections;
+  return `<section class="result-center">
+    <header><div><span class="decision-label">Run result</span><h2>${escapeHtml(resultHeadlineLabel(result))}</h2></div><div class="compact-actions">${runRecoveryActionsHtml(panel)}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">Reveal worktree</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="Run result actions" title="Run result actions">More</summary><div><button data-action="result-publish-findings">Publish findings to Problems</button><button data-action="result-source-control">Open Source Control</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">Run bundle (JSON)</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">Evidence report (Markdown)</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">Evidence findings (SARIF)</button></div></details></div></header>
+    ${resultDecisionSummaryHtml(result)}
+    ${evidenceSectionsHtml}
     ${recovered}
     ${result.retainedWorktree ? `<p class="result-worktree"><strong>Recovery worktree</strong> ${escapeHtml(result.retainedWorktree)}</p>` : ""}
     ${gaps}

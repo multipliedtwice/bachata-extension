@@ -31,10 +31,13 @@ test("a root that is not a repository says so beside the failure Git gave", () =
     outcome: "statusFailed",
     error: new Error("fatal: not a git repository"),
   });
+  // `repository: false` separates this from an absent Git: installing Git does nothing for a
+  // folder that simply is not a repository, so the two carry different remedies.
   assert.deepEqual(readiness, {
     available: false,
     detail: "fatal: not a git repository",
     statusDetail: "The selected root is not a usable Git repository",
+    repository: false,
   });
   assert.equal("dirtyPaths" in readiness, false, "a status nobody read reported a clean tree");
   assert.deepEqual(
@@ -43,6 +46,7 @@ test("a root that is not a repository says so beside the failure Git gave", () =
       available: false,
       detail: "17",
       statusDetail: "The selected root is not a usable Git repository",
+      repository: false,
     },
   );
 });
@@ -55,6 +59,7 @@ test("a clean worktree is clean, and its empty dirty list is present rather than
     clean: true,
     statusDetail: "Workspace is clean",
     dirtyPaths: [],
+    repository: true,
   });
 });
 

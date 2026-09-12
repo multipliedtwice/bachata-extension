@@ -3667,6 +3667,75 @@ select[multiple] option:checked {
   font-size: var(--bachata-font-xs);
 }
 
+/* The model section sits under the provider choices, because the model belongs to whichever
+   provider is now assigned and reads as a property of it rather than as a fourth provider. */
+.agents-model {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-input-border, var(--bachata-border));
+}
+
+.agents-model-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agents-model-title {
+  font-size: var(--bachata-font-sm);
+}
+
+.agents-model-check {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-model-explicit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agents-model-explicit label {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-model-input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.agents-model-detail,
+.agents-model-note {
+  margin: 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-local {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 8px;
+}
+
+.agents-local.is-ready {
+  border-color: var(--bachata-green);
+}
+
+.agents-local.is-blocked {
+  border-color: var(--vscode-errorForeground, #f14c4c);
+}
+
 .agents-locked,
 .agents-constraint,
 .agents-slot-error {
@@ -4225,9 +4294,27 @@ details[open] > summary .disclosure-chevron {
   color: var(--vscode-errorForeground);
 }
 
+.result-assessment.outcome-failedBeforeRuling .result-assessment-status .codicon,
+.result-decision.outcome-failedBeforeRuling .result-assessment-status .codicon {
+  color: var(--vscode-errorForeground);
+}
+
 .result-assessment.outcome-completed .result-assessment-status .codicon,
 .result-decision.outcome-completed .result-assessment-status .codicon {
   color: var(--bachata-success-text);
+}
+
+/* A failure is read before anything else on a run that never ruled, so it is a block of its own
+   above the findings rather than a line inside collapsed assessment detail. */
+.result-failure {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--vscode-errorForeground);
+  border-radius: 8px;
+}
+
+.result-failure h3 {
+  margin: 0 0 6px;
 }
 
 .result-next-action {
@@ -5058,4 +5145,212 @@ details.direction-evidence > ul,
   border-left: 3px solid var(--bachata-warn-text);
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
+}
+
+/*
+ * EX-UI-03. The pipeline summary: one row per enabled step, drawn as a vertical flow so order and
+ * dependency are visible without reading timestamps. Each row is a disclosure, so the compact
+ * view stays compact and the recorded activity is one press away.
+ */
+.pipeline-summary {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  padding: 13px 15px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 12px;
+  background: var(--bachata-surface);
+  overflow-wrap: anywhere;
+}
+
+.pipeline-summary > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.pipeline-summary > header h2 {
+  margin: 0;
+}
+
+.pipeline-summary-counts {
+  margin: 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.pipeline-step-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-step {
+  min-width: 0;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--vscode-editor-background);
+}
+
+/* The order line: every row but the last points at the one below it. Decorative, so it is drawn
+   with a pseudo-element and never reaches an accessibility tree. */
+.pipeline-step + .pipeline-step {
+  position: relative;
+}
+
+.pipeline-step + .pipeline-step::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 22px;
+  width: 1px;
+  height: 6px;
+  background: var(--bachata-border);
+}
+
+.pipeline-step > details > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-height: 32px;
+  padding: 7px 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.pipeline-step-position {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 50%;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.pipeline-step-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.pipeline-step-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: var(--bachata-font-sm);
+}
+
+.pipeline-step-timing {
+  flex: 0 0 auto;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.pipeline-step-completed .pipeline-step-state {
+  color: var(--bachata-green);
+}
+
+.pipeline-step-failed .pipeline-step-state {
+  color: var(--bachata-danger);
+}
+
+.pipeline-step-waiting .pipeline-step-state,
+.pipeline-step-interrupted .pipeline-step-state {
+  color: var(--bachata-muted);
+}
+
+.pipeline-step-failed {
+  border-color: var(--bachata-danger);
+}
+
+.pipeline-step-body {
+  padding: 0 10px 10px;
+  min-width: 0;
+}
+
+.pipeline-step-activity {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-step-activity li {
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.pipeline-step-activity strong,
+.pipeline-step-activity small {
+  display: block;
+}
+
+.pipeline-step-activity small {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+/*
+ * An information disclosure: background, provenance and raw records. Closed by default and
+ * visually quieter than the content it sits beside, because none of it is what a reader arrived
+ * for — and all of it is worth keeping.
+ */
+.info-disclosure {
+  max-width: 880px;
+  margin: 0 auto 12px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 10px;
+  background: var(--bachata-surface);
+  overflow-wrap: anywhere;
+}
+
+.info-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 12px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  cursor: pointer;
+}
+
+.info-disclosure > summary:hover {
+  color: var(--vscode-foreground);
+}
+
+.info-disclosure > div {
+  padding: 0 12px 12px;
+  min-width: 0;
+}
+
+.info-disclosure li,
+.info-disclosure p {
+  min-width: 0;
+}
+
+/* The raw event stream keeps the timeline's own row rules once it is inside a disclosure. */
+.workflow-timeline.info-disclosure {
+  padding: 0;
+}
+
+@media (max-width: 420px) {
+  .pipeline-step > details > summary {
+    gap: 4px 8px;
+  }
+
+  .pipeline-step-timing {
+    flex-basis: 100%;
+  }
 }
