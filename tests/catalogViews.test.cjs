@@ -62,6 +62,30 @@ test("a non-string title and a non-true flag are not taken", () => {
   assert.equal(view.secret, false);
 });
 
+test("human gate projection keeps the exact step and completed decision round", () => {
+  const humanGate = { stepId: "review", reason: "maxConsensusRounds", round: 5, decisionRound: 4 };
+  const view = openInteractionView({ ...interaction({ humanGate }), kind: "humanGate" }, "conversation-1");
+  assert.deepEqual(view.humanGate, humanGate);
+  for (const reason of ["beforeStep", "afterStep", "invalidConsensus"]) {
+    assert.deepEqual(
+      openInteractionView(interaction({ humanGate: { stepId: "review", reason } }), "conversation-1").humanGate,
+      { stepId: "review", reason },
+    );
+  }
+  for (const invalid of [{ ...humanGate, stepId: 4 }, { ...humanGate, reason: "unknown" }, null]) {
+    assert.equal(openInteractionView(interaction({ humanGate: invalid }), "conversation-1").humanGate, undefined);
+  }
+});
+
+test("a saved human resolution survives decision projection with its rationale", () => {
+  const humanResolution = { action: "acceptParticipant", selectedParticipant: "reviewer", rationale: "The keyboard reproduction is sufficient", resolvedAt: "2026-09-13T10:00:00.000Z" };
+  const view = catalogEventView({
+    id: 8, type: "decision.published", status: "ruled", createdAt: "2026-09-13T10:00:00.000Z",
+    payload: { stepId: "review", round: 4, status: "ruled", humanResolution, candidate: "Use the focus trap" },
+  });
+  assert.deepEqual(view.payload.humanResolution, humanResolution);
+});
+
 test("every event carries a bounded, redacted projection of what it recorded", () => {
   assert.deepEqual(
     catalogEventView({

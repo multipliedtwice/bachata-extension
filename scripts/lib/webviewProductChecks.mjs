@@ -6,7 +6,7 @@ const menu = ".header-action-menu > summary";
 const bell = ".notification-center > summary";
 const frame = (session) => session.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
 const runtime = (type) => ({ type: "conversation.runtime", conversationId: "run-1", message: { type } });
-const actions = ["inspector-toggle", "room-view", "pipeline-new", "pipeline-fork", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
+const actions = ["inspector-toggle", "notification-settings", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
 
 const participantStep = "Inspect the interface independently";
 const reviewPrompt = "Review the supplied interface for usability, accessibility, navigation, reading hierarchy, spacing, responsiveness, focus and action feedback.\n\nreview extension/";
@@ -67,8 +67,8 @@ const recoveryRowMeasure = `(() => {
  * The run state matrix, measured in the shipped bundle at the caller's width and theme: a working
  * run draws no result or recovery and says Working beside a progress indicator; a run that failed in
  * a step offers Restart, Retry and Discard in one row that wraps without clipping; its run
- * information starts as one closed row whose entries name their participants once opened from the
- * keyboard; and a refusal made before any participant started offers the folder, not a retry.
+ * participant prompt stays out of the feed and opens from the participant name with the keyboard;
+ * and a refusal made before any participant started offers the folder, not a retry.
  */
 const runStateMatrixChecks = async (session, key, label) => {
   await bootState(session, `(panel, manager, conversation) => {
@@ -118,38 +118,36 @@ const runStateMatrixChecks = async (session, key, label) => {
     };
   }`);
   expectAll(await session.evaluate(`(() => {
-    const details = document.querySelector(".run-information");
-    const summary = document.querySelector("#run-information-summary");
-    const box = summary.getBoundingClientRect();
+    const scroll = document.querySelector(".conversation-scroll");
+    const button = document.querySelector('[data-action="message-details"][data-message-id="error-codex"]');
+    const box = button.getBoundingClientRect();
     return {
-      closed: details.open === false,
-      label: summary.querySelector(".run-information-label").textContent === "Run information",
-      count: summary.querySelector(".info-count").textContent === "2",
+      noLegacyInformation: !document.querySelector(".run-information, .info-entry"),
+      promptHidden: !scroll.innerText.includes(${JSON.stringify(reviewPrompt)}),
       target: box.height >= 24,
+      textSize: parseFloat(getComputedStyle(button).fontSize) >= 13,
       gutter: innerWidth > 850 || (box.left >= 15.5 && box.right <= innerWidth - 15.5),
-      summaryText: [summary, ...summary.querySelectorAll("span:not(.sr-only)")].every((el) => parseFloat(getComputedStyle(el).fontSize) >= 13),
-      noNull: !/\\bnull\\b/.test(document.querySelector(".conversation-scroll").innerText),
+      noNull: !/\\bnull\\b/.test(scroll.innerText),
     };
-  })()`), `${label} information collapsed`);
-  await session.evaluate(`document.querySelector("#run-information-summary").focus()`);
+  })()`), `${label} participant prompt hidden`);
+  await session.evaluate(`document.querySelector('[data-action="message-details"][data-message-id="error-codex"]').focus()`);
   await key(session, "Enter", "Enter", 13);
   await frame(session);
   expectAll(await session.evaluate(`(() => {
-    const scroll = document.querySelector(".conversation-scroll");
-    const bounds = scroll.getBoundingClientRect();
-    const entries = [...document.querySelectorAll(".run-information .info-entry")];
+    const dialog = document.querySelector('.app-dialog[role="dialog"]');
+    const paragraphs = [...document.querySelectorAll(".turn-details .markdown > p")];
     return {
-      open: document.querySelector(".run-information").open === true,
-      focusKept: document.activeElement === document.querySelector("#run-information-summary"),
-      separate: entries.length === 2,
-      participants: entries.map((entry) => entry.querySelector(".info-entry-who")?.textContent).join("|") === "Usability reviewer|Accessibility reviewer",
-      promptsClosed: [...document.querySelectorAll(".info-entry-prompt")].every((prompt) => !prompt.open),
-      contained: entries.every((entry) => { const r = entry.getBoundingClientRect(); return r.left >= bounds.left - 1 && r.right <= bounds.right + 1; }),
-      noPageScroll: scroll.scrollWidth <= scroll.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1,
-      textSize: [...document.querySelectorAll(".info-entry-head, .info-entry-head > *, .info-entry-prompt > summary, .info-entry-text")].every((el) => parseFloat(getComputedStyle(el).fontSize) >= 13),
-      promptTargets: [...document.querySelectorAll(".info-entry-prompt > summary")].every((el) => el.getBoundingClientRect().height >= 24),
+      open: Boolean(dialog),
+      title: document.querySelector("#app-dialog-title")?.textContent === "Usability reviewer · prompt",
+      prompt: paragraphs.map((paragraph) => paragraph.textContent).join("\\n\\n") === ${JSON.stringify(reviewPrompt)},
+      defaultFocus: document.activeElement?.dataset.dialogDefault === "cancel",
+      noPageScroll: document.documentElement.scrollWidth <= innerWidth + 1,
+      textSize: [...dialog.querySelectorAll("p")].every((el) => parseFloat(getComputedStyle(el).fontSize) >= 13),
     };
-  })()`), `${label} information expanded`);
+  })()`), `${label} participant prompt open`);
+  await session.evaluate(`document.querySelector('[data-dialog-default="cancel"]').click()`);
+  await frame(session);
+  assert.equal(await session.evaluate(`document.activeElement?.dataset.messageId`), "error-codex", `${label}: participant prompt did not restore focus`);
   const failedRow = await session.evaluate(recoveryRowMeasure);
   assert.equal(failedRow.present, true, `${label}: failed run has no outcome row`);
   assert.equal(failedRow.actions, "workflow-resume|room-view", `${label}: failed run actions`);
@@ -220,6 +218,13 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
     await session.evaluate(`window.__posted = []; window.__activatedActions = []; window.__focusEvents = []; document.addEventListener("click", event => { const action = event.target.closest?.("[data-action]")?.dataset.action; if (action) window.__activatedActions.push(action); }, true); document.addEventListener("focusin", event => window.__focusEvents.push(event.target.id), true)`);
   };
   const activate = async (selector, mode, backgroundRender = false) => {
+    let present = false;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      present = await session.evaluate(`document.querySelector(${JSON.stringify(selector)}) !== null`);
+      if (present) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(present, true, `activation target rendered: ${selector}`);
     if (mode === "keyboard") {
       assert.equal(await session.evaluate(`{ const target = document.querySelector(${JSON.stringify(selector)}); target.focus(); document.activeElement === target; }`), true, `keyboard target is focusable: ${selector}`);
       await key(session, "Enter", "Enter", 13);
@@ -284,11 +289,7 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       assert.equal(await isOpen(".header-action-menu"), false, `${mode} ${action}: menu dismissal`);
       const sent = await dispatched();
       assert.deepEqual(await session.evaluate("window.__activatedActions"), [action], `${mode}: one activation`);
-      if (action === "pipeline-fork") {
-        assert.equal(sent.length, 1); assert.equal(sent[0].type, "conversation.runtime");
-        assert.equal(sent[0].conversationId, "run-1"); assert.equal(sent[0].message.type, "pipeline.fork");
-        assert.equal(sent[0].message.pipelineId, "custom-a"); assert.ok(sent[0].message.requestId);
-      } else if (["availability-check", "working-directory", "orchestration-start", "transcript-export"].includes(action)) {
+      if (["availability-check", "working-directory", "orchestration-start", "transcript-export"].includes(action)) {
         const expected = action === "orchestration-start" ? { type: "orchestration.start" }
           : runtime({ "availability-check": "availability.check", "working-directory": "workingDirectory.pick", "transcript-export": "transcript.export" }[action]);
         assert.deepEqual(sent, [expected]);
@@ -298,11 +299,6 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
         await activate(menu, mode); await activate('.header-action-menu [data-action="inspector-toggle"]', mode);
         assert.equal(await session.evaluate("document.querySelector('.inspector') === null"), true);
         assert.equal(await session.evaluate("document.activeElement.id"), "room-actions-button");
-      }
-      if (action === "room-view") assert.equal(await session.evaluate("document.querySelector('[data-view=\"direction\"]').classList.contains('selected')"), true);
-      if (action === "pipeline-new" || action === "pipeline-fork") {
-        assert.equal(await session.evaluate("document.querySelector('.pipeline-editor') !== null"), true);
-        await key(session, "Escape", "Escape", 27);
       }
       if (action === "availability-check") {
         assert.equal(await session.evaluate("document.querySelector('.agents-popover') !== null"), true);
@@ -318,13 +314,14 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       if (["working-directory", "orchestration-start", "transcript-export"].includes(action)) assert.equal(await session.evaluate("document.activeElement.id"), "room-actions-button");
       passed++;
     }
-    for (const action of ["run-unarchive", "transcript-export", "inspector-toggle"]) {
+    for (const action of ["run-unarchive", "transcript-export", "inspector-toggle", "notification-settings"]) {
       await reset({}, true); await activate(menu, mode);
-      assert.equal(await session.evaluate("document.querySelector('.header-action-menu [data-action=\"pipeline-new\"]').disabled"), true);
-      assert.match(await session.evaluate("document.querySelector('.header-action-menu [data-action=\"pipeline-new\"]').title"), /read-only/);
+      assert.equal(await session.evaluate(`[
+        "pipeline-new", "pipeline-fork", "availability-check", "working-directory", "orchestration-start", "task-reset"
+      ].every(action => document.querySelector('.header-action-menu [data-action="' + action + '"]') === null)`), true);
       await session.evaluate("window.__posted = []");
       await activate(`.header-action-menu [data-action="${action}"]`, mode);
-      assert.deepEqual(await dispatched(), action === "inspector-toggle" ? [] : [action === "run-unarchive" ? { type: "conversation.archive", conversationId: "run-1", archived: false } : runtime("transcript.export")]);
+      assert.deepEqual(await dispatched(), action === "inspector-toggle" || action === "notification-settings" ? [] : [action === "run-unarchive" ? { type: "conversation.archive", conversationId: "run-1", archived: false } : runtime("transcript.export")]);
       assert.equal(await isOpen(".header-action-menu"), false); passed++;
     }
     for (const waiting of [false, true]) {
@@ -379,10 +376,14 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       await activate(bell, "keyboard");
       assert.equal(await isOpen(".header-action-menu"), false);
       assert.equal(await isOpen(".notification-center"), true);
-      assert.equal(await session.evaluate("document.querySelector('#notification-mode').closest('.notification-center') !== null"), true);
+      assert.equal(await session.evaluate("document.querySelector('#notification-mode') === null"), true);
+      await activate('.notification-center [data-action="notification-settings"]', "keyboard");
+      assert.equal(await session.evaluate("document.querySelector('#notification-mode')?.closest('.app-dialog') !== null"), true);
       await session.evaluate("window.__posted = []; const mode = document.querySelector('#notification-mode'); mode.value = 'off'; mode.dispatchEvent(new Event('change', { bubbles: true }))");
       await frame(session);
       assert.deepEqual(await dispatched(), [{ type: "notifications.setMode", mode: "off" }]);
+      await key(session, "Escape", "Escape", 27);
+      assert.equal(await session.evaluate("document.querySelector('.app-dialog') === null"), true);
       await key(session, "Escape", "Escape", 27);
       assert.equal(await isOpen(".notification-center"), false);
       assert.equal(await session.evaluate("document.activeElement === document.querySelector('.notification-center > summary')"), true);
@@ -410,16 +411,12 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
         return { overflow: document.documentElement.scrollWidth > innerWidth,
           gutters: box.left >= 12 && box.right <= innerWidth - 12,
           disclosures: [...area.querySelectorAll('details.info-disclosure')].every(el => !el.open),
-          smallCount: textNodes.filter(el => el.matches('small')).length,
-          metadataCount: textNodes.filter(el => el.matches('[class*="meta"],.pipeline-step-timing')).length,
           undersized: textNodes.filter(el => parseFloat(getComputedStyle(el).fontSize) < 13).map(el => ({ tag: el.tagName, className: el.className, size: getComputedStyle(el).fontSize })),
           text: textNodes.every(el => parseFloat(getComputedStyle(el).fontSize) >= 13),
           controls: nodes.filter(el => el.matches('button,summary')).every(el => el.getBoundingClientRect().height >= 24),
           padding: cards.every(el => parseFloat(getComputedStyle(el).paddingLeft) >= (innerWidth <= 600 ? 12 : 16) && parseFloat(getComputedStyle(el).paddingRight) >= (innerWidth <= 600 ? 12 : 16))
         };
       })()`);
-      assert.ok(layout.smallCount > 0, `${theme} ${width}: small text was not measured`);
-      assert.ok(layout.metadataCount > 0, `${theme} ${width}: metadata text was not measured`);
       assert.deepEqual(layout.undersized, [], `${theme} ${width}: secondary text below 13px`);
       assert.equal(layout.overflow, false, `${theme} ${width}: overflow`);
       for (const property of ["gutters", "disclosures", "text", "controls", "padding"]) assert.equal(layout[property], true, `${theme} ${width}: ${property}`);

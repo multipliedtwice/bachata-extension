@@ -2562,6 +2562,41 @@ test("a second execution never inherits the first execution's terminal evidence"
   }
 });
 
+test("a human completion stops every remaining requested iteration", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversation = await harness.manager.createConversation({ title: "Manual resolution", pipelineId: "cross-reference-development" });
+    const runtime = harness.runtimeInstances.at(-1);
+    runtime.pipelineResults.push({ status: "completed", completionReason: "humanDecision", answers: {}, outputs: {}, decisions: {}, roles: {} });
+    const result = await harness.manager.runConversation(conversation.id, "Review UI", [], 4);
+    assert.equal(result.iterations.length, 1);
+    assert.equal(runtime.pipelineCalls.length, 1);
+    assert.equal(result.pipeline.completionReason, "humanDecision");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("a human completion after resume does not start another iteration", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversation = await harness.manager.createConversation({ title: "Deferred resolution", pipelineId: "cross-reference-development" });
+    const runtime = harness.runtimeInstances.at(-1);
+    runtime.pipelineResults.push({ status: "interrupted", answers: {}, outputs: {}, decisions: {}, roles: {} });
+    await harness.manager.runConversation(conversation.id, "Review UI", [], 3);
+    runtime.pipelineResults.push({ status: "completed", completionReason: "humanDecision", answers: {}, outputs: {}, decisions: {}, roles: {} });
+    await harness.manager.handleMessage({ type: "conversation.runtime", conversationId: conversation.id, message: { type: "workflow.resume" } });
+    assert.equal(runtime.resumeCalls.length, 1);
+    assert.equal(runtime.pipelineCalls.length, 1);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
 test("pipeline iterations use fresh sessions, run sequentially, and persist exact Bachata bindings", async () => {
   const harness = loadHarness();
   try {
@@ -3712,7 +3747,7 @@ test("workflow resume restores catalog context after restart and completes all r
 });
 
 
-test("decision events expose the final ruling without duplicating participant candidates", async () => {
+test("decision events bind the final ruling and retain participant comparison evidence", async () => {
   const harness = loadHarness();
   try {
     await harness.manager.handleMessage({ type: "manager.ready" });
@@ -3772,6 +3807,7 @@ test("decision events expose the final ruling without duplicating participant ca
     );
     assert.equal(decision.payload.ruledBy, "claude");
     assert.equal(decision.payload.status, "ruled");
+    assert.equal(state.resultsByConversation.default.finalDecisionEventId, decision.id);
     assert.deepEqual(decision.payload.candidate, {
       findings: [{
         id: "finding-1",
@@ -3784,12 +3820,14 @@ test("decision events expose the final ruling without duplicating participant ca
         challenges: ["Removal was considered and rejected"],
       }],
     });
-    assert.equal(decision.payload.participants[0].candidate, undefined);
     assert.deepEqual(decision.payload.participants[0], {
       agentId: "codex",
       valid: true,
       accepted: false,
       candidateHash: "def",
+      candidate: { large: "not copied to the event summary" },
+      objections: ["Keep the fallback"],
+      unresolvedRisks: ["Provider DOM drift"],
       validationErrors: [],
     });
     assert.deepEqual(state.resultsByConversation.default.findings, [{

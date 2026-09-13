@@ -8,6 +8,8 @@ import {
 } from "../adapters/types";
 import { isProviderFailureError, providerFallbackFailureCodes } from "../adapters/providerFailure";
 import { consensusAcceptanceFor } from "./consensusPromotion";
+import { parsePendingConsensus } from "./consensusCheckpoint";
+import { CONSENSUS_RETRY_ROUNDS } from "./consensusPolicy";
 import { stoppedByUser } from "../runtime/userStop";
 import { describeCapability } from "./capabilities";
 import { resolveCandidateShape } from "./candidateShapes";
@@ -91,12 +93,17 @@ export type HumanGateAction =
   | "rerunStep"
   | "repeatConsensus"
   | "requestArbiterRuling"
+  | "acceptUnresolved"
+  | "acceptParticipant"
   | "rollback";
 
 export type HumanGateDecision = {
   action: HumanGateAction;
   targetStepId?: string;
   interventions?: PipelineIntervention[];
+  rationale?: string;
+  selectedParticipant?: AgentId;
+  reviewInstructions?: string;
 };
 
 export type HumanGateRequest = {
@@ -106,6 +113,8 @@ export type HumanGateRequest = {
   rollbackTargets: Array<{ id: string; name: string }>;
   round?: number;
   detail?: string;
+  decisionRound?: number;
+  conclusionOptions?: Array<{ agentId: string; label: string }>;
 };
 
 export type ExecutionChecklistRequest = {
@@ -162,6 +171,7 @@ export type ParticipantStart = {
 
 export type PipelineRunResult = {
   status: "completed" | "interrupted";
+  completionReason?: "humanDecision";
   roles: Record<string, AgentId>;
   answers: Record<string, Record<AgentId, string>>;
   outputs: Record<string, Record<AgentId, StepOutputArtifact>>;
@@ -192,6 +202,17 @@ export type PendingExecutionChecklist = {
   issues: ExecutionChecklistIssue[];
 };
 
+export type PendingConsensus = {
+  round: number;
+  roundLimit: number;
+  sourceAnswers: PipelineOrderedAnswers;
+  results: PipelineOrderedAnswers;
+  participants: Record<AgentId, string>;
+  reviewInstructions: string[];
+  gateReason?: "maxConsensusRounds" | "invalidConsensus";
+  gateDetail?: string;
+};
+
 export type PipelineRunnerSnapshot = {
   roles: Record<string, AgentId>;
   answers: Record<string, Record<AgentId, string>>;
@@ -202,6 +223,7 @@ export type PipelineRunnerSnapshot = {
   decisions?: Record<string, DecisionArtifact[]> | undefined;
   namedOutputs?: Record<string, JsonValue> | undefined;
   pendingChecklists?: Record<string, PendingExecutionChecklist> | undefined;
+  pendingConsensus?: Record<string, PendingConsensus> | undefined;
 };
 
 export type PipelineResumeState = {
@@ -624,6 +646,11 @@ const gate = async (
       `Action ${decision.action} is not allowed for ${request.reason} on step ${request.step.id}`,
     );
   }
+  if (decision.action === "acceptParticipant" && !request.conclusionOptions?.some(
+    (option) => option.agentId === decision.selectedParticipant,
+  )) {
+    throw new Error("Select a valid participant conclusion");
+  }
   if (decision.action === "rollback") {
     if (
       !decision.targetStepId ||
@@ -828,6 +855,9 @@ export const executePipeline = async (
   let pendingChecklists: Record<string, PendingExecutionChecklist> = resumeState?.snapshot.pendingChecklists
     ? structuredClone(resumeState.snapshot.pendingChecklists)
     : {};
+  const parsedConsensus = parsePendingConsensus(resumeState?.snapshot.pendingConsensus);
+  if (!parsedConsensus) throw new Error("The saved consensus checkpoint is invalid");
+  let pendingConsensus = parsedConsensus;
   let latestAnswers: Record<AgentId, string> = resumeState
     ? { ...resumeState.snapshot.latestAnswers }
     : {};
@@ -839,9 +869,20 @@ export const executePipeline = async (
     : emptyAnswers();
   const snapshots = new Map<number, PipelineRunnerSnapshot>();
   let index = resumeState?.nextStepIndex ?? 0;
+  for (const [stepId, pending] of Object.entries(pendingConsensus)) {
+    const checkpointStep = pipeline.steps[index];
+    if (checkpointStep?.id !== stepId || checkpointStep.type !== "agent" || !checkpointStep.consensus ||
+        pending.results.order.some((agentId) => !agentIds.has(agentId) || !checkpointStep.participants.includes(pending.participants[agentId]!)) ||
+        (pending.gateReason !== undefined && decisions[stepId]?.at(-1)?.round !== (pending.gateReason === "maxConsensusRounds" ? pending.round - 1 : pending.round))) {
+      throw new Error("The saved consensus checkpoint does not match this pipeline decision");
+    }
+  }
 
   const result = (status: PipelineRunResult["status"]): PipelineRunResult => ({
     status,
+    ...(status === "completed" && Object.values(decisions).some((artifacts) => artifacts.at(-1)?.humanResolution)
+      ? { completionReason: "humanDecision" as const }
+      : {}),
     roles,
     answers,
     outputs,
@@ -860,6 +901,7 @@ export const executePipeline = async (
     decisions: cloneDecisions(decisions),
     namedOutputs: structuredClone(namedOutputs),
     pendingChecklists: structuredClone(pendingChecklists),
+    pendingConsensus: structuredClone(pendingConsensus),
   });
 
   const restoreSnapshot = (targetIndex: number): void => {
@@ -876,6 +918,7 @@ export const executePipeline = async (
     decisions = cloneDecisions(snapshot.decisions ?? {});
     namedOutputs = structuredClone(snapshot.namedOutputs ?? {});
     pendingChecklists = structuredClone(snapshot.pendingChecklists ?? {});
+    pendingConsensus = structuredClone(snapshot.pendingConsensus ?? {});
     Array.from(snapshots.keys()).forEach((snapshotIndex) => {
       if (snapshotIndex > targetIndex) {
         snapshots.delete(snapshotIndex);
@@ -907,7 +950,12 @@ export const executePipeline = async (
     }
     Object.assign(latestAnswers, ordered.values);
     previousStepAnswers = cloneOrderedAnswers(ordered);
-    latestInterventions = cloneOrderedAnswers(ordered);
+    const combined = mergeOrderedAnswers(latestInterventions, ordered);
+    for (const agentId of ordered.order) {
+      const earlier = latestInterventions.values[agentId];
+      if (earlier) combined.values[agentId] = `${earlier}\n\n${ordered.values[agentId]}`;
+    }
+    latestInterventions = combined;
     const key = `@intervention:${stepId}:${interventions?.at(-1)?.id ?? "unknown"}`;
     answers[key] = { ...ordered.values };
     return ordered;
@@ -951,7 +999,7 @@ export const executePipeline = async (
     });
     callbacks.onStep(step, index);
 
-    if (hasGate(step, "before")) {
+    if (hasGate(step, "before") && !pendingConsensus[step.id]) {
       const rollbackTargets = enabledRollbackTargets(pipeline, index, false, snapshots);
       const decision = await gate(callbacks, {
         step,
@@ -1234,6 +1282,7 @@ export const executePipeline = async (
     }
     const runAttachments = agentStep.attachments === "selected" ? attachments : [];
 
+    const reviewInstructions = [...(pendingConsensus[step.id]?.reviewInstructions ?? [])];
     const runRound = async (
       sourceAnswers: PipelineOrderedAnswers,
       round?: number,
@@ -1330,7 +1379,7 @@ export const executePipeline = async (
             namedOutputs,
           );
           const renderedPrompt = renderTemplate(agentStep.promptTemplate, values);
-          const prompt = roleDefinition
+          const participantPrompt = roleDefinition
             ? [
                 `Role: ${roleDefinition.name} (${roleDefinition.id})`,
                 ...(agentStep.promptTemplate.includes("{{roleInstructions}}")
@@ -1340,6 +1389,11 @@ export const executePipeline = async (
                 renderedPrompt,
               ].join("\n\n")
             : renderedPrompt;
+          const prompt = reviewInstructions.length === 0 ? participantPrompt : [
+            participantPrompt,
+            "Human review instructions. Apply these to the existing participant conclusions in this one additional round:",
+            ...reviewInstructions,
+          ].join("\n\n");
           claimedAgentIds.add(candidateId);
           try {
             const result = await runAgent(
@@ -1418,7 +1472,15 @@ export const executePipeline = async (
       };
     };
 
-    let stepResults: OrderedRunResults = { order: [], values: {}, participants: {} };
+    const savedConsensus = pendingConsensus[step.id];
+    let stepResults: OrderedRunResults = savedConsensus ? {
+      order: [...savedConsensus.results.order],
+      values: Object.fromEntries(savedConsensus.results.order.map((agentId) => [agentId, {
+        status: "completed" as const,
+        answer: savedConsensus.results.values[agentId]!,
+      }])),
+      participants: { ...savedConsensus.participants },
+    } : { order: [], values: {}, participants: {} };
 
     if (agentStep.consensus) {
       const config = agentStep.consensusConfig;
@@ -1500,58 +1562,126 @@ export const executePipeline = async (
         return true;
       };
 
-      let round = 1;
-      let roundLimit = config.maxRounds;
-      let sourceAnswers = previousStepAnswers;
+      let round = savedConsensus?.round ?? 1;
+      let roundLimit = savedConsensus?.roundLimit ?? config.maxRounds;
+      let sourceAnswers = savedConsensus ? cloneOrderedAnswers(savedConsensus.sourceAnswers) : previousStepAnswers;
+      let pendingReason = savedConsensus?.gateReason;
+      let pendingDetail = savedConsensus?.gateDetail;
       let complete = false;
+      const saveConsensus = async (): Promise<void> => {
+        pendingConsensus[step.id] = {
+          round,
+          roundLimit,
+          sourceAnswers: cloneOrderedAnswers(sourceAnswers),
+          results: orderedResultAnswers(stepResults),
+          participants: { ...stepResults.participants },
+          reviewInstructions: [...reviewInstructions],
+          ...(pendingReason === undefined ? {} : { gateReason: pendingReason }),
+          ...(pendingDetail === undefined ? {} : { gateDetail: pendingDetail }),
+        };
+        if (stepResults.order.length > 0) answers[step.id] = { ...orderedResultAnswers(stepResults).values };
+        await callbacks.onCheckpoint?.({ version: 1, nextStepIndex: index, snapshot: captureSnapshot() });
+      };
 
       while (!complete) {
         if (interrupted()) {
           return result("interrupted");
         }
-        if (round > roundLimit) {
-          if (onMaxRounds === "fail") {
+        if (round > roundLimit || pendingReason !== undefined) {
+          if (pendingReason !== "invalidConsensus" && onMaxRounds === "fail") {
             throw new Error(`Consensus step ${step.id} reached its maximum rounds`);
           }
-          if (onMaxRounds === "requestArbiterRuling") {
+          if (pendingReason !== "invalidConsensus" && onMaxRounds === "requestArbiterRuling") {
             complete = await runArbiter(sourceAnswers, round);
             break;
           }
+          pendingReason ??= "maxConsensusRounds";
+          await saveConsensus();
+          const currentArtifact = decisions[step.id]?.at(-1);
+          const conclusionOptions = currentArtifact?.participants.filter((participant) => participant.valid).map((participant) => ({
+            agentId: participant.agentId,
+            label: roleDefinitions.get(stepResults.participants[participant.agentId] ?? "")?.name ?? agentDefinitions.get(participant.agentId)?.name ?? "Participant",
+          })) ?? [];
           const decision = await gate(callbacks, {
             step,
-            reason: "maxConsensusRounds",
-            allowedActions: [
+            reason: pendingReason,
+            allowedActions: pendingReason === "invalidConsensus" ? [
+              ...(conclusionOptions.length > 0 ? ["acceptParticipant" as const] : []),
               "retry",
               "discardStep",
+              "cancel",
+            ] : [
+              "acceptUnresolved",
+              ...(conclusionOptions.length > 0 ? ["acceptParticipant" as const] : []),
               ...(config.mode === "arbiter"
                 ? (["requestArbiterRuling"] as HumanGateAction[])
                 : []),
+              "retry",
               "cancel",
             ],
             rollbackTargets: enabledRollbackTargets(pipeline, index, false, snapshots),
             round,
+            conclusionOptions,
+            ...(currentArtifact === undefined ? {} : { decisionRound: currentArtifact.round }),
+            ...(pendingDetail === undefined ? {} : { detail: pendingDetail }),
           });
           if (decision.action === "cancel") {
             return result("interrupted");
           }
-          const interventionSource = applyInterventions(
+          applyInterventions(
             step.id,
             decision.interventions,
           );
-          if (interventionSource.order.length > 0) {
-            sourceAnswers = interventionSource;
-          }
+          if (decision.reviewInstructions?.trim()) reviewInstructions.push(decision.reviewInstructions.trim());
           if (decision.action === "discardStep") {
             stepResults = { order: [], values: {}, participants: {} };
             break;
+          }
+          if (decision.action === "acceptUnresolved" || decision.action === "acceptParticipant") {
+            if (!currentArtifact) throw new Error("No participant conclusions are available to resolve");
+            const selected = currentArtifact.participants.find((participant) => participant.agentId === decision.selectedParticipant && participant.valid);
+            const resolved: DecisionArtifact = {
+              ...structuredClone(currentArtifact),
+              status: selected ? "ruled" : "resolved",
+              ...(selected ? { candidate: selected.candidate, candidateHash: selected.candidateHash, candidateId: `D${selected.candidateHash.slice(0, 16).toUpperCase()}` } : {}),
+              objections: currentArtifact.objections.map((objection) => ({
+                ...objection,
+                accepted: selected !== undefined && currentArtifact.participants.some((participant) =>
+                  participant.agentId === objection.agentId && participant.valid && participant.candidateHash === selected.candidateHash),
+              })),
+              rulingProvenance: {
+                kind: "humanResolution",
+                resolvedBy: "You",
+                participants: currentArtifact.participants.map((participant) => rulingIdentities[participant.agentId] ?? { agentId: participant.agentId }),
+              },
+              humanResolution: {
+                action: decision.action,
+                rationale: decision.rationale?.trim() ?? "",
+                ...(selected ? { selectedParticipant: selected.agentId } : {}),
+                resolvedAt: new Date().toISOString(),
+              },
+            };
+            decisions[step.id] = [...(decisions[step.id] ?? []), resolved];
+            const completedAnswers = orderedResultAnswers(stepResults);
+            answers[step.id] = completedAnswers.values;
+            Object.assign(latestAnswers, completedAnswers.values);
+            previousStepAnswers = completedAnswers;
+            delete pendingConsensus[step.id];
+            await callbacks.onCheckpoint?.({ version: 1, nextStepIndex: pipeline.steps.length, snapshot: captureSnapshot() });
+            await callbacks.onDecision?.(resolved);
+            return { ...result("completed"), completionReason: "humanDecision" };
           }
           if (decision.action === "requestArbiterRuling") {
             complete = await runArbiter(sourceAnswers, round);
             break;
           }
-          roundLimit += config.maxRounds;
+          if (pendingReason === "invalidConsensus") round += 1;
+          roundLimit = round + CONSENSUS_RETRY_ROUNDS - 1;
+          pendingReason = undefined;
+          pendingDetail = undefined;
         }
 
+        await saveConsensus();
         stepResults = await runRound(sourceAnswers, round);
         if (
           stepResults.order.some(
@@ -1593,34 +1723,13 @@ export const executePipeline = async (
           }
         }
         if (invalid.length > 0) {
-          const decision = await gate(callbacks, {
-            step,
-            reason: "invalidConsensus",
-            allowedActions: ["retry", "discardStep", "cancel"],
-            rollbackTargets: enabledRollbackTargets(pipeline, index, false, snapshots),
-            round,
-            detail: invalid.join("\n"),
-          });
-          if (decision.action === "cancel") {
-            return result("interrupted");
-          }
-          const interventionSource = applyInterventions(
-            step.id,
-            decision.interventions,
-          );
-          if (decision.action === "discardStep") {
-            stepResults = { order: [], values: {}, participants: {} };
-            break;
-          }
-          if (interventionSource.order.length > 0) {
-            sourceAnswers = interventionSource;
-          }
-          if (decision.action === "retry") {
-            roundLimit += 1;
-          }
+          pendingReason = "invalidConsensus";
+          pendingDetail = invalid.join("\n");
+          continue;
         }
         round += 1;
       }
+      delete pendingConsensus[step.id];
     } else {
       stepResults = await runRound(previousStepAnswers);
       if (

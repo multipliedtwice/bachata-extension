@@ -39,6 +39,7 @@ const profiles = {
       ".github",
       ".vscode",
       "benchmarks",
+      "cypress",
       "docs",
       "e2e",
       "media",

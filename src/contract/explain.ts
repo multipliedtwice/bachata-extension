@@ -24,9 +24,9 @@ export const renderContractExplanation = (contract: ExecutionContract): string =
       ? []
       : [`Revision cycles: ${String(contract.limits.maxRevisionCycles)}`]),
     ...(contract.limits.consensusSteps ?? []).map((step) =>
-      `Consensus rounds, ${step.stepName}: at most ${String(step.maxRounds)} before a human decision. Retrying after an invalid round grants one more${
+      `Consensus rounds, ${step.stepName}: at most ${String(step.maxRounds)} before a human decision. Each requested review adds ${String(step.retryRounds ?? 1)} round${(step.retryRounds ?? 1) === 1 ? "" : "s"}${
         step.roundLimitRetryable
-          ? `, and retrying at the round limit grants another ${String(step.maxRounds)}`
+          ? ", including at the round limit"
           : "; at the round limit this step does not offer a retry"
       }`),
     contract.limits.maxParticipantTurns === undefined

@@ -25,40 +25,10 @@ const notificationLevelLabel: Record<"decision" | "material" | "routine", string
  */
 const notificationBellHtml = (): string => {
   const center = notificationCenterState();
-  const unread = center.mode === "off" ? 0 : center.unread;
+  if (center.mode === "off" || center.events.length === 0) return "";
+  const unread = center.unread;
   const list = `<ul class="notification-list">${center.events
         .map((entry) => `<li class="notification-${escapeAttribute(entry.level)}${entry.read ? "" : " unread"}">${entry.read ? "" : `<strong class="notification-unread-flag">Unread</strong>`}<span class="notification-level">${escapeHtml(notificationLevelLabel[entry.level])}</span><p id="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(entry.text)}</p><div class="compact-actions"><button data-action="notification-open" data-record="${escapeAttribute(entry.id)}" aria-describedby="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(notificationActionLabel[entry.action])}</button></div></li>`)
         .join("")}</ul>`;
-  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary id="notification-button" aria-label="${escapeAttribute(`Notifications, ${String(unread)} unread`)}" title="Notifications"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="Notifications">${notificationModeControlHtml()}${center.events.length === 0 ? '<p class="muted">No notifications yet.</p>' : ""}<div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>Mark all read</button><button data-action="notification-clear">Clear</button></div>${list}<p class="muted">Bachata writes these lines from recorded state. They cost no model tokens and never enter a reviewer prompt.</p></div></details>`;
-};
-
-const reconstructionLabel: Record<"available" | "unavailable" | "unknown", string> = {
-  available: "reconstructable",
-  unavailable: "unavailable",
-  unknown: "unknown",
-};
-
-/**
- * Where the provider's own history lives, behind an information disclosure.
- *
- * It is provenance: true, worth keeping, and never the thing a reader came to the execution view
- * to find. Drawn open it pushed the run's actual state down the page behind a paragraph of
- * background, so it states its own subject in the summary and stays closed until asked.
- */
-const providerHistoryHtml = (conversationId: string): string => {
-  const locators = state.manager.conversationLocators?.[conversationId] ?? [];
-  if (locators.length === 0) return "";
-  return `<details class="info-disclosure provider-history" ${disclosureAttributes(`provider-history:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Where this run's provider history lives · ${String(locators.length)} recorded</summary><div class="provider-history-body"><ul>${locators
-    .map((locator) => `<li><div><strong>${escapeHtml(`${locator.role} · ${locator.provider}`)}</strong><small>${escapeHtml(`${locator.adapter} · history ${reconstructionLabel[locator.reconstruction]} · last seen ${formatDateTime(locator.lastSeenAt)}`)}</small></div><p class="muted">${escapeHtml(locator.reconstructionDetail)}</p></li>`)
-    .join("")}</ul><p class="muted">Bachata keeps a locator, compact typed outputs, and a bounded local transcript. It never stores a full provider transcript, and exports carry no session or conversation identity.</p></div></details>`;
-};
-
-const notificationBubbleHtml = (): string => {
-  const center = notificationCenterState();
-  const newest = center.events.find((entry) => !entry.read);
-  if (center.mode === "off" || newest === undefined) return "";
-  // EX-UI-02. The centre lists this event already. While it is open the bubble would be a second
-  // copy of the same line on the same screen, so only one of the two speaks at a time.
-  if (notificationCenterOpen()) return "";
-  return `<div class="notification-bubble" ${liveRegionAttributes("notification-bubble", "status", newest.text)}><span>${escapeHtml(newest.text)}</span><button data-action="notification-open" data-record="${escapeAttribute(newest.id)}">${escapeHtml(notificationActionLabel[newest.action])}</button></div>`;
+  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary id="notification-button" aria-label="${escapeAttribute(`Notifications, ${String(unread)} unread`)}" title="Notifications"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="Notifications"><div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>Mark all read</button><button data-action="notification-clear">Clear</button><button data-action="notification-settings">Settings</button></div>${list}</div></details>`;
 };

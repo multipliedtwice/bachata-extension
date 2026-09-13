@@ -717,7 +717,9 @@ test("checklist execution releases parent capacity and rejects nested TODO orche
   const suspensionEnd = source.indexOf("const withExecutionLease = async", suspensionStart);
   assert.doesNotMatch(source.slice(suspensionStart, suspensionEnd), /retainExecutionLease/u);
   assert.match(source, /const ensureContinuationExecutionLease = async/u);
-  assert.equal((source.match(/await ensureContinuationExecutionLease\(conversationId, slot\);/gu) ?? []).length, 2);
+  const iterationStart = source.indexOf("const runConversationOwned = async");
+  const iterationEnd = source.indexOf("const conversationExecutionBusy =", iterationStart);
+  assert.equal((source.slice(iterationStart, iterationEnd).match(/await ensureContinuationExecutionLease\(conversationId, slot\);/gu) ?? []).length, 2);
   // EX-3. The refusal moved to `conversationRuntimeOptions.ts` with the rest of the checklist
   // policy; the manager asks it rather than restating it.
   const checklistPolicy = await loadSource("src/conversations/conversationRuntimeOptions.ts");

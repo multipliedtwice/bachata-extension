@@ -189,12 +189,14 @@ const state: {
   expandedEditorCards: Set<string>;
   collapsedEditorSections: Set<string>;
   disclosureStates: Map<string, boolean>;
+  scrollPositions: Map<string, { top: number; distanceFromBottom: number; following: boolean }>;
   pendingEditorOperation?: PendingEditorOperation;
   pendingRuns: Map<string, PendingRunRequest>;
   pendingPipelineSelections: Map<string, { conversationId: string; pipelineId: string }>;
   pendingInteractions: Set<string>;
   pendingApprovals: Set<string>;
   secretDrafts: Map<string, string>;
+  gateDrafts: Map<string, string>;
   pausedSecretInteractions: Set<string>;
   dragging?: { kind: "agent" | "role" | "step"; index: number };
   dialog?: AppDialog;
@@ -261,11 +263,13 @@ const state: {
   expandedEditorCards: new Set(),
   collapsedEditorSections: new Set(["details", "guardrails", "agents", "roles"]),
   disclosureStates: new Map(),
+  scrollPositions: new Map(),
   pendingRuns: new Map(),
   pendingPipelineSelections: new Map(),
   pendingInteractions: new Set(),
   pendingApprovals: new Set(),
   secretDrafts: new Map(),
+  gateDrafts: new Map(),
   pausedSecretInteractions: new Set(),
 };
 
@@ -433,6 +437,8 @@ const resetViewState = (): void => {
   state.historyFilter = "";
   state.expandedEditorCards.clear();
   state.disclosureStates.clear();
+  state.scrollPositions.clear();
+  state.gateDrafts.clear();
   state.fieldErrors.clear();
   delete state.dialog;
   delete state.dialogReturnFocusSelector;

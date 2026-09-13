@@ -11,12 +11,25 @@ const readinessBlocked = (panel: PanelState): boolean =>
   ((panel.readiness?.findings ?? []).some((finding) => finding.status !== "ready") ||
     (panel.executionContract?.policyRefusals ?? []).length > 0);
 
+const blockingDecisionCount = (panel: PanelState, conversationId: string): number =>
+  state.manager.interactions.filter((interaction) => interaction.conversationId === conversationId && interactionIsOpen(interaction)).length +
+  (panel.pendingGate && !gateInteraction(conversationId, panel) ? 1 : 0) + panel.approvals.length;
+
+const pendingDecisionCardsHtml = (panel: PanelState, conversationId: string): string =>
+  `${panel.pendingGate && !gateInteraction(conversationId, panel) ? gateHtml(panel, conversationId) : ""}${approvalsHtml(panel)}`;
+
+const runConfigurationLocked = (panel: PanelState, conversationId = activeId()): boolean =>
+  panel.operationActive === true || panel.pendingGate !== undefined ||
+  runPhaseOf(panel) === "running" || panel.approvals.length > 0 ||
+  Object.values(panel.agents).some((agent) => agent.status === "running") ||
+  conversationById(conversationId)?.waitingForResources === true;
+
 const roomHeaderHtml = (
   panel: PanelState,
   conversation: ConversationSummary,
   views: { direction: boolean; execution: boolean },
 ): string => {
-  const blockingCount = (panel.pendingGate ? 1 : 0) + panel.approvals.length;
+  const blockingCount = blockingDecisionCount(panel, conversation.id);
   const rootConversation = rootConversationFor(conversation);
   const readOnly = conversation.archived;
   const waitingForResources = conversation.waitingForResources === true;
@@ -24,25 +37,22 @@ const roomHeaderHtml = (
   const interrupt = !readOnly && state.roomView !== "chat" && (runPhaseOf(panel) === "running" || waitingForResources)
     ? `<button data-action="interrupt-run"${pendingInterrupts.has(conversation.id) ? ' disabled aria-busy="true"' : ""}>${waitingForResources ? "Cancel wait" : "Stop"}</button>`
     : "";
-  const selection = pendingPipelineSelection(conversation.id);
   const parentNavigation = rootConversation.id === conversation.id
     ? ""
-    : `<button class="parent-run" data-action="select-conversation" data-conversation="${escapeAttribute(rootConversation.id)}">← ${escapeHtml(rootConversation.title)}</button>`;
+    : `<button class="parent-run" data-action="select-conversation" data-conversation="${escapeAttribute(rootConversation.id)}">← ${escapeHtml(runTabLabel(rootConversation))}</button>`;
   // A hidden Direction tab must not be a deleted Direction view: defining an initiative is only
   // reachable there, and a room with no direction yet is exactly the room where someone would want
   // to define one.
-  const directionItem = views.direction
-    ? ""
-    : `<button data-action="room-view" data-view="direction">Open direction</button>`;
-  const inspectorItem = `<button data-action="inspector-toggle" aria-expanded="${state.inspectorOpen ? "true" : "false"}">${state.inspectorOpen ? "Hide inspector" : "Show inspector"}</button>${directionItem}`;
+  const inspectorItem = `<button data-action="inspector-toggle" aria-expanded="${state.inspectorOpen ? "true" : "false"}">${state.inspectorOpen ? "Hide details" : "Show details"}</button><button data-action="notification-settings">Notifications</button>`;
   // The tab and the drawer row say "Waiting for you" and "Blocked"; the pill beside the title
   // used to say "Ready" in both cases. The panel stays the authority on running, since it is
   // what the runtime patches first.
-  const waitingForHuman = panel.pendingGate !== undefined ||
-    panel.approvals.length > 0 ||
-    panel.workflowStatus === "paused" ||
-    state.manager.interactions.some((interaction) => interaction.conversationId === conversation.id);
+  const waitingForHuman = blockingCount > 0 || panel.workflowStatus === "paused";
   const phase = runPhaseOf(panel);
+  const controlsLocked = runConfigurationLocked(panel, conversation.id);
+  const providerCheckDisabled = controlsLocked
+    ? 'disabled title="Available after the active operation finishes"'
+    : agentsAssignable(panel) ? "" : 'disabled title="Select a pipeline with participants to check providers."';
   const presentation = bachataWebviewBehavior.runStatusPresentation(phase, panel.resumableWorkflow?.outcome);
   const roomStatus = readinessBlocked(panel)
     ? { status: "error", label: "Blocked", spinning: false }
@@ -56,8 +66,8 @@ const roomHeaderHtml = (
             spinning: presentation.spinning,
           };
   const moreActions = readOnly
-    ? `${inspectorItem}<button data-action="pipeline-new" disabled title="${escapeAttribute(selection ? `Switching to ${selection.pipelineId}…` : panel.pipelineMutationReason ?? "Archived runs are read-only")}">New pipeline</button><button data-action="transcript-export">Export transcript</button><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">Unarchive run</button>`
-    : `${inspectorItem}<button data-action="pipeline-new" ${panel.pipelineMutable && !selection ? "" : "disabled"} title="${escapeAttribute(selection ? `Switching to ${selection.pipelineId}…` : panel.pipelineMutationReason ?? "Create pipeline")}">New pipeline</button><button data-action="pipeline-fork" ${panel.selectedPipelineDefinition && panel.pipelineMutable && !selection ? "" : "disabled"} title="${escapeAttribute(selection ? "Wait for pipeline selection" : !panel.selectedPipelineDefinition ? "Select a pipeline to fork" : panel.pipelineMutationReason ?? "Create an editable copy of this pipeline")}">Fork selected pipeline</button><button data-action="availability-check">Check agents</button><button data-action="working-directory">Choose folder</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}<button data-action="transcript-export">Export transcript</button><button class="danger" data-action="task-reset">Reset run</button>`;
+    ? `${inspectorItem}<button data-action="transcript-export">Export transcript</button><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">Unarchive run</button>`
+    : `${inspectorItem}<button data-action="availability-check" ${providerCheckDisabled}>Check providers</button><button data-action="working-directory" ${controlsLocked ? 'disabled title="Available after the active operation finishes"' : ""}>Choose folder</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}<button data-action="transcript-export">Export transcript</button><button class="danger" data-action="task-reset" ${controlsLocked ? 'disabled title="Stop the active operation before resetting"' : ""}>Reset run</button>`;
   // The run tab already carries the title, status icon and rename; this row does not repeat them.
   // A run's status is echoed here only when it is something to act on (waiting, blocked, running),
   // never a plain "Ready", and the run's name stays as the accessible heading for the landmark.
@@ -73,11 +83,11 @@ const roomHeaderHtml = (
   ].join("");
   // A lone "Chat" button is nothing to switch between; the view switch appears only once there is a
   // Direction or Execution view to reach, or one is already open.
-  const showViewSwitch = views.direction || views.execution || state.roomView !== "chat";
+  const showViewSwitch = views.execution || state.roomView !== "chat";
   const viewSwitch = showViewSwitch
-    ? `<div class="view-switch" role="group" aria-label="Run view">${views.direction || state.roomView === "direction" ? `<button data-action="room-view" data-view="direction" class="${state.roomView === "direction" ? "selected" : ""}" aria-pressed="${state.roomView === "direction" ? "true" : "false"}">Direction</button>` : ""}<button data-action="room-view" data-view="chat" class="${state.roomView === "chat" ? "selected" : ""}" aria-pressed="${state.roomView === "chat" ? "true" : "false"}">Chat</button>${views.execution || state.roomView === "execution" ? `<button data-action="room-view" data-view="execution" class="${state.roomView === "execution" ? "selected" : ""}" aria-pressed="${state.roomView === "execution" ? "true" : "false"}">Execution${blockingCount > 0 ? ` (${String(blockingCount)})` : ""}</button>` : ""}</div>`
+    ? `<div class="view-switch" role="group" aria-label="Run view"><button data-action="room-view" data-view="chat" class="${state.roomView === "chat" ? "selected" : ""}" aria-pressed="${state.roomView === "chat" ? "true" : "false"}">Chat</button>${views.execution || state.roomView === "execution" ? `<button data-action="room-view" data-view="execution" class="${state.roomView === "execution" ? "selected" : ""}" aria-pressed="${state.roomView === "execution" ? "true" : "false"}">Execution${blockingCount > 0 ? ` (${String(blockingCount)})` : ""}</button>` : ""}</div>`
     : "";
-  return `<header class="room-header"><h1 class="sr-only">${escapeHtml(conversation.title)}</h1><div class="room-utility"><div class="room-utility-lead">${parentNavigation}${statusPill}${context}</div><div class="room-actions">${interrupt}${notificationBellHtml()}${viewSwitch}<details class="header-action-menu" ${disclosureAttributes(`header-menu:${conversation.id}`)}><summary id="room-actions-button" aria-label="Run actions" title="Run actions"><i class="codicon codicon-ellipsis" aria-hidden="true"></i></summary><div>${moreActions}</div></details></div></div></header>`;
+  return `<header class="room-header"><h1 class="sr-only">${escapeHtml(runTabLabel(conversation))}</h1><div class="room-utility"><div class="room-utility-lead">${parentNavigation}${statusPill}${context}</div><div class="room-actions">${interrupt}${notificationBellHtml()}${viewSwitch}<details class="header-action-menu" ${disclosureAttributes(`header-menu:${conversation.id}`)}><summary id="room-actions-button" aria-label="Run actions" title="Run actions"><i class="codicon codicon-ellipsis" aria-hidden="true"></i></summary><div>${moreActions}</div></details></div></div></header>`;
 };
 
 const findingStateLabel: Record<LongitudinalFindingState, string> = {
@@ -321,27 +331,26 @@ const mainRoomHtml = (): string => {
   // so it entered the DOM muted the first time it was actually shown.
   const has = {
     decisions: !readOnly && (panel.pendingGate !== undefined || panel.approvals.length > 0),
-    interactions: !readOnly && state.manager.interactions.some((interaction) => interaction.conversationId === conversation.id),
+    interactions: !readOnly && state.manager.interactions.some((interaction) => interaction.conversationId === conversation.id && interactionIsOpen(interaction)),
     workflow: (state.manager.eventsByConversation[conversation.id] ?? []).length > 0,
     result: state.manager.resultsByConversation?.[conversation.id] !== undefined,
     childRuns: isRoot && childConversationsFor(conversation.id).length > 0,
     orchestration: !readOnly && isRoot && hasOrchestrationState(),
-    providerHistory: (state.manager.conversationLocators?.[conversation.id] ?? []).length > 0,
   };
   const introNeeded = panel.transcript.length === 0 &&
     !has.workflow && !has.childRuns && !has.interactions && !has.result;
   const archivedBanner = readOnly
     ? `<div class="archive-readonly-banner"><strong>Archived run</strong><span>History is read-only. Unarchive it to continue work.</span><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">Unarchive</button></div>`
     : "";
-  const blockingCount = (panel.pendingGate ? 1 : 0) + panel.approvals.length;
-  const blockingSummary = `${String(blockingCount)} blocking ${blockingCount === 1 ? "decision" : "decisions"} pending.`;
+  const blockingCount = blockingDecisionCount(panel, conversation.id);
+  const blockingSummary = `${String(blockingCount)} ${blockingCount === 1 ? "decision" : "decisions"} pending`;
   const blockingBanner = !readOnly && blockingCount > 0
-    ? `<div class="blocking-workflow-banner" ${liveRegionAttributes("blocking-decisions", "status", blockingSummary)}><strong>Run needs your input</strong><span>${escapeHtml(blockingSummary)}</span><button data-action="room-view" data-view="execution" data-focus="pending-decision">Review and continue</button></div>`
+    ? `<div class="blocking-workflow-banner" ${liveRegionAttributes("blocking-decisions", "status", blockingSummary)}><strong>${escapeHtml(blockingSummary)}</strong><button data-action="room-view" data-view="execution" data-focus="pending-decision">Review decision${blockingCount > 1 ? "s" : ""}</button></div>`
     : "";
   // A tab that leads to a placeholder is not a route to anything. Execution is offered once the
   // room has something to execute or something already executed, and always while the user is
   // standing in it.
-  const hasExecutionState = has.result || has.providerHistory || has.orchestration ||
+  const hasExecutionState = has.result || has.orchestration ||
     has.workflow || has.childRuns || has.decisions || has.interactions;
   const chatContent = (): string => {
     const intro = introNeeded
@@ -349,22 +358,19 @@ const mainRoomHtml = (): string => {
         ? `<section class="conversation-intro">${bachataMarkHtml}<h2>Archived run</h2><p>No transcript entries were stored for this run.</p></section>`
         : `<section class="conversation-intro">${bachataMarkHtml}<h2>Start a run</h2><p>Pick a pipeline, enter a job, and watch it execute.</p></section>${recentActivityHtml()}`
       : "";
-    // EX-UI-03. Primary chat carries the conversation; everything the run recorded about itself
-    // goes into one disclosure at the end, in the order it happened.
-    const information = panel.transcript.filter(isRunInformationEntry);
     const transcript = panel.transcript
       .filter((entry) => !isRunInformationEntry(entry))
       .map((entry) => transcriptMessageHtml(panel, entry, readOnly))
       .join("");
     // The decision that stops the run sits where the run is being read, not one view away.
-    const decisions = has.decisions ? `${gateHtml(panel)}${approvalsHtml(panel)}` : "";
-    return `${notificationBubbleHtml()}${has.interactions ? interactionsHtml(conversation.id) : ""}<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${runInformationHtml(panel, information)}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}${readOnly ? "" : queueHtml(panel)}`;
+    const decisions = has.decisions ? pendingDecisionCardsHtml(panel, conversation.id) : "";
+    return `<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${has.interactions ? interactionsHtml(conversation.id) : ""}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}${readOnly ? "" : queueHtml(panel)}`;
   };
-  const executionContent = (): string => `${has.result ? resultCenterHtml(conversation.id, panel) : ""}${has.providerHistory ? providerHistoryHtml(conversation.id) : ""}${has.orchestration ? orchestrationHtml() : ""}${has.workflow ? workflowHtml(conversation.id) : ""}${has.childRuns ? childRunsHtml(conversation.id) : ""}${has.decisions ? `${gateHtml(panel)}${approvalsHtml(panel)}` : ""}${has.interactions ? interactionsHtml(conversation.id) : ""}${hasExecutionState ? "" : `<section class="conversation-intro">${bachataMarkHtml}<h2>Execution view</h2><p>Pipeline stages, task runs, gates, evidence, and final rulings appear here while the run executes.</p></section>`}`;
+  const executionContent = (): string => `${has.interactions ? interactionsHtml(conversation.id) : ""}${has.decisions ? pendingDecisionCardsHtml(panel, conversation.id) : ""}${has.result ? resultCenterHtml(conversation.id, panel) : ""}${has.orchestration ? orchestrationHtml() : ""}${has.workflow ? workflowHtml(conversation.id) : ""}${has.childRuns ? childRunsHtml(conversation.id) : ""}${hasExecutionState ? "" : `<section class="conversation-intro">${bachataMarkHtml}<h2>Execution</h2><p>Progress and results appear here.</p></section>`}`;
   const content = state.roomView === "direction"
     ? directionHtml()
     : `${directionBannerHtml()}${state.roomView === "execution" ? executionContent() : chatContent()}`;
-  return `<section class="room-shell">${roomHeaderHtml(panel, conversation, { direction: hasDirectionState(), execution: hasExecutionState })}${archivedBanner}${blockingBanner}<div class="room-body ${state.inspectorOpen ? "with-inspector" : ""}"><main class="conversation-column"${inspectorCoversRoom() ? " inert" : ""}><div class="conversation-scroll ${state.roomView === "execution" ? "execution-content" : ""} ${introNeeded && state.roomView !== "execution" ? "is-empty" : ""}" id="conversation-scroll">${content}${state.roomView === "chat" ? "" : panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}</div>${readOnly || state.roomView !== "chat" ? "" : composerHtml(panel, draft)}</main>${inspectorHtml(panel, readOnly)}</div></section>`;
+  return `<section class="room-shell">${roomHeaderHtml(panel, conversation, { direction: hasDirectionState(), execution: hasExecutionState })}${archivedBanner}${blockingBanner}<div class="room-body ${state.inspectorOpen ? "with-inspector" : ""}"><main class="conversation-column"${inspectorCoversRoom() ? " inert" : ""}><div class="conversation-viewport ${state.roomView === "chat" ? "with-chat-navigation" : ""}"><div class="conversation-scroll ${state.roomView === "execution" ? "execution-content" : ""} ${introNeeded && state.roomView !== "execution" ? "is-empty" : ""}" id="conversation-scroll" data-scroll-key="${escapeAttribute(`${conversation.id}:${state.roomView}`)}">${content}${state.roomView === "chat" ? "" : panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}</div>${state.roomView === "chat" ? `${chatMinimapHtml(panel)}<button class="jump-latest" data-action="jump-latest" hidden>Latest</button>` : ""}</div>${readOnly || state.roomView !== "chat" ? "" : composerHtml(panel, draft)}</main>${inspectorHtml(panel, readOnly)}</div></section>`;
 };
 
 // The ended run's verdict and its ways back in, in one row at the end of the transcript. A run
@@ -387,7 +393,7 @@ const runOutcomeHtml = (
         failure.participant ?? failure.agentId,
         failure.step === undefined ? undefined : `at ${failure.step}`,
       ].filter((part): part is string => part !== undefined).join(" ")
-    : result?.status === "interrupted" ? undefined : result?.finalAssessment?.summary;
+    : result?.status === "interrupted" ? undefined : resultSummaryText(result?.finalAssessment?.summary);
   const detail = recovery ? recoveryPositionText(panel, recovery) : assessment;
   const shownPhase = result ? bachataWebviewBehavior.runPhase(false, result.status) : phase;
   const presentation = bachataWebviewBehavior.runStatusPresentation(shownPhase, panel.resumableWorkflow?.outcome);

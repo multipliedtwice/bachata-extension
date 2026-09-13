@@ -7,6 +7,7 @@ import type { EvidenceExpectations } from "./evidenceExpectations";
 import {
   legacyModelFindingsFromRuling,
   mergeModelFindings,
+  modelFindingsFromDecisionArtifact,
   parseModelFindings,
 } from "./modelFindings";
 import type { ModelFinding } from "./modelFindings";
@@ -17,6 +18,7 @@ import {
   rulingProvenanceRuledBy,
 } from "./rulingProvenance";
 import type { RulingProvenance } from "./rulingProvenance";
+import { parseResultDecision, type ResultDecision } from "./resultDecision";
 
 export type { EvidenceExpectations };
 export type {
@@ -114,6 +116,8 @@ export type RunResultCenter = {
   diffSummary?: string;
   checks: VerificationResult[];
   finalRuling?: string;
+  finalDecisionEventId?: number;
+  finalDecision?: ResultDecision;
   rulingBy?: string;
   rulingProvenance?: RulingProvenance;
   consensusRuling?: boolean;
@@ -333,6 +337,8 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
   const status = candidate.status;
   const changedFiles = stringList(candidate.changedFiles);
   const finalRuling = optionalString(candidate.finalRuling);
+  const finalDecision = parseResultDecision(candidate.finalDecision);
+  const finalDecisionEventId = typeof candidate.finalDecisionEventId === "number" && Number.isSafeInteger(candidate.finalDecisionEventId) && candidate.finalDecisionEventId > 0 ? candidate.finalDecisionEventId : undefined;
   const persistedProvenance = parseRulingProvenance(candidate.rulingProvenance);
   const rulingBy = optionalString(candidate.rulingBy) ??
     rulingProvenanceRuledBy(persistedProvenance);
@@ -343,6 +349,7 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
   const findings = mergeModelFindings(
     parseModelFindings(candidate.findings),
     legacyModelFindingsFromRuling(finalRuling, rulingBy),
+    modelFindingsFromDecisionArtifact(finalDecision),
   );
   const consensusRuling = consensusRulingFor(persistedProvenance, legacyConsensus);
   const unresolvedRisks = stringList(candidate.unresolvedRisks);
@@ -381,6 +388,8 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
     ...(diffSummary === undefined ? {} : { diffSummary }),
     checks,
     ...(finalRuling === undefined ? {} : { finalRuling }),
+    ...(finalDecisionEventId === undefined ? {} : { finalDecisionEventId }),
+    ...(finalDecision === undefined ? {} : { finalDecision }),
     ...(rulingBy === undefined ? {} : { rulingBy }),
     ...(rulingProvenance === undefined ? {} : { rulingProvenance }),
     ...(consensusRuling ? { consensusRuling } : {}),
@@ -419,6 +428,7 @@ export const runResultHasEvidence = (result: RunResultCenter): boolean =>
   result.changedFiles.length > 0 ||
   result.checks.length > 0 ||
   result.finalRuling !== undefined ||
+  result.finalDecision !== undefined ||
   result.findings.length > 0 ||
   result.unresolvedRisks.length > 0 ||
   result.recoveredErrors.length > 0 ||
@@ -795,6 +805,12 @@ export const mergeRunResults = (
     : persisted.verificationProvenance;
   const finalRuling = live.finalRuling ?? persisted.finalRuling;
   const rulingSource = live.finalRuling === undefined ? persisted : live;
+  const finalDecision = rulingSource.finalDecision ?? (
+    live.finalRuling === persisted.finalRuling &&
+    (live.finalDecisionEventId === undefined || live.finalDecisionEventId === persisted.finalDecisionEventId)
+      ? persisted.finalDecision
+      : undefined
+  );
   const rulingBy = rulingSource.rulingBy;
   const rulingProvenance = rulingSource.rulingProvenance;
   const changedFilesRecorded = changedFiles.length > 0 ||
@@ -846,6 +862,8 @@ export const mergeRunResults = (
     ...(mergedDiffSummary === undefined ? {} : { diffSummary: mergedDiffSummary }),
     checks,
     ...(finalRuling === undefined ? {} : { finalRuling }),
+    ...(rulingSource.finalDecisionEventId === undefined ? {} : { finalDecisionEventId: rulingSource.finalDecisionEventId }),
+    ...(finalDecision === undefined ? {} : { finalDecision }),
     ...(rulingBy === undefined ? {} : { rulingBy }),
     ...(rulingProvenance === undefined ? {} : { rulingProvenance }),
     providers,
@@ -880,6 +898,8 @@ export const projectRunResult = (input: {
   diffSummary?: string | undefined;
   checks?: VerificationResult[] | undefined;
   finalRuling?: string | undefined;
+  finalDecisionEventId?: number | undefined;
+  finalDecision?: unknown;
   rulingBy?: string | undefined;
   rulingProvenance?: RulingProvenance | undefined;
   providers?: ResultProvider[] | undefined;
@@ -893,6 +913,7 @@ export const projectRunResult = (input: {
   consensusRuling?: boolean | undefined;
 }): RunResultCenter => {
   const errors = partitionTranscriptErrors(input.transcript);
+  const finalDecision = parseResultDecision(input.finalDecision);
   const expectations = input.expectations ?? UNKNOWN_EVIDENCE_EXPECTATIONS;
   const providers = input.providers ?? [];
   const rulingProvenance = parseRulingProvenance(input.rulingProvenance);
@@ -901,6 +922,7 @@ export const projectRunResult = (input: {
   const findings = mergeModelFindings(
     parseModelFindings(input.findings ?? []),
     legacyModelFindingsFromRuling(input.finalRuling, rulingBy),
+    modelFindingsFromDecisionArtifact(finalDecision),
   );
   const unresolvedRisks = unique([...(input.unresolvedRisks ?? []), ...errors.unresolved]);
   const failure = runFailureFrom(input.transcript, providers);
@@ -936,6 +958,8 @@ export const projectRunResult = (input: {
     ...(input.diffSummary === undefined ? {} : { diffSummary: input.diffSummary }),
     checks: input.checks ?? [],
     ...(input.finalRuling === undefined ? {} : { finalRuling: input.finalRuling }),
+    ...(input.finalDecisionEventId === undefined ? {} : { finalDecisionEventId: input.finalDecisionEventId }),
+    ...(finalDecision === undefined ? {} : { finalDecision }),
     ...(rulingBy === undefined ? {} : { rulingBy }),
     ...(rulingProvenance === undefined ? {} : { rulingProvenance }),
     providers,

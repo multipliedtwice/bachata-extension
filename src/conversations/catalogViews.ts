@@ -62,11 +62,24 @@ export const openInteractionView = (
   conversationId: string,
 ): InteractionSummary => {
   const context = isRecord(interaction.context) ? interaction.context : {};
+  const gate = isRecord(context.humanGate) ? context.humanGate : undefined;
+  const gateReason = gate?.reason;
+  const humanGate: InteractionSummary["humanGate"] = gate && typeof gate.stepId === "string" &&
+    (gateReason === "beforeStep" || gateReason === "afterStep" ||
+      gateReason === "invalidConsensus" || gateReason === "maxConsensusRounds")
+    ? {
+        stepId: gate.stepId,
+        reason: gateReason,
+        ...(typeof gate.round === "number" ? { round: gate.round } : {}),
+        ...(typeof gate.decisionRound === "number" ? { decisionRound: gate.decisionRound } : {}),
+      }
+    : undefined;
   return {
     interactionRef: interaction.interactionRef,
     conversationId,
     runRef: interaction.runRef,
     kind: interaction.kind,
+    ...(humanGate ? { humanGate } : {}),
     title: typeof context.title === "string" ? context.title : undefined,
     prompt: interaction.prompt,
     options: interaction.options,

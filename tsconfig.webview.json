@@ -41,6 +41,7 @@
     "src/webview-ui/roomRender.ts",
     "src/webview-ui/protocolReducer.ts",
     "src/webview-ui/actions.ts",
+    "src/webview-ui/conversationNavigation.ts",
     "src/webview-ui/main.ts"
   ]
 }

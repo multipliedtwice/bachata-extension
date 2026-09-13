@@ -259,7 +259,7 @@ export type DecisionArtifact = {
   stepId: string;
   round: number;
   policy: "unanimous" | "arbiter";
-  status: "pending" | "accepted" | "ruled" | "failed";
+  status: "pending" | "accepted" | "ruled" | "resolved" | "failed";
   candidateId?: string;
   candidateHash?: string;
   candidate?: JsonValue;
@@ -268,6 +268,12 @@ export type DecisionArtifact = {
   unresolvedRisks: string[];
   ruledBy?: string;
   rulingProvenance?: RulingProvenance;
+  humanResolution?: {
+    action: "acceptUnresolved" | "acceptParticipant";
+    rationale: string;
+    selectedParticipant?: string;
+    resolvedAt: string;
+  };
 };
 
 export type ExecutionChecklistIssue = {

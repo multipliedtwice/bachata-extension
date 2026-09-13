@@ -46,6 +46,25 @@ test("a rollback needs a target the gate actually offers", () => {
   assert.equal(refusal({ action: "rollback", targetStepId: "step-1" }), undefined);
 });
 
+test("accepting a participant requires one of the offered conclusions", () => {
+  assert.equal(
+    refusal({ action: "acceptParticipant", pendingGate: gate({ allowedActions: ["acceptParticipant"] }) }),
+    "Select a valid participant conclusion",
+  );
+  const pendingGate = gate({
+    allowedActions: ["acceptParticipant"],
+    conclusionOptions: [{ agentId: "reviewer-a", label: "Reviewer A" }],
+  });
+  assert.equal(
+    refusal({ action: "acceptParticipant", selectedParticipant: "reviewer-b", pendingGate }),
+    "Select a valid participant conclusion",
+  );
+  assert.equal(
+    refusal({ action: "acceptParticipant", selectedParticipant: "reviewer-a", pendingGate }),
+    undefined,
+  );
+});
+
 test("an offered action with nothing in the way is not refused", () => {
   assert.equal(refusal(), undefined);
   assert.equal(refusal({ action: "cancel", targetStepId: "ignored" }), undefined);
@@ -93,10 +112,24 @@ test("the pipeline receives the decision with no target key unless one was chose
     targetStepId: "step-1",
     interventions: [],
   });
+  assert.deepEqual(humanGateResolution({
+    action: "acceptParticipant",
+    interventions: [],
+    rationale: "Best supported conclusion",
+    selectedParticipant: "reviewer-a",
+    reviewInstructions: "Verify the chosen fix",
+  }), {
+    action: "acceptParticipant",
+    interventions: [],
+    rationale: "Best supported conclusion",
+    selectedParticipant: "reviewer-a",
+    reviewInstructions: "Verify the chosen fix",
+  });
 });
 
 // EX-3. Opening a gate: the record the panel is shown, the broker's question, the answer's decision.
 const {
+  PARTICIPANT_OPTION_PREFIX,
   ROLLBACK_OPTION_PREFIX,
   gateOpenedRecord,
   humanGateDecisionFromResponse,
@@ -120,9 +153,16 @@ test("the pending gate carries round and detail only when the request has them",
     allowedActions: ["continue", "rollback", "cancel"],
     rollbackTargets: [{ id: "step-1", name: "Implement" }],
   });
-  const full = pendingGateFrom(request({ round: 2, detail: "Consensus was not reached" }));
+  const full = pendingGateFrom(request({
+    round: 2,
+    detail: "Consensus was not reached",
+    decisionRound: 3,
+    conclusionOptions: [{ agentId: "reviewer-a", label: "Reviewer A" }],
+  }));
   assert.equal(full.round, 2);
   assert.equal(full.detail, "Consensus was not reached");
+  assert.equal(full.decisionRound, 3);
+  assert.deepEqual(full.conclusionOptions, [{ agentId: "reviewer-a", label: "Reviewer A" }]);
 });
 
 test("the broker is asked with every non-rollback action and one option per rollback target", () => {
@@ -132,12 +172,53 @@ test("the broker is asked with every non-rollback action and one option per roll
   assert.equal(ask.title, "Review");
   assert.equal(ask.prompt, "Two reviewers disagree\n\nAdditional instructions are sent to Lead.");
   assert.deepEqual(ask.options, [
-    { id: "continue", label: "continue" },
-    { id: "cancel", label: "cancel" },
+    { id: "continue", label: "Continue" },
+    { id: "cancel", label: "Stop run" },
     { id: "rollback:step-1", label: "Rollback to Implement" },
   ]);
   assert.equal(ask.allowFreeText, true);
   assert.equal(ask.secret, false);
+});
+
+test("round-limit disagreement exposes a human resolution instead of blind retry", () => {
+  const ask = humanGateInteractionAsk(request({
+    reason: "maxConsensusRounds",
+    allowedActions: ["acceptUnresolved", "requestArbiterRuling", "retry", "cancel"],
+    round: 4,
+  }), { taskId: "task-1", leadAgentId: "lead" });
+  assert.equal(ask.title, "Review ready · decision needed");
+  assert.match(ask.prompt, /finish with unresolved findings/u);
+  assert.deepEqual(ask.options.map((option) => option.label), [
+    "Finish with unresolved findings",
+    "Ask the arbiter to decide",
+    "Request one more round",
+    "Leave for later",
+  ]);
+  assert.equal(ask.allowFreeText, true);
+});
+
+test("review gates offer named participant conclusions and every remaining action label", () => {
+  const ask = humanGateInteractionAsk(request({
+    reason: "invalidConsensus",
+    allowedActions: ["acceptParticipant", "discardStep", "skip", "cancel"],
+    conclusionOptions: [{ agentId: "reviewer-a", label: "Reviewer A" }],
+  }), { taskId: "task-1", leadAgentId: "lead" });
+  assert.deepEqual(ask.options, [
+    { id: "discardStep", label: "Discard step results" },
+    { id: "skip", label: "skip" },
+    { id: "cancel", label: "Leave for later" },
+    {
+      id: `${PARTICIPANT_OPTION_PREFIX}reviewer-a`,
+      label: "Use Reviewer A's conclusion and finish",
+    },
+  ]);
+  assert.equal(ask.allowFreeText, true);
+  const noConclusions = humanGateInteractionAsk(request({
+    allowedActions: ["acceptParticipant"],
+    decisionRound: 2,
+  }), { taskId: "task-2" });
+  assert.deepEqual(noConclusions.options, []);
+  assert.equal(noConclusions.humanGate.decisionRound, 2);
 });
 
 test("without a Lead the question is the waiting reason alone, and free text is not offered", () => {
@@ -184,6 +265,46 @@ test("free text becomes an intervention for the Lead, and only when there is a L
   assert.equal("interventions" in decide({ selected: ["continue"], freeText: "tighten" }), false);
   assert.equal("interventions" in decide({ selected: ["continue"], freeText: "   " }, { leadAgentId: "lead" }), false);
   assert.equal(decide({ selected: ["rollback:step-1"], freeText: "note" }, { leadAgentId: "lead" }).interventions.length, 1);
+});
+
+test("finishing unresolved records the human rationale without prompting a participant", () => {
+  assert.deepEqual(decide(
+    { selected: ["acceptUnresolved"], freeText: "  prioritize clarity over completeness  " },
+    { allowedActions: ["acceptUnresolved", "cancel"], leadAgentId: "lead" },
+  ), {
+    action: "acceptUnresolved",
+    rationale: "prioritize clarity over completeness",
+  });
+});
+
+test("a selected participant and retry instructions remain typed decisions", () => {
+  assert.deepEqual(decide(
+    { selected: [`${PARTICIPANT_OPTION_PREFIX}reviewer-a`], freeText: "  strongest evidence  " },
+    {
+      allowedActions: ["acceptParticipant", "cancel"],
+      conclusionOptions: [{ agentId: "reviewer-a", label: "Reviewer A" }],
+      leadAgentId: "lead",
+    },
+  ), {
+    action: "acceptParticipant",
+    rationale: "strongest evidence",
+    selectedParticipant: "reviewer-a",
+  });
+  assert.deepEqual(decide(
+    { selected: ["retry"], freeText: "  inspect the focus path  " },
+    { allowedActions: ["retry", "cancel"], leadAgentId: "lead" },
+  ), {
+    action: "retry",
+    reviewInstructions: "inspect the focus path",
+  });
+  assert.deepEqual(decide(
+    { selected: [`${PARTICIPANT_OPTION_PREFIX}missing`], freeText: "" },
+    { allowedActions: ["acceptParticipant", "cancel"] },
+  ), { action: "cancel" });
+  assert.deepEqual(decide(
+    { selected: [`${ROLLBACK_OPTION_PREFIX}step-1`], freeText: "" },
+    { allowedActions: ["cancel"] },
+  ), { action: "cancel" });
 });
 
 test("the ledger records an opened gate in full, with absent round and detail as null", () => {

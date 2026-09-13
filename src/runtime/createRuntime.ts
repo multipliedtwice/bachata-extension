@@ -412,6 +412,7 @@ import {
   validatePipelineCapabilities,
 } from "../pipeline/runner";
 import { iterationOutcome, iterationPlan } from "../pipeline/stepTransitions";
+import { parsePendingConsensus } from "../pipeline/consensusCheckpoint";
 import type { ControllerEvidenceLine } from "./controllerVerification";
 import {
   controllerVerificationAuthorizes,
@@ -546,6 +547,12 @@ export type RuntimeInteractionRequest = {
   timeoutMs?: number | undefined;
   fallback?: RuntimeInteractionFallback | undefined;
   checklistItems?: ExecutionChecklistIssue[] | undefined;
+  humanGate?: {
+    stepId: string;
+    reason: PendingHumanGate["reason"];
+    round?: number;
+    decisionRound?: number;
+  } | undefined;
 };
 
 export type RuntimeInteractionResponse = {
@@ -697,6 +704,7 @@ export type RuntimeOptions = {
   rejectedRecordedRunSettings?: RunSettingRejection[] | undefined;
   assertWritable?: (() => void) | undefined;
   withWorkspaceMutation?: WorkspaceMutationRunner | undefined;
+  prepareProviderExecution?: (() => Promise<void>) | undefined;
   withPipelineCatalogMutation?: PipelineCatalogMutationRunner | undefined;
   preflightChecklistExecution?: (request: {
     workingDirectory: string;
@@ -1089,12 +1097,14 @@ const parsePipelineResumeState = (
     value.snapshot.latestInterventions,
   );
   const pendingChecklists = parsePendingChecklists(value.snapshot.pendingChecklists);
+  const pendingConsensus = parsePendingConsensus(value.snapshot.pendingConsensus);
   if (
     !roles ||
     !latestAnswers ||
     !previousStepAnswers ||
     !latestInterventions ||
     !pendingChecklists ||
+    !pendingConsensus ||
     (value.snapshot.answers !== undefined && !isRecord(value.snapshot.answers))
   ) {
     return undefined;
@@ -1126,6 +1136,7 @@ const parsePipelineResumeState = (
         ? value.snapshot.namedOutputs as PipelineResumeState["snapshot"]["namedOutputs"]
         : {},
       pendingChecklists,
+      pendingConsensus,
     },
   };
 };
@@ -1136,8 +1147,10 @@ const compactPipelineCheckpoint = (
   ...checkpoint,
   snapshot: {
     ...checkpoint.snapshot,
-    answers: {},
-    latestAnswers: { ...checkpoint.snapshot.previousStepAnswers.values },
+    answers: Object.keys(checkpoint.snapshot.pendingConsensus ?? {}).length > 0 ? checkpoint.snapshot.answers : {},
+    latestAnswers: Object.keys(checkpoint.snapshot.pendingConsensus ?? {}).length > 0
+      ? checkpoint.snapshot.latestAnswers
+      : { ...checkpoint.snapshot.previousStepAnswers.values },
   },
 });
 
@@ -1861,12 +1874,15 @@ export const createRuntime = (
     post({ type: "operation.result", requestId, operation, status, ...values, ...(values.message === undefined ? {} : { message: boundedRedactedText(values.message, 8192, { structured: true }) }) });
   };
 
+  const runtimeOperationActive = (): boolean =>
+    workflowActive || anyAgentRunning() || activeForegroundOperations > 0;
+
   const emitSnapshot = (): void => {
     refreshRuntimeLimits();
     refreshReadiness();
     refreshAgentAssignments();
     refreshLocalInterpreter();
-    post({ type: "state.snapshot", state: structuredClone(state) });
+    post({ type: "state.snapshot", state: { ...structuredClone(state), operationActive: runtimeOperationActive() } });
   };
 
   const handleBridgeStatus = (status: BrowserBridgeStatus): void => {
@@ -3598,6 +3614,20 @@ export const createRuntime = (
     };
   };
 
+  const postRunState = (): void => {
+    post({
+      type: "run.patch",
+      running: state.running,
+      workflowStatus: state.workflowStatus,
+      operationActive: runtimeOperationActive(),
+      ...(state.activeStep === undefined ? {} : { activeStep: state.activeStep }),
+      ...(state.activeStepId === undefined ? {} : { activeStepId: state.activeStepId }),
+      ...(state.consensusRound === undefined ? {} : { consensusRound: state.consensusRound }),
+      ...(state.pendingGate === undefined ? {} : { pendingGate: state.pendingGate }),
+      ...(state.roles === undefined ? {} : { roles: state.roles }),
+    });
+  };
+
   const patchRun = (
     running: boolean,
     workflowStatus: WorkflowStatus,
@@ -3618,16 +3648,7 @@ export const createRuntime = (
     if (values.roles) {
       state.roles = values.roles;
     }
-    post({
-      type: "run.patch",
-      running,
-      workflowStatus,
-      ...(values.activeStep === undefined ? {} : { activeStep: values.activeStep }),
-      ...(values.activeStepId === undefined ? {} : { activeStepId: values.activeStepId }),
-      ...(values.consensusRound === undefined ? {} : { consensusRound: values.consensusRound }),
-      ...(values.pendingGate === undefined ? {} : { pendingGate: values.pendingGate }),
-      ...(values.roles === undefined ? {} : { roles: values.roles }),
-    });
+    postRunState();
   };
 
   const initializePromise = (async (): Promise<void> => {
@@ -6380,6 +6401,7 @@ export const createRuntime = (
         releaseAgents(reserved, ownerId);
         attachmentUseCount -= 1;
         activeForegroundOperations -= 1;
+        if (!disposed) postRunState();
         await disposeWithPrimaryError(
           releaseAttachments,
           "this direct message",
@@ -6454,6 +6476,7 @@ export const createRuntime = (
         leadAgentId,
         interventionId: randomUUID(),
         now: new Date().toISOString(),
+        conclusionOptions: request.conclusionOptions,
       });
     }
     if (gateResolver) {
@@ -6882,6 +6905,8 @@ export const createRuntime = (
     attachmentPaths: string[];
     disposeAttachments: () => Promise<void>;
     allowedDirtyPaths: string[];
+    prepareExecution: (recheck?: boolean) => Promise<void>;
+    executionDeferred: boolean;
   }> => {
     if (!prompt.trim()) {
       throw new Error("Pipeline prompt is required");
@@ -6934,52 +6959,6 @@ export const createRuntime = (
     if (options.requireCurrentCatalog) {
       await assertCurrentPipelineCatalogSelection(requestedPipelineSnapshot);
     }
-    await refreshRepositoryPolicy();
-    // Git's answer is about a directory. If the run is about a different one — because the reader
-    // took the "point Bachata at the repository" remedy — the answer on hand is not about this run.
-    await refreshGitReadinessIfStale();
-    refreshReadiness();
-    const policyRefusals = state.executionContract?.policyRefusals ?? [];
-    if (policyRefusals.length > 0) {
-      throw new Error(`This repository's ${REPOSITORY_POLICY_PATH} refuses this run: ${policyRefusals.join("; ")}`);
-    }
-    // A declared external resource is checked before the run starts. Provider-native
-    // resources a model inherits are untouched by this; only declarations are enforced.
-    if ((pipeline.resourceDependencies ?? []).length > 0) {
-      const dependencyPreflight = preflightResourceDependencies(
-        pipeline.resourceDependencies ?? [],
-        await observeResourceAvailability(pipeline.resourceDependencies ?? []),
-      );
-      // Role binding is enforced where Bachata can actually enforce it: a required dependency
-      // whose allowed roles never run in this pipeline is a contract that cannot hold.
-      const running = new Set(
-        pipeline.steps.flatMap((step) =>
-          (step.type === "agent" || step.type === "checklist") && step.enabled
-            ? step.participants
-            : []),
-      );
-      const unusable = (pipeline.resourceDependencies ?? [])
-        .filter((dependency) => dependency.required)
-        .filter((dependency) => !dependency.allowedRoles?.some((role) =>
-          roleMayUseDependency(dependency, role) && running.has(role)) &&
-          dependency.allowedRoles !== undefined)
-        .map((dependency) =>
-          `${dependency.kind} ${dependency.name} is bound to roles that do not run in this workflow`);
-      const refusals = [...dependencyPreflight.refusals, ...unusable];
-      if (refusals.length > 0) {
-        throw new Error(`Bachata refused this run: ${refusals.join("; ")}`);
-      }
-      lastResourceDependencyProvenance = resourceDependencyProvenance(dependencyPreflight.statuses);
-    } else {
-      lastResourceDependencyProvenance = [];
-    }
-    // The authoritative refusal, asked of the state this run is actually about and asked for every
-    // run, not only the ones the composer authorised. A queued message, a restart and a
-    // programmatic run reach here too, and each of them used to skip the question entirely.
-    const refreshedRefusal = pipelineRunRefusal();
-    if (refreshedRefusal) {
-      throw new Error(refreshedRefusal);
-    }
     const pipelineSnapshot = await resolveExecutionPipelineSnapshot(
       requestedPipelineSnapshot,
       options.requireCurrentCatalog !== false,
@@ -6991,95 +6970,164 @@ export const createRuntime = (
         options.resume.checkpoint.nextStepIndex < 0 ||
         options.resume.checkpoint.nextStepIndex > pipeline.steps.length)
     ) {
-      throw new Error(
-        "The saved workflow checkpoint does not match the selected pipeline",
-      );
+      throw new Error("The saved workflow checkpoint does not match the selected pipeline");
     }
-    const resolvedAttachments = await attachmentStore.resolvePaths(
-      state.attachments,
-      attachmentIds,
-    );
-    const attachmentPaths = resolvedAttachments.paths;
-    const disposeAttachments = resolvedAttachments.dispose;
-    let attachmentsTransferred = false;
-    try {
-      // The definition this run executes: identity and hashing above judged the saved pipeline; from
-      // here the run reasons about the providers actually assigned, so capability validation, the
-      // runner's permission translation and its provider-specific branches all see the real adapter.
-      const executionPipeline = assignedPipelineDefinition(pipeline, activeAssignments());
-      const capabilityErrors = validatePipelineCapabilities(
-        executionPipeline,
-        Object.fromEntries(
-          Object.entries(adapters).map(([agentId, adapter]) => {
-            if (definitions[agentId]?.adapter !== "generic-browser") {
-              return [agentId, adapter.capabilities];
-            }
-            let session;
-            try {
-              session = bridge.resolveBoundSession(
-                `${runtimeOwnerId}:${agentId}`,
-                state.agents[agentId]?.browserBinding,
-                state.agents[agentId]?.sessionId,
-              );
-            } catch {
-              session = undefined;
-            }
-            if (!session) {
-              const ready = state.browserBridge.sessions.filter(
-                (candidate) => candidate.provider === "generic" && candidate.status === "ready",
-              );
-              if (ready.length === 1) session = ready[0];
-            }
-            const capabilities = session?.capabilities;
-            const autonomous = Boolean(capabilities
-              && capabilities.submission === "verifiedSend"
-              && capabilities.completion === "verifiedLifecycle"
-              && capabilities.interruption === "confirmed"
-              && capabilities.conversationState === "confirmed");
-            return [
-              agentId,
-              {
-                ...adapter.capabilities,
-                interrupt: capabilities?.interruption === "confirmed",
-                passiveActionLoop: autonomous,
-              },
-            ];
-          }),
-        ),
-        attachmentPaths.length > 0,
-      );
-      if (capabilityErrors.length > 0) {
-        throw new Error(
-          `Pipeline capability validation failed: ${capabilityErrors.join("; ")}`,
+    const pendingConsensus = parsePendingConsensus(options.resume?.checkpoint.snapshot.pendingConsensus);
+    if (!pendingConsensus) throw new Error("The saved consensus checkpoint is invalid");
+    const executionDeferred = Object.values(pendingConsensus).some((pending) => pending.gateReason !== undefined);
+    const executionPipeline = assignedPipelineDefinition(pipeline, activeAssignments());
+    const attachmentPaths: string[] = [];
+    const allowedDirtyPaths: string[] = [];
+    let disposeAttachments = async (): Promise<void> => undefined;
+    let executionPrepared = false;
+    const prepareExecution = async (recheck = false): Promise<void> => {
+      if (options.executionReserved) await hostCallbacks.prepareProviderExecution?.();
+      if (executionPrepared && !recheck) return;
+      await refreshRepositoryPolicy();
+      // Git's answer is about a directory. If the run is about a different one — because the reader
+      // took the "point Bachata at the repository" remedy — the answer on hand is not about this run.
+      await refreshGitReadinessIfStale();
+      refreshReadiness();
+      const policyRefusals = state.executionContract?.policyRefusals ?? [];
+      if (policyRefusals.length > 0) {
+        throw new Error(`This repository's ${REPOSITORY_POLICY_PATH} refuses this run: ${policyRefusals.join("; ")}`);
+      }
+      // A declared external resource is checked before the run starts. Provider-native
+      // resources a model inherits are untouched by this; only declarations are enforced.
+      if ((pipeline.resourceDependencies ?? []).length > 0) {
+        const dependencyPreflight = preflightResourceDependencies(
+          pipeline.resourceDependencies ?? [],
+          await observeResourceAvailability(pipeline.resourceDependencies ?? []),
         );
-      }
-      const hasChecklistExecution = executionPipeline.steps.some(
-        (step) => step.enabled && step.type === "executeChecklist",
-      );
-      const allowedDirtyPaths = hasChecklistExecution
-        ? await checklistAllowedDirtyPaths(pipelineSnapshot)
-        : [];
-      if (hasChecklistExecution) {
-        if (!state.workingDirectory) {
-          throw new Error("Checklist execution requires a working directory");
+        // Role binding is enforced where Bachata can actually enforce it: a required dependency
+        // whose allowed roles never run in this pipeline is a contract that cannot hold.
+        const running = new Set(
+          pipeline.steps.flatMap((step) =>
+            (step.type === "agent" || step.type === "checklist") && step.enabled
+              ? step.participants
+              : []),
+        );
+        const unusable = (pipeline.resourceDependencies ?? [])
+          .filter((dependency) => dependency.required)
+          .filter((dependency) => !dependency.allowedRoles?.some((role) =>
+            roleMayUseDependency(dependency, role) && running.has(role)) &&
+            dependency.allowedRoles !== undefined)
+          .map((dependency) =>
+            `${dependency.kind} ${dependency.name} is bound to roles that do not run in this workflow`);
+        const refusals = [...dependencyPreflight.refusals, ...unusable];
+        if (refusals.length > 0) {
+          throw new Error(`Bachata refused this run: ${refusals.join("; ")}`);
         }
-        if (!hostCallbacks.preflightChecklistExecution) {
-          throw new Error("Checklist execution preflight is unavailable");
+        lastResourceDependencyProvenance = resourceDependencyProvenance(dependencyPreflight.statuses);
+      } else {
+        lastResourceDependencyProvenance = [];
+      }
+      // The authoritative refusal, asked of the state this run is actually about and asked for every
+      // run, not only the ones the composer authorised. A queued message, a restart and a
+      // programmatic run reach here too, and each of them used to skip the question entirely.
+      const refreshedRefusal = pipelineRunRefusal();
+      if (refreshedRefusal) {
+        throw new Error(refreshedRefusal);
+      }
+      if (!executionPrepared) {
+        const resolvedAttachments = await attachmentStore.resolvePaths(
+          state.attachments,
+          attachmentIds,
+        );
+        attachmentPaths.splice(0, attachmentPaths.length, ...resolvedAttachments.paths);
+        disposeAttachments = resolvedAttachments.dispose;
+      }
+      let attachmentsTransferred = executionPrepared;
+      try {
+        // The definition this run executes: identity and hashing above judged the saved pipeline; from
+        // here the run reasons about the providers actually assigned, so capability validation, the
+        // runner's permission translation and its provider-specific branches all see the real adapter.
+        const capabilityErrors = validatePipelineCapabilities(
+          executionPipeline,
+          Object.fromEntries(
+            Object.entries(adapters).map(([agentId, adapter]) => {
+              if (definitions[agentId]?.adapter !== "generic-browser") {
+                return [agentId, adapter.capabilities];
+              }
+              let session;
+              try {
+                session = bridge.resolveBoundSession(
+                  `${runtimeOwnerId}:${agentId}`,
+                  state.agents[agentId]?.browserBinding,
+                  state.agents[agentId]?.sessionId,
+                );
+              } catch {
+                session = undefined;
+              }
+              if (!session) {
+                const ready = state.browserBridge.sessions.filter(
+                  (candidate) => candidate.provider === "generic" && candidate.status === "ready",
+                );
+                if (ready.length === 1) session = ready[0];
+              }
+              const capabilities = session?.capabilities;
+              const autonomous = Boolean(capabilities
+                && capabilities.submission === "verifiedSend"
+                && capabilities.completion === "verifiedLifecycle"
+                && capabilities.interruption === "confirmed"
+                && capabilities.conversationState === "confirmed");
+              return [
+                agentId,
+                {
+                  ...adapter.capabilities,
+                  interrupt: capabilities?.interruption === "confirmed",
+                  passiveActionLoop: autonomous,
+                },
+              ];
+            }),
+          ),
+          attachmentPaths.length > 0,
+        );
+        if (capabilityErrors.length > 0) {
+          throw new Error(
+            `Pipeline capability validation failed: ${capabilityErrors.join("; ")}`,
+          );
         }
-        await hostCallbacks.preflightChecklistExecution({
-          workingDirectory: await resolveAllowedDirectory(state.workingDirectory),
-          allowedDirtyPaths,
-        });
+        if (executionPrepared) return;
+        const hasChecklistExecution = executionPipeline.steps.some(
+          (step) => step.enabled && step.type === "executeChecklist",
+        );
+        allowedDirtyPaths.splice(0, allowedDirtyPaths.length, ...(hasChecklistExecution
+          ? await checklistAllowedDirtyPaths(pipelineSnapshot)
+          : []));
+        if (hasChecklistExecution) {
+          if (!state.workingDirectory) {
+            throw new Error("Checklist execution requires a working directory");
+          }
+          if (!hostCallbacks.preflightChecklistExecution) {
+            throw new Error("Checklist execution preflight is unavailable");
+          }
+          await hostCallbacks.preflightChecklistExecution({
+            workingDirectory: await resolveAllowedDirectory(state.workingDirectory),
+            allowedDirtyPaths,
+          });
+        }
+        attachmentsTransferred = true;
+        executionPrepared = true;
+      } finally {
+        // The plaintext snapshot stays this function's responsibility until the caller
+        // actually receives it: every failure between resolution and return disposes it.
+        if (!attachmentsTransferred) {
+          await disposeAttachments();
+          disposeAttachments = async (): Promise<void> => undefined;
+        }
       }
-      attachmentsTransferred = true;
-      return { pipeline: executionPipeline, pipelineSnapshot, attachmentPaths, disposeAttachments, allowedDirtyPaths };
-    } finally {
-      // The plaintext snapshot stays this function's responsibility until the caller
-      // actually receives it: every failure between resolution and return disposes it.
-      if (!attachmentsTransferred) {
-        await disposeAttachments();
-      }
-    }
+    };
+    if (!executionDeferred) await prepareExecution();
+    return {
+      pipeline: executionPipeline,
+      pipelineSnapshot,
+      attachmentPaths,
+      disposeAttachments: () => disposeAttachments(),
+      allowedDirtyPaths,
+      prepareExecution,
+      executionDeferred,
+    };
   };
 
   // A folder lookup that finds nothing selected is "no folder"; a lookup that throws is a failure to
@@ -7143,6 +7191,8 @@ export const createRuntime = (
           attachmentPaths,
           disposeAttachments,
           allowedDirtyPaths,
+          prepareExecution,
+          executionDeferred,
         } = await preflightPipeline(
           prompt,
           attachmentIds,
@@ -7246,7 +7296,7 @@ export const createRuntime = (
         // that a step has yet to assign is checked for the agent it resolves to, before that step
         // invokes anyone (`beforeParticipants` below).
         const projectProbes = new Map<string, WorkspaceRepositoryProbe>();
-        const projectFailure = await projectParticipantsFailure(
+        const projectFailure = executionDeferred ? undefined : await projectParticipantsFailure(
           pipelineParticipantPlans(pipeline, prompt, {
             fromStepIndex: initialCheckpoint.nextStepIndex,
             roles: initialCheckpoint.snapshot.roles,
@@ -7332,13 +7382,19 @@ export const createRuntime = (
               });
             },
             beforeParticipants: async (participants) => {
+              await prepareExecution();
               const failure = await projectParticipantsFailure(participants, projectProbes, controller.signal);
               if (failure !== undefined) throw projectPreflightError(failure);
             },
-            waitForHumanGate,
+            waitForHumanGate: async (request) => {
+              const decision = await waitForHumanGate(request);
+              if (decision.action === "retry" || decision.action === "requestArbiterRuling") await prepareExecution(true);
+              return decision;
+            },
             waitForExecutionChecklist,
             executeChecklist: hostCallbacks.executeChecklist
-              ? (request) => {
+              ? async (request) => {
+                  await prepareExecution();
                   const dependency = pipelineSnapshot.dependencies?.[
                     request.step.pipelineId
                   ];
@@ -7469,6 +7525,10 @@ export const createRuntime = (
     } finally {
       if (activeWorkflow === operation) {
         activeWorkflow = undefined;
+      }
+      if (!disposed) {
+        postRunState();
+        emitSnapshot();
       }
       scheduleQueueDrain();
     }
@@ -7928,6 +7988,7 @@ export const createRuntime = (
                   trackWorkspaceChanges: claimed.iterationMode === "untilClean",
                   ...(claimed.composerAuthorized ? { composerAuthorized: true } : {}),
                 });
+                if (lastPipelineResult?.status !== "completed" || lastPipelineResult.completionReason === "humanDecision") break;
                 const outcome = iterationOutcome({
                   mode: claimed.iterationMode === "untilClean" ? "untilClean" : "fixed",
                   cleanPasses,
@@ -8257,6 +8318,7 @@ export const createRuntime = (
           onAccepted: index === 0 ? onAccepted : undefined,
           trackWorkspaceChanges: iterationMode === "untilClean",
         });
+        if (lastPipelineResult?.status !== "completed" || lastPipelineResult.completionReason === "humanDecision") break;
         const outcome = iterationOutcome({
           mode: iterationMode,
           cleanPasses,
@@ -9585,6 +9647,7 @@ export const createRuntime = (
       await trackForegroundOperation([controller], operation);
     } finally {
       activeForegroundOperations -= 1;
+      if (!disposed) postRunState();
     }
   };
 
@@ -9901,6 +9964,7 @@ export const createRuntime = (
         pendingGate,
         action: message.action,
         targetStepId: message.targetStepId,
+        selectedParticipant: message.selectedParticipant,
       });
       if (refusal !== undefined) {
         throw new Error(refusal);
@@ -9929,6 +9993,7 @@ export const createRuntime = (
         pendingGate,
         action: message.action,
         targetStepId: message.targetStepId,
+        selectedParticipant: message.selectedParticipant,
       });
       if (lateRefusal !== undefined) {
         throw new Error(lateRefusal);
@@ -9969,6 +10034,9 @@ export const createRuntime = (
           action: message.action,
           targetStepId: message.targetStepId,
           interventions,
+          selectedParticipant: message.selectedParticipant,
+          rationale: message.rationale,
+          reviewInstructions: message.reviewInstructions,
         }));
       } catch (error) {
         resolver.resolve({ action: "cancel" });
@@ -11125,7 +11193,7 @@ export const createRuntime = (
       // re-derived on read rather than only when a snapshot was last emitted.
       refreshAgentAssignments();
       refreshLocalInterpreter();
-      return structuredClone(state);
+      return { ...structuredClone(state), operationActive: runtimeOperationActive() };
     },
     // With no explicit id, the answer is about the pipeline this runtime would actually
     // run, which is the selected snapshot.

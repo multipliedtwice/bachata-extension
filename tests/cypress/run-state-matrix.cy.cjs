@@ -26,7 +26,7 @@ const pressEnter = () =>
   cy.wrap(null).then(async () => {
     await debuggerCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
     await debuggerCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-  });
+  }).wait(120);
 
 const checkpoint = (panel, overrides) => ({ ...panel.resumableWorkflow, stepName: step, nextStepIndex: 0, ...overrides });
 
@@ -194,31 +194,36 @@ describe("run state matrix", { browser: "chrome" }, () => {
           expectNoHorizontalScroll();
         });
 
-        it("run information starts as one closed row and names each participant once opened from the keyboard", () => {
+        it("keeps bookkeeping out of chat and opens the selected turn prompt from the keyboard", () => {
           boot("failedStep");
-          cy.get(".run-information").should("not.have.attr", "open");
-          cy.get("#run-information-summary .run-information-label").should("have.text", "Run information");
-          cy.get("#run-information-summary .info-count").should("have.text", "2");
-          cy.get("#run-information-summary").focus();
+          cy.get(".run-information, .info-entry").should("not.exist");
+          cy.get(".conversation-scroll").should("not.contain.text", prompt);
+          cy.get('[data-action="message-details"][data-message-id="error-codex"]')
+            .should("be.visible")
+            .then(($button) => {
+              expect($button[0].getBoundingClientRect().height, "participant detail control height").to.be.at.least(24);
+              expect(parseFloat($button[0].ownerDocument.defaultView.getComputedStyle($button[0]).fontSize), "participant name size").to.be.at.least(13);
+            })
+            .focus();
           pressEnter();
-          cy.get(".run-information").should("have.attr", "open");
-          cy.focused().should("have.id", "run-information-summary");
-          cy.get(".run-information .info-entry").should("have.length", 2);
-          cy.get(".run-information .info-entry-who").then(($names) => {
-            expect([...$names].map((name) => name.textContent)).to.deep.equal(["Usability reviewer", "Accessibility reviewer"]);
+          cy.get('.app-dialog[role="dialog"]').should("be.visible");
+          cy.get("#app-dialog-title").should("have.text", "Usability reviewer · prompt");
+          cy.get(".turn-details .markdown > p").should("have.length", 2).then(($paragraphs) => {
+            expect([...$paragraphs].map((paragraph) => paragraph.textContent)).to.deep.equal([
+              "Review the supplied interface for usability, accessibility and focus.",
+              "review extension/",
+            ]);
           });
-          cy.get(".info-entry-prompt").each(($prompt) => expect($prompt[0].open).to.equal(false));
-          cy.get(".info-entry-prompt > summary").each(($summary) => {
-            expect($summary[0].getBoundingClientRect().height).to.be.at.least(24);
-          });
-          cy.get("#run-information-summary, .info-entry-head, .info-entry-head > *, .info-entry-prompt > summary").each(($text) => {
-            expect(parseFloat($text[0].ownerDocument.defaultView.getComputedStyle($text[0]).fontSize), "information text size").to.be.at.least(13);
-          });
+          cy.focused().should("have.attr", "data-dialog-default", "cancel");
+          cy.get('[data-dialog-default="cancel"]').click();
+          cy.focused().should("have.attr", "data-message-id", "error-codex");
+          cy.get(".conversation-scroll").should("not.contain.text", prompt);
           expectNoHorizontalScroll();
         });
 
         it("a refusal before any participant started is stated once, offers the folder, and offers no retry", () => {
           boot("refused");
+          cy.get(".run-preflight-failure").should("be.visible");
           cy.get(".conversation-scroll").invoke("text").then((text) => {
             expect(text.split("is not inside a Git worktree").length - 1).to.equal(1);
           });

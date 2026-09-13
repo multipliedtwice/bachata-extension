@@ -43,7 +43,7 @@ test("each subsystem owns its module, and main.ts keeps none of them", () => {
     "protocolReducer.ts": ["applyRuntimeMessage"],
     "actions.ts": ["installActionListeners"],
     "roomRender.ts": ["roomHeaderHtml", "mainRoomHtml"],
-    "notificationsRender.ts": ["notificationBellHtml", "notificationBubbleHtml"],
+    "notificationsRender.ts": ["notificationBellHtml"],
     "state.ts": ["activeId", "activePanel", "longitudinalState"],
     "markdownRender.ts": ["renderMarkdown", "renderInline", "highlightedCode", "codeBlockHtml", "normalizeLanguage", "markdownTableHtml"],
   };

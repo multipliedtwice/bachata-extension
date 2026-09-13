@@ -6,33 +6,114 @@
  * and renders it; nothing here decides a disposition.
  */
 
+const decisionCandidateKey = (value: JsonValue): string => {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(decisionCandidateKey).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${decisionCandidateKey(value[key] as JsonValue)}`).join(",")}}`;
+};
+
+const decisionParticipantState = (
+  record: Record<string, JsonValue>,
+  decision: Record<string, JsonValue>,
+): { label: string; accepted: boolean } => {
+  if (record.valid !== true) return { label: "Invalid output", accepted: false };
+  const resolution = jsonRecord(decision.humanResolution);
+  if (resolution?.selectedParticipant === record.agentId) return { label: "Selected conclusion", accepted: true };
+  const agreed = resolution === undefined &&
+    (decision.status === "accepted" || decision.status === "ruled") &&
+    record.accepted === true && record.candidate !== undefined && decision.candidate !== undefined &&
+    decisionCandidateKey(record.candidate) === decisionCandidateKey(decision.candidate);
+  return agreed ? { label: "Agreed", accepted: true }
+    : { label: record.accepted === true ? "Supports own conclusion" : "Participant conclusion", accepted: false };
+};
+
 const decisionParticipantHtml = (
   participant: JsonValue,
   panel: PanelState | undefined,
+  decision: Record<string, JsonValue>,
 ): string => {
   const record = jsonRecord(participant);
   const agentId = jsonString(record?.agentId);
-  if (!record || !agentId) {
-    return "";
+  if (!record || !agentId) return "";
+  const status = decisionParticipantState(record, decision);
+  return `<button class="ruling-participant" data-action="focus-agent-output" data-agent="${escapeAttribute(agentId)}"><span>${escapeHtml(participantName(panel, agentId))}</span><small>${escapeHtml(status.label)}</small></button>`;
+};
+
+const resultFieldLabel = (key: string): string => {
+  const label = key.replace(/([a-z])([A-Z])/gu, "$1 $2").replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+const participantName = (panel: PanelState | undefined, agentId: string): string =>
+  panel?.agents[agentId]?.name ?? panel?.selectedPipelineDefinition?.agents.find((agent) => agent.id === agentId)?.name ?? "Participant";
+
+const structuredRuling = (text: string | undefined): JsonValue | undefined => {
+  if (!text || !/^[\s]*[\[{]/u.test(text)) return undefined;
+  try {
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === "object" ? value as JsonValue : undefined;
+  } catch {
+    return undefined;
   }
-  const agentName = panel?.agents[agentId]?.name ?? agentId;
-  const valid = record.valid === true;
-  const accepted = record.accepted === true;
-  const status = !valid ? "Invalid output" : accepted ? "Accepted candidate" : "Different candidate";
-  return `<button class="ruling-participant" data-action="focus-agent-output" data-agent="${escapeAttribute(agentId)}"><span>${escapeHtml(agentName)}</span><small>${escapeHtml(status)}</small></button>`;
+};
+
+const resultSummaryText = (summary: string | undefined): string | undefined => {
+  const value = structuredRuling(summary);
+  if (value === undefined) return summary;
+  const record = jsonRecord(value);
+  return jsonString(record?.summary) ?? jsonString(record?.title) ?? "Review the recorded conclusion.";
+};
+
+const resultRulingHtml = (ruling: string, findings?: RunResultCenter["findings"]): string => {
+  const value = structuredRuling(ruling);
+  return value === undefined ? `<div class="markdown">${renderMarkdown(ruling)}</div>` : readableResultHtml(value, 0, findings);
+};
+
+const normalizedResultFinding = (value: Record<string, JsonValue>, findings?: RunResultCenter["findings"]): NonNullable<RunResultCenter["findings"]>[number] | undefined =>
+  findings?.find((finding) => finding.id === value.id && finding.subject === value.subject && finding.message === value.message);
+
+const readableResultHtml = (value: JsonValue, depth = 0, findings?: RunResultCenter["findings"]): string => {
+  if (value === null || value === "") return "";
+  if (typeof value === "string") return `<div class="markdown">${renderMarkdown(value)}</div>`;
+  if (typeof value !== "object") return `<p>${escapeHtml(typeof value === "boolean" ? value ? "Yes" : "No" : String(value))}</p>`;
+  if (depth >= 12) return `<p class="muted">Further nested content is available in the participant message.</p>`;
+  if (Array.isArray(value)) {
+    const items = value.map((item) => readableResultHtml(item, depth + 1, findings)).filter(Boolean);
+    return items.length > 0 ? `<ul class="result-items">${items.map((item) => `<li>${item}</li>`).join("")}</ul>` : "";
+  }
+  const hidden = /(^id$|(?:Id|Ids|Ref|Refs|Hash|Digest)$|^(?:createdAt|updatedAt|recordedAt|resolvedAt|provenance)$)/u;
+  const normalized = normalizedResultFinding(value, findings);
+  const displayed = normalized ? { ...value, ...normalized } : value;
+  const entries = Object.entries(displayed).filter(([key]) => !hidden.test(key));
+  const subject = jsonString(value.subject) ?? jsonString(value.title);
+  const statement = jsonString(value.message) ?? jsonString(value.statement);
+  if (subject && statement) {
+    const disposition = normalized?.disposition ?? jsonString(value.disposition);
+    const metadata = [jsonString(value.severity) ? resultFieldLabel(jsonString(value.severity) as string) : undefined,
+      disposition ? `${normalized ? "" : "Provider claim: "}${resultFieldLabel(disposition)}` : undefined].filter(Boolean).join(" · ");
+    const additional = entries.filter(([key]) => !["subject", "title", "message", "statement", "severity", "disposition"].includes(key));
+    return `<article class="result-finding"><header><strong>${escapeHtml(subject)}</strong>${metadata ? `<small>${escapeHtml(metadata)}</small>` : ""}</header><div class="markdown">${renderMarkdown(statement)}</div>${additional.map(([key, item]) => {
+      const content = readableResultHtml(item, depth + 1, findings);
+      return content ? `<section class="result-field"><h5>${escapeHtml(resultFieldLabel(key))}</h5>${content}</section>` : "";
+    }).join("")}</article>`;
+  }
+  return `<div class="structured-result">${entries.map(([key, item]) => {
+    const content = readableResultHtml(item, depth + 1, findings);
+    return content ? `<section class="result-field"><h5>${escapeHtml(resultFieldLabel(key))}</h5>${content}</section>` : "";
+  }).join("")}</div>`;
 };
 
 const participantColumnHtml = (
   participant: JsonValue,
   panel: PanelState | undefined,
-  eventId: number,
+  decision: Record<string, JsonValue>,
+  findings?: RunResultCenter["findings"],
 ): string => {
   const record = jsonRecord(participant);
   const agentId = jsonString(record?.agentId);
   if (!record || !agentId) return "";
-  const agentName = panel?.agents[agentId]?.name ?? agentId;
-  const valid = record.valid === true;
-  const accepted = record.accepted === true;
+  const agentName = participantName(panel, agentId);
+  const status = decisionParticipantState(record, decision);
   const objections = Array.isArray(record.objections)
     ? record.objections.filter((value): value is string => typeof value === "string")
     : [];
@@ -42,81 +123,25 @@ const participantColumnHtml = (
   const validationErrors = Array.isArray(record.validationErrors)
     ? record.validationErrors.filter((value): value is string => typeof value === "string")
     : [];
-  const hash = jsonString(record.candidateHash);
   const candidate = record.candidate;
   const output = candidate === undefined || candidate === null
     ? `<p class="muted">No output was published.</p>`
     : typeof candidate === "string"
       ? `<div class="markdown">${renderMarkdown(candidate)}</div>`
-      : jsonDetailsHtml("Output", candidate, `compare:${String(eventId)}:${agentId}`);
-  return `<section class="compare-column ${accepted ? "accepted" : ""}">
-    <header><strong>${escapeHtml(agentName)}</strong><small>${escapeHtml(!valid ? "Invalid output" : accepted ? "Accepted candidate" : "Different candidate")}</small>${hash ? `<code title="Candidate hash">${escapeHtml(hash.slice(0, 12))}</code>` : ""}</header>
+      : readableResultHtml(candidate, 0, findings);
+  return `<section class="compare-column ${status.accepted ? "accepted" : ""}">
+    <header><strong>${escapeHtml(agentName)}</strong><small>${escapeHtml(status.label)}</small></header>
     ${output}
-    ${objections.length > 0 ? `<h5>Objections raised</h5><ul class="ruling-list">${objections.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ul>` : `<p class="muted">Raised no objection.</p>`}
+    ${objections.length > 0 ? `<h5>Objections raised</h5><ul class="ruling-list">${objections.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ul>` : ""}
     ${risks.length > 0 ? `<h5>Risks reported</h5><ul class="ruling-list risks">${risks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul>` : ""}
     ${validationErrors.length > 0 ? `<h5>Validation errors</h5><ul class="ruling-list">${validationErrors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul>` : ""}
   </section>`;
 };
 
-type RulingSummary = {
-  id: number;
-  createdAt: string;
-  lead?: string;
-  candidateId?: string;
-  objections: number;
-  overruled: number;
-  risks: string[];
-};
-
-const rulingSummary = (
-  event: WorkflowEventSummary,
-  panel: PanelState | undefined,
-): RulingSummary | undefined => {
-  if (event.type !== "decision.published") return undefined;
-  const payload = jsonRecord(event.payload);
-  if (!payload) return undefined;
-  const objections = Array.isArray(payload.objections) ? payload.objections : [];
-  const ruledBy = jsonString(payload.ruledBy);
-  const summaryCandidateId = jsonString(payload.candidateId);
-  return {
-    id: event.id,
-    createdAt: event.createdAt,
-    ...(ruledBy ? { lead: panel?.agents[ruledBy]?.name ?? ruledBy } : {}),
-    ...(summaryCandidateId === undefined ? {} : { candidateId: summaryCandidateId }),
-    objections: objections.length,
-    overruled: objections.filter((value) => jsonRecord(value)?.accepted !== true).length,
-    risks: Array.isArray(payload.unresolvedRisks)
-      ? payload.unresolvedRisks.filter((risk): risk is string => typeof risk === "string")
-      : [],
-  };
-};
-
-const rulingTraceHtml = (
-  events: WorkflowEventSummary[],
-  panel: PanelState | undefined,
-): string => {
-  const summaries = events
-    .map((event) => rulingSummary(event, panel))
-    .filter((summary): summary is RulingSummary => summary !== undefined);
-  if (summaries.length < 2) return "";
-  const rows = summaries.map((summary, index) => {
-    const previous = summaries[index - 1];
-    const added = previous ? summary.risks.filter((risk) => !previous.risks.includes(risk)) : [];
-    const resolved = previous ? previous.risks.filter((risk) => !summary.risks.includes(risk)) : [];
-    const change = !previous
-      ? "first ruling"
-      : [
-          added.length > 0 ? `${String(added.length)} new risk${added.length === 1 ? "" : "s"}` : "",
-          resolved.length > 0 ? `${String(resolved.length)} resolved` : "",
-        ].filter(Boolean).join(", ") || "no change in risks";
-    return `<tr><td>${String(index + 1)}</td><td>${escapeHtml(formatDateTime(summary.createdAt))}</td><td>${escapeHtml(summary.lead ?? "Consensus")}</td><td>${escapeHtml(summary.candidateId ?? "not assigned")}</td><td>${String(summary.objections)} (${String(summary.overruled)} overruled)</td><td>${String(summary.risks.length)}</td><td>${escapeHtml(change)}</td></tr>`;
-  }).join("");
-  return `<section class="ruling-trace"><h2>Iteration comparison</h2><table><thead><tr><th>#</th><th>Ruled</th><th>Lead</th><th>Candidate</th><th>Objections</th><th>Risks</th><th>Change</th></tr></thead><tbody>${rows}</tbody></table></section>`;
-};
-
 const finalRulingHtml = (
   event: WorkflowEventSummary,
   panel: PanelState | undefined,
+  findings?: RunResultCenter["findings"],
 ): string | undefined => {
   if (event.type !== "decision.published") {
     return undefined;
@@ -126,9 +151,15 @@ const finalRulingHtml = (
     return undefined;
   }
   const ruledBy = jsonString(payload.ruledBy);
-  const leadName = ruledBy ? panel?.agents[ruledBy]?.name ?? ruledBy : undefined;
-  const decisionLabel = ruledBy ? "Lead’s Final Ruling" : "Consensus Decision";
-  const candidateId = jsonString(payload.candidateId);
+  const decisionStatus = jsonString(payload.status);
+  const humanResolution = jsonRecord(payload.humanResolution);
+  const resolvedByHuman = humanResolution !== undefined;
+  const unresolved = decisionStatus === "pending" || decisionStatus === "resolved";
+  const rationale = jsonString(humanResolution?.rationale);
+  const selectedParticipant = jsonString(humanResolution?.selectedParticipant);
+  const selectedParticipantName = selectedParticipant ? participantName(panel, selectedParticipant) : undefined;
+  const leadName = ruledBy ? participantName(panel, ruledBy) : undefined;
+  const decisionLabel = resolvedByHuman ? "Your decision" : decisionStatus === "pending" ? "Unresolved review" : ruledBy ? "Lead’s final ruling" : "Consensus decision";
   const candidate = payload.candidate;
   const participants = Array.isArray(payload.participants) ? payload.participants : [];
   const objections = Array.isArray(payload.objections) ? payload.objections : [];
@@ -142,25 +173,59 @@ const finalRulingHtml = (
     if (!agentId || !text) {
       return [];
     }
-    const agentName = panel?.agents[agentId]?.name ?? agentId;
+    const agentName = participantName(panel, agentId);
     const aligned = objection?.accepted === true;
-    return [`<li><span><strong>${escapeHtml(agentName)}</strong> ${escapeHtml(text)}</span><small class="ruling-disposition ${aligned ? "accepted" : "overruled"}">${aligned ? "Aligned" : "Overruled"}</small></li>`];
+    const disposition = unresolved ? "Unresolved" : aligned ? "Aligned" : resolvedByHuman ? "Not resolved" : "Overruled";
+    return [`<li><span><strong>${escapeHtml(agentName)}</strong> ${escapeHtml(text)}</span><small class="ruling-disposition ${unresolved || (resolvedByHuman && !aligned) ? "unresolved" : aligned ? "accepted" : "overruled"}">${disposition}</small></li>`];
   }).join("");
-  const participantItems = participants.map((participant) => decisionParticipantHtml(participant, panel)).join("");
-  const selectedResult = candidate === undefined
-    ? `<p class="muted">No selected result was published.</p>`
-    : typeof candidate === "string"
-      ? `<div class="markdown ruling-result">${renderMarkdown(candidate)}</div>`
-      : jsonDetailsHtml("Selected result", candidate, `ruling:${event.id}:selected`);
-  return `<article class="final-ruling-card">
-    <div class="ruling-heading"><div><span class="decision-label">${decisionLabel}</span><h3>${escapeHtml(event.title ?? "Final decision")}</h3></div><small>${escapeHtml(formatDateTime(event.createdAt))}</small></div>
-    <dl class="ruling-meta"><dt>Lead</dt><dd>${escapeHtml(leadName ?? "Consensus")}</dd><dt>Candidate</dt><dd>${escapeHtml(candidateId ?? "Not assigned")}</dd></dl>
+  const participantItems = participants.map((participant) => decisionParticipantHtml(participant, panel, payload)).join("");
+  const selectedResult = candidate === undefined || unresolved ? "" : readableResultHtml(candidate, 0, findings);
+  const comparison = participants.length > 0
+    ? `<div class="compare-grid">${participants.map((participant) => participantColumnHtml(participant, panel, payload, decisionStatus === "resolved" ? unresolvedParticipantFindings(participant, findings) : undefined)).join("")}</div>`
+    : "";
+  return `<article class="final-ruling-card"${event.createdAt ? ` title="${escapeAttribute(formatDateTime(event.createdAt))}"` : ""}>
+    <div class="ruling-heading"><div><span class="decision-label">${decisionLabel}</span><h3>${decisionStatus === "pending" ? "Participant conclusions" : decisionStatus === "resolved" ? "Finished with unresolved findings" : selectedParticipantName ? `Accepted ${escapeHtml(selectedParticipantName)}’s conclusion` : "Final decision"}</h3></div></div>
+    ${leadName && !resolvedByHuman ? `<dl class="ruling-meta"><dt>Lead</dt><dd>${escapeHtml(leadName)}</dd></dl>` : ""}
+    ${rationale ? `<section class="human-resolution"><h4>Rationale</h4><div class="markdown">${renderMarkdown(rationale)}</div></section>` : ""}
     ${selectedResult}
-    ${participantItems ? `<section><h4>Participant outputs</h4><div class="ruling-participants">${participantItems}</div></section>` : ""}
-    ${participants.length > 1 ? `<details class="ruling-compare" ${disclosureAttributes(`ruling:${String(event.id)}:compare`)}><summary>Compare ${String(participants.length)} participant outputs side by side</summary><div class="compare-grid">${participants.map((participant) => participantColumnHtml(participant, panel, event.id)).join("")}</div></details>` : ""}
-    ${objectionItems ? `<section><h4>Objections</h4><ul class="ruling-list">${objectionItems}</ul></section>` : `<p class="muted">No objections were recorded.</p>`}
-    ${unresolvedRisks.length > 0 ? `<section><h4>Unresolved risks</h4><ul class="ruling-list risks">${unresolvedRisks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul></section>` : `<p class="muted">No unresolved risks were recorded.</p>`}
+    ${unresolved ? comparison : participantItems ? `<section><h4>Participant outputs</h4><div class="ruling-participants">${participantItems}</div></section>` : ""}
+    ${!unresolved && comparison ? `<details class="ruling-compare" ${disclosureAttributes(`ruling:${String(event.id)}:compare`)}><summary>Compare participant conclusions</summary>${comparison}</details>` : ""}
+    ${!unresolved && objectionItems ? `<section><h4>Objections</h4><ul class="ruling-list">${objectionItems}</ul></section>` : ""}
+    ${!unresolved && unresolvedRisks.length > 0 ? `<section><h4>Unresolved risks</h4><ul class="ruling-list risks">${unresolvedRisks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul></section>` : ""}
   </article>`;
+};
+
+const interactionIsOpen = (interaction: InteractionSummary): boolean =>
+  interaction.status === "pending" || interaction.status === "paused";
+
+const gateInteraction = (conversationId: string, panel: PanelState): InteractionSummary | undefined =>
+  state.manager.interactions.find((interaction) => interaction.conversationId === conversationId &&
+    interaction.kind === "humanGate" && interactionIsOpen(interaction) &&
+    (!interaction.humanGate || (interaction.humanGate.stepId === panel.pendingGate?.stepId &&
+      interaction.humanGate.reason === panel.pendingGate.reason &&
+      interaction.humanGate.round === panel.pendingGate.round)));
+
+const disagreementEventForGate = (
+  conversationId: string,
+  gate: InteractionSummary["humanGate"],
+): WorkflowEventSummary | undefined => {
+  if (!gate || (gate.reason !== "maxConsensusRounds" && gate.reason !== "invalidConsensus")) return undefined;
+  const events = currentAttempt(state.manager.eventsByConversation[conversationId] ?? []).events;
+  const event = [...events]
+    .reverse()
+    .find((candidate) => candidate.type === "decision.published" && eventStepId(candidate) === gate.stepId);
+  const payload = jsonRecord(event?.payload);
+  return event && jsonString(payload?.status) === "pending" &&
+    (gate.decisionRound === undefined || payload?.round === gate.decisionRound) ? event : undefined;
+};
+
+const disagreementEventFor = (interaction: InteractionSummary): WorkflowEventSummary | undefined =>
+  interaction.kind !== "humanGate" || !interactionIsOpen(interaction) ? undefined
+    : disagreementEventForGate(interaction.conversationId, interaction.humanGate ?? state.panels.get(interaction.conversationId)?.pendingGate);
+
+const disagreementSummaryHtml = (interaction: InteractionSummary): string => {
+  const event = disagreementEventFor(interaction);
+  return event ? finalRulingHtml(event, state.panels.get(interaction.conversationId)) ?? "" : "";
 };
 
 /**
@@ -173,7 +238,7 @@ const finalRulingHtml = (
  * ended, and how it ended. Nothing is inferred beyond that — a step with no recorded event is
  * `waiting`, not `skipped`, because the run never said.
  */
-type PipelineStepState = "waiting" | "running" | "completed" | "failed" | "interrupted";
+type PipelineStepState = "waiting" | "running" | "completed" | "failed" | "interrupted" | "notRun";
 
 const pipelineStepStateLabel: Record<PipelineStepState, string> = {
   waiting: "Waiting",
@@ -181,6 +246,7 @@ const pipelineStepStateLabel: Record<PipelineStepState, string> = {
   completed: "Completed",
   failed: "Failed",
   interrupted: "Interrupted",
+  notRun: "Not run",
 };
 
 const pipelineStepStateIcon: Record<PipelineStepState, string> = {
@@ -189,6 +255,7 @@ const pipelineStepStateIcon: Record<PipelineStepState, string> = {
   completed: "pass-filled",
   failed: "error",
   interrupted: "debug-pause",
+  notRun: "circle-slash",
 };
 
 type PipelineStepRow = {
@@ -285,35 +352,60 @@ const pipelineStepRows = (
       }
     }
   });
+  const lastRunEvent = [...attempt.events].reverse().find((event) =>
+    event.type === "run.completed" || event.type === "run.failed" || event.type === "run.interrupted" || event.type === "run.resumed",
+  );
+  if (lastRunEvent?.type === "run.completed") {
+    rows.forEach((row) => {
+      if (row.state === "waiting") row.state = "notRun";
+    });
+  }
   return Array.from(rows.values());
 };
 
+const unresolvedParticipantFindings = (participant: JsonValue, findings?: RunResultCenter["findings"]): RunResultCenter["findings"] => {
+  const agentId = jsonString(jsonRecord(participant)?.agentId);
+  return agentId ? findings?.filter((finding) => finding.id.startsWith(`${agentId}:`) && finding.provenance.participantIds.includes(agentId))
+    .map((finding) => ({ ...finding, id: finding.id.slice(agentId.length + 1) })) : undefined;
+};
+
+const resultDecisionEvent = (conversationId: string): WorkflowEventSummary | undefined => {
+  const result = state.manager.resultsByConversation?.[conversationId];
+  if (!result) return undefined;
+  const event = [...currentAttempt(state.manager.eventsByConversation[conversationId] ?? []).events]
+    .reverse().find((item) => item.type === "decision.published");
+  const saved = jsonRecord(result.finalDecision);
+  if (saved) return {
+    id: result.finalDecisionEventId ?? event?.id ?? 0,
+    type: "decision.published",
+    createdAt: event?.createdAt ?? jsonString(jsonRecord(saved.humanResolution)?.resolvedAt) ?? "",
+    payload: saved,
+  };
+  const payload = jsonRecord(event?.payload);
+  if (!result.finalRuling || !event || !payload || payload.status === "pending") return undefined;
+  if (result.finalDecisionEventId !== undefined) return event.id === result.finalDecisionEventId ? event : undefined;
+  const candidate = payload.candidate;
+  const candidateText = typeof candidate === "string" ? candidate : candidate === undefined ? undefined : JSON.stringify(candidate);
+  return candidateText === result.finalRuling ||
+    (result.rulingProvenance?.kind === "humanResolution" && jsonRecord(payload.humanResolution)) ? event : undefined;
+};
+
+const findingContentKey = (finding: { subject?: unknown; message?: unknown; evidence?: unknown; challenges?: unknown; disposition?: unknown; severity?: unknown; location?: unknown }): string =>
+  JSON.stringify([finding.subject, finding.message, finding.evidence ?? [], finding.challenges ?? [], finding.disposition ?? "proposed", finding.severity, finding.location]);
+
 const pipelineStepRowHtml = (
-  conversationId: string,
   row: PipelineStepRow,
 ): string => {
-  const timing = row.startedAt === undefined
-    ? `<small class="pipeline-step-timing muted">Not started</small>`
-    // Only recorded timestamps are shown. A step whose own events span no measurable time gets a
-    // start time and nothing else rather than a duration nobody recorded.
-    : `<small class="pipeline-step-timing">Started ${escapeHtml(formatDateTime(row.startedAt))}</small>`;
+  const timing = row.startedAt === undefined ? "" : ` title="${escapeAttribute(`Started ${formatDateTime(row.startedAt)}`)}"`;
   // The row's own heading is the step name. An activity entry that repeats it says nothing the
   // reader has not just read, so the step's own start event contributes its timestamp and its
   // technical detail through the rows below rather than a line restating the name.
-  const activity = row.events.filter((event) => (event.title ?? event.type) !== row.name);
-  const activityHtml = activity.length === 0
-    ? `<p class="muted">No activity was recorded for this step.</p>`
-    : `<ul class="pipeline-step-activity">${activity.map((event) => `<li class="status-${escapeAttribute(event.status ?? "idle")}"><strong>${escapeHtml(event.title ?? event.type)}</strong><small>${escapeHtml(event.type)} · ${escapeHtml(formatDateTime(event.createdAt))}</small>${event.payload === undefined ? "" : jsonDetailsHtml("Technical detail", event.payload, `pipeline-step:${conversationId}:${row.id}:${String(event.id)}`)}</li>`).join("")}</ul>`;
   return `<li class="pipeline-step pipeline-step-${escapeAttribute(row.state)}">
-    <details ${disclosureAttributes(`pipeline-step:${conversationId}:${row.id}`)}>
-      <summary>
+    <div class="pipeline-step-summary"${timing}>
         <span class="pipeline-step-position" aria-hidden="true">${String(row.position)}</span>
         <span class="pipeline-step-name">${escapeHtml(row.name)}</span>
         <span class="pipeline-step-state"><i class="codicon codicon-${escapeAttribute(pipelineStepStateIcon[row.state])}" aria-hidden="true"></i> ${escapeHtml(pipelineStepStateLabel[row.state])}</span>
-        ${timing}
-      </summary>
-      <div class="pipeline-step-body">${activityHtml}</div>
-    </details>
+    </div>
   </li>`;
 };
 
@@ -323,17 +415,9 @@ const pipelineSummaryHtml = (conversationId: string): string => {
   const steps = panel?.selectedPipelineDefinition?.steps ?? [];
   if (steps.length === 0) return "";
   const rows = pipelineStepRows(steps, events);
-  const counts = rows.reduce<Record<PipelineStepState, number>>((totals, row) => ({
-    ...totals,
-    [row.state]: totals[row.state] + 1,
-  }), { waiting: 0, running: 0, completed: 0, failed: 0, interrupted: 0 });
-  const headline = (["running", "failed", "interrupted", "completed", "waiting"] as PipelineStepState[])
-    .filter((stateName) => counts[stateName] > 0)
-    .map((stateName) => `${String(counts[stateName])} ${pipelineStepStateLabel[stateName].toLowerCase()}`)
-    .join(" · ");
   return `<section class="pipeline-summary">
-    <header><h2>Pipeline</h2><p class="pipeline-summary-counts">${escapeHtml(`${String(rows.length)} step${rows.length === 1 ? "" : "s"} · ${headline}`)}</p></header>
-    <ol class="pipeline-step-list">${rows.map((row) => pipelineStepRowHtml(conversationId, row)).join("")}</ol>
+    <header><h2>Pipeline</h2></header>
+    <ol class="pipeline-step-list">${rows.map((row) => pipelineStepRowHtml(row)).join("")}</ol>
   </section>`;
 };
 
@@ -343,33 +427,25 @@ const workflowHtml = (conversationId: string): string => {
     return "";
   }
   const panel = state.panels.get(conversationId);
-  // EX-UI-01. A failed step says so where it is, and says what happens next, rather than leaving
-  // the reader to match a banner at the top of the window against a dot in this list.
-  const failureDetail = (payload: unknown): string | undefined => {
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
-    const record = payload as Record<string, unknown>;
-    const value = record.error ?? record.message ?? record.reason;
-    return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-  };
-  const failureNote = (event: { status?: string; payload?: unknown }): string =>
-    event.status !== "failed"
-      ? ""
-      : `<p class="workflow-event-failure">${escapeHtml(failureDetail(event.payload) ?? "This step failed.")} <span class="muted">The run stopped here; nothing was resent.</span></p>`;
-  // EX-UI-03. The compact summary answers "where is this run"; the flat stream answers "what
-  // exactly was recorded". Only the first is a question a reader has on arrival, so the stream
-  // moves behind a disclosure rather than being the page.
-  const rulings = events
+  const embeddedEvents = new Set(state.manager.interactions
+    .filter((interaction) => interaction.conversationId === conversationId)
+    .map(disagreementEventFor)
+    .filter((event): event is WorkflowEventSummary => event !== undefined)
+    .map((event) => event.id));
+  const fallbackDecision = disagreementEventForGate(conversationId, panel?.pendingGate);
+  if (fallbackDecision) embeddedEvents.add(fallbackDecision.id);
+  const resultDecision = resultDecisionEvent(conversationId);
+  if (resultDecision && panel && !["running", "waiting"].includes(runPhaseOf(panel))) embeddedEvents.add(resultDecision.id);
+  const latestDecisions = new Map<string, WorkflowEventSummary>();
+  currentAttempt(events).events.forEach((event) => {
+    if (event.type === "decision.published") latestDecisions.set(eventStepId(event) ?? String(event.id), event);
+  });
+  const rulings = Array.from(latestDecisions.values())
+    .filter((event) => !embeddedEvents.has(event.id))
     .map((event) => finalRulingHtml(event, panel))
     .filter((html): html is string => html !== undefined)
     .join("");
-  // The history keeps what each attempt recorded, not only that it happened. The detail is the
-  // bounded, redacted projection the manager sent, and it stays behind its own closed disclosure
-  // so the stream still reads as a list rather than as a dump.
-  const stream = events.map((event) => `<article class="workflow-event status-${escapeAttribute(event.status ?? "idle")}">
-    <span class="workflow-dot"></span>
-    <div><strong>${escapeHtml(event.title ?? event.type)}</strong><small>${escapeHtml(event.type)} · ${escapeHtml(formatDateTime(event.createdAt))}</small>${failureNote(event)}${event.payload === undefined ? "" : jsonDetailsHtml("Technical detail", event.payload, `workflow-event:${conversationId}:${String(event.id)}`)}</div>
-  </article>`).join("");
-  return `${rulingTraceHtml(events, panel)}${pipelineSummaryHtml(conversationId)}${rulings}<details class="info-disclosure workflow-timeline" ${disclosureAttributes(`workflow-events:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Raw event history · ${String(events.length)} recorded</summary><div class="workflow-timeline-body">${stream}</div></details>`;
+  return `${pipelineSummaryHtml(conversationId)}${rulings}`;
 };
 
 /**
@@ -396,7 +472,8 @@ const gateArbiterName = (panel: PanelState, gate: PendingHumanGate): string | un
 };
 
 const gateChoiceLabel = (action: HumanGateAction, arbiter?: string): string =>
-  action === "requestArbiterRuling" && arbiter !== undefined
+  action === "retry" ? "Request one more round"
+    : action === "requestArbiterRuling" && arbiter !== undefined
     ? `Ask ${arbiter} to rule`
     : extraGateActionLabels[action] ?? gateActionLabel(action);
 
@@ -409,21 +486,47 @@ const gateReasonSentence: Record<PendingHumanGate["reason"], string> = {
   maxConsensusRounds: "The participants reached the round limit without agreeing.",
 };
 
-const gateHtml = (panel: PanelState): string => {
+const gateDraftKey = (conversationId: string, panel: PanelState): string | undefined => {
+  const gate = panel.pendingGate;
+  if (!gate) return undefined;
+  const opening = currentAttempt(state.manager.eventsByConversation[conversationId] ?? []).events
+    .find((event) => event.type === "run.started" || event.type === "run.restarted");
+  return `${JSON.stringify(conversationId)}:${JSON.stringify([opening?.id, gate.stepId, gate.reason, gate.round, gate.decisionRound])}`;
+};
+
+const rememberGateDraft = (conversationId: string, panel: PanelState, text: string): void => {
+  const key = gateDraftKey(conversationId, panel);
+  const prefix = `${JSON.stringify(conversationId)}:`;
+  for (const existing of state.gateDrafts.keys()) {
+    if (existing.startsWith(prefix) && existing !== key) state.gateDrafts.delete(existing);
+  }
+  if (key) state.gateDrafts.set(key, text);
+};
+
+const gateHtml = (panel: PanelState, conversationId = activeId()): string => {
   const gate = panel.pendingGate;
   if (!gate) {
     return "";
   }
   const arbiter = gateArbiterName(panel, gate);
-  const choices = gate.allowedActions.filter((action) => action !== "rollback");
+  const choices = gate.allowedActions.filter((action) => action !== "rollback" && action !== "acceptParticipant");
+  const disagreement = gate.reason === "maxConsensusRounds" || gate.reason === "invalidConsensus";
+  const conclusionChoices = gate.allowedActions.includes("acceptParticipant")
+    ? (gate.conclusionOptions ?? []).map((participant) => `<button data-action="gate" data-gate-action="acceptParticipant" data-participant="${escapeAttribute(participant.agentId)}">Accept ${escapeHtml(participant.label)}’s conclusion</button>`).join("")
+    : "";
+  const decision = disagreementEventForGate(conversationId, gate);
+  const draft = state.gateDrafts.get(gateDraftKey(conversationId, panel) ?? "") ?? "";
   const expected = choices.includes("continue") ? "continue" : choices.find((action) => !haltingGateActions.has(action));
   const rollback = gate.allowedActions.includes("rollback")
     ? `<div class="decision-rollback"><label for="rollback-target">Return to step</label><select id="rollback-target">${gate.rollbackTargets.map((target) => `<option value="${escapeAttribute(target.id)}">${escapeHtml(target.name)}</option>`).join("")}</select><button data-action="gate" data-gate-action="rollback">${escapeHtml(gateChoiceLabel("rollback"))}</button></div>`
     : "";
   return `<article class="decision-card" id="pending-gate" tabindex="-1">
     <div class="decision-label">Your decision</div><h2>${escapeHtml(gate.stepName)}</h2><p>${escapeHtml(gate.detail ?? gateReasonSentence[gate.reason] ?? gate.reason)}</p>
+    ${decision ? finalRulingHtml(decision, panel) ?? "" : ""}
+    ${disagreement ? `<label for="gate-rationale">Rationale or review instructions</label><textarea id="gate-rationale" placeholder="Record your decision or guide one more round…">${escapeHtml(draft)}</textarea>` : ""}
     <div class="decision-actions">
-      ${choices.map((action) => `<button${haltingGateActions.has(action) ? ` class="danger"` : action === expected ? ` class="primary"` : ""} data-action="gate" data-gate-action="${action}">${escapeHtml(gateChoiceLabel(action, arbiter))}</button>`).join("")}
+      ${conclusionChoices}
+      ${choices.map((action) => `<button${haltingGateActions.has(action) && !disagreement ? ` class="danger"` : action === expected ? ` class="primary"` : ""} data-action="gate" data-gate-action="${action}">${escapeHtml(action === "cancel" && disagreement ? "Leave for later" : gateChoiceLabel(action, arbiter))}</button>`).join("")}
     </div>
     ${rollback}
   </article>`;
@@ -648,18 +751,16 @@ const verificationStateLine = (result: RunResultCenter): string => {
 const verificationCurrencyLine = (result: RunResultCenter): string => {
   const provenance = result.verificationProvenance;
   if (!provenance) return "";
-  const when = escapeHtml(formatDateTime(provenance.recordedAt));
+  const timing = ` title="${escapeAttribute(formatDateTime(provenance.recordedAt))}"`;
   return provenance.source === "recheck"
-    ? `<p class="muted result-verification-currency" data-verification-source="recheck">Current verification: rerun of the approved checks, recorded ${when}. It replaces the original run's verification.</p>`
-    : `<p class="muted result-verification-currency" data-verification-source="run">Current verification: recorded by the original run at ${when}.</p>`;
+    ? `<p class="muted result-verification-currency" data-verification-source="recheck"${timing}>Current verification: rerun of the approved checks. It replaces the original run's verification.</p>`
+    : `<p class="muted result-verification-currency" data-verification-source="run"${timing}>Current verification: recorded by the original run.</p>`;
 };
 
 const verificationDetailsHtml = (check: RunResultCenter["checks"][number]): string => {
   const details = [
     check.exitCode === undefined ? undefined : ["Exit status", String(check.exitCode)],
     check.workingDirectory === undefined ? undefined : ["Working directory", check.workingDirectory],
-    check.candidateTree === undefined ? undefined : ["Candidate tree", check.candidateTree],
-    check.outputReference === undefined ? undefined : ["Output reference", check.outputReference],
   ].filter((entry): entry is [string, string] => entry !== undefined);
   return details.length === 0
     ? ""
@@ -691,21 +792,24 @@ const recommendedNextAction = (result: RunResultCenter): string => {
 
 type RulingParticipantIdentity = { agentId: string; provider?: string; adapter?: string; model?: string };
 
-const rulingParticipantLabel = (participant: RulingParticipantIdentity): string => {
-  const name = participant.provider ?? participant.agentId;
+const rulingParticipantLabel = (participant: RulingParticipantIdentity, result: RunResultCenter): string => {
+  const name = result.providers?.find((provider) => provider.agentId === participant.agentId)?.name ?? participant.provider ?? "Participant";
   const qualifiers = [participant.adapter, participant.model].filter((value): value is string => !!value);
   return qualifiers.length === 0 ? name : `${name} (${qualifiers.join(" · ")})`;
 };
 
 const rulingProvenanceLabel = (result: RunResultCenter): string | undefined => {
   const provenance = result.rulingProvenance;
-  if (!provenance) return result.rulingBy ? `Ruled by ${result.rulingBy}` : undefined;
-  const identity = rulingParticipantLabel;
+  if (!provenance) {
+    const name = result.providers?.find((provider) => provider.agentId === result.rulingBy || provider.name.toLowerCase() === result.rulingBy?.toLowerCase())?.name;
+    return name ? `Ruled by ${name}` : undefined;
+  }
+  const identity = (participant: RulingParticipantIdentity): string => rulingParticipantLabel(participant, result);
   const labels = provenance.participants.map(identity);
   if (provenance.kind === "unanimousConsensus") return `Unanimous consensus of ${labels.join(", ")}`;
   if (provenance.kind === "arbiterRuling") {
     const arbiter = provenance.participants.find((participant) => participant.agentId === provenance.ruledBy);
-    return `Arbiter ruling by ${arbiter ? identity(arbiter) : String(provenance.ruledBy)}`;
+    return `Arbiter ruling by ${arbiter ? identity(arbiter) : "Participant"}`;
   }
   if (provenance.kind === "singleProvider") return `Single provider result from ${labels[0]}`;
   if (provenance.kind === "humanResolution") return `Human resolution by ${String(provenance.resolvedBy)}`;
@@ -793,7 +897,7 @@ const runFailureHtml = (result: RunResultCenter, panel: PanelState): string => {
   }
   const rows: Array<[string, string]> = [
     ...(failure.participant ?? failure.agentId
-      ? [["Participant", failure.participant ?? failure.agentId] as [string, string]]
+      ? [["Participant", failure.participant ?? participantName(panel, failure.agentId ?? "")] as [string, string]]
       : []),
     ...(failure.provider ?? failure.adapter
       ? [["Provider", failure.provider ?? failure.adapter] as [string, string]]
@@ -810,7 +914,7 @@ const runFailureHtml = (result: RunResultCenter, panel: PanelState): string => {
   </section>`;
 };
 
-const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState): string => {
+const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState, coveredFindings: ReadonlySet<string> = new Set()): string => {
   const outcome = result.status === "interrupted"
     ? "interrupted"
     : result.finalAssessment?.outcome ?? "notApplicable";
@@ -825,13 +929,14 @@ const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState): 
   const gaps = result.evidenceGaps.length > 0
     ? `, ${String(result.evidenceGaps.length)} evidence gap${result.evidenceGaps.length === 1 ? "" : "s"}`
     : "";
-  const providers = result.finalAssessment?.producedBy ?? [];
+  const providers = result.finalAssessment?.producedBy ?? result.providers ?? [];
   const findings = result.findings ?? [];
+  const shownFindings = findings.filter((finding) => !coveredFindings.has(findingContentKey(finding)));
   const actionable = findings.filter((finding) => finding.disposition === "accepted").length;
   const unresolved = findings.filter((finding) => finding.disposition === "unresolved").length;
-  const findingDetails = findings.length === 0
-    ? `<p class="muted">No typed model findings were recorded.</p>`
-    : `<ul class="result-finding-list">${findings.map((finding) => {
+  const findingDetails = shownFindings.length === 0
+    ? ""
+    : `<ul class="result-finding-list">${shownFindings.map((finding) => {
         const location = finding.location === undefined
           ? ""
           : ` · ${finding.location.file}${finding.location.startLine === undefined ? "" : `:${String(finding.location.startLine)}${finding.location.endLine === undefined ? "" : `-${String(finding.location.endLine)}`}`}`;
@@ -841,7 +946,7 @@ const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState): 
         const challenges = finding.challenges.length > 0
           ? `<p><strong>Challenges</strong> ${escapeHtml(finding.challenges.join("; "))}</p>`
           : `<p class="muted">No challenge was recorded.</p>`;
-        return `<li class="finding-${escapeAttribute(finding.disposition)}"><strong>${escapeHtml(finding.subject)}</strong><small>${escapeHtml(`${labelFor(lifecycleStateLabel, finding.disposition)}${location}`)}</small><p>${escapeHtml(finding.message)}</p>${evidence}${challenges}<p class="muted">Decision ${escapeHtml(finding.provenance.stepId)} · ${escapeHtml(finding.provenance.participantIds.join(", "))}${finding.provenance.ruledBy ? ` · ruled by ${escapeHtml(finding.provenance.ruledBy)}` : ""}</p></li>`;
+        return `<li class="finding-${escapeAttribute(finding.disposition)}"><strong>${escapeHtml(finding.subject)}</strong><small>${escapeHtml(`${labelFor(lifecycleStateLabel, finding.disposition)}${location}`)}</small><p>${escapeHtml(finding.message)}</p>${evidence}${challenges}</li>`;
       }).join("")}</ul>`;
   return `<section class="result-decision outcome-${escapeAttribute(outcome)}" data-outcome="${escapeAttribute(outcome)}" aria-label="Run assessment">
     <p class="result-assessment-status${result.finalAssessment?.failure ? " sr-only" : ""}"><strong><i class="codicon codicon-${escapeAttribute(outcomeIcon[outcome] ?? "circle-outline")}" aria-hidden="true"></i> ${escapeHtml(assessmentStatusLine(result))}</strong></p>
@@ -850,10 +955,10 @@ const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState): 
     <p class="result-next-action">${escapeHtml(recommendedNextAction(result))}</p>
     ${runFailureHtml(result, panel)}
     ${actionable + unresolved > 0 ? `<p class="result-finding-summary"><strong>Findings · ${String(actionable)} actionable · ${String(unresolved)} need human</strong></p>` : ""}
-    ${actionable + unresolved > 0 ? findingDetails : findings.length === 0 ? "" : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Finding details</summary>${findingDetails}</details>`}
+    ${findingDetails === "" ? "" : actionable + unresolved > 0 ? findingDetails : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Finding details</summary>${findingDetails}</details>`}
     <details class="info-disclosure result-assessment-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Assessment details</summary>
     <dl class="result-decision-grid">
-      <dt>Summary</dt><dd>${escapeHtml(result.finalAssessment?.summary ?? "No final assessment was recorded")}</dd>
+      <dt>Summary</dt><dd>${escapeHtml(resultSummaryText(result.finalAssessment?.summary) ?? "No final assessment was recorded")}</dd>
       <dt>Changed scope</dt><dd>${escapeHtml(scope)}</dd>
       <dt>Verification</dt><dd>${escapeHtml(verificationStateLine(result))}</dd>
       <dt>Remaining risk</dt><dd>${escapeHtml(`${risk}${gaps}`)}</dd>
@@ -962,6 +1067,23 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
   const phase = runPhaseOf(panel);
   if (phase === "running" || phase === "waiting") return "";
   const recovery = runRecoveryOf(panel, phase);
+  const decisionEvent = resultDecisionEvent(conversationId);
+  const decisionPayload = jsonRecord(decisionEvent?.payload);
+  const structured = structuredRuling(result.finalRuling);
+  const canonicalCandidate = result.finalDecision !== undefined || jsonRecord(decisionPayload?.humanResolution)
+    ? decisionPayload?.candidate : structured ?? result.finalRuling ?? decisionPayload?.candidate;
+  const candidateSources = decisionPayload?.status === "resolved"
+    ? (Array.isArray(decisionPayload.participants) ? decisionPayload.participants : []).map((participant) => ({
+        candidate: jsonRecord(jsonRecord(participant)?.candidate), findings: unresolvedParticipantFindings(participant, result.findings),
+      }))
+    : [{ candidate: jsonRecord(canonicalCandidate), findings: result.findings }];
+  const coveredFindings = new Set(candidateSources.flatMap(({ candidate, findings }) =>
+    (Array.isArray(candidate?.findings) ? candidate.findings : []).flatMap((value) => {
+      const finding = jsonRecord(value);
+      const normalized = finding ? normalizedResultFinding(finding, findings) : undefined;
+      return normalized ? [findingContentKey(normalized)] : [];
+    })));
+
   const resultRunId = result.retainedRunId;
   const selection = new Set(selectedResultPaths(conversationId, resultRunId));
   const hunkCount = selectedHunkReferences(conversationId, resultRunId).length;
@@ -1014,23 +1136,18 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
       ${hunkPickerHtml(conversationId, orchestrationRunId)}
     </section>`
     : "";
-  // A run that stopped before any participant answered has no changed files, no verification, no
-  // ruling and no risks — four headings whose whole content is "nothing was recorded". Stated once
-  // behind a disclosure they are still available and no longer bury the failure above them.
-  const evidenceSections = `<div class="result-grid"><section><h3>Changed files</h3>${files}${result.diffSummary ? `<pre>${escapeHtml(result.diffSummary)}</pre>` : ""}</section><section><h3>Verification</h3>${checks}${verificationCurrencyLine(result)}</section></div>
-    <section><h3>Final ruling</h3>${result.finalRuling ? `<div class="markdown">${renderMarkdown(result.finalRuling)}</div>${rulingProvenanceLabel(result) ? `<p class="muted">${escapeHtml(rulingProvenanceLabel(result) ?? "")}</p>` : ""}` : result.expectations?.finalRuling === false ? `<p class="muted">Not applicable: this pipeline declares no consensus or checklist ruling.</p>` : `<p class="muted">No final ruling was recorded.</p>`}${(result.providers ?? []).length > 0 ? `<p class="muted">Providers: ${escapeHtml((result.providers ?? []).map((provider) => provider.model ? `${provider.name} (${provider.adapter} · ${provider.model})` : `${provider.name} (${provider.adapter})`).join(", "))}</p>` : ""}</section>
-    <section><h3>Unresolved risks</h3>${risks}</section>`;
-  const nothingRecorded =
-    result.changedFiles.length === 0 &&
-    result.checks.length === 0 &&
-    result.finalRuling === undefined &&
-    visibleRisks.length === 0;
-  const evidenceSectionsHtml = nothingRecorded
-    ? `<details class="info-disclosure result-empty-sections" ${disclosureAttributes(`result-empty:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Evidence details · nothing recorded</summary><div class="result-empty-body">${evidenceSections}</div></details>`
-    : evidenceSections;
+  const fileSection = result.changedFiles.length > 0 || result.diffSummary || result.expectations?.changedFiles === true
+    ? `<section><h3>Changed files</h3>${files}${result.diffSummary ? `<pre>${escapeHtml(result.diffSummary)}</pre>` : ""}</section>` : "";
+  const checkSection = result.checks.length > 0 || result.expectations?.verification === true
+    ? `<section><h3>Verification</h3>${checks}${verificationCurrencyLine(result)}</section>` : "";
+  const rulingSection = decisionEvent
+    ? finalRulingHtml(canonicalCandidate === undefined ? decisionEvent : { ...decisionEvent, payload: { ...decisionPayload, candidate: canonicalCandidate } }, panel, result.findings) ?? ""
+    : result.finalRuling ? `<section><h3>Final ruling</h3>${resultRulingHtml(result.finalRuling, result.findings)}${rulingProvenanceLabel(result) ? `<p class="muted">${escapeHtml(rulingProvenanceLabel(result) ?? "")}</p>` : ""}</section>`
+      : result.expectations?.finalRuling === true && !result.finalAssessment?.failure ? `<section><h3>Final ruling</h3><p class="muted">No final ruling was recorded.</p></section>` : "";
+  const evidenceSectionsHtml = `${rulingSection}${fileSection || checkSection ? `<div class="result-grid">${fileSection}${checkSection}</div>` : ""}${visibleRisks.length > 0 ? `<section><h3>Unresolved risks</h3>${risks}</section>` : ""}`;
   return `<section class="result-center">
     <header><div><span class="decision-label">Run result</span><h2>${escapeHtml(resultHeadlineLabel(result, panel.resumableWorkflow?.outcome))}</h2>${recovery ? `<p class="result-recovery-position">${escapeHtml(recoveryPositionText(panel, recovery))}</p>` : ""}</div><div class="compact-actions">${recoveryActionsHtml(panel, recovery)}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">Reveal worktree</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="Run result actions" title="Run result actions">More</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}<button data-action="result-publish-findings">Publish findings to Problems</button><button data-action="result-source-control">Open Source Control</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">Run bundle (JSON)</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">Evidence report (Markdown)</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">Evidence findings (SARIF)</button></div></details></div></header>
-    ${resultDecisionSummaryHtml(result, panel)}
+    ${resultDecisionSummaryHtml(result, panel, coveredFindings)}
     ${evidenceSectionsHtml}
     ${recovered}
     ${result.retainedWorktree ? `<details class="info-disclosure" ${disclosureAttributes(`result-worktree:${conversationId}`)}><summary>Recovery worktree</summary><p class="result-worktree">${escapeHtml(result.retainedWorktree)}</p></details>` : ""}
@@ -1046,8 +1163,7 @@ const childRunsHtml = (conversationId: string): string => {
   }
   return `<section class="child-runs"><h2>Task runs</h2>${children.map((child) => {
     const { status, label } = conversationStatus(child);
-    const task = child.orchestrationTaskId ? `<small>${escapeHtml(child.orchestrationTaskId)}</small>` : "";
-    return `<button class="child-run status-${escapeAttribute(status)}" data-action="select-conversation" data-conversation="${escapeAttribute(child.id)}"><span class="room-presence status-${escapeAttribute(status)}"></span><span><strong>${escapeHtml(child.title)}</strong>${task}</span><small>${escapeHtml(label)}</small></button>`;
+    return `<button class="child-run status-${escapeAttribute(status)}" data-action="select-conversation" data-conversation="${escapeAttribute(child.id)}"><span class="room-presence status-${escapeAttribute(status)}"></span><span><strong>${escapeHtml(runTabLabel(child))}</strong></span><small>${escapeHtml(label)}</small></button>`;
   }).join("")}</section>`;
 };
 
@@ -1130,7 +1246,22 @@ const interactionSubmitBlockedReason = (
     : "Choose an option to submit.";
 };
 
-const interactionSubmitLabel = (interaction: InteractionSummary): string =>
-  interaction.kind === "executionChecklist" && interaction.selected.length === 0
-    ? "Continue with none"
-    : "Submit";
+const interactionSubmitLabel = (interaction: InteractionSummary, selected = interaction.selected): string => {
+  if (interaction.kind === "executionChecklist" && selected.length === 0) return "Continue with none";
+  if (interaction.kind !== "humanGate") return "Submit";
+  const action = selected[0];
+  const disagreement = interaction.humanGate?.reason === "maxConsensusRounds" ||
+    interaction.options.some((option) => optionValue(option)?.id === "acceptUnresolved");
+  return action === "acceptUnresolved" || action?.startsWith("acceptParticipant:") ? "Save decision and finish"
+    : action === "retry" ? disagreement ? "Request one more round" : "Retry step"
+      : action === "cancel" ? disagreement ? "Leave for later" : "Stop run" : "Confirm decision";
+};
+
+const interactionTextPresentation = (interaction: InteractionSummary, selected = interaction.selected): { label: string; placeholder: string } => {
+  const resolution = interaction.kind === "humanGate" && (interaction.humanGate?.reason === "maxConsensusRounds" ||
+    interaction.options.some((option) => optionValue(option)?.id === "acceptUnresolved"));
+  return resolution
+    ? selected[0] === "retry" ? { label: "Review instructions", placeholder: "Guide the next review round…" }
+      : { label: "Decision rationale", placeholder: "Decision rationale…" }
+    : { label: "Additional instructions", placeholder: "Additional instructions…" };
+};

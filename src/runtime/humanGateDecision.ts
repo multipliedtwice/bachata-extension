@@ -13,9 +13,10 @@ import type { PendingHumanGate } from "../webview/protocol";
 export const humanGateDecisionRefusal = (input: {
   waiting: boolean;
   busy: boolean;
-  pendingGate: Pick<PendingHumanGate, "allowedActions" | "rollbackTargets"> | undefined;
+  pendingGate: Pick<PendingHumanGate, "allowedActions" | "rollbackTargets" | "conclusionOptions"> | undefined;
   action: HumanGateAction;
   targetStepId?: string | undefined;
+  selectedParticipant?: string | undefined;
 }): string | undefined => {
   if (!input.waiting) return "No human gate is waiting";
   if (input.busy) return "Wait for direct agent messages to finish before continuing";
@@ -29,6 +30,9 @@ export const humanGateDecisionRefusal = (input: {
   ) {
     return "Select a valid rollback target";
   }
+  if (input.action === "acceptParticipant" && !input.pendingGate.conclusionOptions?.some(
+    (option) => option.agentId === input.selectedParticipant,
+  )) return "Select a valid participant conclusion";
   return undefined;
 };
 
@@ -81,10 +85,16 @@ export const humanGateResolution = (input: {
   action: HumanGateAction;
   targetStepId?: string | undefined;
   interventions: PipelineIntervention[];
+  rationale?: string | undefined;
+  selectedParticipant?: string | undefined;
+  reviewInstructions?: string | undefined;
 }): HumanGateDecision => ({
   action: input.action,
   ...(input.targetStepId === undefined ? {} : { targetStepId: input.targetStepId }),
   interventions: input.interventions,
+  ...(input.rationale === undefined ? {} : { rationale: input.rationale }),
+  ...(input.selectedParticipant === undefined ? {} : { selectedParticipant: input.selectedParticipant }),
+  ...(input.reviewInstructions === undefined ? {} : { reviewInstructions: input.reviewInstructions }),
 });
 
 /**
@@ -102,6 +112,8 @@ export type HumanGateRequestLike = {
   detail?: string | undefined;
   allowedActions: HumanGateAction[];
   rollbackTargets: { id: string; name: string }[];
+  decisionRound?: number | undefined;
+  conclusionOptions?: Array<{ agentId: string; label: string }> | undefined;
 };
 
 export const pendingGateFrom = (request: HumanGateRequestLike): PendingHumanGate => ({
@@ -112,9 +124,12 @@ export const pendingGateFrom = (request: HumanGateRequestLike): PendingHumanGate
   ...(request.detail === undefined ? {} : { detail: request.detail }),
   allowedActions: request.allowedActions,
   rollbackTargets: request.rollbackTargets,
+  ...(request.decisionRound === undefined ? {} : { decisionRound: request.decisionRound }),
+  ...(request.conclusionOptions === undefined ? {} : { conclusionOptions: request.conclusionOptions }),
 });
 
 export const ROLLBACK_OPTION_PREFIX = "rollback:";
+export const PARTICIPANT_OPTION_PREFIX = "acceptParticipant:";
 
 export const humanGateInteractionAsk = (
   request: HumanGateRequestLike,
@@ -127,24 +142,53 @@ export const humanGateInteractionAsk = (
   options: { id: string; label: string }[];
   allowFreeText: boolean;
   secret: false;
+  humanGate: {
+    stepId: string;
+    reason: PendingHumanGate["reason"];
+    round?: number;
+    decisionRound?: number;
+  };
 } => {
-  const waiting = request.detail ?? `Pipeline is waiting: ${request.reason}`;
+  const disagreement = request.reason === "maxConsensusRounds";
+  const reviewGate = disagreement || request.reason === "invalidConsensus";
+  const waiting = request.detail ?? (disagreement
+    ? "The review reached its round limit without agreement. Preserve the existing work, finish with unresolved findings, or request a deliberate additional review."
+    : `Pipeline is waiting: ${request.reason}`);
+  const actionLabel = (action: HumanGateAction): string => {
+    if (action === "acceptUnresolved") return "Finish with unresolved findings";
+    if (action === "retry") return "Request one more round";
+    if (action === "cancel") return reviewGate ? "Leave for later" : "Stop run";
+    if (action === "continue") return "Continue";
+    if (action === "discardStep") return "Discard step results";
+    if (action === "requestArbiterRuling") return "Ask the arbiter to decide";
+    return action;
+  };
   return {
     sourceKey: `human-gate:${context.taskId}:${request.step.id}:${request.reason}:${String(request.round ?? 0)}`,
     kind: "humanGate",
-    title: request.step.name,
-    prompt: context.leadAgentId ? `${waiting}\n\nAdditional instructions are sent to Lead.` : waiting,
+    title: disagreement ? "Review ready · decision needed" : request.step.name,
+    prompt: context.leadAgentId && !disagreement ? `${waiting}\n\nAdditional instructions are sent to Lead.` : waiting,
     options: [
       ...request.allowedActions
-        .filter((action) => action !== "rollback")
-        .map((action) => ({ id: action, label: action })),
-      ...request.rollbackTargets.map((target) => ({
+        .filter((action) => action !== "rollback" && action !== "acceptParticipant")
+        .map((action) => ({ id: action, label: actionLabel(action) })),
+      ...(request.allowedActions.includes("acceptParticipant") ? request.conclusionOptions ?? [] : []).map((option) => ({
+        id: `${PARTICIPANT_OPTION_PREFIX}${option.agentId}`,
+        label: `Use ${option.label}'s conclusion and finish`,
+      })),
+      ...(request.allowedActions.includes("rollback") ? request.rollbackTargets : []).map((target) => ({
         id: `${ROLLBACK_OPTION_PREFIX}${target.id}`,
         label: `Rollback to ${target.name}`,
       })),
     ],
-    allowFreeText: context.leadAgentId !== undefined && context.leadAgentId !== "",
+    allowFreeText: reviewGate || (context.leadAgentId !== undefined && context.leadAgentId !== ""),
     secret: false,
+    humanGate: {
+      stepId: request.step.id,
+      reason: request.reason,
+      ...(request.round === undefined ? {} : { round: request.round }),
+      ...(request.decisionRound === undefined ? {} : { decisionRound: request.decisionRound }),
+    },
   };
 };
 
@@ -161,11 +205,18 @@ export const humanGateDecisionFromResponse = (
     leadAgentId?: string | undefined;
     interventionId: string;
     now: string;
+    conclusionOptions?: readonly { agentId: string; label: string }[] | undefined;
   },
 ): HumanGateDecision => {
+  const selected = response.selected[0] ?? "cancel";
+  const selectedParticipant = selected.startsWith(PARTICIPANT_OPTION_PREFIX) ? selected.slice(PARTICIPANT_OPTION_PREFIX.length) : undefined;
+  const action = selectedParticipant && context.allowedActions.includes("acceptParticipant") && context.conclusionOptions?.some((option) => option.agentId === selectedParticipant)
+    ? "acceptParticipant"
+    : context.allowedActions.find((candidate) => candidate === selected && candidate !== "acceptParticipant") ?? "cancel";
   const instruction = response.freeText.trim();
+  const isResolutionRationale = action === "acceptUnresolved" || action === "acceptParticipant";
   const interventions: PipelineIntervention[] | undefined =
-    context.leadAgentId && instruction
+    context.leadAgentId && instruction && !isResolutionRationale && action !== "retry"
       ? [{
           id: context.interventionId,
           agentId: context.leadAgentId,
@@ -174,16 +225,20 @@ export const humanGateDecisionFromResponse = (
           createdAt: context.now,
         }]
       : undefined;
-  const selected = response.selected[0] ?? "cancel";
-  if (selected.startsWith(ROLLBACK_OPTION_PREFIX)) {
+  if (selected.startsWith(ROLLBACK_OPTION_PREFIX) && context.allowedActions.includes("rollback")) {
     return {
       action: "rollback",
       targetStepId: selected.slice(ROLLBACK_OPTION_PREFIX.length),
       ...(interventions ? { interventions } : {}),
     };
   }
-  const action = context.allowedActions.find((candidate) => candidate === selected) ?? "cancel";
-  return { action, ...(interventions ? { interventions } : {}) };
+  return {
+    action,
+    ...(interventions ? { interventions } : {}),
+    ...(isResolutionRationale && instruction ? { rationale: instruction } : {}),
+    ...(action === "acceptParticipant" && selectedParticipant ? { selectedParticipant } : {}),
+    ...(action === "retry" && instruction ? { reviewInstructions: instruction } : {}),
+  };
 };
 
 /** What the ledger records when a gate opens for the panel: the gate, in full. */

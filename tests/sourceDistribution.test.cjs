@@ -62,6 +62,7 @@ test("source exporter emits maintained source only and validator rejects artifac
     // reader who builds it, so its lockfile is part of the distribution.
     await access(path.join(output, "package-lock.json"));
     await doesNotExist(path.join(output, "dist"));
+    await doesNotExist(path.join(output, "cypress", "screenshots"));
     await doesNotExist(path.join(output, ".bachata-worktree.lock"));
     await doesNotExist(path.join(output, "managed-fallback-verification.json"));
 

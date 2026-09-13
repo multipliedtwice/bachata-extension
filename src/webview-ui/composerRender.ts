@@ -30,7 +30,7 @@ const runContractHtml = (panel: PanelState, draft: ConversationDraft): string =>
       ? []
       : [`Task concurrency: ${String(contract.limits.checklistConcurrency)}`]),
     ...(contract.limits.consensusSteps ?? []).map((step) =>
-      `Consensus rounds, ${step.stepName}: at most ${String(step.maxRounds)} before a human decision. Retrying an invalid round grants one more${step.roundLimitRetryable ? `, and retrying at the round limit grants another ${String(step.maxRounds)}` : "; at the round limit this step does not offer a retry"}`),
+      `Consensus rounds, ${step.stepName}: at most ${String(step.maxRounds)} before a human decision. Each requested review adds ${String(step.retryRounds ?? 1)} round${(step.retryRounds ?? 1) === 1 ? "" : "s"}${step.roundLimitRetryable ? ", including at the round limit" : "; at the round limit this step does not offer a retry"}`),
     ...(contract.limits.maxParticipantTurns === undefined
       ? []
       : [contract.limits.participantTurnsBounded === false
@@ -139,12 +139,15 @@ const openPipelinePicker = (): void => {
     return;
   }
   state.pipelinePickerOpen = true;
-  const activeId = panel.selectedPipelineId ?? panel.pipelines[0]?.id;
+  const activeId = panel.selectedPipelineId ?? pipelinePickerEntries(panel)[0]?.id;
   if (activeId !== undefined) {
     state.pipelinePickerActiveId = activeId;
   }
   scheduleRender();
-  focusAfterRender(() => document.getElementById("pipeline-picker-button")?.focus());
+  focusAfterRender(() => {
+    document.getElementById("pipeline-picker-button")?.focus({ preventScroll: true });
+    scrollPickerActiveOptionIntoView();
+  });
 };
 
 const closePipelinePicker = (restoreFocus = true): void => {
@@ -178,7 +181,21 @@ const movePipelinePickerActive = (key: string): void => {
     state.pipelinePickerActiveId = nextId;
   }
   scheduleRender();
-  focusAfterRender(() => document.getElementById("pipeline-picker-button")?.focus());
+  focusAfterRender(() => {
+    document.getElementById("pipeline-picker-button")?.focus({ preventScroll: true });
+    scrollPickerActiveOptionIntoView();
+  });
+};
+
+const togglePipelinePickerMore = (): void => {
+  pipelinePickerShowAll = !pipelinePickerShowAll;
+  const entries = pipelinePickerEntries(activePanel());
+  if (!entries.some((pipeline) => pipeline.id === state.pipelinePickerActiveId)) {
+    const nextId = entries.find((pipeline) => pipeline.id === activePanel().selectedPipelineId)?.id ?? entries[0]?.id;
+    setOptionalProperty(state, "pipelinePickerActiveId", nextId);
+  }
+  scheduleRender();
+  focusAfterRender(() => document.getElementById("pipeline-picker-more")?.focus());
 };
 
 const commitPipelinePickerActive = (): void => {
@@ -193,8 +210,6 @@ const PIPELINE_PICKER_LIST_ID = "pipeline-picker-list";
 
 const pipelineOptionDomId = (pipelineId: string): string => `pipeline-option-${pipelineId}`;
 
-// After a keyboard move and after any background re-render, the active option is brought back into
-// the listbox's own scroll so the highlighted row is never below the fold.
 const scrollPickerActiveOptionIntoView = (): void => {
   if (!state.pipelinePickerOpen || !state.pipelinePickerActiveId) {
     return;

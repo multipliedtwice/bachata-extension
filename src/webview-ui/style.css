@@ -89,7 +89,7 @@ button {
   background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--vscode-button-secondaryHoverBackground, var(--bachata-card-strong));
 }
 
@@ -129,8 +129,8 @@ button.send-button:disabled {
   opacity: 1;
 }
 
-button.primary:hover:not(:disabled),
-button.send-button:hover:not(:disabled) {
+button.primary:hover:not(:disabled):not([aria-disabled="true"]),
+button.send-button:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
 }
 
@@ -139,7 +139,7 @@ button.danger {
   border-color: color-mix(in srgb, var(--bachata-danger) 52%, var(--bachata-border));
 }
 
-button.danger:hover:not(:disabled) {
+button.danger:hover:not(:disabled):not([aria-disabled="true"]) {
   background: color-mix(in srgb, var(--bachata-danger) 14%, var(--vscode-input-background));
 }
 
@@ -148,7 +148,7 @@ button.caution {
   border-color: color-mix(in srgb, var(--bachata-warn-text) 52%, var(--bachata-border));
 }
 
-button.caution:hover:not(:disabled) {
+button.caution:hover:not(:disabled):not([aria-disabled="true"]) {
   background: color-mix(in srgb, var(--bachata-warn-text) 14%, var(--vscode-input-background));
 }
 
@@ -172,6 +172,32 @@ summary {
   padding-block: 2px;
   cursor: pointer;
   user-select: none;
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+details:not(.editor-card):not(.run-action-menu):not(.header-action-menu) > summary:not(:has(.disclosure-chevron))::before {
+  content: "";
+  display: inline-block;
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-inline: 3px 9px;
+  border-inline-end: 1.5px solid currentColor;
+  border-block-end: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  vertical-align: 2px;
+}
+
+details[open]:not(.editor-card):not(.run-action-menu):not(.header-action-menu) > summary:not(:has(.disclosure-chevron))::before {
+  transform: rotate(45deg);
+}
+
+.info-disclosure > summary > .codicon-info {
+  display: none;
 }
 
 time,
@@ -1312,10 +1338,10 @@ strong + small {
   color: var(--bachata-muted);
 }
 
-.composer-toolbar .icon-button:hover,
-.composer-toolbar .pipeline-picker-button:hover,
-.composer-toolbar .icon-button:focus-visible,
-.composer-toolbar .pipeline-picker-button:focus-visible {
+.composer-toolbar .icon-button:hover:not(:disabled):not([aria-disabled="true"]),
+.composer-toolbar .pipeline-picker-button:hover:not(:disabled):not([aria-disabled="true"]),
+.composer-toolbar .icon-button:focus-visible:not(:disabled):not([aria-disabled="true"]),
+.composer-toolbar .pipeline-picker-button:focus-visible:not(:disabled):not([aria-disabled="true"]) {
   background: var(--bachata-card-strong);
   color: var(--vscode-foreground, inherit);
 }
@@ -1701,7 +1727,7 @@ strong + small {
   background: transparent;
 }
 
-.editor-tabs button:hover:not(:disabled) {
+.editor-tabs button:hover:not(:disabled):not([aria-disabled="true"]) {
   color: var(--vscode-foreground);
   background: var(--bachata-card);
 }
@@ -2908,7 +2934,7 @@ select[multiple] option:checked {
   font-size: var(--bachata-font-sm);
 }
 
-.step-flow-item:hover:not(:disabled) {
+.step-flow-item:hover:not(:disabled):not([aria-disabled="true"]) {
   border-color: var(--bachata-green-text);
   background: var(--bachata-green-soft);
 }
@@ -3500,7 +3526,7 @@ select[multiple] option:checked {
   cursor: pointer;
 }
 
-.pipeline-picker-option:hover,
+.pipeline-picker-option:hover:not(:disabled):not([aria-disabled="true"]),
 .pipeline-picker-option.active {
   background: var(--bachata-card-strong);
 }
@@ -5904,6 +5930,219 @@ details.direction-evidence > ul,
   }
 }
 
+.message-row {
+  align-items: flex-start;
+}
+
+.message,
+.system-message,
+.action-card,
+.run-drawer-select,
+.recent-activity-item {
+  position: relative;
+}
+
+.agent-message {
+  max-width: min(820px, calc(100% - 40px));
+  padding: 4px 0 12px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.user-message {
+  border-color: color-mix(in srgb, var(--vscode-focusBorder) 40%, transparent);
+  background: color-mix(in srgb, var(--vscode-focusBorder) 9%, var(--vscode-editor-background));
+}
+
+.message-author-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 0 0 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  color: var(--bachata-muted);
+  background: transparent;
+  text-align: left;
+}
+
+.message-author-action:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+}
+
+.message time,
+.system-message time,
+.action-card time,
+.run-drawer-select time,
+.recent-activity-item time {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+:is(.message, .system-message, .action-card, .run-drawer-select, .recent-activity-item):is(:hover, :focus-within) time {
+  opacity: .72;
+}
+
+.chat-minimap {
+  position: absolute;
+  z-index: 12;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  gap: 2px;
+  max-height: min(360px, calc(100% - 80px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  width: 28px;
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+.chat-minimap button {
+  width: 28px;
+  min-width: 0;
+  height: 26px;
+  min-height: 0;
+  padding: 11px 2px;
+  border: 0;
+  background: transparent;
+}
+
+.chat-minimap button span {
+  display: block;
+  width: 14px;
+  height: 2px;
+  margin-left: auto;
+  border-radius: 2px;
+  background: var(--vscode-descriptionForeground);
+  opacity: .55;
+}
+
+.chat-minimap button.user span {
+  width: 9px;
+}
+
+.chat-minimap button[data-current] span {
+  width: 24px;
+  height: 3px;
+  opacity: 1;
+  background: var(--vscode-focusBorder);
+}
+
+.chat-minimap button:is(:hover, :focus-visible):not(:disabled):not([aria-disabled="true"]) span {
+  width: 20px;
+  opacity: 1;
+  background: var(--vscode-focusBorder);
+}
+
+.jump-latest {
+  position: absolute;
+  z-index: 13;
+  bottom: 12px;
+  right: 42px;
+  width: auto;
+  margin: 0;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 24%);
+}
+
+button:active:not(:disabled):not([aria-disabled="true"]),
+[role="button"]:active:not([aria-disabled="true"]) {
+  filter: brightness(.9);
+  transform: translateY(1px);
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: default;
+  opacity: .45;
+}
+
+.header-action-menu > div,
+.run-action-menu-items {
+  max-height: min(420px, calc(100vh - 96px));
+  overflow-y: auto;
+}
+
+.pipeline-step-summary {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+}
+
+.interaction-card > .final-ruling-card {
+  margin: 12px 0;
+  border-color: var(--bachata-border);
+  background: color-mix(in srgb, var(--bachata-card) 72%, transparent);
+}
+
+.ruling-compare.open > h4 {
+  margin-bottom: 10px;
+}
+
+.inspector-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inspector-summary-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--bachata-muted);
+}
+
+.participant-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.participant-actions small {
+  min-width: 0;
+  color: var(--bachata-muted);
+}
+
+.workspace-direction[aria-pressed="true"] {
+  color: var(--vscode-textLink-foreground);
+  box-shadow: inset 0 -2px var(--vscode-focusBorder);
+}
+
+.turn-details {
+  max-height: min(56vh, 520px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-card);
+}
+
+@media (max-width: 600px) {
+  .chat-minimap {
+    right: 2px;
+  }
+
+  .interaction-card > .final-ruling-card {
+    padding: 12px;
+  }
+}
+
 .room-actions {
   flex: 0 0 auto;
   width: auto;
@@ -5948,4 +6187,122 @@ details.direction-evidence > ul,
 
 .pipeline-editor > footer > .header-action-menu > summary {
   white-space: nowrap;
+}
+
+.conversation-viewport {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.conversation-viewport:has(> .chat-minimap) > .conversation-scroll {
+  padding-inline-end: calc(var(--bachata-gutter) + 24px);
+}
+
+.jump-latest[hidden] {
+  display: none;
+}
+
+.direction-secondary {
+  border-top: 1px solid var(--bachata-border);
+  padding-block: 10px;
+}
+
+.direction-secondary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+}
+
+.direction-secondary-content {
+  padding-block: 8px;
+}
+
+.direction-secondary-content[hidden] {
+  display: none;
+}
+
+.direction-secondary > h3 {
+  margin: 0;
+}
+
+.direction-evidence-group {
+  margin: 16px 0 8px;
+  font-size: var(--bachata-font-body);
+}
+
+.structured-result {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.result-field {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.result-field > h5 {
+  margin: 0 0 4px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  font-weight: 600;
+}
+
+.result-field > p,
+.result-field > .markdown > :first-child {
+  margin-top: 0;
+}
+
+.result-field > p,
+.result-field > .markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.result-items {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+.result-items > li > .structured-result {
+  gap: 8px;
+}
+
+.human-resolution {
+  margin-block: 12px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--vscode-focusBorder);
+}
+
+.message-author-action {
+  font-weight: 600;
+}
+
+.bridge-pairing-actions {
+  margin-top: 6px;
+  margin-bottom: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-minimap button span,
+  .direction-secondary-toggle .codicon,
+  .message time {
+    transition: none;
+  }
+
+  button:active:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:active:not([aria-disabled="true"]) {
+    transform: none;
+  }
 }

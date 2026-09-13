@@ -3,6 +3,7 @@ import type { WorkspaceWriteScope } from "../adapters/types";
 import type { PipelineReadiness, ReadinessStatus } from "../readiness/model";
 import { providerDisplayName } from "../pipeline/providerNames";
 import { pipelineDefinitionHash } from "../pipeline/identity";
+import { CONSENSUS_RETRY_ROUNDS } from "../pipeline/consensusPolicy";
 import { extensionVersion } from "../version";
 import { buildOutboundContext, readOnlyPermissionModes } from "./outboundContext";
 import { repositoryPolicyRefusals } from "../policy/repositoryPolicy";
@@ -153,6 +154,7 @@ export type ExecutionContractConsensusStep = {
   stepName: string;
   maxRounds: number;
   roundLimitRetryable: boolean;
+  retryRounds?: number;
 };
 
 export type ExecutionContractGate = {
@@ -395,6 +397,7 @@ export const buildExecutionContract = (input: ExecutionContractInput): Execution
     stepName: step.name,
     maxRounds: step.consensusConfig?.maxRounds ?? 1,
     roundLimitRetryable: (step.consensusConfig?.onMaxRounds ?? "humanGate") === "humanGate",
+    retryRounds: CONSENSUS_RETRY_ROUNDS,
   }));
   const consensusRoundsExtendable = consensusSteps.length > 0;
   const turnsPerIteration = enabledSteps(pipeline).reduce((total, step) => {

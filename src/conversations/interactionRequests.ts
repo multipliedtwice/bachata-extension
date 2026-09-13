@@ -20,7 +20,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export type InteractionIdentity = Pick<
   RuntimeInteractionRequest,
-  "kind" | "prompt" | "options" | "allowFreeText" | "secret" | "fallback" | "checklistItems"
+  "kind" | "prompt" | "options" | "allowFreeText" | "secret" | "fallback" | "checklistItems" | "humanGate"
 >;
 
 /** The hash under which a request is the same request: every field the person would read. */
@@ -35,13 +35,14 @@ export const interactionPayloadHash = (request: InteractionIdentity): string =>
         secret: request.secret,
         fallback: request.fallback,
         checklistItems: request.checklistItems,
+        humanGate: request.humanGate,
       }),
     )
     .digest("hex");
 
 /** The context an interaction is stored with: how it is presented, and which payload it was. */
 export const interactionContextFrom = (
-  request: Pick<RuntimeInteractionRequest, "title" | "allowFreeText" | "secret" | "fallback">,
+  request: Pick<RuntimeInteractionRequest, "title" | "allowFreeText" | "secret" | "fallback" | "humanGate">,
   payloadHash: string,
 ): {
   title: string;
@@ -49,12 +50,14 @@ export const interactionContextFrom = (
   secret: boolean;
   fallback: RuntimeInteractionRequest["fallback"];
   payloadHash: string;
+  humanGate?: RuntimeInteractionRequest["humanGate"];
 } => ({
   title: request.title,
   allowFreeText: request.allowFreeText,
   secret: request.secret,
   fallback: request.fallback,
   payloadHash,
+  ...(request.humanGate === undefined ? {} : { humanGate: request.humanGate }),
 });
 
 /** A request's own timeout wins; the configured fallback is never under a second. */

@@ -92,11 +92,11 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
         await press(session, '[data-action="room-view"][data-view="direction"]');
         await frame(session);
         await readable(`${label} Direction`);
-        assert.equal(await session.evaluate("document.querySelector('.direction-edit').open"), false);
-        await press(session, '.direction-edit > summary');
+        assert.equal(await session.evaluate("document.querySelector('[data-action=\"direction-section-toggle\"][data-section=\"direction-edit\"]').getAttribute('aria-expanded')"), "false");
+        await press(session, '[data-action="direction-section-toggle"][data-section="direction-edit"]');
         await frame(session);
         await readable(`${label} direction editor`);
-        await press(session, '.direction-management > summary');
+        await press(session, '[data-action="direction-section-toggle"][data-section="direction-initiative"]');
         await frame(session);
         await readable(`${label} initiative management`);
       }

@@ -54,6 +54,7 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
     const previousWorkflowStatus = panel.workflowStatus;
     const hadPendingGate = Boolean(panel.pendingGate);
     panel.running = message.running;
+    setOptionalProperty(panel, "operationActive", message.operationActive);
     panel.workflowStatus = message.workflowStatus;
     if (runPhaseOf(panel) !== "running") pendingInterrupts.delete(conversationId);
     setOptionalProperty(panel, "activeStep", message.activeStep);

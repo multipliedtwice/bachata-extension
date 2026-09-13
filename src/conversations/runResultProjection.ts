@@ -54,6 +54,20 @@ export const decisionRisks = (decisionPayload: unknown): string[] =>
     ? decisionPayload.unresolvedRisks.filter((value): value is string => typeof value === "string")
     : [];
 
+export const humanResolutionSummary = (payload: unknown): string | undefined => {
+  if (!isRecord(payload) || !isRecord(payload.humanResolution)) return undefined;
+  const resolution = payload.humanResolution;
+  const summary = resolution.action === "acceptUnresolved"
+    ? "Finished with unresolved findings. Participant conclusions are preserved."
+    : resolution.action === "acceptParticipant"
+      ? "Finished with the participant conclusion you selected."
+      : undefined;
+  if (!summary) return undefined;
+  return typeof resolution.rationale === "string" && resolution.rationale.trim()
+    ? `${summary}\n\n${resolution.rationale.trim()}`
+    : summary;
+};
+
 /**
  * The checks a contract verification recorded. A malformed entry is dropped rather than shown as a
  * check with no command or an unknown status, because a check the user cannot read is worse than a

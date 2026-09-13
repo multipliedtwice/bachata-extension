@@ -256,6 +256,8 @@ export type PendingHumanGate = {
     | "invalidConsensus"
     | "maxConsensusRounds";
   round?: number;
+  decisionRound?: number;
+  conclusionOptions?: Array<{ agentId: string; label: string }>;
   detail?: string;
   allowedActions: HumanGateAction[];
   rollbackTargets: Array<{ id: string; name: string }>;
@@ -263,6 +265,7 @@ export type PendingHumanGate = {
 
 export type PanelState = {
   taskId: string;
+  operationActive?: boolean;
   workspaceRoots: string[];
   workingDirectory?: string;
   trusted: boolean;
@@ -387,6 +390,12 @@ export type InteractionSummary = {
   conversationId: string;
   runRef: string;
   kind: string;
+  humanGate?: {
+    stepId: string;
+    reason: PendingHumanGate["reason"];
+    round?: number;
+    decisionRound?: number;
+  } | undefined;
   title?: string | undefined;
   prompt: string;
   options: unknown[];
@@ -713,6 +722,9 @@ export type WebviewToExtensionMessage =
       type: "run.gate";
       action: HumanGateAction;
       targetStepId?: string;
+      selectedParticipant?: AgentId;
+      rationale?: string;
+      reviewInstructions?: string;
     }
   | { type: "workingDirectory.pick" }
   | { type: "session.reset"; agentId?: AgentId }
@@ -756,6 +768,7 @@ export type ExtensionToWebviewMessage =
   | {
       type: "run.patch";
       running: boolean;
+      operationActive?: boolean;
       workflowStatus: WorkflowStatus;
       activeStep?: string;
       activeStepId?: string;
@@ -804,6 +817,8 @@ const gateActions = new Set<HumanGateAction>([
   "rerunStep",
   "repeatConsensus",
   "requestArbiterRuling",
+  "acceptUnresolved",
+  "acceptParticipant",
   "rollback",
 ]);
 
@@ -935,7 +950,7 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
   }
 
   if (value.type === "run.gate") {
-    if (!hasOnlyKeys(value, ["type", "action", "targetStepId"])) {
+    if (!hasOnlyKeys(value, ["type", "action", "targetStepId", "selectedParticipant", "rationale", "reviewInstructions"])) {
       throw new Error("Invalid run.gate message");
     }
     if (
@@ -951,10 +966,21 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
     if (value.targetStepId !== undefined && !targetStepId) {
       throw new Error("run.gate contains an invalid target step");
     }
+    const selectedParticipant = value.selectedParticipant === undefined ? undefined : parseAgentId(value.selectedParticipant);
+    if (value.selectedParticipant !== undefined && !selectedParticipant) {
+      throw new Error("run.gate contains an invalid participant");
+    }
+    if ((value.rationale !== undefined && (typeof value.rationale !== "string" || value.rationale.length > 100_000)) ||
+      (value.reviewInstructions !== undefined && (typeof value.reviewInstructions !== "string" || value.reviewInstructions.length > 100_000))) {
+      throw new Error("run.gate contains invalid decision text");
+    }
     return {
       type: "run.gate",
       action: value.action as HumanGateAction,
       ...(targetStepId ? { targetStepId } : {}),
+      ...(selectedParticipant ? { selectedParticipant } : {}),
+      ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
+      ...(typeof value.reviewInstructions === "string" ? { reviewInstructions: value.reviewInstructions } : {}),
     };
   }
 

@@ -1,0 +1,1 @@
+export const CONSENSUS_RETRY_ROUNDS = 1;

@@ -451,8 +451,9 @@ test("a consensus-only pipeline never claims checklist sub-runs it cannot start"
     false,
     "a consensus-only pipeline advertised checklist sub-runs it never starts",
   );
-  assert.match(explanation, /Retrying after an invalid round grants one more/u);
-  assert.match(explanation, /retrying at the round limit grants another 15/u);
+  assert.match(explanation, /Each requested review adds 1 round/u);
+  assert.ok(contract.limits.consensusSteps.every((step) => step.retryRounds === 1));
+  assert.match(explanation, /adds 1 round, including at the round limit/u);
   assert.deepEqual(
     contract.limits.consensusSteps.map((step) => [step.stepId, step.maxRounds, step.roundLimitRetryable]),
     [["diagnosis-consensus", 10, true], ["verify", 15, true]],
@@ -502,7 +503,7 @@ test("a consensus step that fails at its round limit is not advertised as retrya
   const explanation = renderContractExplanation(contract);
   assert.match(explanation, /at the round limit this step does not offer a retry/u);
   assert.equal(
-    explanation.includes("retrying at the round limit grants another"),
+    explanation.includes("including at the round limit"),
     false,
     "a fail-at-limit consensus step was advertised as retryable at its limit",
   );
@@ -542,10 +543,10 @@ test("a pipeline with two different consensus policies reports each step, not on
     [["lenient", 9, true], ["strict", 2, false]],
   );
   const explanation = renderContractExplanation(contract);
-  assert.match(explanation, /Consensus rounds, Lenient: at most 9 .*retrying at the round limit grants another 9/u);
+  assert.match(explanation, /Consensus rounds, Lenient: at most 9 .*adds 1 round, including at the round limit/u);
   assert.match(explanation, /Consensus rounds, Strict: at most 2 .*this step does not offer a retry/u);
   assert.equal(
-    /Consensus rounds, Strict: at most 2 [^\n]*grants another/u.test(explanation),
+    /Consensus rounds, Strict: at most 2 [^\n]*including at the round limit/u.test(explanation),
     false,
     "the strict step was advertised with the lenient step's retry policy",
   );

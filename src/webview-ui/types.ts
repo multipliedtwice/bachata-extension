@@ -280,12 +280,16 @@ type HumanGateAction =
   | "rerunStep"
   | "repeatConsensus"
   | "requestArbiterRuling"
+  | "acceptUnresolved"
+  | "acceptParticipant"
   | "rollback";
 type PendingHumanGate = {
   stepId: string;
   stepName: string;
   reason: "beforeStep" | "afterStep" | "invalidConsensus" | "maxConsensusRounds";
   round?: number;
+  decisionRound?: number;
+  conclusionOptions?: Array<{ agentId: string; label: string }>;
   detail?: string;
   allowedActions: HumanGateAction[];
   rollbackTargets: Array<{ id: string; name: string }>;
@@ -377,6 +381,7 @@ type ExecutionContract = {
       stepName: string;
       maxRounds: number;
       roundLimitRetryable: boolean;
+      retryRounds?: number;
     }>;
     executesChecklist?: boolean;
   };
@@ -456,6 +461,7 @@ type LocalInterpreterState = {
 
 type PanelState = {
   taskId: string;
+  operationActive?: boolean;
   workspaceRoots: string[];
   workingDirectory?: string;
   trusted: boolean;
@@ -558,6 +564,7 @@ type WorkflowEventSummary = {
   createdAt: string;
 };
 type InteractionSummary = {
+  humanGate?: { stepId: string; reason: PendingHumanGate["reason"]; round?: number; decisionRound?: number };
   interactionRef: string;
   conversationId: string;
   runRef: string;
@@ -607,6 +614,8 @@ type RunResultCenter = {
   diffSummary?: string;
   checks: TodoVerificationSummary[];
   finalRuling?: string;
+  finalDecisionEventId?: number;
+  finalDecision?: JsonValue;
   rulingBy?: string;
   rulingProvenance?: {
     kind:
@@ -620,7 +629,7 @@ type RunResultCenter = {
     resolvedBy?: string;
   };
   consensusRuling?: boolean;
-  providers?: Array<{ name: string; adapter: string; model?: string }>;
+  providers?: Array<{ name: string; adapter: string; model?: string; agentId?: string; provider?: string }>;
   findings?: Array<{
     id: string;
     subject: string;
@@ -634,7 +643,7 @@ type RunResultCenter = {
       source: "pipelineDecision" | "stepOutput" | "legacyRuling";
       stepId: string;
       participantIds: string[];
-      decisionStatus?: "accepted" | "ruled";
+      decisionStatus?: "accepted" | "ruled" | "resolved";
       ruledBy?: string;
     };
   }>;
@@ -1000,6 +1009,7 @@ type RuntimeMessage =
   | {
       type: "run.patch";
       running: boolean;
+      operationActive?: boolean;
       workflowStatus: WorkflowStatus;
       activeStep?: string;
       activeStepId?: string;
@@ -1091,6 +1101,8 @@ type PendingEditorOperation = {
   returnFocusSelector?: string;
 };
 type AppDialog =
+  | { kind: "turnDetails"; title: string; message: string; confirmLabel: string; prompt: string; context?: string }
+  | { kind: "notificationSettings"; title: string; message: string; confirmLabel: string }
   | { kind: "renameRun"; title: string; message: string; confirmLabel: string; conversationId: string; inputValue: string }
   | { kind: "archiveRun"; title: string; message: string; confirmLabel: string; conversationId: string }
   | { kind: "deleteRun"; title: string; message: string; confirmLabel: string; conversationId: string; danger: true }
@@ -1112,6 +1124,7 @@ type AppDialog =
       recordId: string;
       mode: "reopen" | "supersede";
       inputValue: string;
+      deltaValue?: string;
     }
   | {
       kind: "createInitiative";
@@ -1119,6 +1132,7 @@ type AppDialog =
       message: string;
       confirmLabel: string;
       inputValue: string;
+      deltaValue?: string;
     }
   | {
       kind: "mergeFinding";
@@ -1127,6 +1141,7 @@ type AppDialog =
       confirmLabel: string;
       absorbedIdentity: string;
       inputValue: string;
+      deltaValue?: string;
     };
 type PersistedEditorDraft = {
   raw: string;

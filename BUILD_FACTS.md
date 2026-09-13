@@ -14,8 +14,8 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Extension version | 0.7.1 |
 | Pinned Browser Bridge version | 0.6.7 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 677 |
-| Maintained source manifest SHA-256 (Git-tracked) | 559157cc2c8b1037708c260c3b6602d89ec1f6abb009da7cde6e72db34c8a0a2 |
+| Maintained source files (Git-tracked) | 685 |
+| Maintained source manifest SHA-256 (Git-tracked) | 138ffe125c6e1c92208e6792059a2bc6162053a81f4dc76eb6be802c0b055ba6 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "Bachata: TODO orchestration" | 21 |
@@ -23,7 +23,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Settings in "Bachata: Advanced" | 40 |
 | Contributed commands | 28 |
 | Built-in presets (Git-tracked) | 31 |
-| Test files (Git-tracked) | 209 |
+| Test files (Git-tracked) | 211 |
 | Declared artifact promotion types | design, recommendation, requirement |
 | Benchmark tasks (Git-tracked) | 4 |
 | Benchmark arms declared (Git-tracked tasks) | 8 |
@@ -38,17 +38,17 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 5b612f6ced12973f39e781678b20ee4ee5fc1ef9.
+The working tree was modified, so these values describe the working tree and not commit 92678f147fa775373f5b6b7f835780bbfe3cb1fb.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 5b612f6ced12973f39e781678b20ee4ee5fc1ef9 |
+| Revision | 92678f147fa775373f5b6b7f835780bbfe3cb1fb |
 | Working tree | modified |
-| Maintained source files (working tree, what source:export carries) | 685 |
+| Maintained source files (working tree, what source:export carries) | 697 |
 | Platform | Darwin 24.5.0 arm64 |
 | Node | v23.6.1 |
-| Git | git version 2.55.0 |
-| dist | 8.57 MB |
+| Git | git version 2.15.0 |
+| dist | 8.68 MB |
 | node_modules/typescript | 22.87 MB |
 | node_modules/ts-morph | 1.46 MB |
 | node_modules/@ts-morph | 11.69 MB |

@@ -11,6 +11,7 @@ const {
   contractChecksFrom,
   decisionRisks,
   executionEventCutoff,
+  humanResolutionSummary,
   latestCurrentEvent,
   runWasExecuted,
   validatedOutputRefs,
@@ -63,6 +64,30 @@ test("unresolved risks are read only as strings, from a record", () => {
   assert.deepEqual(decisionRisks({ unresolvedRisks: "a" }), []);
   assert.deepEqual(decisionRisks(undefined), []);
   assert.deepEqual(decisionRisks(["a"]), []);
+});
+
+test("human resolution summaries describe only recognized, well-formed decisions", () => {
+  assert.equal(humanResolutionSummary(undefined), undefined);
+  assert.equal(humanResolutionSummary({ humanResolution: "acceptUnresolved" }), undefined);
+  assert.equal(humanResolutionSummary({ humanResolution: { action: "reject" } }), undefined);
+  assert.equal(
+    humanResolutionSummary({ humanResolution: { action: "acceptUnresolved" } }),
+    "Finished with unresolved findings. Participant conclusions are preserved.",
+  );
+  assert.equal(
+    humanResolutionSummary({
+      humanResolution: { action: "acceptParticipant", rationale: "  Selected evidence is strongest.  " },
+    }),
+    "Finished with the participant conclusion you selected.\n\nSelected evidence is strongest.",
+  );
+  assert.equal(
+    humanResolutionSummary({ humanResolution: { action: "acceptParticipant", rationale: "   " } }),
+    "Finished with the participant conclusion you selected.",
+  );
+  assert.equal(
+    humanResolutionSummary({ humanResolution: { action: "acceptParticipant", rationale: 7 } }),
+    "Finished with the participant conclusion you selected.",
+  );
 });
 
 test("no check array at all is different from an empty one, so the caller can fall back", () => {

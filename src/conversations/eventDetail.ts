@@ -243,7 +243,13 @@ export const serializedJsonBytes = (value: JsonValue): number => {
   );
 };
 
-type Budget = { bytes: number; nodes: number; units: number };
+type Budget = {
+  bytes: number;
+  nodes: number;
+  units: number;
+  maxStringUnits: number;
+  stringExamination: number;
+};
 
 const exhausted = (budget: Budget): boolean =>
   budget.bytes <= 0 || budget.nodes <= 0 || budget.units <= 0;
@@ -626,7 +632,11 @@ const project: Projector = (value, depth, budget, parentKey) => {
     return charge(budget, String(value).length) ? value : undefined;
   }
   if (typeof value === "string") {
-    const kept = boundedString(examinedString(value, budget, parentKey), budget.bytes);
+    const kept = boundedString(
+      examinedString(value, budget, parentKey, budget.stringExamination),
+      budget.bytes,
+      budget.maxStringUnits,
+    );
     if (kept === undefined) return undefined;
     budget.bytes -= jsonStringBytes(kept);
     budget.nodes -= 1;
@@ -642,10 +652,16 @@ const empty = (value: JsonValue): boolean =>
     ? value.length === 0
     : typeof value === "object" && value !== null && Object.keys(value).length === 0;
 
-const newBudget = (maxBytes: number): Budget => ({
+const newBudget = (
+  maxBytes: number,
+  maxStringUnits = MAX_STRING,
+  stringExamination = STRING_EXAMINATION,
+): Budget => ({
   bytes: maxBytes,
   nodes: MAX_NODES,
   units: MAX_EXAMINED_UNITS,
+  maxStringUnits,
+  stringExamination,
 });
 
 const finished = (value: JsonValue | undefined): JsonValue | undefined =>
@@ -704,6 +720,7 @@ const DECISION_FIELDS: readonly FieldSpec[] = [
   { name: "round" },
   { name: "policy" },
   { name: "status" },
+  { name: "humanResolution" },
   { name: "candidateId" },
   { name: "candidateHash" },
   { name: "ruledBy" },
@@ -721,6 +738,25 @@ export const boundedDecisionDetail = (
   isRecord(payload)
     ? finished(projectFields(payload, DECISION_FIELDS, DECISION_DEPTH, newBudget(maxBytes)))
     : boundedEventDetail(payload, maxBytes);
+
+/** A complete-enough decision for the result view, still bounded and redacted. */
+export const MAX_RESULT_DECISION_BYTES = 64 * 1_024;
+const MAX_RESULT_DECISION_STRING = 16 * 1_024;
+const RESULT_DECISION_DEPTH = 10;
+
+export const boundedResultDecision = (payload: unknown): JsonValue | undefined =>
+  isRecord(payload)
+    ? finished(projectFields(
+        payload,
+        DECISION_FIELDS,
+        RESULT_DECISION_DEPTH,
+        newBudget(
+          MAX_RESULT_DECISION_BYTES,
+          MAX_RESULT_DECISION_STRING,
+          MAX_RESULT_DECISION_STRING + STRING_EXAMINATION,
+        ),
+      ))
+    : undefined;
 
 /** The hardest ceiling on a single string: no caller may ask for more examination than this. */
 const TEXT_EXAMINATION_CEILING = 64 * 1_024;
@@ -744,7 +780,13 @@ export const boundedRedactedText = (
 ): string => {
   const maxUnits = Math.min(options.maxUnits ?? MAX_STRING, TEXT_EXAMINATION_CEILING);
   const examination = Math.min(TEXT_EXAMINATION_CEILING, maxUnits + STRING_EXAMINATION);
-  const budget: Budget = { bytes: maxBytes, nodes: MAX_NODES, units: examination };
+  const budget: Budget = {
+    bytes: maxBytes,
+    nodes: MAX_NODES,
+    units: examination,
+    maxStringUnits: maxUnits,
+    stringExamination: examination,
+  };
   const examined = examinedString(
     value,
     budget,

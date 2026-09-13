@@ -36,6 +36,8 @@ test("the stored context carries the presentation and the payload it identifies"
     fallback: { type: "lead", originAgentId: "lead", title: "t", prompt: "p", options: [], allowFreeText: true },
     payloadHash: "abc",
   });
+  const humanGate = { stepId: "review", reason: "afterStep" };
+  assert.deepEqual(interactionContextFrom(request({ humanGate }), "def").humanGate, humanGate);
 });
 
 test("a request's own timeout wins, and the configured one is never under a second", () => {

@@ -43,18 +43,6 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
 
 ### P2: expanded evidence authority
 
-- [ ] Promote the exact consensus-accepted candidate. Bind content hash, ruling,
-  participants and round. Reject a recorder mismatch.
-  Blocked on one owner answer: define "recorder". It appears in no specification and no
-  production source in either repository — the only hits are unrelated local test helpers — so
-  which of the agent that wrote the candidate, the participant that recorded the ruling, or the
-  run that persisted it is meant, and therefore what a mismatch is, cannot be derived. Every
-  other bullet here depends on it: a transition may only fire once candidate identity is bound.
-  Recommendation, not a decision, and it does not authorize itself: the controller-owned record
-  that persists the final consensus ruling, never an agent claiming its own acceptance.
-  Once answered the rest is specified — `docs/STATE.md` fixes the external-evidence record's
-  identity, revisions, lifecycle, freshness and challenge, and `docs/PRODUCT_SPEC.md` records
-  that accepted external evidence performs no finding transition yet.
 - [ ] Store composable evidence records naming subject, state, authority, evidence ref,
   candidate identity, time and freshness.
 - [ ] Keep facets separate — finding state, evidence, execution, provenance, currency —

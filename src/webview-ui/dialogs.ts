@@ -46,13 +46,13 @@ const openDialog = (dialog: AppDialog): void => {
   state.dialog = dialog;
   scheduleRender();
   focusAfterRender(() => {
-    const input = document.getElementById("app-dialog-input") as HTMLInputElement | null;
+    const input = document.getElementById("app-dialog-input");
     const confirm = root.querySelector<HTMLButtonElement>('[data-action="dialog-confirm"]');
     const cancel = root.querySelector<HTMLButtonElement>('[data-dialog-default="cancel"]');
     const danger = "danger" in dialog && dialog.danger;
     const initialFocus = bachataWebviewBehavior.dialogInitialFocus(Boolean(input), danger);
-    (initialFocus === "input" ? input : initialFocus === "cancel" ? cancel : confirm)?.focus();
-    input?.select();
+    (dialog.kind === "turnDetails" || dialog.kind === "notificationSettings" ? cancel : initialFocus === "input" ? input : initialFocus === "cancel" ? cancel : confirm)?.focus();
+    if (input instanceof HTMLInputElement) input.select();
   });
 };
 
@@ -72,17 +72,29 @@ const appDialogHtml = (): string => {
   if (!dialog) {
     return "";
   }
+  const recordOptions = dialog.kind === "mergeFinding"
+    ? directionMergeOptions(dialog.absorbedIdentity)
+    : dialog.kind === "resolveRecord" && dialog.mode === "supersede"
+      ? directionRecordOptions(dialog.target, dialog.recordId)
+      : [];
+  const recordSelect = `<select id="app-dialog-input"${recordOptions.length === 0 ? " disabled" : ""}><option value="">${recordOptions.length === 0 ? "No eligible records" : "Choose a record"}</option>${recordOptions.map((item) => `<option value="${escapeAttribute(item.id)}"${"inputValue" in dialog && dialog.inputValue === item.id ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select>`;
   const input = dialog.kind === "renameRun"
     ? `<label class="field"><span>Run title</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label>`
     : dialog.kind === "resolveRecord"
       ? dialog.mode === "reopen"
-        ? `<label class="field"><span>Reason</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="2000"></label><label class="field"><span>Material evidence delta (one per line)</span><textarea id="app-dialog-delta" rows="3"></textarea></label>`
-        : `<label class="field"><span>Replacement record id</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label><label class="field"><span>Reason (optional)</span><textarea id="app-dialog-delta" rows="2"></textarea></label>`
+        ? `<label class="field"><span>Reason</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="2000"></label><label class="field"><span>Material evidence delta (one per line)</span><textarea id="app-dialog-delta" rows="3">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
+        : `<label class="field"><span>Replacement</span>${recordSelect}</label><label class="field"><span>Reason (optional)</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
       : dialog.kind === "createInitiative"
-        ? `<label class="field"><span>Title</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label><label class="field"><span>Goal</span><textarea id="app-dialog-delta" rows="2"></textarea></label>`
+        ? `<label class="field"><span>Title</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label><label class="field"><span>Goal</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
       : dialog.kind === "mergeFinding"
-        ? `<label class="field"><span>Merge into finding id</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label><label class="field"><span>Why are these the same defect?</span><textarea id="app-dialog-delta" rows="2"></textarea></label>`
+        ? `<label class="field"><span>Finding to keep</span>${recordSelect}</label><label class="field"><span>Why are these the same defect?</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
         : "";
+  const turnDetails = dialog.kind === "turnDetails"
+    ? `<div class="turn-details">${dialog.context ? `<p class="muted">${escapeHtml(dialog.context)}</p>` : ""}<div class="markdown">${renderMarkdown(dialog.prompt)}</div></div>`
+    : "";
+  const notificationSettings = dialog.kind === "notificationSettings" ? notificationModeControlHtml() : "";
+  const closeOnly = dialog.kind === "turnDetails" || dialog.kind === "notificationSettings";
+  const unavailable = (dialog.kind === "mergeFinding" || dialog.kind === "resolveRecord" && dialog.mode === "supersede") && recordOptions.length === 0;
   const danger = "danger" in dialog && dialog.danger;
   // A refusal is held in the store and drawn from it, so a background render puts it back
   // instead of erasing it along with the flag on the field.
@@ -91,7 +103,7 @@ const appDialogHtml = (): string => {
   const marked = refusedField === undefined
     ? input
     : input.replace(`id="${refusedField}"`, `id="${refusedField}" aria-invalid="true" aria-describedby="app-dialog-error"`);
-  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message"><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button data-action="dialog-cancel" aria-label="Close dialog">×</button></header><p id="app-dialog-message">${escapeHtml(dialog.message)}</p>${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer><button data-action="dialog-cancel" data-dialog-default="cancel">Cancel</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm">${escapeHtml(dialog.confirmLabel)}</button></footer></section></div>`;
+  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message"><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button data-action="dialog-cancel" aria-label="Close dialog">×</button></header><p id="app-dialog-message">${escapeHtml(dialog.message)}</p>${turnDetails}${notificationSettings}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">Close</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">Cancel</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
 };
 
 type ControlSnapshot = {
@@ -103,6 +115,8 @@ type ControlSnapshot = {
   selectionStart?: number | null;
   selectionEnd?: number | null;
   selectionDirection?: "forward" | "backward" | "none" | null;
+  transientFocus?: boolean;
+  scrollKey?: string;
   scrollTop: number;
   scrollLeft: number;
 };
@@ -110,6 +124,73 @@ type ControlSnapshot = {
 let composing = false;
 let pointerActivationPending = false;
 let deferredRender = false;
+let transientFocusControl: HTMLElement | undefined;
+
+const focusTransientControl = (element: HTMLElement): void => {
+  if (!element.hasAttribute("tabindex")) {
+    element.setAttribute("tabindex", "-1");
+    element.dataset.transientFocus = "true";
+  }
+  element.focus({ preventScroll: true });
+  if (element.dataset.transientFocus === "true") transientFocusControl = element;
+};
+
+document.addEventListener("focusin", (event) => {
+  if (!transientFocusControl || transientFocusControl === event.target) return;
+  transientFocusControl.removeAttribute("tabindex");
+  delete transientFocusControl.dataset.transientFocus;
+  transientFocusControl = undefined;
+});
+
+let editorScrollSession = 0;
+let dialogScrollSequence = 0;
+const dialogScrollIdentities = new WeakMap<AppDialog, number>();
+const surfaceScrollPositions = new Map<string, { top: number; left: number }>();
+
+const scrollSurfaceKeys = (): Array<{ selector: string; key: string }> => {
+  const dialog = state.dialog;
+  if (dialog && !dialogScrollIdentities.has(dialog)) dialogScrollIdentities.set(dialog, ++dialogScrollSequence);
+  const dialogKey = dialog ? String(dialogScrollIdentities.get(dialog)) : "";
+  const panel = activePanel();
+  return [
+    { selector: ".app-dialog", key: `dialog:${dialogKey}` },
+    { selector: ".turn-details", key: `prompt:${dialogKey}` },
+    { selector: ".run-drawer-list", key: JSON.stringify(["runs", state.roomSearch.trim().toLowerCase(), state.showArchived]) },
+    { selector: ".agents-popover", key: JSON.stringify(["agents", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId]) },
+    { selector: ".pipeline-picker-popover", key: JSON.stringify(["pipelines", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId, pipelinePickerShowAll]) },
+    { selector: ".editor-scroll", key: JSON.stringify(["editor", editorTargetId(), editorScrollSession, state.editorMode]) },
+  ];
+};
+
+const captureDialogScroll = (): Array<{ key: string; top: number; left: number }> =>
+  scrollSurfaceKeys().flatMap(({ selector }) => {
+    const element = root.querySelector<HTMLElement>(selector);
+    const key = element?.dataset.surfaceScrollKey;
+    return element && key ? [{ key, top: element.scrollTop, left: element.scrollLeft }] : [];
+  });
+
+const restoreDialogScroll = (positions: ReturnType<typeof captureDialogScroll>): void => {
+  positions.forEach(({ key, top, left }) => {
+    surfaceScrollPositions.delete(key);
+    surfaceScrollPositions.set(key, { top, left });
+  });
+  while (surfaceScrollPositions.size > 48) {
+    const oldest = surfaceScrollPositions.keys().next().value;
+    if (oldest === undefined) break;
+    surfaceScrollPositions.delete(oldest);
+  }
+  scrollSurfaceKeys().forEach(({ selector, key }) => {
+    const element = root.querySelector<HTMLElement>(selector);
+    if (!element) return;
+    element.dataset.surfaceScrollKey = key;
+    const position = surfaceScrollPositions.get(key);
+    if (position) {
+      element.scrollTop = position.top;
+      element.scrollLeft = position.left;
+      element.dataset.scrollRestored = "true";
+    }
+  });
+};
 
 /**
  * Where the keyboard was, so a host message does not take it.
@@ -129,6 +210,8 @@ const captureControl = (): ControlSnapshot | undefined => {
     scrollLeft: element.scrollLeft,
   };
   setOptionalProperty(snapshot, "selector", bachataWebviewBehavior.focusReturnSelector(element));
+  if (element.dataset.transientFocus === "true") snapshot.transientFocus = true;
+  setOptionalProperty(snapshot, "scrollKey", element.closest<HTMLElement>(".conversation-scroll")?.dataset.scrollKey);
   const editorAttributes = ["meta", "agent", "role", "step"] as const;
   for (const kind of editorAttributes) {
     const index = element.dataset[`editor${kind.slice(0, 1).toUpperCase()}${kind.slice(1)}`];
@@ -182,6 +265,7 @@ const focusableControlSelector =
  */
 const reachableControls = (container: HTMLElement): HTMLElement[] =>
   Array.from(container.querySelectorAll<HTMLElement>(focusableControlSelector)).filter((control) => {
+    if (control.closest("[hidden], [inert]")) return false;
     const collapsed = control.closest("details:not([open])");
     return collapsed === null || (control.tagName === "SUMMARY" && control.parentElement === collapsed);
   });
@@ -205,13 +289,19 @@ const restoreControl = (snapshot: ControlSnapshot | undefined, openPopover?: str
   if (openPopover !== undefined && element.closest(openPopover) === null) {
     return;
   }
+  if (snapshot.scrollKey !== undefined && element.closest<HTMLElement>(".conversation-scroll")?.dataset.scrollKey !== snapshot.scrollKey) {
+    return;
+  }
   // The render restores every scroll container deliberately just before this runs. A plain focus()
   // scrolls the control back into view and undoes that: a reader who had pressed anything inside
   // the transcript lost the live edge on every appended message, smoothly, because the pane
   // scrolls with `scroll-behavior: smooth`.
-  element.focus({ preventScroll: true });
-  element.scrollTop = snapshot.scrollTop;
-  element.scrollLeft = snapshot.scrollLeft;
+  if (snapshot.transientFocus) focusTransientControl(element);
+  else element.focus({ preventScroll: true });
+  if (!element.matches(".conversation-scroll")) {
+    element.scrollTop = snapshot.scrollTop;
+    element.scrollLeft = snapshot.scrollLeft;
+  }
   if (
     (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) &&
     snapshot.selectionStart !== undefined &&
@@ -243,15 +333,16 @@ const updateLiveAgentOutput = (conversationId: string, agentId: string): boolean
   if (!output || !agent || agent.status !== "running") {
     return false;
   }
+  const scroll = document.getElementById("conversation-scroll");
+  const wasFollowing = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 90 : false;
   discardCodeBlocks(output);
   output.innerHTML = renderMarkdown(agent.output || "…");
-  const scroll = document.getElementById("conversation-scroll");
-  if (scroll) {
-    const distanceFromBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight;
-    if (distanceFromBottom < 90) {
-      scroll.scrollTop = scroll.scrollHeight;
-    }
+  if (scroll && wasFollowing) {
+    scroll.setAttribute("data-restoring", "");
+    scroll.scrollTop = scroll.scrollHeight;
+    scroll.removeAttribute("data-restoring");
   }
+  refreshConversationNavigation();
   return true;
 };
 
@@ -355,12 +446,12 @@ const confirmDialog = (): void => {
     return;
   }
   if (dialog.kind === "mergeFinding") {
-    const input = document.getElementById("app-dialog-input") as HTMLInputElement | null;
+    const input = document.getElementById("app-dialog-input") as HTMLSelectElement | null;
     const extra = document.getElementById("app-dialog-delta") as HTMLTextAreaElement | null;
     const canonicalIdentity = input?.value.trim() ?? "";
     const reason = (extra?.value ?? "").trim();
-    if (!canonicalIdentity) {
-      rejectDialog("app-dialog-input", "Enter the id of the finding this one is merged into.");
+    if (!directionMergeOptions(dialog.absorbedIdentity).some((item) => item.id === canonicalIdentity)) {
+      rejectDialog("app-dialog-input", "Choose an available finding to keep.");
       return;
     }
     if (canonicalIdentity === dialog.absorbedIdentity) {
@@ -381,7 +472,7 @@ const confirmDialog = (): void => {
     return;
   }
   if (dialog.kind === "resolveRecord") {
-    const input = document.getElementById("app-dialog-input") as HTMLInputElement | null;
+    const input = document.getElementById("app-dialog-input") as HTMLInputElement | HTMLSelectElement | null;
     const extra = document.getElementById("app-dialog-delta") as HTMLTextAreaElement | null;
     const primary = input?.value.trim() ?? "";
     const secondary = (extra?.value ?? "")
@@ -393,7 +484,7 @@ const confirmDialog = (): void => {
         "app-dialog-input",
         dialog.mode === "reopen"
           ? "Give a reason for reopening this record."
-          : "Enter the id of the record that replaces this one.",
+          : "Choose the record that replaces this one.",
       );
       return;
     }
@@ -401,8 +492,8 @@ const confirmDialog = (): void => {
       rejectDialog("app-dialog-delta", "Reopening needs at least one line of new material evidence.");
       return;
     }
-    if (dialog.mode === "supersede" && primary === dialog.recordId) {
-      rejectDialog("app-dialog-input", "Enter a different record id: a record cannot supersede itself.");
+    if (dialog.mode === "supersede" && !directionRecordOptions(dialog.target, dialog.recordId).some((item) => item.id === primary)) {
+      rejectDialog("app-dialog-input", "Choose an available replacement record.");
       return;
     }
     closeDialog();

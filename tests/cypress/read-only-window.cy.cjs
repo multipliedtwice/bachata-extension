@@ -12,6 +12,23 @@ const emulateTheme = (theme) =>
     ],
   });
 
+const pressEnter = () =>
+  cy.wrap(null).then(async () => {
+    await debuggerCommand("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "Enter",
+      code: "Enter",
+      text: "\r",
+      windowsVirtualKeyCode: 13,
+    });
+    await debuggerCommand("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "Enter",
+      code: "Enter",
+      windowsVirtualKeyCode: 13,
+    });
+  }).wait(120);
+
 const bootReadOnly = () => cy.window().then((win) => {
   win.__managerState.readOnly = {
     owned: false,
@@ -43,7 +60,8 @@ describe("read-only secondary window", { browser: "chrome" }, () => {
           expect(rect.height, "ownership control height").to.be.at.least(24);
           expect(rect.left, "ownership control left edge").to.be.at.least(7.5);
           expect(rect.right, "ownership control right edge").to.be.at.most(width - 7.5);
-        }).focus().type("{enter}");
+        }).focus();
+        pressEnter();
 
         cy.window().its("__posted").should("deep.equal", [{ type: "workspace.ownership" }]);
         cy.document().then((document) => {

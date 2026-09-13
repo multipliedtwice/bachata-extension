@@ -27,6 +27,7 @@ import {
   contractChecksFrom,
   decisionRisks as risksFromDecision,
   executionEventCutoff,
+  humanResolutionSummary,
   latestCurrentEvent,
   runWasExecuted,
   validatedOutputRefs,
@@ -292,6 +293,7 @@ import {
   retainedRunTarget,
   rulingAttribution,
 } from "./catalogViews";
+import { boundedResultDecision } from "./eventDetail";
 import type { LocalAgentDemand } from "./executionLeasePlan";
 import {
   checklistSuspensionRefusal,
@@ -1863,6 +1865,7 @@ export const createConversationManager = (
   const executionLeaseAcquisitions = new Map<string, Promise<void>>();
   const executionLeaseControllers = new Map<string, AbortController>();
   const executionLeaseMutationQueues = new Map<string, Promise<void>>();
+  const deferredExecutionPreparations = new Map<string, () => Promise<void>>();
 
   const enqueueExecutionLeaseMutation = <T>(
     conversationId: string,
@@ -2475,6 +2478,11 @@ export const createConversationManager = (
   ): Promise<void> => {
     const current = executionLeases.get(conversationId);
     const suspended = suspendedExecutionUsers.get(conversationId);
+    const prepareDeferred = deferredExecutionPreparations.get(conversationId);
+    if (!current && !suspended && prepareDeferred) {
+      await prepareDeferred();
+      return;
+    }
     const plan = continuationLeasePlan({
       hasLease: current !== undefined,
       hasSuspended: suspended !== undefined,
@@ -2503,6 +2511,35 @@ export const createConversationManager = (
       suspended.userId,
     );
     suspendedExecutionUsers.delete(conversationId);
+  };
+
+  const withDeferredExecutionLease = async <T>(
+    conversationId: string,
+    slot: RuntimeSlot,
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    let acquisition: Promise<() => Promise<void>> | undefined;
+    let release: (() => Promise<void>) | undefined;
+    deferredExecutionPreparations.set(conversationId, async () => {
+      assertWorkspaceLease();
+      if (!acquisition) {
+        const timeoutMs = Math.max(
+          1_000,
+          readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "executionSlotTimeoutMs", 5 * 60_000),
+        );
+        acquisition = acquireExecutionLease(conversationId, slot, Date.now() + timeoutMs);
+      }
+      release = await acquisition;
+      assertWorkspaceLease();
+      await ensureContinuationExecutionLease(conversationId, slot);
+    });
+    try {
+      assertWorkspaceLease();
+      return await operation();
+    } finally {
+      deferredExecutionPreparations.delete(conversationId);
+      await release?.();
+    }
   };
 
   const attachmentForWebview = (
@@ -2672,7 +2709,9 @@ export const createConversationManager = (
       const currentExecutionEventId = executionEventCutoff(executionRef);
       const events = eventsCoveringExecution(conversation.runRef, currentExecutionEventId);
       const decision = latestCurrentEvent(events, "decision.published", currentExecutionEventId);
-      const decisionPayload = isRecord(decision?.payload) ? decision.payload : undefined;
+      const recordedDecisionPayload = isRecord(decision?.payload) ? decision.payload : undefined;
+      const boundedDecisionPayload = boundedResultDecision(recordedDecisionPayload);
+      const decisionPayload = isRecord(boundedDecisionPayload) ? boundedDecisionPayload : undefined;
       const decisionCandidate = decisionPayload?.candidate;
       const decisionRisks = risksFromDecision(decisionPayload);
       const currentOutputRefs = validatedOutputRefs(events, currentExecutionEventId);
@@ -2740,7 +2779,7 @@ export const createConversationManager = (
         provenance: parseRulingProvenance(decisionPayload?.rulingProvenance),
         decisionPublished: decision !== undefined,
       });
-      const finalRuling = finalRulingFor({
+      const finalRuling = humanResolutionSummary(decisionPayload) ?? finalRulingFor({
         taskSummary: task?.summary,
         decisionCandidate,
       });
@@ -2750,6 +2789,8 @@ export const createConversationManager = (
         changedFiles,
         checks: currentChecks,
         finalRuling,
+        finalDecision: decision && (task?.summary === undefined || humanResolutionSummary(decisionPayload) !== undefined) ? decisionPayload : undefined,
+        ...(decision && (task?.summary === undefined || humanResolutionSummary(decisionPayload) !== undefined) ? { finalDecisionEventId: decision.id } : {}),
         ...attribution,
         providers: (conversation.participants ?? []).map((participant) => ({
           name: participant.name,
@@ -2793,10 +2834,10 @@ export const createConversationManager = (
           executionRef,
           projected,
           mergeDecisionSources(
-            decisionSourceFromDecisionArtifact(decisionPayload),
+            decisionSourceFromDecisionArtifact(recordedDecisionPayload),
             declaredDecisionSource(conversation, selectedDefinition, currentOutputRefs),
           ),
-          planSourceFromDecisionArtifact(decisionPayload),
+          planSourceFromDecisionArtifact(recordedDecisionPayload),
           declaredArtifactSources(conversation, selectedDefinition, currentOutputRefs,
             events.filter((event) => event.type === "decision.published" &&
               event.id > currentExecutionEventId).map((event) => event.payload)),
@@ -4122,12 +4163,16 @@ export const createConversationManager = (
           valid: participant.valid,
           accepted: participant.accepted,
           candidateHash: participant.candidateHash,
+          candidate: participant.candidate,
+          objections: participant.objections,
+          unresolvedRisks: participant.unresolvedRisks,
           validationErrors: participant.validationErrors,
         })),
         objections: artifact.objections,
         unresolvedRisks: artifact.unresolvedRisks,
         ruledBy: artifact.ruledBy,
         rulingProvenance: artifact.rulingProvenance,
+        humanResolution: artifact.humanResolution,
       },
     });
     emitSnapshot();
@@ -4173,6 +4218,9 @@ export const createConversationManager = (
         : { localModelService: options.localModelService }),
       assertWritable: assertWorkspaceLease,
       withWorkspaceMutation,
+      prepareProviderExecution: async () => {
+        await deferredExecutionPreparations.get(conversationId)?.();
+      },
       requestInteraction: (request) =>
         requestRuntimeInteraction(conversationId, request),
       getProviderChatTitle: (agentId) => {
@@ -5304,7 +5352,7 @@ export const createConversationManager = (
           executionPlan,
         });
         iterations.push(result);
-        if (result.status !== "completed") break;
+        if (result.status !== "completed" || result.completionReason === "humanDecision") break;
         if (iterationMode === "untilClean") {
           cleanPasses = result.workspaceChanged === false ? cleanPasses + 1 : 0;
           if (cleanPasses >= requiredCleanPasses) break;
@@ -5404,7 +5452,7 @@ export const createConversationManager = (
         pipelineSnapshot,
       });
       iterations.push(resumed);
-      if (resumed.status === "completed") {
+      if (resumed.status === "completed" && resumed.completionReason !== "humanDecision") {
         for (
           let displayIndex = currentDisplayIndex + 1;
           displayIndex <= requestedIterations;
@@ -5427,7 +5475,7 @@ export const createConversationManager = (
             pipelineSnapshot,
           });
           iterations.push(result);
-          if (result.status !== "completed") {
+          if (result.status !== "completed" || result.completionReason === "humanDecision") {
             break;
           }
         }
@@ -5870,7 +5918,7 @@ export const createConversationManager = (
     const releaseRun = claimConversationRun(conversationId);
     try {
       const slot = await ensureRuntime(conversationId);
-      return await withExecutionLease(conversationId, slot, () =>
+      return await withDeferredExecutionLease(conversationId, slot, () =>
         resumeConversationOwned(conversationId)
       );
     } finally {

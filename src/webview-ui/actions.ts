@@ -52,6 +52,26 @@ const closeActiveMenu = (): boolean => {
   return true;
 };
 
+const runActionRefusal = (conversation: ConversationSummary, action: string): string | undefined => {
+  if (!["run-duplicate", "run-archive", "run-unarchive", "run-delete"].includes(action)) return undefined;
+  const candidates = action === "run-duplicate" ? [conversation] : state.manager.conversations.filter(
+    (candidate) => rootConversationFor(candidate).id === rootConversationFor(conversation).id,
+  );
+  const busy = candidates.find((candidate) => {
+    const panel = state.panels.get(candidate.id);
+    return candidate.running || candidate.waitingForResources || candidate.workflowStatus === "running" ||
+      (panel !== undefined && runConfigurationLocked(panel, candidate.id));
+  });
+  if (!busy) return undefined;
+  const paused = state.panels.get(busy.id)?.pendingGate !== undefined;
+  return `${paused ? "Resolve or leave the decision in" : "Stop"} “${runTabLabel(busy)}” before ${action === "run-duplicate" ? "duplicating it" : action === "run-delete" ? "deleting this run" : "changing its archive status"}.`;
+};
+
+const runActionAttributes = (conversation: ConversationSummary, action: string): string => {
+  const refusal = runActionRefusal(conversation, action);
+  return refusal ? ` aria-disabled="true" title="${escapeAttribute(refusal)}"` : "";
+};
+
 const clearFieldError = (fieldId: string): void => {
   if (!state.fieldErrors.delete(fieldId)) return;
   document.getElementById(fieldId)?.setAttribute("aria-invalid", "false");
@@ -190,8 +210,12 @@ root.addEventListener("click", (event) => {
   dismissTransientMenus(event.target instanceof Element ? event.target : null);
   if (!target) return;
   const action = target.dataset.action;
-  if (action === "noop") return;
+  if (action === "noop" || action === "history-filter") return;
   if (declineDisabledControl(target)) return;
+  if (["availability-check", "working-directory", "task-reset", "session-reset", "browser-session", "bridge-discover", "bridge-reset"].includes(action ?? "") && runConfigurationLocked(activePanel())) {
+    announceStatus("Finish the active operation before changing run configuration.");
+    return;
+  }
   if (
     state.pendingEditorOperation &&
     (action?.startsWith("editor-") === true ||
@@ -201,6 +225,12 @@ root.addEventListener("click", (event) => {
     return;
   }
   if (["run-rename", "run-duplicate", "run-archive", "run-unarchive", "run-delete"].includes(action ?? "")) {
+    const conversation = conversationFromTarget(target);
+    const refusal = conversation && action ? runActionRefusal(conversation, action) : undefined;
+    if (refusal) {
+      announceStatus(refusal);
+      return;
+    }
     const menu = target.closest<HTMLDetailsElement>(".run-action-menu");
     if (menu) {
       menu.open = false;
@@ -245,7 +275,7 @@ root.addEventListener("click", (event) => {
     vscode.postMessage({ type: "conversation.create" });
   } else if (action === "select-conversation" && target.dataset.conversation) {
     // A view chosen for one run is not a choice about the next; a run opens on its chat.
-    if (target.dataset.conversation !== state.manager.activeConversationId) state.roomView = "chat";
+    state.roomView = "chat";
     state.manager.activeConversationId = target.dataset.conversation;
     vscode.postMessage({ type: "conversation.select", conversationId: target.dataset.conversation });
     // Closing through the drawer's own helper is what puts focus back on the control that
@@ -276,7 +306,7 @@ root.addEventListener("click", (event) => {
       openDialog({
         kind: "archiveRun",
         title: "Archive run?",
-        message: `Archive “${conversation.title}”${suffix}? The complete history can be restored from All runs.`,
+        message: `Archive “${runTabLabel(conversation)}”${suffix}? The complete history can be restored from All runs.`,
         confirmLabel: "Archive",
         conversationId: conversation.id,
       });
@@ -292,7 +322,7 @@ root.addEventListener("click", (event) => {
       openDialog({
         kind: "deleteRun",
         title: "Delete run permanently?",
-        message: `Permanently delete “${conversation.title}”${suffix} and ${suffix ? "their" : "its"} local run metadata? This cannot be undone.`,
+        message: `Permanently delete “${runTabLabel(conversation)}”${suffix} and ${suffix ? "their" : "its"} local run metadata? This cannot be undone.`,
         confirmLabel: "Delete permanently",
         conversationId: conversation.id,
         danger: true,
@@ -478,6 +508,8 @@ root.addEventListener("click", (event) => {
     vscode.postMessage({ type: "cycle.close" });
   } else if (action === "cycle-rebaseline") {
     vscode.postMessage({ type: "cycle.rebaseline" });
+  } else if (action === "notification-settings") {
+    openDialog({ kind: "notificationSettings", title: "Notifications", message: "", confirmLabel: "Close" });
   } else if (action === "notification-open") {
     const id = target.dataset.record;
     if (!id) return;
@@ -563,6 +595,10 @@ root.addEventListener("click", (event) => {
       id: recordId,
       action: resolution,
     });
+  } else if (action === "direction-section-toggle" && target.dataset.section) {
+    const key = `${activeId()}:${target.dataset.section}`;
+    state.disclosureStates.set(key, !(state.disclosureStates.get(key) ?? false));
+    scheduleRender();
   } else if (action === "room-view") {
     state.roomView = target.dataset.view === "execution"
       ? "execution"
@@ -587,7 +623,58 @@ root.addEventListener("click", (event) => {
     }
     if (target.dataset.focus === "pending-decision") {
       // "Review and continue" promised a decision; focus lands on it, not on the document body.
-      focusAfterRender(() => root.querySelector<HTMLElement>(".decision-card")?.focus());
+      focusAfterRender(() => {
+        const decision = root.querySelector<HTMLElement>(".interaction-card, .decision-card, .approval-card");
+        if (!decision) return;
+        decision.tabIndex = -1;
+        decision.scrollIntoView({ block: "start", behavior: conversationScrollBehavior() });
+        decision.focus({ preventScroll: true });
+      });
+    }
+  } else if (action === "jump-message") {
+    const messageId = target.dataset.messageId;
+    const message = messageId ? root.querySelector<HTMLElement>(`[data-entry="${CSS.escape(messageId)}"]`) : null;
+    if (message) {
+      const content = root.querySelector<HTMLElement>(".conversation-scroll");
+      content?.setAttribute("data-restoring", "");
+      message.scrollIntoView({ block: "center", behavior: "auto" });
+      content?.removeAttribute("data-restoring");
+      focusTransientControl(message);
+      if (content) rememberConversationScroll(content);
+      refreshConversationNavigation();
+    }
+  } else if (action === "jump-latest") {
+    const content = root.querySelector<HTMLElement>(".conversation-scroll");
+    if (content) {
+      content.setAttribute("data-restoring", "");
+      content.scrollTop = content.scrollHeight;
+      content.removeAttribute("data-restoring");
+      if (document.activeElement === target) {
+        focusTransientControl(content);
+      }
+      rememberConversationScroll(content);
+      refreshConversationNavigation();
+    }
+  } else if (action === "message-details") {
+    const messageId = target.dataset.messageId;
+    const panel = activePanel();
+    const answerIndex = panel.transcript.findIndex((entry) => entry.id === messageId);
+    const answer = answerIndex < 0 ? undefined : panel.transcript[answerIndex];
+    const agentId = answer?.agentId ?? target.dataset.agent;
+    const step = answer?.step ?? panel.activeStep;
+    const prompt = agentId === undefined ? undefined : (answer ? panel.transcript.slice(0, answerIndex) : panel.transcript)
+      .slice().reverse()
+      .find((entry) => entry.kind === "prompt" && entry.agentId === agentId && (!step || entry.step === step));
+    if (answer || agentId) {
+      const agentName = agentId ? panel.agents[agentId]?.name ?? "Participant" : "Participant";
+      openDialog({
+        kind: "turnDetails",
+        title: `${agentName} · prompt`,
+        message: prompt ? "Exact prompt used for this response." : "No exact prompt was recorded for this response.",
+        prompt: prompt?.text ?? "",
+        ...(step ? { context: step } : {}),
+        confirmLabel: "Close",
+      });
     }
   } else if (action === "inspector-toggle") {
     state.inspectorOpen = !state.inspectorOpen;
@@ -610,8 +697,7 @@ root.addEventListener("click", (event) => {
     if (state.pipelinePickerOpen) closePipelinePicker();
     else openPipelinePicker();
   } else if (action === "pipeline-picker-more") {
-    pipelinePickerShowAll = !pipelinePickerShowAll;
-    scheduleRender();
+    togglePipelinePickerMore();
   } else if (action === "pipeline-picker-select" && target.dataset.pipelineId) {
     const pipelineId = target.dataset.pipelineId;
     closePipelinePicker();
@@ -666,11 +752,19 @@ root.addEventListener("click", (event) => {
       ...(target.dataset.model ? { model: target.dataset.model } : {}),
     });
   } else if (action === "availability-check") {
+    if (!agentsAssignable(activePanel())) {
+      announceStatus("Select a pipeline with participants to check providers.");
+      return;
+    }
     state.roomView = "chat";
+    state.inspectorOpen = false;
+    state.composerSettingsOpen = false;
+    state.pipelinePickerOpen = false;
     state.agentsPickerOpen = true;
-    announceStatus("Checking agents…");
+    announceStatus("Checking providers…");
     postRuntime({ type: "availability.check" });
     scheduleRender();
+    focusAfterRender(() => document.getElementById("agents-picker-button")?.focus());
   }
   else if (action === "working-directory") postRuntime({ type: "workingDirectory.pick" });
   else if (action === "task-reset") openDialog({
@@ -746,7 +840,14 @@ root.addEventListener("click", (event) => {
   } else if (action === "gate") {
     const gateAction = target.dataset.gateAction as HumanGateAction;
     const rollback = document.getElementById("rollback-target") as HTMLSelectElement | null;
-    postRuntime({ type: "run.gate", action: gateAction, ...(gateAction === "rollback" && rollback?.value ? { targetStepId: rollback.value } : {}) });
+    const rationale = (document.getElementById("gate-rationale") as HTMLTextAreaElement | null)?.value.trim();
+    postRuntime({
+      type: "run.gate",
+      action: gateAction,
+      ...(gateAction === "rollback" && rollback?.value ? { targetStepId: rollback.value } : {}),
+      ...(gateAction === "acceptParticipant" && target.dataset.participant ? { selectedParticipant: target.dataset.participant } : {}),
+      ...(rationale ? gateAction === "retry" ? { reviewInstructions: rationale } : { rationale } : {}),
+    });
   } else if (action === "approval") {
     const agentId = target.dataset.agent;
     const requestIdValue = target.dataset.request;
@@ -804,6 +905,17 @@ root.addEventListener("click", (event) => {
         announceStatus("Copying to the clipboard failed.");
       });
     }
+  } else if (action === "pipeline-view") {
+    const pipeline = activePanel().selectedPipelineDefinition;
+    if (pipeline) openDialog({
+      kind: "turnDetails",
+      title: pipeline.name,
+      message: "",
+      prompt: pipeline.steps.filter((step) => step.enabled).map((step, index) =>
+        `## ${String(index + 1)}. ${step.name}${"promptTemplate" in step ? `\n\n${step.promptTemplate}` : ""}`,
+      ).join("\n\n"),
+      confirmLabel: "Close",
+    });
   } else if (action === "pipeline-edit") openPipelineEditor(false);
   else if (action === "pipeline-new") openPipelineEditor(true);
   else if (action === "pipeline-fork") startPipelineFork();
@@ -1056,6 +1168,18 @@ root.addEventListener("input", (event) => {
   }
   // A field the reader is repairing is no longer the field that was refused.
   if (target.id) clearFieldError(target.id);
+  if (target.id === "app-dialog-input" && state.dialog && "inputValue" in state.dialog) {
+    state.dialog.inputValue = target.value;
+    return;
+  }
+  if (target.id === "app-dialog-delta" && state.dialog && "deltaValue" in state.dialog) {
+    state.dialog.deltaValue = target.value;
+    return;
+  }
+  if (target.id === "gate-rationale") {
+    rememberGateDraft(activeId(), activePanel(), target.value);
+    return;
+  }
   if (target.id === "initiative-direction-rationale") {
     state.directionRationale = target.value;
     return;
@@ -1141,6 +1265,11 @@ root.addEventListener("change", (event) => {
     vscode.postMessage({ type: "notifications.setMode", mode: target.value });
     return;
   }
+  if (target.id === "app-dialog-input" && state.dialog && "inputValue" in state.dialog) {
+    state.dialog.inputValue = target.value;
+    clearFieldError(target.id);
+    return;
+  }
   if (
     target.dataset.action === "result-file-select" &&
     target instanceof HTMLInputElement &&
@@ -1186,6 +1315,11 @@ root.addEventListener("change", (event) => {
     if (target.checked) activeDraft().selectedAttachmentIds.add(target.dataset.attachmentId);
     else activeDraft().selectedAttachmentIds.delete(target.dataset.attachmentId);
   } else if (target.dataset.action === "browser-session" && target.dataset.agent) {
+    if (runConfigurationLocked(activePanel())) {
+      announceStatus("Finish the active operation before changing run configuration.");
+      scheduleRender();
+      return;
+    }
     postRuntime({ type: "browser.session.select", agentId: target.dataset.agent, sessionId: target.value || undefined });
   } else if (target.dataset.editorMeta !== undefined || target.dataset.editorPolicy !== undefined || target.dataset.editorAgent !== undefined || target.dataset.editorRole !== undefined || target.dataset.editorStep !== undefined) {
     updateEditorInput(target);

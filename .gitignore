@@ -38,3 +38,4 @@ playwright-report/
 *.rej
 *~
 Thumbs.db
+cypress

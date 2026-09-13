@@ -1,10 +1,11 @@
 # Release verdict
 
-Current source repairs for run/recovery state and project preflight pass focused runtime,
-DOM, rendered-layout and full coverage checks. A fresh 0.7.1 VSIX now verifies against the final
-build, is installed locally, matches the installed extension, and passes the installed-build
-activation smoke. Stable release still needs the human, provider, platform, compatibility, terms,
-screenshot and binding evidence below.
+Current source repairs cover run/recovery state, project preflight, bounded result decisions,
+human consensus resolution, provider-capacity acquisition, and the reviewed Chat and Execution
+UI. Focused runtime, DOM, source-distribution, rendered-layout, and browser checks pass. A fresh
+0.7.1 VSIX is rebuilt and installed only after the full gate below passes. Stable release still
+needs the human, provider, platform, compatibility, terms, packaged-build screenshot, and binding
+evidence below.
 Current gate truth: [stable gate](STABLE_RELEASE_GATE.md),
 [validation record](RELEASE_VALIDATION_RECORD.md), and [open work](../TODO.md).
 
@@ -73,7 +74,8 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 | `npm run check:build-facts` | pass after regeneration for the current source. `BUILD_FACTS.md` is outside the VSIX. |
 | `npm run validate:local` | pass on this repository |
 | `npm run test:webview-layout` | pass, exit 0, measured 2026-09-13: 69 product interaction/layout cases and 132 rendered surfaces, 0 failed, 0 skipped. Tab and stopped-run checks passed at 320, 360, 400, 480, 700, 792, 900 and 1280 px. Covered state precedence, recovery controls, text size, menus, focus, disclosures, gutters and horizontal overflow. |
-| Live panel inspection | pass, measured 2026-09-13 against current `dist/webview.js` through live Chrome inspection. At 400 px in light, dark and high contrast: user messages align left; execution gutters are 16 px; six information disclosures start closed behind an info icon; minimum text is 13 px; visible controls are at least 24 px; Restart and Retry render. At 320 px: notification controls live under the bell; action-menu controls remain within the viewport; Escape restores focus. Empty running composer shows Stop, typing swaps it for Send at the same position. User stop renders `Stopped by you`, an interrupted result, Restart, and Resume stopped step. The picker shows five common workflows and reveals the remaining 16 through its disclosure. No screenshots were produced; the human packaged-build screenshot gate remains open. |
+| Cypress UI re-audit | pass, exit 0, measured 2026-09-13: 28 tests, 28 passed, 0 failed, 0 skipped. The decision flow was captured in 24 states: light, dark, and high contrast at 320, 360, 400, 480, 700, 792, 900, and 1280 px. Also exercised decision submission, notification settings, keyboard workflow selection, minimap navigation, Latest, control sizing, and horizontal overflow. The lead inspected all 24 images for layout, gutters, wrapping, alignment, type, contrast, focus, and control placement. This is source-fixture evidence; the human packaged-build screenshot gate remains open. |
+| Live panel inspection | pass, measured 2026-09-13 against current `dist/webview.js` through live Chrome inspection. At 400 px in light, dark and high contrast: user messages align left; execution gutters are 16 px; six information disclosures start closed behind an info icon; minimum text is 13 px; visible controls are at least 24 px; Restart and Retry render. At 320 px: notification controls live under the bell; action-menu controls remain within the viewport; Escape restores focus. Empty running composer shows Stop, typing swaps it for Send at the same position. User stop renders `Stopped by you`, an interrupted result, Restart, and Resume stopped step. The picker shows five common workflows and reveals the remaining 16 through its disclosure. |
 | Installed-build activation smoke | pass, exit 0, measured 2026-09-13 against `~/.vscode/extensions/rememo.bachata-vscode-0.7.1`: all 31 catalog pipelines loaded, rendered and remained selectable; pipeline editing and JSON recovery passed; `globalAlertCount` was 0. |
 | Bridge ZIP vs Bridge `dist` | pass, measured 2026-09-12 against a Browser Bridge archive rebuilt in this session: `bachata-browser-bridge-0.6.7.zip`, 58 files, SHA-256 `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`. `tests/releaseBinding.test.cjs`, 63 tests, 63 passed, 0 failed, 0 skipped, including the structural comparison of every archive entry against the build it was packaged from |
 

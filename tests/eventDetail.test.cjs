@@ -108,7 +108,9 @@ test("entries that have no JSON form are dropped from an array without shifting 
 
 const {
   MAX_EVENT_DETAIL_BYTES,
+  MAX_RESULT_DECISION_BYTES,
   boundedDecisionDetail,
+  boundedResultDecision,
   serializedJsonBytes,
 } = require("../dist/conversations/eventDetail.js");
 
@@ -301,6 +303,24 @@ test("a published decision is bounded, and the ruling card still gets every fiel
   // the reader the ruling beside it.
   assert.equal(typeof detail.candidate, "object");
   assert.ok(detail.candidate.summary.length < 2_000);
+});
+
+test("a result decision keeps useful conclusions inside a larger fixed redacted bound", () => {
+  const decision = hugeDecision();
+  decision.candidate.summary = `${"Detailed conclusion. ".repeat(220)}last retained sentence`;
+  decision.candidate.authorization = "Bearer sk-live-result-secret";
+  const result = boundedResultDecision(decision);
+  const serialized = JSON.stringify(result);
+  assert.ok(serializedBytes(result) <= MAX_RESULT_DECISION_BYTES);
+  assert.match(result.candidate.summary, /last retained sentence$/u);
+  assert.equal(serialized.includes("sk-live-result-secret"), false);
+  assert.equal(result.candidate.authorization, "[REDACTED]");
+});
+
+test("a hostile result decision cannot make the result snapshot unbounded", () => {
+  const result = boundedResultDecision(hugeDecision());
+  assert.ok(serializedBytes(result) <= MAX_RESULT_DECISION_BYTES);
+  assert.match(result.candidate.summary, /more characters not shown/u);
 });
 
 test("a secret inside a decision's candidate is treated as a secret", () => {

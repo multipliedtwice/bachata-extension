@@ -11,7 +11,7 @@ export type ModelFindingProvenance = {
   source: "pipelineDecision" | "stepOutput" | "legacyRuling";
   stepId: string;
   participantIds: string[];
-  decisionStatus?: "accepted" | "ruled";
+  decisionStatus?: "accepted" | "ruled" | "resolved";
   ruledBy?: string;
 };
 
@@ -80,14 +80,14 @@ const parseProvenance = (value: unknown): ModelFindingProvenance | undefined => 
   }
   const stepId = nonEmptyString(value.stepId);
   const participantIds = stringList(value.participantIds);
-  const decisionStatus = value.decisionStatus === "accepted" || value.decisionStatus === "ruled"
+  const decisionStatus = value.decisionStatus === "accepted" || value.decisionStatus === "ruled" || value.decisionStatus === "resolved"
     ? value.decisionStatus
     : undefined;
   if (
     stepId === undefined ||
     participantIds === undefined ||
     (value.source !== "legacyRuling" && participantIds.length === 0) ||
-    (value.source === "pipelineDecision" && decisionStatus !== "accepted" && decisionStatus !== "ruled") ||
+    (value.source === "pipelineDecision" && decisionStatus !== "accepted" && decisionStatus !== "ruled" && decisionStatus !== "resolved") ||
     (value.source !== "pipelineDecision" && value.decisionStatus !== undefined)
   ) return undefined;
   const ruledBy = nonEmptyString(value.ruledBy);
@@ -126,6 +126,7 @@ export const parseModelFinding = (value: unknown): ModelFinding | undefined => {
     (value.severity !== undefined && !isSeverity(value.severity))
   ) return undefined;
   const effectiveDisposition = disposition !== "proposed" &&
+    !(disposition === "unresolved" && provenance.decisionStatus === "resolved") &&
     !terminalDispositionIsSupported(evidence, challenges, provenance)
     ? "proposed"
     : disposition;
@@ -165,6 +166,25 @@ export const modelFindingsFromDecisionArtifact = (value: unknown): ModelFinding[
   if (!isRecord(value)) return [];
   const stepId = nonEmptyString(value.stepId);
   const decisionStatus = value.status;
+  if (decisionStatus === "resolved" && stepId && isRecord(value.humanResolution) &&
+      value.humanResolution.action === "acceptUnresolved" && Array.isArray(value.participants)) {
+    return mergeModelFindings(...value.participants.map((participant) => {
+      if (!isRecord(participant) || typeof participant.agentId !== "string" ||
+          !isRecord(participant.candidate) || !Array.isArray(participant.candidate.findings)) return [];
+      return participant.candidate.findings.flatMap((item) => {
+        if (!isRecord(item)) return [];
+        const finding = parseModelFinding({
+          ...item,
+          id: `${participant.agentId}:${String(item.id ?? "")}`,
+          disposition: "unresolved",
+          evidence: item.evidence ?? [],
+          challenges: item.challenges ?? [],
+          provenance: { source: "pipelineDecision", stepId, participantIds: [participant.agentId], decisionStatus },
+        });
+        return finding ? [finding] : [];
+      });
+    }));
+  }
   const participants = Array.isArray(value.participants)
     ? value.participants.flatMap((participant) => {
         if (!isRecord(participant)) return [];
