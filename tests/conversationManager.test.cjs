@@ -2503,15 +2503,15 @@ test("a failed run names the reassigned provider that failed, not an inconclusiv
       text: "Codex 0.146.0 does not offer the selected model \"gpt-6-astra\"",
       createdAt: new Date().toISOString(),
     });
-    runtime.pipelineResults.push({
-      status: "interrupted",
-      answers: {},
-      outputs: {},
-      decisions: [],
-      roles: {},
-    });
+    runtime.beforePipelineRun = () => {
+      throw new Error("Codex 0.146.0 does not offer the selected model \"gpt-6-astra\"");
+    };
 
-    await harness.manager.runConversation(conversationId, "review this change");
+    await assert.rejects(
+      harness.manager.runConversation(conversationId, "review this change"),
+      /does not offer the selected model/u,
+    );
+    assert.equal(harness.manager.getState().conversations[0].workflowStatus, "error", "a provider failure was reported as something other than a failure");
     const result = harness.manager.getState().resultsByConversation[conversationId];
     assert.equal(result.finalAssessment.outcome, "failedBeforeRuling");
     assert.equal(result.finalAssessment.failure.adapter, "codex-app-server");
@@ -7255,7 +7255,23 @@ test("only an execution event is proof of execution", () => {
   }
 });
 
-test("a run that has started is projected while it is still running", async () => {
+test("a conversation that never ran has no result object", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const state = harness.manager.getState();
+    const conversation = state.conversations.find((candidate) => candidate.id === state.activeConversationId);
+    assert.equal(conversation.workflowStatus, "idle");
+    assert.equal(Object.hasOwn(state.resultsByConversation, conversation.id), false, "an idle room was given a result");
+  } finally {
+    harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());
+    harness.runtimeInstances.forEach((instance) => instance.run.resolve());
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+test("a run that has started has no result until it ends, and has one after", async () => {
   const harness = loadHarness();
   const held = deferred();
   try {
@@ -7264,9 +7280,13 @@ test("a run that has started is projected while it is still running", async () =
     harness.runtimeInstances[0].beforePipelineRun = () => held.promise;
     const running = harness.manager.runConversation(conversationId, "held execution");
     await waitFor(() => eventTypesOf(harness, conversationId).includes("run.started"));
-    await waitFor(() => harness.manager.getState().resultsByConversation[conversationId] !== undefined);
+    const live = harness.manager.getState();
+    assert.equal(live.conversations.find((conversation) => conversation.id === conversationId).running, true);
+    assert.equal(live.resultsByConversation[conversationId], undefined, "a running run was projected as an ended one");
     held.resolve();
     await running;
+    await waitFor(() => harness.manager.getState().resultsByConversation[conversationId] !== undefined);
+    assert.equal(harness.manager.getState().resultsByConversation[conversationId].status, "completed");
   } finally {
     held.resolve();
     harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());

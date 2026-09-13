@@ -100,8 +100,9 @@ test("autonomous local-agent execution is still refused outside a Git repository
       workingDirectory: root,
       attachments: [],
       workspacePolicy: {
-        readOnly: true,
+        readOnly: false,
         writeScope: "task",
+        allowedPaths: ["src"],
         commitMode: "never",
         automated: true,
       },
@@ -110,7 +111,7 @@ test("autonomous local-agent execution is still refused outside a Git repository
     assert.equal(before.isGitRepository, false);
     await assert.rejects(
       assertWorkspacePolicyAudit(request, before),
-      /requires a Git worktree for authoritative post-turn validation/u,
+      /Choose a Git project folder\./u,
     );
   } finally {
     removeScratchSync(root);

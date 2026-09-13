@@ -80,6 +80,24 @@ export const extractExplicitWorkspacePaths = (
   return results;
 };
 
+export const selectedWriteScope = (input: {
+  writeScope?: WorkspaceWriteScope | undefined;
+  readOnly?: boolean | undefined;
+  defaultScope: WorkspaceWriteScope;
+}): WorkspaceWriteScope =>
+  input.writeScope === "readOnly" || (input.readOnly === true && input.writeScope === undefined)
+    ? "readOnly"
+    : input.writeScope ?? input.defaultScope;
+
+export const gitWorktreeRequired = (policy: {
+  automated?: boolean | undefined;
+  readOnly: boolean;
+  writeScope?: WorkspaceWriteScope | undefined;
+}): boolean =>
+  policy.automated === true &&
+  !policy.readOnly &&
+  (policy.writeScope === "task" || policy.writeScope === "configured");
+
 export const resolveWorkspaceWritePolicy = (input: {
   task: string;
   workspaceRoot: string;
@@ -88,10 +106,10 @@ export const resolveWorkspaceWritePolicy = (input: {
   readOnly?: boolean;
   defaultScope: WorkspaceWriteScope;
 }): ResolvedWorkspaceWritePolicy => {
-  if (input.writeScope === "readOnly" || (input.readOnly === true && input.writeScope === undefined)) {
+  const writeScope = selectedWriteScope(input);
+  if (writeScope === "readOnly") {
     return { writeScope: "readOnly", allowedPaths: [], readOnly: true };
   }
-  const writeScope = input.writeScope ?? input.defaultScope;
   if (writeScope === "workspace") {
     return { writeScope, allowedPaths: ["."], readOnly: input.readOnly === true };
   }
@@ -205,19 +223,27 @@ const auditEntries = async (
   return entries;
 };
 
-export const captureWorkspacePolicyAudit = async (
-  requestData: SendRequest,
+export type WorkspaceRepositoryProbe =
+  | { kind: "worktree"; repositoryRoot: string }
+  | { kind: "notWorktree"; detail: string }
+  | { kind: "unresolved"; detail: string };
+
+export const probeWorkspaceRepository = async (
+  workingDirectory: string,
   signal?: AbortSignal,
-): Promise<WorkspacePolicyAuditSnapshot> => {
-  const options = auditProcessOptions(requestData.workingDirectory, signal);
+): Promise<WorkspaceRepositoryProbe> => {
+  const options = auditProcessOptions(workingDirectory, signal);
   const probe = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], options);
   // A probe that never answered is not evidence of anything. Only a probe that ran to completion
-  // and said no may be recorded as "not a repository"; an interrupted one refuses.
-  if (probe.timedOut || probe.cancelled || !probe.cleanupConfirmed) {
-    throw new Error(probe.stderr || "Unable to determine whether the workspace is a Git repository");
+  // and said no may be recorded as "not a repository"; an interrupted or unlaunchable one refuses.
+  if (probe.exitCode === undefined || probe.timedOut || probe.cancelled || !probe.cleanupConfirmed) {
+    return {
+      kind: "unresolved",
+      detail: probe.stderr || "Unable to determine whether the workspace is a Git repository",
+    };
   }
   if (probe.exitCode !== 0 || probe.stdout.trim() !== "true") {
-    return { isGitRepository: false, head: "", repositoryRoot: "", entries: {} };
+    return { kind: "notWorktree", detail: probe.stderr.trim() };
   }
   const rootResult = await runProcess("git", ["rev-parse", "--show-toplevel"], options);
   if (
@@ -227,9 +253,27 @@ export const captureWorkspacePolicyAudit = async (
     || !rootResult.cleanupConfirmed
     || !rootResult.stdout.trim()
   ) {
-    throw new Error(rootResult.stderr || "Unable to locate the workspace Git repository root");
+    return {
+      kind: "unresolved",
+      detail: rootResult.stderr || "Unable to locate the workspace Git repository root",
+    };
   }
-  const repositoryRoot = path.resolve(rootResult.stdout.trim());
+  return { kind: "worktree", repositoryRoot: path.resolve(rootResult.stdout.trim()) };
+};
+
+export const captureWorkspacePolicyAudit = async (
+  requestData: SendRequest,
+  signal?: AbortSignal,
+): Promise<WorkspacePolicyAuditSnapshot> => {
+  const probe = await probeWorkspaceRepository(requestData.workingDirectory, signal);
+  if (probe.kind === "unresolved") {
+    throw new Error(probe.detail);
+  }
+  if (probe.kind === "notWorktree") {
+    return { isGitRepository: false, head: "", repositoryRoot: "", entries: {} };
+  }
+  const options = auditProcessOptions(requestData.workingDirectory, signal);
+  const repositoryRoot = probe.repositoryRoot;
   const headResult = await runProcess("git", ["rev-parse", "HEAD"], options);
   if (headResult.exitCode !== 0 || headResult.timedOut || headResult.cancelled || !headResult.cleanupConfirmed) {
     throw new Error(headResult.stderr || "Unable to capture Git HEAD");
@@ -248,6 +292,19 @@ export const captureWorkspacePolicyAudit = async (
   };
 };
 
+export const gitWorktreeRequirementMessage = (workingDirectory: string): string =>
+  `Choose a Git project folder. ${workingDirectory} is not inside a Git worktree, and this participant may change files, so Bachata needs Git to validate its changes.`;
+
+export const assertWorkspaceExecutionSupported = (
+  requestData: SendRequest,
+  before: WorkspacePolicyAuditSnapshot,
+): void => {
+  const policy = requestData.workspacePolicy;
+  if (policy && gitWorktreeRequired(policy) && !before.isGitRepository) {
+    throw new Error(gitWorktreeRequirementMessage(requestData.workingDirectory));
+  }
+};
+
 export const assertWorkspacePolicyAudit = async (
   requestData: SendRequest,
   before: WorkspacePolicyAuditSnapshot,
@@ -255,10 +312,7 @@ export const assertWorkspacePolicyAudit = async (
 ): Promise<void> => {
   const policy = requestData.workspacePolicy;
   if (!policy) return;
-  const bounded = policy.writeScope === "task" || policy.writeScope === "configured" || policy.writeScope === "readOnly";
-  if (policy.automated === true && bounded && !before.isGitRepository) {
-    throw new Error("Task-scoped autonomous local-agent execution requires a Git worktree for authoritative post-turn validation");
-  }
+  assertWorkspaceExecutionSupported(requestData, before);
   const after = await captureWorkspacePolicyAudit(requestData, signal);
   if (before.isGitRepository !== after.isGitRepository) throw new Error("Workspace repository identity changed during the agent turn");
   if (before.isGitRepository && before.head !== after.head) {

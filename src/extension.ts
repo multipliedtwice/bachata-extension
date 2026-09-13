@@ -38,6 +38,7 @@ import {
 import { resolveWorkspaceOwnershipAfterFailure } from "./concurrency/resolveWorkspaceOwnership";
 import { ownershipReport } from "./concurrency/ownershipHandoff";
 import type { OwnershipActionId } from "./concurrency/ownershipHandoff";
+import { readOnlyPanelState } from "./state/readOnlyPipelines";
 import {
   ConversationManager,
   createConversationManager,
@@ -434,6 +435,18 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
         const readOnlyManager = createReadOnlyManager({
           service: readOnlyState,
           ownership: readOnlyOwnership,
+          panelState: (conversation) => readOnlyPanelState({
+            conversation,
+            extensionDirectory: context.extensionUri.fsPath,
+            workspaceRoots: vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
+            trusted: vscode.workspace.isTrusted,
+            browserBridgeEnabled: vscode.env.remoteName === undefined,
+            ownershipReason: blockedReason,
+            transcriptWindowSize: configuration.get<number>("transcriptWindowSize", 300),
+          }),
+          requestOwnership: async () => {
+            await vscode.commands.executeCommand("bachata.ownership");
+          },
           onRefusal: (message) => output.appendLine(message),
         });
         context.subscriptions.push(

@@ -6,11 +6,25 @@
  * declared here, which is what makes the ordering safe.
  */
 
+type RunPhase = "idle" | "running" | "waiting" | "stopped" | "failed" | "completed";
+type RunRecovery = { step: "resume" | "retry" | "none"; label?: string };
+type RunStatusPresentation = { label: string; icon: string; spinning: boolean };
+
 type BachataWebviewBehaviorApi = {
   dialogInitialFocus: (hasInput: boolean, danger: boolean) => "input" | "cancel" | "confirm";
   focusReturnSelector: (element: HTMLElement | null) => string | undefined;
   wrappedFocusIndex: (activeIndex: number, controlCount: number, shiftKey: boolean) => number | undefined;
   shouldSubmitComposer: (targetId: string, key: string, ctrlKey: boolean, metaKey: boolean) => boolean;
+  runPhase: (running: boolean, workflowStatus: string) => RunPhase;
+  runRecovery: (
+    phase: RunPhase,
+    checkpoint: { outcome: string; failureScope?: string | undefined } | undefined,
+  ) => RunRecovery | undefined;
+  runStatusPresentation: (phase: RunPhase, outcome?: string | undefined) => RunStatusPresentation;
+  hasDetail: (value: unknown) => boolean;
+  promptTurns: (
+    entries: ReadonlyArray<{ id: string; agentId?: string | undefined; step?: string | undefined; eventType?: string | undefined }>,
+  ) => Record<string, { turn: number; of: number }>;
 };
 
 type AgentId = string;
@@ -289,6 +303,9 @@ type QueuedMessage = {
   createdAt: string;
 };
 type ResumableWorkflow = {
+  attemptId: string;
+  outcome: "stoppedByUser" | "interrupted" | "failed";
+  failureScope?: "run" | "step" | undefined;
   pipelineId: string;
   pipelineName: string;
   pipelineHash: string;
@@ -296,6 +313,7 @@ type ResumableWorkflow = {
   attachmentIds: string[];
   nextStepIndex: number;
   totalSteps: number;
+  stepName?: string | undefined;
   updatedAt: string;
 };
 type BrowserActionPolicy = "auto" | "ask" | "disabled";
@@ -584,7 +602,7 @@ type TodoTaskSummary = {
   worktreePath?: string;
 };
 type RunResultCenter = {
-  status: WorkflowStatus;
+  status: Exclude<WorkflowStatus, "running" | "paused">;
   changedFiles: string[];
   diffSummary?: string;
   checks: TodoVerificationSummary[];

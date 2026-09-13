@@ -184,7 +184,11 @@ import {
   SendRequest,
   WorkspaceWriteScope,
 } from "../adapters/types";
-import { resolveWorkspaceWritePolicy } from "../adapters/workspacePolicyAudit";
+import {
+  probeWorkspaceRepository,
+  resolveWorkspaceWritePolicy,
+  type WorkspaceRepositoryProbe,
+} from "../adapters/workspacePolicyAudit";
 import { type CodexWorkspaceScope } from "../adapters/codexWire";
 import {
   captureRunSettings,
@@ -278,9 +282,17 @@ import {
   emptyTurnStream,
   turnDeadlineBreach,
   turnStreamOutcome,
+  turnExecutionPolicy,
   turnStreamStep,
   turnWorkspacePolicy,
 } from "./turnStream";
+import {
+  participantRequiresGitWorktree,
+  projectPreflightDetail,
+  projectPreflightError,
+  projectPreflightFailure,
+  projectPreflightFailureOf,
+} from "./projectPreflight";
 import type { TurnDeadline } from "./turnStream";
 import {
   captureManagedRepositoryBaseline,
@@ -371,7 +383,7 @@ import {
   createPipelineValidator,
   PipelineCatalogMaps,
   planLegacyCustomPipelineMigration,
-  pipelinePickerMetadata,
+  pipelineSummary,
   readBuiltInPipelineCatalog,
   readCustomPipelineCatalog,
   resetPipelineCatalog,
@@ -396,6 +408,7 @@ import {
   PipelineResumeState,
   PipelineRunResult,
   executionChecklistValidationErrors,
+  pipelineParticipantPlans,
   validatePipelineCapabilities,
 } from "../pipeline/runner";
 import { iterationOutcome, iterationPlan } from "../pipeline/stepTransitions";
@@ -417,10 +430,19 @@ import { createManagedTaskState } from "./managedTaskState";
 import {
   approvalIsStale,
   discardReturnsToIdle,
+  exposedRecoveryOutcome,
+  parseRecoveryFailureScope,
+  parseRecoveryRecordOutcome,
+  recoveryFailureScope,
+  recoveryWorkflowStatus,
+  restartSurvivesFolderChange,
+  restoredRecoveryOutcome,
   resultIsStale,
   resumeRefusal,
   taskResetBaseline,
   taskResetClearedKeys,
+  type RecoveryFailureScope,
+  type RecoveryOutcome,
 } from "./recoveryTransition";
 import {
   managedCheckpointSteps,
@@ -475,7 +497,6 @@ import {
   PanelState,
   PendingApproval,
   PendingHumanGate,
-  PipelineSummary,
   QueuedMessage,
   ResumableWorkflow,
   TranscriptEntry,
@@ -1241,7 +1262,11 @@ const parsePersistedResumableWorkflow = (
   ) {
     return undefined;
   }
+  const failureScope = parseRecoveryFailureScope(value.failureScope);
   return {
+    attemptId: typeof value.attemptId === "string" && value.attemptId ? value.attemptId : randomUUID(),
+    outcome: parseRecoveryRecordOutcome(value.outcome),
+    ...(failureScope === undefined ? {} : { failureScope }),
     pipelineId: value.pipelineId,
     pipelineName: value.pipelineName,
     pipelineHash: value.pipelineHash,
@@ -1375,40 +1400,30 @@ const createEventEntry = (
 
 const isInside = isPathInsideRoot;
 
-const pipelineSummary = (
-  pipeline: PipelineDefinition,
-  editable: boolean,
-  hash: string,
-  scope: PipelineScope,
-): PipelineSummary => ({
-  id: pipeline.id,
-  name: pipeline.name,
-  ...(pipeline.description === undefined ? {} : { description: pipeline.description }),
-  editable,
-  hash,
-  scopeKey: editable ? scope.key : "builtin",
-  ...pipelinePickerMetadata(pipeline.id, editable),
-  participantCount: assignmentSlots(pipeline).slots.length,
-  participantNames: assignmentSlots(pipeline).slots.map((slot) => slot.responsibility),
-  stepCount: pipeline.steps.filter((step) => step.enabled).length,
-  ...(editable && scope.root ? { scopeRoot: scope.root } : {}),
-});
-
 const resumableWorkflowSummary = (
   value: PersistedResumableWorkflow,
-): ResumableWorkflow => ({
-  pipelineId: value.pipelineId,
-  pipelineName: value.pipelineName,
-  pipelineHash: value.pipelineHash,
-  userPrompt: value.userPrompt,
-  attachmentIds: [...value.attachmentIds],
-  nextStepIndex: value.nextStepIndex,
-  totalSteps: value.totalSteps,
-  updatedAt: value.updatedAt,
-  ...(value.sourceQueueMessageId
-    ? { sourceQueueMessageId: value.sourceQueueMessageId }
-    : {}),
-});
+): ResumableWorkflow | undefined => {
+  const outcome = exposedRecoveryOutcome(value.outcome);
+  if (outcome === undefined) return undefined;
+  const stepName = value.pipelineSnapshot.definition.steps[value.nextStepIndex]?.name;
+  return {
+    attemptId: value.attemptId,
+    outcome,
+    ...(value.failureScope === undefined ? {} : { failureScope: value.failureScope }),
+    pipelineId: value.pipelineId,
+    pipelineName: value.pipelineName,
+    pipelineHash: value.pipelineHash,
+    userPrompt: value.userPrompt,
+    attachmentIds: [...value.attachmentIds],
+    nextStepIndex: value.nextStepIndex,
+    totalSteps: value.totalSteps,
+    ...(stepName === undefined ? {} : { stepName }),
+    updatedAt: value.updatedAt,
+    ...(value.sourceQueueMessageId
+      ? { sourceQueueMessageId: value.sourceQueueMessageId }
+      : {}),
+  };
+};
 
 export const createRuntime = (
   context: vscode.ExtensionContext,
@@ -1596,7 +1611,15 @@ export const createRuntime = (
   // something happened to ask again.
   let readinessGitDirectory: string | undefined;
 
-  let resumableWorkflowData = persisted?.resumableWorkflow;
+  let resumableWorkflowData: PersistedResumableWorkflow | undefined = persisted?.resumableWorkflow
+    ? {
+        ...persisted.resumableWorkflow,
+        outcome: restoredRecoveryOutcome(persisted.resumableWorkflow.outcome),
+      }
+    : undefined;
+  const restoredRecoverySummary = resumableWorkflowData
+    ? resumableWorkflowSummary(resumableWorkflowData)
+    : undefined;
 
   const state: PanelState = {
     taskId: persisted?.taskId ?? randomUUID(),
@@ -1641,7 +1664,7 @@ export const createRuntime = (
     },
     roles: {},
     running: false,
-    workflowStatus: resumableWorkflowData ? "interrupted" : "idle",
+    workflowStatus: recoveryWorkflowStatus(resumableWorkflowData?.outcome),
     transcript: [],
     transcriptTotal: 0,
     transcriptHasMore: false,
@@ -1656,9 +1679,7 @@ export const createRuntime = (
     maxAttachmentTotalBytes: initialConfiguration.get<number>("maxAttachmentTotalBytes", 52_428_800),
     queuedMessages: persisted?.queuedMessages ?? [],
     queuePaused: Boolean(persisted?.queuedMessages.length),
-    ...(resumableWorkflowData
-      ? { resumableWorkflow: resumableWorkflowSummary(resumableWorkflowData) }
-      : {}),
+    ...(restoredRecoverySummary ? { resumableWorkflow: restoredRecoverySummary } : {}),
     browserBridge: {
       enabled: vscode.env.remoteName === undefined,
       connected: false,
@@ -4353,6 +4374,20 @@ export const createRuntime = (
     return sections.join("\n\n");
   };
 
+  const recordedAgentFailures = new WeakSet<Error>();
+
+  const providerFailureDetailOf = (error: unknown): JsonValue | undefined =>
+    isProviderFailureError(error)
+      ? toJsonValue({
+          code: error.failure.code,
+          provider: error.failure.provider,
+          retryable: error.failure.retryable,
+          ...(error.failure.evidence === undefined
+            ? {}
+            : { evidence: error.failure.evidence }),
+        })
+      : undefined;
+
   const consume = async (
     agentId: string,
     prompt: string,
@@ -4432,22 +4467,20 @@ export const createRuntime = (
     try {
       await ensureProgrammaticBrowserSession(agentId, controller.signal);
       const workingDirectory = await requireAgentWorkingDirectory(agentId);
-      const semanticReadOnly = options.managedRole === "lead" || options.roleId === "lead"
-        ? true
-        : (options.readOnly ?? false);
+      const turnPolicy = turnExecutionPolicy({
+        ...options,
+        unattended: hostCallbacks.unattendedOrchestration === true,
+      });
+      const semanticReadOnly = turnPolicy.readOnly;
       const resolvedWritePolicy = resolveWorkspaceWritePolicy({
         task: options.originalTask ?? prompt,
         workspaceRoot: workingDirectory,
         ...(options.writeScope === undefined ? {} : { writeScope: options.writeScope }),
         ...(options.allowedPaths === undefined ? {} : { allowedPaths: options.allowedPaths }),
         readOnly: semanticReadOnly,
-        defaultScope: options.managed === true
-          ? "task"
-          : (options.allowedPaths?.length ? "configured" : "workspace"),
+        defaultScope: turnPolicy.defaultScope,
       });
-      const automatedTurn = hostCallbacks.unattendedOrchestration === true
-        || options.managed === true
-        || options.participant !== undefined;
+      const automatedTurn = turnPolicy.automated;
       const existingManagedCheckpoint = managedPairCheckpoints.get(operationTaskId);
       const useManagedBrowser = options.managed === true
         && definitions[agentId]?.adapter.endsWith("-browser") === true
@@ -5996,9 +6029,20 @@ export const createRuntime = (
                 ...(choice.setting === undefined ? {} : { setting: choice.setting }),
               })),
             })
-          : createEntry("error", message, agentId, step),
+          : (() => {
+              const detail = providerFailureDetailOf(error);
+              return createEntry(
+                "error",
+                message,
+                agentId,
+                step,
+                detail === undefined ? undefined : "provider.failure",
+                detail,
+              );
+            })(),
         "This agent failure",
       );
+      if (error instanceof Error) recordedAgentFailures.add(error);
       throw error;
     } finally {
       const outputRedactor = outputRedactors.get(agentId);
@@ -6467,6 +6511,21 @@ export const createRuntime = (
       },
     );
     emitSnapshot();
+  };
+
+  const settleResumableWorkflow = async (
+    outcome: RecoveryOutcome,
+    failureScope?: RecoveryFailureScope,
+  ): Promise<void> => {
+    const current = resumableWorkflowData;
+    if (!current) return;
+    const settled: PersistedResumableWorkflow = {
+      ...current,
+      outcome,
+      updatedAt: new Date().toISOString(),
+    };
+    setOptionalProperty(settled, "failureScope", failureScope);
+    await setResumableWorkflow(settled);
   };
 
   const discardResumableWorkflow = async (
@@ -7023,6 +7082,44 @@ export const createRuntime = (
     }
   };
 
+  // A folder lookup that finds nothing selected is "no folder"; a lookup that throws is a failure to
+  // resolve the project, and its reason travels as the diagnostic.
+  const workingDirectoryLookup = async (
+    agentId: AgentId,
+  ): Promise<{ workingDirectory: string | undefined; lookupError?: string | undefined }> => {
+    const workspaceRoots = getWorkspaceRoots();
+    if (state.workingDirectory === undefined && workspaceRoots.length !== 1) {
+      return { workingDirectory: undefined };
+    }
+    try {
+      return { workingDirectory: await requireAgentWorkingDirectory(agentId) };
+    } catch (error) {
+      return { workingDirectory: undefined, lookupError: error instanceof Error ? error.message : String(error) };
+    }
+  };
+
+  const projectParticipantsFailure = async (
+    participants: ReadonlyArray<{ participantName: string; stepName: string; agentId: AgentId; options: PipelineAgentOptions }>,
+    probes: Map<string, WorkspaceRepositoryProbe>,
+    signal: AbortSignal,
+  ) => {
+    const unattended = hostCallbacks.unattendedOrchestration === true;
+    const required = participants.filter((participant) =>
+      participantRequiresGitWorktree(participant.options, unattended));
+    if (required.length === 0) return undefined;
+    const located = await Promise.all(required.map(async (participant) => ({
+      participant: participant.participantName,
+      step: participant.stepName,
+      ...(await workingDirectoryLookup(participant.agentId)),
+    })));
+    for (const entry of located) {
+      if (entry.workingDirectory !== undefined && !probes.has(entry.workingDirectory)) {
+        probes.set(entry.workingDirectory, await probeWorkspaceRepository(entry.workingDirectory, signal));
+      }
+    }
+    return projectPreflightFailure({ participants: located, probes });
+  };
+
   const runPipeline = async (
     prompt: string,
     attachmentIds: string[],
@@ -7035,6 +7132,7 @@ export const createRuntime = (
     attachmentUseCount += 1;
     let recoveryEstablished = false;
     let accepted = false;
+    let participantStarted = false;
     let releasePipelineAttachments: (() => Promise<void>) | undefined;
     let pipelineFailure: unknown;
     const operation = (async (): Promise<void> => {
@@ -7123,6 +7221,7 @@ export const createRuntime = (
           resume: recordedRun,
         });
         const recovery = resumableWorkflowFrom({
+          attemptId: randomUUID(),
           pipelineId: pipeline.id,
           pipelineName: pipeline.name,
           pipelineHash: pipelineSnapshot.hash,
@@ -7143,6 +7242,29 @@ export const createRuntime = (
         recoveryEstablished = true;
         await options.onAccepted?.();
         accepted = true;
+        // Participants whose agent is already known are checked before the first step; a role
+        // that a step has yet to assign is checked for the agent it resolves to, before that step
+        // invokes anyone (`beforeParticipants` below).
+        const projectProbes = new Map<string, WorkspaceRepositoryProbe>();
+        const projectFailure = await projectParticipantsFailure(
+          pipelineParticipantPlans(pipeline, prompt, {
+            fromStepIndex: initialCheckpoint.nextStepIndex,
+            roles: initialCheckpoint.snapshot.roles,
+            executionPolicy: runConstraints,
+          }).flatMap((plan) => plan.resolved
+            ? plan.candidates.map((candidate) => ({
+                participantName: candidate.participantName,
+                stepName: plan.stepName,
+                agentId: candidate.agentId,
+                options: candidate.options,
+              }))
+            : []),
+          projectProbes,
+          controller.signal,
+        );
+        if (projectFailure !== undefined) {
+          throw projectPreflightError(projectFailure);
+        }
 
         workflowActive = true;
         state.roles = { ...initialCheckpoint.snapshot.roles };
@@ -7151,15 +7273,17 @@ export const createRuntime = (
           pipeline,
           prompt,
           attachmentPaths,
-          (agentId, agentPrompt, step, agentOptions, stepAttachments) =>
-            consume(
+          (agentId, agentPrompt, step, agentOptions, stepAttachments) => {
+            participantStarted = true;
+            return consume(
               agentId,
               agentPrompt,
               step.name,
               agentOptions,
               stepAttachments,
               taskId,
-            ),
+            );
+          },
           {
             onStep: (step, _index, round) => {
               // Republish the contract at every step boundary. Pinned values do not move, but an
@@ -7207,6 +7331,10 @@ export const createRuntime = (
                 checkpoint: compactPipelineCheckpoint(checkpoint),
               });
             },
+            beforeParticipants: async (participants) => {
+              const failure = await projectParticipantsFailure(participants, projectProbes, controller.signal);
+              if (failure !== undefined) throw projectPreflightError(failure);
+            },
             waitForHumanGate,
             waitForExecutionChecklist,
             executeChecklist: hostCallbacks.executeChecklist
@@ -7244,6 +7372,7 @@ export const createRuntime = (
           : { ...result, ...workspaceChange };
         lastPipelineResult = structuredClone(completedResult);
         const terminal = pipelineTerminalPlan(completedResult.status);
+        if (terminal.keepResumable) await settleResumableWorkflow("stoppedByUser");
         patchRun(false, terminal.runStatus, { roles: completedResult.roles });
         if (workflowController === controller) workflowController = undefined;
         if (!terminal.keepResumable) await setResumableWorkflow(undefined);
@@ -7258,6 +7387,7 @@ export const createRuntime = (
             outputs: snapshot?.outputs ?? {},
             decisions: snapshot?.decisions ?? {},
           };
+          if (recoveryEstablished) await settleResumableWorkflow("stoppedByUser");
           patchRun(false, "interrupted");
           await appendTranscript(createEntry("interrupted", "Stopped by you"));
           return;
@@ -7271,33 +7401,39 @@ export const createRuntime = (
           restarting: options.restartFrom !== undefined,
         });
         if (failurePlan.recordFailure) {
+          await settleResumableWorkflow(
+            "failed",
+            projectPreflightFailureOf(error) === undefined ? recoveryFailureScope(participantStarted) : "run",
+          );
           patchRun(false, "error", {
             ...(state.activeStep === undefined ? {} : { activeStep: state.activeStep }),
             ...(state.activeStepId === undefined ? {} : { activeStepId: state.activeStepId }),
           });
-          // A provider's readable sentence is what the chat shows. Its wire envelope is kept with
-          // the entry, so the detail a reader needs to report the failure upstream is one
-          // disclosure away rather than pasted into the conversation.
-          const providerFailureDetail = isProviderFailureError(error)
-            ? toJsonValue({
-                code: error.failure.code,
-                provider: error.failure.provider,
-                retryable: error.failure.retryable,
-                ...(error.failure.evidence === undefined
-                  ? {}
-                  : { evidence: error.failure.evidence }),
-              })
-            : undefined;
-          await appendTranscript(
-            createEntry(
-              "error",
-              error instanceof Error ? error.message : String(error),
-              undefined,
-              state.activeStep,
-              providerFailureDetail === undefined ? undefined : "provider.failure",
-              providerFailureDetail,
-            ),
-          );
+          // A participant's own failure is already recorded under that participant. Recording it
+          // again here, without the participant, presented one failure as a second one.
+          if (!(error instanceof Error && recordedAgentFailures.has(error))) {
+            const preflight = projectPreflightFailureOf(error);
+            const providerFailureDetail = providerFailureDetailOf(error);
+            await appendTranscript(
+              preflight === undefined
+                ? createEntry(
+                    "error",
+                    error instanceof Error ? error.message : String(error),
+                    undefined,
+                    state.activeStep,
+                    providerFailureDetail === undefined ? undefined : "provider.failure",
+                    providerFailureDetail,
+                  )
+                : createEntry(
+                    "error",
+                    preflight.message,
+                    undefined,
+                    undefined,
+                    "workflow.preflightFailed",
+                    toJsonValue(projectPreflightDetail(preflight)),
+                  ),
+            );
+          }
         }
         const restoreTarget = options.resume ?? options.restartFrom;
         if (failurePlan.restoreResume && restoreTarget) {
@@ -9548,9 +9684,16 @@ export const createRuntime = (
         await vscode.window.showInformationMessage(`Already using ${resolved}`);
         return;
       }
+      // A run that failed before any participant started did nothing the new folder invalidates,
+      // so the way back into it survives the change and Restart runs it against the new folder.
+      const carriedRecovery = resumableWorkflowData && restartSurvivesFolderChange(resumableWorkflowData)
+        ? structuredClone(resumableWorkflowData)
+        : undefined;
       if (hasDurableTaskState() || state.workflowStatus !== "idle") {
         const answer = await vscode.window.showWarningMessage(
-          "Changing the working directory will start a new Bachata task and remove queued or recoverable work from this run.",
+          carriedRecovery
+            ? "Changing the working directory will start a new Bachata task and remove queued work. The pipeline that could not start stays ready to restart in the new folder."
+            : "Changing the working directory will start a new Bachata task and remove queued or recoverable work from this run.",
           { modal: true },
           "Change and reset",
         );
@@ -9558,7 +9701,18 @@ export const createRuntime = (
           return;
         }
       }
-      await resetForWorkingDirectory(resolved);
+      await resetForWorkingDirectory(resolved, carriedRecovery?.pipelineId);
+      if (
+        carriedRecovery &&
+        selectedPipelineSnapshot &&
+        checkpointAppliesTo(
+          { pipelineId: selectedPipelineSnapshot.definition.id, pipelineHash: selectedPipelineSnapshot.hash },
+          carriedRecovery,
+        )
+      ) {
+        await setResumableWorkflow(carriedRecovery);
+        patchRun(false, "error");
+      }
       await vscode.window.showInformationMessage(`Working folder: ${resolved}`);
     } finally {
       pickingWorkingDirectory = false;

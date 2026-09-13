@@ -35,6 +35,23 @@ const positionRunMenu = (summary: HTMLElement): void => {
  * explicit step in main.ts and the order stays readable.
  */
 
+const closeActiveMenu = (): boolean => {
+  const scope = state.editorOpen
+    ? root.querySelector<HTMLElement>(".pipeline-editor")
+    : state.runDrawerOpen
+      ? root.querySelector<HTMLElement>(".run-drawer")
+      : root;
+  const menus = Array.from(scope?.querySelectorAll<HTMLDetailsElement>(transientMenuSelector) ?? [])
+    .filter((menu) => menu.open);
+  if (menus.length === 0) return false;
+  menus.forEach((menu) => {
+    menu.open = false;
+    if (menu.dataset.disclosureKey) recordDisclosure(menu.dataset.disclosureKey, false);
+  });
+  menus[0]?.querySelector<HTMLElement>("summary")?.focus();
+  return true;
+};
+
 const clearFieldError = (fieldId: string): void => {
   if (!state.fieldErrors.delete(fieldId)) return;
   document.getElementById(fieldId)?.setAttribute("aria-invalid", "false");
@@ -135,9 +152,6 @@ if (typeof window.matchMedia === "function") {
   window.matchMedia("(max-width: 900px)").addEventListener("change", () => scheduleRender());
 }
 
-root.addEventListener("click", (event) => {
-  dismissTransientMenus(event.target instanceof Element ? event.target : null);
-}, true);
 
 /**
  * A disclosure the reader is opening is recorded now, not when the browser gets round to `toggle`.
@@ -173,6 +187,7 @@ root.addEventListener("submit", (event) => {
 
 root.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
+  dismissTransientMenus(event.target instanceof Element ? event.target : null);
   if (!target) return;
   const action = target.dataset.action;
   if (action === "noop") return;
@@ -203,6 +218,8 @@ root.addEventListener("click", (event) => {
     resetViewState();
   } else if (action === "render-open-output") {
     vscode.postMessage({ type: "diagnostics.revealOutput" });
+  } else if (action === "workspace-ownership") {
+    vscode.postMessage({ type: "workspace.ownership" });
   } else if (action === "error-dismiss") {
     const message = target.dataset.errorMessage;
     if (state.managerError === message) delete state.managerError;
@@ -584,7 +601,11 @@ root.addEventListener("click", (event) => {
     });
   } else if (action === "composer-settings-toggle") {
     state.composerSettingsOpen = !state.composerSettingsOpen;
-    scheduleRender();
+    focusAfterRender(() => {
+      (state.composerSettingsOpen
+        ? root.querySelector<HTMLElement>(".composer-settings button")
+        : root.querySelector<HTMLElement>(".composer-settings-button"))?.focus();
+    });
   } else if (action === "pipeline-picker-toggle") {
     if (state.pipelinePickerOpen) closePipelinePicker();
     else openPipelinePicker();

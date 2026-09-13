@@ -1,8 +1,38 @@
+type RunPhase = "idle" | "running" | "waiting" | "stopped" | "failed" | "completed";
+type RunRecovery = { step: "resume" | "retry" | "none"; label?: string };
+type RunStatusPresentation = { label: string; icon: string; spinning: boolean };
+type PromptTurn = { turn: number; of: number };
+
 type BachataWebviewBehaviorApi = {
   dialogInitialFocus: (hasInput: boolean, danger: boolean) => "input" | "cancel" | "confirm";
   focusReturnSelector: (element: HTMLElement | null) => string | undefined;
   wrappedFocusIndex: (activeIndex: number, controlCount: number, shiftKey: boolean) => number | undefined;
   shouldSubmitComposer: (targetId: string, key: string, ctrlKey: boolean, metaKey: boolean) => boolean;
+  runPhase: (running: boolean, workflowStatus: string) => RunPhase;
+  runRecovery: (
+    phase: RunPhase,
+    checkpoint: { outcome: string; failureScope?: string | undefined } | undefined,
+  ) => RunRecovery | undefined;
+  runStatusPresentation: (phase: RunPhase, outcome?: string | undefined) => RunStatusPresentation;
+  hasDetail: (value: unknown) => boolean;
+  promptTurns: (
+    entries: ReadonlyArray<{ id: string; agentId?: string | undefined; step?: string | undefined; eventType?: string | undefined }>,
+  ) => Record<string, PromptTurn>;
+};
+
+const runPhases: Record<string, RunPhase> = {
+  paused: "waiting",
+  interrupted: "stopped",
+  error: "failed",
+  completed: "completed",
+};
+
+const phasePresentations: Record<Exclude<RunPhase, "stopped">, RunStatusPresentation> = {
+  running: { label: "Working", icon: "loading", spinning: true },
+  waiting: { label: "Waiting for you", icon: "clock", spinning: false },
+  failed: { label: "Failed", icon: "error", spinning: false },
+  completed: { label: "Completed", icon: "pass", spinning: false },
+  idle: { label: "Ready", icon: "circle-outline", spinning: false },
 };
 
 const bachataWebviewBehavior: BachataWebviewBehaviorApi = {
@@ -72,6 +102,59 @@ const bachataWebviewBehavior: BachataWebviewBehaviorApi = {
   },
   shouldSubmitComposer: (targetId, key, ctrlKey, metaKey) =>
     targetId === "composer-prompt" && key === "Enter" && (ctrlKey || metaKey),
+  runPhase: (running, workflowStatus) => {
+    const settled = runPhases[workflowStatus];
+    if (settled !== undefined) {
+      return settled;
+    }
+    return running || workflowStatus === "running" ? "running" : "idle";
+  },
+  runRecovery: (phase, checkpoint) => {
+    if (checkpoint === undefined) {
+      return undefined;
+    }
+    if (phase === "stopped" && (checkpoint.outcome === "stoppedByUser" || checkpoint.outcome === "interrupted")) {
+      return { step: "resume", label: "Resume stopped step" };
+    }
+    if (phase === "failed" && checkpoint.outcome === "failed") {
+      return checkpoint.failureScope === "step"
+        ? { step: "retry", label: "Retry failed step" }
+        : { step: "none" };
+    }
+    return undefined;
+  },
+  runStatusPresentation: (phase, outcome) => {
+    if (phase !== "stopped") {
+      return phasePresentations[phase];
+    }
+    return outcome === "stoppedByUser"
+      ? { label: "Stopped by you", icon: "debug-stop", spinning: false }
+      : { label: "Interrupted", icon: "debug-pause", spinning: false };
+  },
+  hasDetail: (value) => {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    if (typeof value === "object") {
+      return Object.keys(value).length > 0;
+    }
+    return true;
+  },
+  promptTurns: (entries) => {
+    const groups = new Map<string, string[]>();
+    entries
+      .filter((entry) => entry.eventType === "agent.prompt")
+      .forEach((entry) => {
+        const key = JSON.stringify([entry.agentId ?? "", entry.step ?? ""]);
+        groups.set(key, [...(groups.get(key) ?? []), entry.id]);
+      });
+    return Object.fromEntries(
+      [...groups.values()].flatMap((ids) => ids.map((id, index) => [id, { turn: index + 1, of: ids.length }])),
+    );
+  },
 };
 
 (globalThis as typeof globalThis & { bachataWebviewBehavior?: BachataWebviewBehaviorApi }).bachataWebviewBehavior = bachataWebviewBehavior;

@@ -129,3 +129,40 @@ export const resumeRefusal = (input: {
  */
 export const discardReturnsToIdle = (workflowStatus: string): boolean =>
   workflowStatus === "interrupted" || workflowStatus === "error";
+
+export type RecoveryOutcome = "stoppedByUser" | "interrupted" | "failed";
+export type RecoveryFailureScope = "run" | "step";
+export type RecoveryRecordOutcome = "running" | RecoveryOutcome;
+
+/**
+ * A checkpoint is written when a run is accepted, so a live run always holds one. Only a record
+ * whose run has ended is a way back into it; a record still marked running after a restart
+ * belongs to a run the host lost, which is an interruption.
+ */
+export const parseRecoveryRecordOutcome = (value: unknown): RecoveryRecordOutcome =>
+  value === "running" || value === "stoppedByUser" || value === "failed" ? value : "interrupted";
+
+export const parseRecoveryFailureScope = (value: unknown): RecoveryFailureScope | undefined =>
+  value === "run" || value === "step" ? value : undefined;
+
+export const restoredRecoveryOutcome = (outcome: RecoveryRecordOutcome): RecoveryOutcome =>
+  outcome === "running" ? "interrupted" : outcome;
+
+export const exposedRecoveryOutcome = (
+  outcome: RecoveryRecordOutcome,
+): RecoveryOutcome | undefined => (outcome === "running" ? undefined : outcome);
+
+export const recoveryWorkflowStatus = (
+  outcome: RecoveryRecordOutcome | undefined,
+): "idle" | "interrupted" | "error" =>
+  outcome === undefined ? "idle" : outcome === "failed" ? "error" : "interrupted";
+
+export const failedRunWorkflowStatus = (runtimeStatus: string): "interrupted" | "error" =>
+  runtimeStatus === "interrupted" ? "interrupted" : "error";
+
+export const recoveryFailureScope = (participantStarted: boolean): RecoveryFailureScope =>
+  participantStarted ? "step" : "run";
+
+export const restartSurvivesFolderChange = (
+  record: { outcome: RecoveryRecordOutcome; failureScope?: RecoveryFailureScope | undefined } | undefined,
+): boolean => record?.outcome === "failed" && record.failureScope === "run";

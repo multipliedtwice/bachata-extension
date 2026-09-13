@@ -4,6 +4,7 @@ const test = require("node:test");
 const {
   addCustomPipelines,
   createPipelineValidator,
+  pipelineSummary,
   planLegacyCustomPipelineMigration,
   readBuiltInPipelineCatalog,
   readCustomPipelineCatalog,
@@ -46,6 +47,72 @@ const catalogMaps = () => ({
   hashes: new Map(),
   customIds: new Set(),
   customFiles: new Map(),
+});
+
+test("pipeline summaries preserve picker, participant, step, and workspace scope metadata", () => {
+  const builtIn = definition("ui-ux-review", {
+    description: "Inspect the interface",
+    agents: [
+      { id: "ux", name: "UX", adapter: "claude-code", command: "claude" },
+      { id: "a11y", name: "Accessibility", adapter: "codex-app-server", command: "codex" },
+    ],
+    steps: [
+      {
+        id: "review",
+        name: "Review",
+        enabled: true,
+        type: "agent",
+        participants: ["ux", "a11y"],
+        promptTemplate: "{{userPrompt}}",
+        parallel: true,
+        consensus: false,
+        humanGate: "none",
+      },
+      {
+        id: "disabled",
+        name: "Disabled",
+        enabled: false,
+        type: "agent",
+        participants: ["ux"],
+        promptTemplate: "{{userPrompt}}",
+        parallel: false,
+        consensus: false,
+        humanGate: "none",
+      },
+    ],
+  });
+  assert.deepEqual(pipelineSummary(builtIn, false, "built-in-hash", {
+    key: "workspace:/ignored",
+    root: "/ignored",
+    directory: "/ignored/.bachata/pipelines",
+  }), {
+    id: "ui-ux-review",
+    name: "ui-ux-review",
+    description: "Inspect the interface",
+    editable: false,
+    hash: "built-in-hash",
+    scopeKey: "builtin",
+    prominentOrder: 3,
+    participantCount: 2,
+    participantNames: ["UX", "Accessibility"],
+    stepCount: 1,
+  });
+
+  assert.deepEqual(pipelineSummary(definition("workspace-review"), true, "workspace-hash", {
+    key: "workspace:/project",
+    root: "/project",
+    directory: "/project/.bachata/pipelines",
+  }), {
+    id: "workspace-review",
+    name: "workspace-review",
+    editable: true,
+    hash: "workspace-hash",
+    scopeKey: "workspace:/project",
+    participantCount: 1,
+    participantNames: ["Codex"],
+    stepCount: 1,
+    scopeRoot: "/project",
+  });
 });
 
 test("a preset that cannot be parsed costs its own file, never the catalog", async () => {

@@ -14,7 +14,7 @@ import type { AgentAssignments } from "../pipeline/agentAssignment";
 import { pipelineSnapshotRootsEqual, type PipelineSnapshot } from "../pipeline/identity";
 import type { ResumableWorkflow } from "../webview/protocol";
 
-export type RecoveryCheckpoint = ResumableWorkflow & {
+export type RecoveryCheckpoint = Omit<ResumableWorkflow, "attemptId" | "outcome" | "failureScope" | "stepName"> & {
   pipelineSnapshot: PipelineSnapshot;
   assignments?: AgentAssignments | undefined;
 };

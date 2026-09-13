@@ -10,6 +10,7 @@ const {
   turnDeadlineMessages,
   turnStreamOutcome,
   turnStreamStep,
+  turnExecutionPolicy,
   turnWorkspacePolicy,
 } = require("../dist/runtime/turnStream.js");
 
@@ -298,4 +299,22 @@ test("the clock alone breaches, and the first deadline in scope is the one repor
     { kind: "managed", message: "Managed task deadline expired" },
   );
   assert.equal(turnDeadlineMessages.browserOperation, "Browser operation deadline expired");
+});
+
+test("a turn's read-only rule, automation and default scope are decided once, for the turn and its preflight", () => {
+  assert.deepEqual(turnExecutionPolicy({ unattended: false }), { readOnly: false, automated: false, defaultScope: "workspace" });
+  assert.deepEqual(
+    turnExecutionPolicy({ managedRole: "lead", readOnly: false, unattended: false }),
+    { readOnly: true, automated: false, defaultScope: "workspace" },
+  );
+  assert.equal(turnExecutionPolicy({ roleId: "lead", unattended: false }).readOnly, true);
+  assert.equal(turnExecutionPolicy({ readOnly: true, unattended: false }).readOnly, true);
+  assert.equal(turnExecutionPolicy({ unattended: true }).automated, true);
+  assert.deepEqual(
+    turnExecutionPolicy({ managed: true, unattended: false }),
+    { readOnly: false, automated: true, defaultScope: "task" },
+  );
+  assert.equal(turnExecutionPolicy({ participant: "reviewer", unattended: false }).automated, true);
+  assert.equal(turnExecutionPolicy({ allowedPaths: ["src"], unattended: false }).defaultScope, "configured");
+  assert.equal(turnExecutionPolicy({ allowedPaths: [], unattended: false }).defaultScope, "workspace");
 });

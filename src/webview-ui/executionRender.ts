@@ -185,7 +185,7 @@ const pipelineStepStateLabel: Record<PipelineStepState, string> = {
 
 const pipelineStepStateIcon: Record<PipelineStepState, string> = {
   waiting: "circle-outline",
-  running: "sync codicon-modifier-spin",
+  running: "loading codicon-modifier-spin",
   completed: "pass-filled",
   failed: "error",
   interrupted: "debug-pause",
@@ -586,7 +586,7 @@ const passedCheckSummary = (result: RunResultCenter): string =>
   );
 
 const assessmentStatusLine = (result: RunResultCenter): string => {
-  if (result.status === "interrupted" && !result.finalAssessment?.failure) return "Interrupted";
+  if (result.status === "interrupted") return "Stopped before a final assessment";
   const outcome = result.finalAssessment?.outcome ?? "notApplicable";
   const modelReviewed = modelReviewedResult(result);
   if (outcome === "verificationFailed") {
@@ -667,7 +667,7 @@ const verificationDetailsHtml = (check: RunResultCenter["checks"][number]): stri
 };
 
 const recommendedNextAction = (result: RunResultCenter): string => {
-  if (result.status === "interrupted" && !result.finalAssessment?.failure) return "Stopped by you. Review the recorded progress and use the available recovery controls to continue.";
+  if (result.status === "interrupted") return "Review the recorded progress, then use the recovery controls to continue.";
   if (result.applyBlockedReason) {
     return `Do not apply. ${result.applyBlockedReason.replace(/[.!?]\s*$/u, "")}. Rerun the approved checks, or fix the cause and run again.`;
   }
@@ -676,11 +676,7 @@ const recommendedNextAction = (result: RunResultCenter): string => {
     return "Do not apply. Read the failing verification, then fix the cause and run again.";
   }
   if (outcome === "failedBeforeRuling") {
-    const failure = result.finalAssessment?.failure;
-    const who = failure?.participant ?? failure?.agentId;
-    return who === undefined
-      ? "Do not apply. This run stopped on an error before any ruling was produced. Read the failure below, fix the cause, and run again."
-      : `Do not apply. This run stopped on an error from ${who} before any ruling was produced. Read the failure below, fix the cause, and run again.`;
+    return "Do not apply: no final ruling was produced. Fix the failure below, then run again.";
   }
   if (outcome === "inconclusive") {
     return "Read the evidence gaps and unresolved risks below before you decide. Rerun the approved checks if you want the evidence proven again.";
@@ -728,9 +724,73 @@ const outcomeIcon: Record<string, string> = {
 // What stopped a run that never reached a ruling: the participant, the provider and model it was
 // actually running on, the step, and the provider's own words. Every part the run did not record
 // is left out rather than guessed at.
-const runFailureHtml = (result: RunResultCenter): string => {
+type PreflightRecord = {
+  reason: string;
+  folder?: string;
+  detail?: string;
+  participants: Array<{ participant: string; step: string }>;
+};
+
+const preflightRecordOf = (entry: TranscriptEntry): PreflightRecord | undefined => {
+  if (entry.eventType !== "workflow.preflightFailed") return undefined;
+  const record = jsonRecord(entry.data);
+  const reason = jsonString(record?.reason);
+  if (record === undefined || reason === undefined) return undefined;
+  const folder = jsonString(record.folder);
+  const detail = jsonString(record.detail);
+  const listed = record.participants;
+  const participants = (Array.isArray(listed) ? listed : []).flatMap((item) => {
+    const participant = jsonRecord(item);
+    const name = jsonString(participant?.participant);
+    const step = jsonString(participant?.step);
+    return name === undefined || step === undefined ? [] : [{ participant: name, step }];
+  });
+  return {
+    reason,
+    ...(folder === undefined ? {} : { folder }),
+    ...(detail === undefined ? {} : { detail }),
+    participants,
+  };
+};
+
+const latestPreflightRecord = (panel: PanelState, error?: string): PreflightRecord | undefined => {
+  const entry = [...panel.transcript]
+    .reverse()
+    .find((candidate) => candidate.eventType === "workflow.preflightFailed" && (error === undefined || candidate.text === error));
+  return entry === undefined ? undefined : preflightRecordOf(entry);
+};
+
+const preflightActionsHtml = (record: PreflightRecord): string =>
+  record.reason === "noFolder" || record.reason === "notGitWorktree"
+    ? `<div class="compact-actions"><button data-action="working-directory">Choose folder</button></div>`
+    : "";
+
+const detailRow = (label: string, value: string | undefined): Array<[string, string]> =>
+  value === undefined ? [] : [[label, value]];
+
+const preflightDetailsHtml = (record: PreflightRecord, key: string): string => {
+  const rows: Array<[string, string]> = [
+    ...detailRow("Folder", record.folder),
+    ...detailRow("Git", record.detail),
+    ...record.participants.flatMap((entry) => detailRow(entry.participant, `Not started · ${entry.step}`)),
+  ];
+  return rows.length === 0
+    ? ""
+    : `<details class="info-disclosure preflight-details" ${disclosureAttributes(key)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Project details</summary><dl class="result-decision-grid">${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl></details>`;
+};
+
+const runFailureHtml = (result: RunResultCenter, panel: PanelState): string => {
   const failure = result.finalAssessment?.failure;
   if (!failure) return "";
+  const preflight = latestPreflightRecord(panel, failure.error);
+  if (preflight !== undefined) {
+    return `<section class="result-failure" data-run-failure="true">
+    <h3>Why no participant started</h3>
+    <p class="result-failure-cause">${escapeHtml(failure.error)}</p>
+    ${preflightActionsHtml(preflight)}
+    ${preflightDetailsHtml(preflight, "result-preflight")}
+  </section>`;
+  }
   const rows: Array<[string, string]> = [
     ...(failure.participant ?? failure.agentId
       ? [["Participant", failure.participant ?? failure.agentId] as [string, string]]
@@ -745,14 +805,13 @@ const runFailureHtml = (result: RunResultCenter): string => {
   // The assessment line above already says the run failed before a ruling. This section says where
   // and on what, so repeating the verdict as its heading spent a line saying nothing new.
   return `<section class="result-failure" data-run-failure="true">
-    <h3>Where the run stopped</h3>
     <p class="result-failure-cause">${escapeHtml(failure.error)}</p>
     <details class="info-disclosure"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Provider and step details</summary><dl class="result-decision-grid">${rows.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl></details>
   </section>`;
 };
 
-const resultDecisionSummaryHtml = (result: RunResultCenter): string => {
-  const outcome = result.status === "interrupted" && !result.finalAssessment?.failure
+const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState): string => {
+  const outcome = result.status === "interrupted"
     ? "interrupted"
     : result.finalAssessment?.outcome ?? "notApplicable";
   const scope = result.changedFiles.length > 0
@@ -784,15 +843,14 @@ const resultDecisionSummaryHtml = (result: RunResultCenter): string => {
           : `<p class="muted">No challenge was recorded.</p>`;
         return `<li class="finding-${escapeAttribute(finding.disposition)}"><strong>${escapeHtml(finding.subject)}</strong><small>${escapeHtml(`${labelFor(lifecycleStateLabel, finding.disposition)}${location}`)}</small><p>${escapeHtml(finding.message)}</p>${evidence}${challenges}<p class="muted">Decision ${escapeHtml(finding.provenance.stepId)} · ${escapeHtml(finding.provenance.participantIds.join(", "))}${finding.provenance.ruledBy ? ` · ruled by ${escapeHtml(finding.provenance.ruledBy)}` : ""}</p></li>`;
       }).join("")}</ul>`;
-  return `<section class="result-decision outcome-${escapeAttribute(outcome)}" data-outcome="${escapeAttribute(outcome)}">
-    <h3>Run assessment</h3>
-    <p class="result-assessment-status"><strong><i class="codicon codicon-${escapeAttribute(outcomeIcon[outcome] ?? "circle-outline")}" aria-hidden="true"></i> ${escapeHtml(assessmentStatusLine(result))}</strong></p>
+  return `<section class="result-decision outcome-${escapeAttribute(outcome)}" data-outcome="${escapeAttribute(outcome)}" aria-label="Run assessment">
+    <p class="result-assessment-status${result.finalAssessment?.failure ? " sr-only" : ""}"><strong><i class="codicon codicon-${escapeAttribute(outcomeIcon[outcome] ?? "circle-outline")}" aria-hidden="true"></i> ${escapeHtml(assessmentStatusLine(result))}</strong></p>
     <!-- EX-UI-01. The next safe action is what the reader came for, so it is beside the outcome
          rather than at the bottom of a collapsed disclosure of assessment detail. -->
     <p class="result-next-action">${escapeHtml(recommendedNextAction(result))}</p>
-    ${runFailureHtml(result)}
+    ${runFailureHtml(result, panel)}
     ${actionable + unresolved > 0 ? `<p class="result-finding-summary"><strong>Findings · ${String(actionable)} actionable · ${String(unresolved)} need human</strong></p>` : ""}
-    ${actionable + unresolved > 0 ? findingDetails : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Finding details</summary>${findingDetails}</details>`}
+    ${actionable + unresolved > 0 ? findingDetails : findings.length === 0 ? "" : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Finding details</summary>${findingDetails}</details>`}
     <details class="info-disclosure result-assessment-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> Assessment details</summary>
     <dl class="result-decision-grid">
       <dt>Summary</dt><dd>${escapeHtml(result.finalAssessment?.summary ?? "No final assessment was recorded")}</dd>
@@ -852,9 +910,13 @@ const evidenceStateIcon: Record<string, string> = {
 // Finishing and proving are different claims, and the header is the first thing read about a
 // run, so a run that stopped without proving its work does not headline as completed. With no
 // assessment recorded the lifecycle label is the only honest thing to state.
-const resultHeadlineLabel = (result: RunResultCenter): string => {
-  if (result.status === "error") return "Failed";
-  if (result.status !== "completed") return statusLabel(result.status);
+const resultHeadlineLabel = (result: RunResultCenter, stopProvenance?: string): string => {
+  if (result.status !== "completed") {
+    return bachataWebviewBehavior.runStatusPresentation(
+      bachataWebviewBehavior.runPhase(false, result.status),
+      stopProvenance,
+    ).label;
+  }
   const outcome = result.finalAssessment?.outcome;
   if (outcome === "verificationFailed") return "Finished, not proven";
   if (outcome === "inconclusive") return "Finished, inconclusive";
@@ -862,29 +924,44 @@ const resultHeadlineLabel = (result: RunResultCenter): string => {
 };
 
 /**
- * The two ways back into a stopped run, and the one way out of it.
+ * The phase a room is in, decided once from the live run, and the way back into a run that ended,
+ * decided once from that phase and how the checkpoint's own run ended. A live run offers no way
+ * back into anything, and a checkpoint whose ending does not match the phase offers nothing.
  *
- * Restart is primary because it is the action that is always correct: it replays the recorded
- * request against the recorded pipeline from the first step, so it does not depend on the
- * checkpoint still describing a step worth continuing. Retry is offered beside it because
- * repeating one failed step is much cheaper when that is all that went wrong. Discard stays a
- * secondary destructive action behind its own confirmation.
- *
- * Both are refused while the room is busy. A second run started on top of the first is not a
- * retry of anything, and a disabled control that does not say why is a dead end, so the reason
- * travels on the control.
  */
-const runRecoveryActionsHtml = (panel: PanelState): string => {
-  if (!panel.resumableWorkflow) return "";
-  const busy = panel.running || panel.workflowStatus === "running";
-  const blocked = busy ? ` disabled title="Interrupt the active run before restarting it"` : "";
-  const step = `${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}`;
-  return `<button class="primary" data-action="workflow-restart"${blocked}>Restart pipeline</button><button data-action="workflow-resume"${blocked} title="${escapeAttribute(`Resume the saved checkpoint at step ${step}`)}">${panel.workflowStatus === "interrupted" ? "Resume stopped step" : "Retry failed step"}</button>`;
+const runPhaseOf = (panel: PanelState): RunPhase =>
+  bachataWebviewBehavior.runPhase(panel.running, panel.workflowStatus);
+
+const runRecoveryOf = (panel: PanelState, phase: RunPhase): RunRecovery | undefined =>
+  bachataWebviewBehavior.runRecovery(phase, panel.resumableWorkflow);
+
+const recoveryPositionText = (panel: PanelState, recovery: RunRecovery): string => {
+  const record = panel.resumableWorkflow;
+  if (!record) return "";
+  if (recovery.step === "none") {
+    return `Could not start step ${String(record.nextStepIndex + 1)} of ${String(record.totalSteps)}${record.stepName ? ` · ${record.stepName}` : ""}`;
+  }
+  return `${recovery.step === "resume" ? "Stopped at" : "Failed at"} step ${String(record.nextStepIndex + 1)} of ${String(record.totalSteps)}${record.stepName ? ` · ${record.stepName}` : ""}`;
+};
+
+const recoveryActionsHtml = (panel: PanelState, recovery: RunRecovery | undefined): string => {
+  if (!panel.resumableWorkflow || !recovery) return "";
+  return recovery.label === undefined
+    ? `<button class="primary" data-action="workflow-restart">Restart pipeline</button>`
+    : `<button class="primary" data-action="workflow-resume" aria-label="${escapeAttribute(`${recovery.label}: ${recoveryPositionText(panel, recovery)}`)}">${escapeHtml(recovery.label)}</button>`;
+};
+
+const recoverySecondaryActionsHtml = (panel: PanelState, recovery: RunRecovery | undefined): string => {
+  if (!panel.resumableWorkflow || !recovery) return "";
+  return `${recovery.label === undefined ? "" : `<button data-action="workflow-restart">Restart pipeline</button>`}<button class="danger" data-action="workflow-discard">Discard recovery checkpoint</button>`;
 };
 
 const resultCenterHtml = (conversationId: string, panel: PanelState): string => {
   const result = state.manager.resultsByConversation?.[conversationId];
   if (!result) return "";
+  const phase = runPhaseOf(panel);
+  if (phase === "running" || phase === "waiting") return "";
+  const recovery = runRecoveryOf(panel, phase);
   const resultRunId = result.retainedRunId;
   const selection = new Set(selectedResultPaths(conversationId, resultRunId));
   const hunkCount = selectedHunkReferences(conversationId, resultRunId).length;
@@ -949,15 +1026,15 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
     result.finalRuling === undefined &&
     visibleRisks.length === 0;
   const evidenceSectionsHtml = nothingRecorded
-    ? `<details class="info-disclosure result-empty-sections" ${disclosureAttributes(`result-empty:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Changed files, verification, final ruling and unresolved risks · nothing was recorded</summary><div class="result-empty-body">${evidenceSections}</div></details>`
+    ? `<details class="info-disclosure result-empty-sections" ${disclosureAttributes(`result-empty:${conversationId}`)}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Evidence details · nothing recorded</summary><div class="result-empty-body">${evidenceSections}</div></details>`
     : evidenceSections;
   return `<section class="result-center">
-    <header><div><span class="decision-label">Run result</span><h2>${escapeHtml(resultHeadlineLabel(result))}</h2></div><div class="compact-actions">${runRecoveryActionsHtml(panel)}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">Reveal worktree</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="Run result actions" title="Run result actions">More</summary><div><button data-action="result-publish-findings">Publish findings to Problems</button><button data-action="result-source-control">Open Source Control</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">Run bundle (JSON)</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">Evidence report (Markdown)</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">Evidence findings (SARIF)</button></div></details></div></header>
-    ${resultDecisionSummaryHtml(result)}
+    <header><div><span class="decision-label">Run result</span><h2>${escapeHtml(resultHeadlineLabel(result, panel.resumableWorkflow?.outcome))}</h2>${recovery ? `<p class="result-recovery-position">${escapeHtml(recoveryPositionText(panel, recovery))}</p>` : ""}</div><div class="compact-actions">${recoveryActionsHtml(panel, recovery)}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">Reveal worktree</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="Run result actions" title="Run result actions">More</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}<button data-action="result-publish-findings">Publish findings to Problems</button><button data-action="result-source-control">Open Source Control</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">Run bundle (JSON)</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">Evidence report (Markdown)</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">Evidence findings (SARIF)</button></div></details></div></header>
+    ${resultDecisionSummaryHtml(result, panel)}
     ${evidenceSectionsHtml}
     ${recovered}
-    ${result.retainedWorktree ? `<p class="result-worktree"><strong>Recovery worktree</strong> ${escapeHtml(result.retainedWorktree)}</p>` : ""}
-    ${gaps}
+    ${result.retainedWorktree ? `<details class="info-disclosure" ${disclosureAttributes(`result-worktree:${conversationId}`)}><summary>Recovery worktree</summary><p class="result-worktree">${escapeHtml(result.retainedWorktree)}</p></details>` : ""}
+    ${gaps ? `<details class="info-disclosure" ${disclosureAttributes(`result-evidence:${conversationId}`)}><summary>Evidence ledger</summary>${gaps}</details>` : ""}
     ${handoff}
   </section>`;
 };
@@ -968,9 +1045,9 @@ const childRunsHtml = (conversationId: string): string => {
     return "";
   }
   return `<section class="child-runs"><h2>Task runs</h2>${children.map((child) => {
-    const status = child.running ? "running" : child.workflowStatus;
+    const { status, label } = conversationStatus(child);
     const task = child.orchestrationTaskId ? `<small>${escapeHtml(child.orchestrationTaskId)}</small>` : "";
-    return `<button class="child-run status-${escapeAttribute(status)}" data-action="select-conversation" data-conversation="${escapeAttribute(child.id)}"><span class="room-presence status-${escapeAttribute(status)}"></span><span><strong>${escapeHtml(child.title)}</strong>${task}</span><small>${escapeHtml(statusLabel(child.workflowStatus))}</small></button>`;
+    return `<button class="child-run status-${escapeAttribute(status)}" data-action="select-conversation" data-conversation="${escapeAttribute(child.id)}"><span class="room-presence status-${escapeAttribute(status)}"></span><span><strong>${escapeHtml(child.title)}</strong>${task}</span><small>${escapeHtml(label)}</small></button>`;
   }).join("")}</section>`;
 };
 

@@ -3,6 +3,8 @@ import * as vscode from "vscode";
 import type {
   ConversationManagerState,
   ConversationManagerToWebviewMessage,
+  ConversationSummary,
+  PanelState,
 } from "../webview/protocol";
 import { mutationClassForProtocolMessage, refuseMutation } from "./readOnlyWorkspace";
 import type { OwnershipView } from "./readOnlyWorkspace";
@@ -20,6 +22,7 @@ const READABLE_MESSAGES = new Set([
   "manager.ready",
   "conversation.select",
   "conversation.viewExecution",
+  "workspace.ownership",
 ]);
 
 const messageType = (message: unknown): string | undefined =>
@@ -44,6 +47,8 @@ const selectedConversationId = (message: unknown): string | undefined =>
 export const createReadOnlyManager = (input: {
   service: ReadOnlyProductService;
   ownership: OwnershipView;
+  panelState: (conversation: ConversationSummary) => Promise<PanelState>;
+  requestOwnership: () => Promise<void>;
   onRefusal?: (message: string) => void;
 }): ReadOnlyManager => {
   const webviews = new Set<vscode.Webview>();
@@ -65,8 +70,33 @@ export const createReadOnlyManager = (input: {
     });
   };
 
-  const emit = (): void => {
+  const emitManager = (): void => {
     post({ type: "manager.snapshot", state: projected() });
+  };
+
+  const emitPanel = async (): Promise<void> => {
+    const current = projected();
+    const conversation = current.conversations.find((entry) =>
+      entry.id === current.activeConversationId);
+    if (conversation === undefined) return;
+    try {
+      const panel = await input.panelState(conversation);
+      post({
+        type: "conversation.message",
+        conversationId: conversation.id,
+        message: { type: "state.snapshot", state: panel },
+      });
+    } catch (error) {
+      post({
+        type: "manager.error",
+        message: `Bachata could not read this run's pipeline information: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  };
+
+  const emit = (): void => {
+    emitManager();
+    void emitPanel();
   };
 
   const subscription = input.service.onDidChange((current) => {
@@ -76,17 +106,23 @@ export const createReadOnlyManager = (input: {
 
   const refresh = async (): Promise<void> => {
     state = await input.service.read();
-    emit();
+    emitManager();
+    await emitPanel();
   };
 
   const handleMessage = async (message: unknown): Promise<void> => {
     const type = messageType(message);
     if (type === undefined) return;
     if (READABLE_MESSAGES.has(type)) {
+      if (type === "workspace.ownership") {
+        await input.requestOwnership();
+        return;
+      }
       if (type === "conversation.select" || type === "conversation.viewExecution") {
         const conversationId = selectedConversationId(message);
         if (conversationId !== undefined) selected = conversationId;
-        emit();
+        emitManager();
+        await emitPanel();
         return;
       }
       await refresh();

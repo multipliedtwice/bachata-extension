@@ -241,3 +241,26 @@ test("a platform that watches recursively is asked for one watcher", () => {
     service.dispose();
   }
 });
+
+test("an asynchronous recursive watcher failure falls back without crashing the reader", () => {
+  const listeners = new Map();
+  const recursive = fakeWatcher({
+    on(event, listener) {
+      listeners.set(event, listener);
+      return this;
+    },
+  });
+  const created = [];
+  const service = readOnlyService((target, options) => {
+    created.push({ target, recursive: options.recursive });
+    return options.recursive ? recursive : fakeWatcher();
+  });
+  try {
+    listeners.get("error")(errno("EMFILE"));
+    assert.deepEqual(created.map((entry) => entry.recursive), [true, false, false]);
+    assert.equal(recursive.closed, 1);
+    assert.doesNotThrow(() => service.latest());
+  } finally {
+    service.dispose();
+  }
+});

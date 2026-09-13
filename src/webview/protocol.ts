@@ -19,6 +19,7 @@ import type { CycleType, HumanResolutionAction } from "../longitudinal/types";
 import { PipelineReadiness } from "../readiness/model";
 import type { ExecutionContract } from "../contract/executionContract";
 import type { RunResultCenter } from "../results/projectResult";
+import type { RecoveryFailureScope, RecoveryOutcome } from "../runtime/recoveryTransition";
 import type { ReviewCandidate } from "../context/reviewScope";
 import type { PatchFileSummary, PatchHunkReference } from "../orchestrator/patchSelection";
 
@@ -102,6 +103,9 @@ export type QueuedMessage = {
 };
 
 export type ResumableWorkflow = {
+  attemptId: string;
+  outcome: RecoveryOutcome;
+  failureScope?: RecoveryFailureScope | undefined;
   pipelineId: string;
   pipelineName: string;
   pipelineHash: string;
@@ -109,6 +113,7 @@ export type ResumableWorkflow = {
   attachmentIds: string[];
   nextStepIndex: number;
   totalSteps: number;
+  stepName?: string | undefined;
   updatedAt: string;
   sourceQueueMessageId?: string | undefined;
 };
@@ -485,6 +490,7 @@ export type ConversationManagerState = {
 
 export type ConversationManagerToExtensionMessage =
   | { type: "manager.ready" }
+  | { type: "workspace.ownership" }
   | { type: "conversation.create" }
   | { type: "conversation.duplicate"; conversationId: string }
   | { type: "conversation.archive"; conversationId: string; archived: boolean }

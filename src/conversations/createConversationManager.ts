@@ -50,6 +50,7 @@ import {
   RuntimeReadinessReport,
 } from "../runtime/createRuntime";
 import type { RunExecutionPlan } from "../runtime/pipelineRunPlan";
+import { failedRunWorkflowStatus } from "../runtime/recoveryTransition";
 import {
   ExecuteChecklistRequest,
   ExecuteChecklistResult,
@@ -59,6 +60,7 @@ import {
   mergeRecheckedChecks,
   mergeRunResults,
   projectRunResult,
+  resultStatusOf,
   runHandoffRefusal,
   runResultHasEvidence,
   type RunRecheckRecord,
@@ -815,6 +817,7 @@ const parseManagerMessage = (
   }
   if (
     value.type === "manager.ready" ||
+    value.type === "workspace.ownership" ||
     value.type === "conversation.create" ||
     value.type === "diagnostics.revealOutput" ||
     value.type === "orchestration.start" ||
@@ -2660,6 +2663,11 @@ export const createConversationManager = (
     const retainedRunWorktree = state.orchestration.retainedRuns
       .find((item) => item.runId === state.orchestration.runId)?.integrationWorktree;
     state.resultsByConversation = Object.fromEntries(state.conversations.flatMap((conversation) => {
+      // A run that has not ended has no result, and neither does a room that never ran. Projecting
+      // one presented a live run as a finished run whose outcome was "running".
+      const resultStatus = resultStatusOf(conversation.workflowStatus)
+        ?? (conversation.workflowStatus === "idle" ? terminalResults.get(conversation.runRef)?.status : undefined);
+      if (resultStatus === undefined) return [];
       const executionRef = catalog.latestExecutionRef(conversation.runRef);
       const currentExecutionEventId = executionEventCutoff(executionRef);
       const events = eventsCoveringExecution(conversation.runRef, currentExecutionEventId);
@@ -2737,7 +2745,7 @@ export const createConversationManager = (
         decisionCandidate,
       });
       const live = projectRunResult({
-        status: conversation.workflowStatus,
+        status: resultStatus,
         transcript,
         changedFiles,
         checks: currentChecks,
@@ -5003,6 +5011,7 @@ export const createConversationManager = (
     } catch (error) {
       const failure = iterationFailurePlan({
         resume: input.resume === true,
+        runtimeStatus: input.slot.runtime.getState().workflowStatus,
         hasResumableWorkflow: input.slot.runtime.getState().resumableWorkflow !== undefined,
         displayIndex: input.displayIndex,
         error,
@@ -5311,9 +5320,7 @@ export const createConversationManager = (
     } catch (error) {
       summary.running = false;
       if (summary.workflowStatus === "running") {
-        summary.workflowStatus = slot.runtime.getState().resumableWorkflow
-          ? "interrupted"
-          : "error";
+        summary.workflowStatus = failedRunWorkflowStatus(slot.runtime.getState().workflowStatus);
       }
       summary.updatedAt = new Date().toISOString();
       catalog.appendEvent({
@@ -5435,13 +5442,14 @@ export const createConversationManager = (
       );
     } catch (error) {
       const recoverable = Boolean(slot.runtime.getState().resumableWorkflow);
+      const workflowStatus = failedRunWorkflowStatus(slot.runtime.getState().workflowStatus);
       summary.running = false;
-      summary.workflowStatus = recoverable ? "interrupted" : "error";
+      summary.workflowStatus = workflowStatus;
       summary.updatedAt = new Date().toISOString();
       catalog.appendEvent({
         runRef: summary.runRef,
         type: recoverable ? "run.resume.failed" : "run.failed",
-        status: recoverable ? "interrupted" : "failed",
+        status: workflowStatus === "interrupted" ? "interrupted" : "failed",
         title: summary.title,
         payload: { message: error instanceof Error ? error.message : String(error) },
       });
@@ -7285,6 +7293,10 @@ export const createConversationManager = (
     await ensureInitialized();
     assertWorkspaceLease();
     const message = parseManagerMessage(raw);
+    if (message.type === "workspace.ownership") {
+      await vscode.commands.executeCommand("bachata.ownership");
+      return;
+    }
     if (message.type === "diagnostics.revealOutput") {
       output.show(true);
       return;

@@ -2,7 +2,7 @@
 
 One file, one release. It records the exact artifacts and the human validation that automated tests cannot replace. `Not performed` blocks the release metadata gate.
 
-Artifacts under test: Bachata VSIX not staged, Browser Bridge ZIP not staged.
+Artifacts under test: Bachata VSIX staged but unbound, Browser Bridge ZIP staged but unbound.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 
@@ -11,7 +11,7 @@ Every record in this file is void unless it names one of those hashes. A record 
 
 | Artifact | Version | SHA-256 | Recorded |
 | --- | --- | --- | --- |
-| Bachata VSIX | 0.7.0 | — | no |
+| Bachata VSIX | 0.7.1 | — | no |
 | Browser Bridge ZIP | 0.6.7 | — | no |
 
 ## 1. Graphical Extension Host validation
@@ -81,4 +81,4 @@ Unconfirmed risk, not a defect. The state store is synchronous and waits on a lo
 
 | Check | Date | VSIX SHA-256 | Result | Notes |
 | --- | --- | --- | --- | --- |
-| Network-backed dependency audit | 2026-09-13 | `6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e` | Pass | `npm audit --audit-level=moderate` passed against the registry in both package trees: Extension 0 vulnerabilities across 302 dependencies; Browser Bridge 0 vulnerabilities across 62 dependencies. `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` separately passed against this exact VSIX; the pinned Bridge ZIP is `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`. |
+| Network-backed dependency audit | — | — | Not performed | Extension and Browser Bridge production audits passed on 2026-09-13 with 0 vulnerabilities. Bind this evidence to the current staged VSIX before recording the row. |

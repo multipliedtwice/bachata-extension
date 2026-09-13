@@ -76,7 +76,7 @@ test("every state-changing protocol message maps to a mutation class", () => {
   );
   assert.ok(types.size > 20, "the message union did not parse");
   // These read; everything else in the union changes state and must refuse.
-  const readable = new Set(["manager.ready", "conversation.select", "conversation.viewExecution"]);
+  const readable = new Set(["manager.ready", "conversation.select", "conversation.viewExecution", "workspace.ownership"]);
   types.forEach((type) => {
     if (readable.has(type)) return;
     assert.ok(

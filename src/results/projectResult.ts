@@ -100,8 +100,16 @@ export type RunFailure = {
   model?: string;
   step?: string;
 };
+export type ResultStatus = Extract<WorkflowStatus, "completed" | "interrupted" | "error">;
+
+const isResultStatus = (status: unknown): status is ResultStatus =>
+  status === "completed" || status === "interrupted" || status === "error";
+
+export const resultStatusOf = (status: WorkflowStatus): ResultStatus | undefined =>
+  isResultStatus(status) ? status : undefined;
+
 export type RunResultCenter = {
-  status: WorkflowStatus;
+  status: ResultStatus;
   changedFiles: string[];
   diffSummary?: string;
   checks: VerificationResult[];
@@ -210,9 +218,7 @@ const partitionTranscriptErrors = (
   return { unresolved, recovered };
 };
 
-const isStatus = (value: unknown): value is WorkflowStatus =>
-  value === "idle" || value === "running" || value === "paused" ||
-  value === "completed" || value === "interrupted" || value === "error";
+const isStatus = isResultStatus;
 
 const isCheckStatus = (value: unknown): value is VerificationResult["status"] =>
   value === "passed" || value === "failed" || value === "timedOut" || value === "cancelled";
@@ -622,7 +628,7 @@ export const failedBeforeRulingSummary = (failure: RunFailure): string => {
 };
 
 export const finalAssessmentFor = (input: {
-  status: WorkflowStatus;
+  status: ResultStatus;
   checks: VerificationResult[];
   finalRuling?: string;
   rulingBy?: string;
@@ -640,11 +646,13 @@ export const finalAssessmentFor = (input: {
     ? "controller"
     : assessmentMethodFrom(input.rulingProvenance, input.consensus === true, input.providers.length);
   if (input.status !== "completed") {
-    if (input.status === "idle" || input.status === "running") {
+    // A stop is the reader's decision, not a failure. An error a participant reported while the
+    // stop was being delivered does not turn it into one.
+    if (input.status === "interrupted") {
       return {
-        outcome: "notApplicable",
+        outcome: "inconclusive",
         method,
-        summary: `The run ended as ${input.status}, so no final assessment was produced`,
+        summary: "Stopped before a final assessment was produced",
         producedBy,
       };
     }
@@ -663,7 +671,7 @@ export const finalAssessmentFor = (input: {
     return {
       outcome: "inconclusive",
       method,
-      summary: `The run ended as ${input.status}, so no final assessment was produced`,
+      summary: "The run failed before a final assessment was produced",
       producedBy,
     };
   }
@@ -792,7 +800,7 @@ export const mergeRunResults = (
   const changedFilesRecorded = changedFiles.length > 0 ||
     !live.evidenceGaps.includes("Changed-file evidence was not recorded") ||
     !persisted.evidenceGaps.includes("Changed-file evidence was not recorded");
-  const status = live.status === "idle" ? persisted.status : live.status;
+  const status = live.status;
   const reconciled = reconcileErrorClassification(persisted, live);
   const expectations = live.expectations ?? persisted.expectations ?? UNKNOWN_EVIDENCE_EXPECTATIONS;
   // The persisted result was recorded when the run reached its end, so its providers are the ones
@@ -866,7 +874,7 @@ export const mergeRunResults = (
 };
 
 export const projectRunResult = (input: {
-  status: WorkflowStatus;
+  status: ResultStatus;
   transcript: TranscriptEntry[];
   changedFiles?: string[] | undefined;
   diffSummary?: string | undefined;

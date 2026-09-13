@@ -49,6 +49,22 @@ export const turnWorkspacePolicy = (input: {
   automated: input.automated,
 });
 
+export const turnExecutionPolicy = (input: {
+  managedRole?: "worker" | "lead" | undefined;
+  roleId?: string | undefined;
+  readOnly?: boolean | undefined;
+  managed?: boolean | undefined;
+  participant?: string | undefined;
+  allowedPaths?: readonly string[] | undefined;
+  unattended: boolean;
+}): { readOnly: boolean; automated: boolean; defaultScope: WorkspaceWriteScope } => ({
+  readOnly: input.managedRole === "lead" || input.roleId === "lead" ? true : input.readOnly ?? false,
+  automated: input.unattended || input.managed === true || input.participant !== undefined,
+  defaultScope: input.managed === true
+    ? "task"
+    : (input.allowedPaths?.length ? "configured" : "workspace"),
+});
+
 export type TurnStreamState = {
   streamedBytes: number;
   result?: AgentRunResult | undefined;

@@ -1,6 +1,9 @@
 import { pipelineDefinitionHash } from "./identity";
 import { validatePipelineDefinition } from "./schema";
 import { PipelineDefinition } from "./types";
+import { assignmentSlots } from "./agentAssignment";
+import type { PipelineScope } from "./catalogStorage";
+import type { PipelineSummary } from "../webview/protocol";
 
 const prominentWorkflowOrder = new Map([
   ["codex-fix", 0],
@@ -16,6 +19,28 @@ export const pipelinePickerMetadata = (
 ): { prominentOrder?: number } => {
   const prominentOrder = editable ? undefined : prominentWorkflowOrder.get(pipelineId);
   return prominentOrder === undefined ? {} : { prominentOrder };
+};
+
+export const pipelineSummary = (
+  pipeline: PipelineDefinition,
+  editable: boolean,
+  hash: string,
+  scope: PipelineScope,
+): PipelineSummary => {
+  const slots = assignmentSlots(pipeline).slots;
+  return {
+    id: pipeline.id,
+    name: pipeline.name,
+    ...(pipeline.description === undefined ? {} : { description: pipeline.description }),
+    editable,
+    hash,
+    scopeKey: editable ? scope.key : "builtin",
+    ...pipelinePickerMetadata(pipeline.id, editable),
+    participantCount: slots.length,
+    participantNames: slots.map((slot) => slot.responsibility),
+    stepCount: pipeline.steps.filter((step) => step.enabled).length,
+    ...(editable && scope.root ? { scopeRoot: scope.root } : {}),
+  };
 };
 
 export type PipelineValidator = (value: unknown, source: string) => PipelineDefinition;

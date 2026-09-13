@@ -1,3 +1,4 @@
+import { runMinimalLayoutChecks } from "./lib/webviewMinimalLayoutChecks.mjs";
 import { runWebviewProductChecks } from "./lib/webviewProductChecks.mjs";
 /**
  * EX-UI-04. The run tab strip's hit regions at the widths a side panel actually has.
@@ -188,7 +189,10 @@ const reachability = `(() => {
       if (!summary) return "a run tab has no action menu";
       const box = summary.getBoundingClientRect();
       const drawn = Number(getComputedStyle(summary).opacity) > 0 && box.width > 0 && box.height > 0;
-      const reachable = summary.tabIndex >= 0;
+      const previous = document.activeElement;
+      summary.focus({ preventScroll: true });
+      const reachable = document.activeElement === summary;
+      previous?.focus({ preventScroll: true });
       if (drawn === reachable) return null;
       // Concatenated, not interpolated: this whole function is itself a template literal handed to
       // the browser, and a nested backtick would end it here rather than inside the page.
@@ -332,7 +336,8 @@ const executionMeasure = `(() => {
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return hit === el || el.contains(hit);
   };
-  const restartBox = restart.getBoundingClientRect();
+  const more = restart.closest("details").querySelector("summary");
+  const moreBox = more.getBoundingClientRect();
   const retryBox = retry.getBoundingClientRect();
   return {
     present: true,
@@ -344,11 +349,11 @@ const executionMeasure = `(() => {
     // and provenance behind one.
     disclosureCount: disclosures.length,
     disclosuresClosed: disclosures.every((entry) => entry.open === false),
-    restartHit: hits(restart),
+    moreHit: hits(more),
     retryHit: hits(retry),
-    actionsSized: [restartBox, retryBox].every((r) => r.width > 0 && r.height >= 22),
-    actionsWithinViewport: [restartBox, retryBox].every((r) => r.left >= -1 && r.right <= viewport + 1),
-    restartFocusable: restart.tabIndex >= 0,
+    actionsSized: [moreBox, retryBox].every((r) => r.width > 0 && r.height >= 22),
+    actionsWithinViewport: [moreBox, retryBox].every((r) => r.left >= -1 && r.right <= viewport + 1),
+    moreFocusable: more.tabIndex >= 0,
     retryFocusable: retry.tabIndex >= 0,
     failureStated: document.body.innerText.includes("requires a newer version of Codex"),
     horizontalScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
@@ -494,6 +499,7 @@ const run = async () => {
       if (!row.focusable) failures.push(`${String(width)}px: the action menu does not take keyboard focus`);
     }
     await runWebviewProductChecks(session, press, pressKey, WIDTHS);
+    await runMinimalLayoutChecks(session, press, pressKey);
     // The execution view: booted once, then measured at every width. It replaces the fixture's
     // idle state, so it runs after every idle-state measurement is done.
     await session.evaluate("window.__bootExecution()");
@@ -516,12 +522,19 @@ const run = async () => {
       if (!execution.summaryWithinViewport) failures.push(`${String(width)}px: the pipeline summary escaped the viewport`);
       if (execution.disclosureCount < 2) failures.push(`${String(width)}px: background and provenance are not behind information disclosures`);
       if (!execution.disclosuresClosed) failures.push(`${String(width)}px: an information disclosure is drawn open`);
-      if (!execution.restartHit || !execution.retryHit) failures.push(`${String(width)}px: a recovery action is not what a pointer meets at its own centre`);
+      if (!execution.moreHit || !execution.retryHit) failures.push(`${String(width)}px: a recovery action is not what a pointer meets at its own centre`);
       if (!execution.actionsSized) failures.push(`${String(width)}px: a recovery action was drawn too small to press`);
       if (!execution.actionsWithinViewport) failures.push(`${String(width)}px: a recovery action escaped the viewport`);
-      if (!execution.restartFocusable || !execution.retryFocusable) failures.push(`${String(width)}px: a recovery action does not take keyboard focus`);
+      if (!execution.moreFocusable || !execution.retryFocusable) failures.push(`${String(width)}px: a recovery action does not take keyboard focus`);
       if (!execution.failureStated) failures.push(`${String(width)}px: the failure that stopped the run is not stated in the result`);
       if (execution.horizontalScroll) failures.push(`${String(width)}px: the execution view forced the page to scroll horizontally`);
+      await press(session, '.result-center > header .header-action-menu > summary');
+      await session.evaluate("window.__posted = []");
+      await press(session, '.result-center [data-action="workflow-restart"]');
+      await delay(100);
+      const restarts = await session.evaluate("window.__posted.filter(message => message.message?.type === 'workflow.restart').length");
+      if (restarts !== 1) failures.push(`${String(width)}px: Restart from More did not dispatch exactly once`);
+
       executionRows.push(execution);
     }
   } finally {
@@ -557,7 +570,7 @@ const run = async () => {
   });
   executionRows.forEach((row) => {
     console.log(
-      `${String(row.width).padStart(4)}px execution steps=${String(row.rows)} contained=${String(row.rowsContained)} disclosures=${String(row.disclosureCount)} closed=${String(row.disclosuresClosed)} restart=${String(row.restartHit)} retry=${String(row.retryHit)} failureStated=${String(row.failureStated)} hScroll=${String(row.horizontalScroll)}`,
+      `${String(row.width).padStart(4)}px execution steps=${String(row.rows)} contained=${String(row.rowsContained)} disclosures=${String(row.disclosureCount)} closed=${String(row.disclosuresClosed)} more=${String(row.moreHit)} retry=${String(row.retryHit)} failureStated=${String(row.failureStated)} hScroll=${String(row.horizontalScroll)}`,
     );
   });
   if (executionRows.length !== WIDTHS.length) {

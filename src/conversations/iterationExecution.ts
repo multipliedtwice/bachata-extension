@@ -1,4 +1,5 @@
 import type { WorkspaceWriteScope } from "../adapters/types";
+import { failedRunWorkflowStatus } from "../runtime/recoveryTransition";
 
 /**
  * EX-3. What an iteration decides before and after the runtime runs it, apart from the catalog
@@ -101,6 +102,7 @@ export const iterationEndEvent = (input: {
  */
 export const iterationFailurePlan = (input: {
   resume: boolean;
+  runtimeStatus: string;
   hasResumableWorkflow: boolean;
   displayIndex: number;
   error: unknown;
@@ -113,9 +115,10 @@ export const iterationFailurePlan = (input: {
   dropPendingWorkingDirectory: boolean;
 } => {
   const recoverable = input.hasResumableWorkflow;
+  const workflowStatus = failedRunWorkflowStatus(input.runtimeStatus);
   return {
-    status: recoverable ? "interrupted" : "failed",
-    workflowStatus: recoverable ? "interrupted" : "error",
+    status: workflowStatus === "interrupted" ? "interrupted" : "failed",
+    workflowStatus,
     eventType: input.resume ? "iteration.resume.failed" : "iteration.failed",
     title: input.resume
       ? `Iteration ${String(input.displayIndex)} resume failed`

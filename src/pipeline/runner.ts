@@ -148,6 +148,16 @@ export type PipelineRunCallbacks = {
     request: ExecutionChecklistRequest,
   ) => Promise<ExecutionChecklistDecision>) | undefined;
   executeChecklist?: ((request: ExecuteChecklistRequest) => Promise<ExecuteChecklistResult>) | undefined;
+  beforeParticipants?: ((participants: ParticipantStart[]) => Promise<void>) | undefined;
+};
+
+/** A participant about to be invoked, with the concrete agent its role resolved to. */
+export type ParticipantStart = {
+  participant: string;
+  participantName: string;
+  agentId: AgentId;
+  stepName: string;
+  options: PipelineAgentOptions;
 };
 
 export type PipelineRunResult = {
@@ -461,6 +471,63 @@ const participantOptions = (
         : undefined,
     maxRevisionCycles: managedPolicy?.maxRevisionCycles,
   };
+};
+
+export type ParticipantExecutionPlan = {
+  stepName: string;
+  participant: string;
+  resolved: boolean;
+  candidates: Array<{ agentId: AgentId; participantName: string; options: PipelineAgentOptions }>;
+};
+
+/**
+ * The options every participant slot from `fromStepIndex` onwards would be given, before any
+ * participant is invoked. A role that no step has assigned yet lists each agent it could become.
+ */
+export const pipelineParticipantPlans = (
+  pipeline: PipelineDefinition,
+  originalTask: string,
+  input: {
+    fromStepIndex: number;
+    roles: Record<string, AgentId>;
+    executionPolicy?: { allowedPaths?: string[]; commitMode?: "never" | "allow"; writeScope?: WorkspaceWriteScope } | undefined;
+  },
+): ParticipantExecutionPlan[] => {
+  const agents = new Map(pipeline.agents.map((agent) => [agent.id, agent]));
+  const roleDefinitions = new Map((pipeline.roles ?? []).map((role) => [role.id, role]));
+  return pipeline.steps.slice(input.fromStepIndex).flatMap((step) => {
+    if (!step.enabled || (step.type !== "agent" && step.type !== "checklist")) return [];
+    return step.participants.map((participant) => {
+      const roleDefinition = roleDefinitions.get(participant);
+      const assigned = agents.has(participant) ? participant : input.roles[participant];
+      const candidateIds = assigned === undefined ? roleDefinition?.candidateAgentIds ?? [] : [assigned];
+      const known = candidateIds.flatMap((id) => {
+        const definition = agents.get(id);
+        return definition === undefined ? [] : [definition];
+      });
+      return {
+        stepName: step.name,
+        participant,
+        resolved: assigned !== undefined,
+        candidates: (known.length > 0 ? known : pipeline.agents).map((definition) => ({
+          agentId: definition.id,
+          participantName: roleDefinition?.name ?? definition.name,
+          options: participantOptions(
+            participant,
+            definition.id,
+            step,
+            definition,
+            roleDefinition,
+            originalTask,
+            pipeline.managedPolicy,
+            input.executionPolicy?.allowedPaths,
+            input.executionPolicy?.commitMode,
+            input.executionPolicy?.writeScope,
+          ),
+        })),
+      };
+    });
+  });
 };
 
 const orderedPeerAnswers = (
@@ -998,6 +1065,13 @@ export const executePipeline = async (
           "Use only confirmed work inside the original request. Do not invent new scope.",
         ].join("\n\n");
         const runAttachments = step.attachments === "selected" ? attachments : [];
+        await callbacks.beforeParticipants?.([{
+          participant,
+          participantName: roleDefinition?.name ?? definition.name,
+          agentId,
+          stepName: step.name,
+          options: participantOptions(participant, agentId, step, definition, roleDefinition, userPrompt, pipeline.managedPolicy),
+        }]);
         const agentResult = await runAgent(
           agentId,
           strictPrompt,
@@ -1166,6 +1240,28 @@ export const executePipeline = async (
       selectedParticipants = participants,
     ): Promise<OrderedRunResults> => {
       callbacks.onStep(agentStep, index, round);
+      await callbacks.beforeParticipants?.(selectedParticipants.flatMap(({ participant, agentId }) => {
+        const definition = agentDefinitions.get(agentId);
+        const roleDefinition = roleDefinitions.get(participant);
+        return definition === undefined ? [] : [{
+          participant,
+          participantName: roleDefinition?.name ?? definition.name,
+          agentId,
+          stepName: agentStep.name,
+          options: participantOptions(
+            participant,
+            agentId,
+            agentStep,
+            definition,
+            roleDefinition,
+            userPrompt,
+            pipeline.managedPolicy,
+            executionPolicy?.allowedPaths,
+            executionPolicy?.commitMode,
+            executionPolicy?.writeScope,
+          ),
+        }];
+      }));
       const resultsByAgent: Record<AgentId, AgentRunResult> = {};
       const resultParticipants: Record<AgentId, string> = {};
       const resultOrder: AgentId[] = [];

@@ -3941,161 +3941,7 @@ test("a Markdown specification is accepted and typed, while an unsupported binar
 });
 
 const directionState = (overrides = {}) => ({
-  initiative: {
-    id: "N1",
-    title: "Stabilize cancellation",
-    goal: "Cancellation never leaks a worktree",
-    desiredOutcome: "Every cancel path is proven",
-    scope: ["src/orchestrator"],
-    constraints: ["No new dependencies"],
-    acceptanceCriteria: ["No leaked worktree after cancel"],
-    currentDirection: "Guard the cleanup path in the controller",
-    status: "active",
-  },
-  cycles: [{
-    id: "Y1",
-    sequence: 1,
-    type: "review",
-    completion: "open",
-    runRefs: ["run-1"],
-    repositoryBaseline: "abc1234",
-  }],
-  currentCycle: {
-    id: "Y1",
-    sequence: 1,
-    type: "review",
-    completion: "open",
-    runRefs: ["run-1"],
-  },
-  artifacts: [],
-  decisions: [],
-  findings: [],
-  saturation: { saturated: false, quietFreshReviews: 0, quietReviewSignal: 2, signalReached: false, reasons: ["1 core decisions are still open"] },
-  direction: {
-    goal: "Cancellation never leaks a worktree",
-    desiredOutcome: "Every cancel path is proven",
-    acceptedDirection: "Guard the cleanup path in the controller",
-    acceptanceCriteria: ["No leaked worktree after cancel"],
-    constraints: ["No new dependencies"],
-    initiativeStatus: "active",
-    currentCycle: { id: "Y1", sequence: 1, type: "review", completion: "open", runCount: 1 },
-    latestChange: {
-      cycleId: "Y1",
-      newMaterial: [{
-        identity: "FH1",
-        subject: "Cancellation guard",
-        message: "Cancellation bypasses cleanup",
-        state: "accepted",
-        location: { file: "src/a.ts", startLine: 12 },
-        occurrences: 1,
-        actionable: true,
-        materialDelta: [],
-        evidence: ["Both traced the bypass"],
-        challenges: ["The finally block was inspected"],
-      }],
-      repeated: [],
-      resolved: [],
-      regressed: [{
-        identity: "FH2",
-        subject: "Worktree leak",
-        message: "The worktree survives a cancel",
-        state: "regressed",
-        occurrences: 3,
-        actionable: false,
-        materialDelta: ["A reproducing test now exists"],
-        evidence: [],
-        challenges: [],
-      }],
-      reopened: [],
-      outstandingAccepted: [],
-      decisionChanges: [{ decisionId: "D1", subject: "Cancellation ownership", from: "proposed", to: "accepted" }],
-    },
-    acceptedArtifacts: [{
-      id: "T1",
-      title: "Ruled findings · cycle 1",
-      body: "accepted · Cancellation guard (src/a.ts)",
-      type: "findingSet",
-      revision: 1,
-      state: "accepted",
-    }],
-    proposedArtifacts: [{
-      id: "T2",
-      title: "Ruled findings · cycle 1",
-      body: "unresolved · Worktree leak",
-      type: "findingSet",
-      revision: 2,
-      state: "proposed",
-    }],
-    decisionsNeedingHuman: [{
-      id: "D2",
-      subject: "Retry policy",
-      question: "Should cancelled runs retry automatically?",
-      state: "proposed",
-      tradeOffs: ["Automatic retries hide flakiness"],
-      evidence: ["Both providers disagreed"],
-      affectedScope: ["src/orchestrator"],
-      materialEvidenceDelta: [],
-    }],
-    findingsNeedingRuling: [{
-      identity: "FH3",
-      subject: "Retry loop",
-      message: "The retry loop never terminates",
-      state: "unresolved",
-      occurrences: 1,
-      actionable: false,
-      materialDelta: [],
-      evidence: [],
-      challenges: ["The loop bound was traced"],
-    }],
-    outstandingAcceptedFindings: [{
-      identity: "FH1",
-      subject: "Cancellation guard",
-      message: "Cancellation bypasses cleanup",
-      state: "accepted",
-      occurrences: 1,
-      actionable: true,
-      fixState: "awaitingFix",
-      materialDelta: [],
-      evidence: [],
-      challenges: [],
-      humanResolution: { action: "accept", resolvedBy: "human", resolvedAt: "2026-01-01T00:00:00.000Z" },
-    }],
-    unresolvedFindings: [],
-    baselineDrift: ["the working tree changed since this cycle was baselined"],
-    baseline: {
-      commit: "1111111111111111111111111111111111111111",
-      branch: "main",
-      dirty: false,
-      worktreeDigest: "WT1",
-      capturedAt: "2026-01-01T00:00:00.000Z",
-    },
-    verification: {
-      runRef: "run-1",
-      checks: [{ command: "npm test", status: "passed" }],
-      expected: true,
-      recordedAt: "2026-01-01T00:00:00.000Z",
-    },
-    saturation: { saturated: false, quietFreshReviews: 0, quietReviewSignal: 2, signalReached: false, reasons: ["1 core decisions are still open"] },
-    saturationDisclaimer: "Saturation means repeated fresh review stopped producing material findings. It is not a correctness proof.",
-    nextAction: {
-      kind: "resolveDecisions",
-      label: "Resolve 1 decision",
-      detail: "Retry policy",
-      command: { type: "focusDirection", section: "decisions" },
-    },
-  },
-  initiatives: [
-    { id: "N1", title: "Stabilize cancellation", goal: "g", status: "active", updatedAt: "t" },
-    { id: "N2", title: "Second initiative", goal: "g2", status: "paused", updatedAt: "t" },
-  ],
-  findingAliases: [{
-    aliasIdentity: "FH9",
-    canonicalIdentity: "FH1",
-    reason: "Same skipped cleanup",
-    createdBy: "human",
-    createdAt: "2026-01-01T00:00:00.000Z",
-  }],
-  fixRuns: [],
+  ...structuredClone(require("./fixtures/webview-layout/direction.json")),
   ...overrides,
 });
 
@@ -4993,6 +4839,14 @@ test("a read-only window renders the product with every mutating control disable
     assert.match(html, /Workspace Ownership/u, "the banner does not say how to take ownership");
     assert.match(html, /active 12s ago/u);
 
+    const ownership = harness.document.root.querySelector('[data-action="workspace-ownership"]');
+    assert.ok(ownership, "the banner offers no direct ownership action");
+    assert.match(html, /data-action="workspace-ownership"[^>]*>Take ownership<\/button>/u);
+    assert.equal(ownership.getAttribute("aria-disabled"), null, "the ownership action was disabled by the read-only sweep");
+    const beforeOwnership = harness.messages.length;
+    ownership.click();
+    assert.deepEqual(harness.messages.slice(beforeOwnership), [{ type: "workspace.ownership" }]);
+
     const submit = harness.document.root.querySelector('[data-action="submit-message"]');
     assert.ok(submit, "the composer is not rendered at all in a read-only window");
     // A read-only window's controls cannot be activated, and are still reachable: `disabled`
@@ -5021,6 +4875,30 @@ test("a read-only window renders the product with every mutating control disable
     if (navigation) {
       assert.equal(navigation.disabled, false, "a read-only window disabled navigation");
     }
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a read-only manager snapshot without panel state never claims pipelines are still loading", () => {
+  const harness = installGlobals();
+  try {
+    delete require.cache[require.resolve("../dist/webview-behavior.js")];
+    delete require.cache[require.resolve("../dist/webview.js")];
+    require("../dist/webview-behavior.js");
+    require("../dist/webview.js");
+    harness.sendWindowMessage({
+      type: "manager.snapshot",
+      state: managerState({
+        readOnly: {
+          owned: false,
+          reason: "Another Bachata Extension Host owns this workspace.",
+          retryCommand: "Bachata: Workspace Ownership",
+        },
+      }),
+    });
+    assert.doesNotMatch(harness.document.root.innerHTML, /Loading pipelines/u);
+    assert.match(harness.document.root.innerHTML, /Pipeline unavailable/u);
   } finally {
     harness.restore();
   }
@@ -6237,7 +6115,8 @@ test("answering an interaction keeps focus on its card and says so", () => {
 
 test("discarding the recovery checkpoint asks first", () => {
   const harness = bootWebview(managerState(), panelState({
-    resumableWorkflow: { pipelineId: "custom-a", pipelineName: "Custom A", pipelineHash: customAHash, userPrompt: "x", attachmentIds: [], nextStepIndex: 0, totalSteps: 2, updatedAt: timestamp },
+    workflowStatus: "error",
+    resumableWorkflow: recoverableWorkflow({ userPrompt: "x", nextStepIndex: 0, totalSteps: 2 }),
   }));
   try {
     harness.document.root.querySelector('[data-action="workflow-discard"]').click();
@@ -6435,7 +6314,8 @@ test("a completed run says so at the end of the chat and routes to the result", 
   };
   const harness = bootWebview(managerState({ resultsByConversation: { "run-1": result } }), panelState({ workflowStatus: "completed" }));
   try {
-    assert.match(harness.document.root.innerHTML, /<section class="result-summary">.*Nothing to fix\..*data-action="room-view" data-view="execution">Open the result<\/button><\/section>/u);
+    assert.match(harness.document.root.innerHTML, /<section class="run-outcome status-completed" aria-label="Run result">.*Nothing to fix\..*data-action="room-view" data-view="execution">Open the result<\/button><\/div><\/section>/u);
+    assert.equal(harness.document.root.querySelector('[data-action="workflow-restart"]'), null, "a completed run offers recovery");
     assert.doesNotMatch(harness.document.root.innerHTML, /<h2>Start a run<\/h2>/u, "a room with a result shows the first-run intro");
   } finally {
     harness.restore();
@@ -7044,7 +6924,11 @@ test("primary chat carries the conversation and files the run's own bookkeeping 
       "an exact agent prompt is bookkeeping, not conversation",
     );
     assert.equal(primary.includes("Implement started"), false, "a step transition is bookkeeping");
-    assert.ok(html.includes("Run information · 4 recorded entries"));
+    assert.match(
+      html,
+      /<summary id="run-information-summary"><i class="codicon codicon-info" aria-hidden="true"><\/i><span class="run-information-label">Run information<\/span><span class="info-count" aria-hidden="true">4<\/span><span class="sr-only">, 4 entries<\/span><\/summary>/u,
+    );
+    assert.equal(harness.document.root.querySelector(".run-information").open, false, "run information starts open");
     // Nothing is dropped: every bookkeeping entry is still there, inside the disclosure.
     const information = html.slice(chatEnd);
     for (const index of [1, 2, 3]) {
@@ -7086,7 +6970,10 @@ const failedResultState = () => ({
   },
 });
 
-const recoverableWorkflow = () => ({
+const recoverableWorkflow = (overrides = {}) => ({
+  attemptId: "attempt-1",
+  outcome: "failed",
+  failureScope: "step",
   pipelineId: "custom-a",
   pipelineName: "Custom A",
   pipelineHash: customAHash,
@@ -7094,17 +6981,21 @@ const recoverableWorkflow = () => ({
   attachmentIds: [],
   nextStepIndex: 1,
   totalSteps: 3,
+  stepName: "Implement",
   updatedAt: timestamp,
+  ...overrides,
 });
 
-for (const [status, label] of [["interrupted", "Resume stopped step"], ["error", "Retry failed step"]]) {
+for (const [status, outcome, label] of [["interrupted", "stoppedByUser", "Resume stopped step"], ["error", "failed", "Retry failed step"]]) {
   test(`Chat recovery uses ${label} for ${status} and dispatches resume once`, () => {
-    const harness = bootWebview(managerState(), panelState({ workflowStatus: status, resumableWorkflow: recoverableWorkflow() }));
+    const harness = bootWebview(managerState(), panelState({ workflowStatus: status, resumableWorkflow: recoverableWorkflow({ outcome }) }));
     try {
-      const card = harness.document.root.querySelector(".recovery-card");
+      const card = harness.document.root.querySelector(".run-outcome");
       assert.ok(card);
       assert.match(harness.document.root.innerHTML, new RegExp(`>${label}</button>`));
       assert.doesNotMatch(harness.document.root.innerHTML, new RegExp(`>${status === "interrupted" ? "Retry failed step" : "Resume stopped step"}</button>`));
+      const html = harness.document.root.innerHTML;
+      assert.match(html.slice(html.indexOf('class="run-outcome')), status === "interrupted" ? /^[^]*?<strong><i [^>]*><\/i> Stopped by you<\/strong><p>Stopped at step 2 of 3 · Implement<\/p>/u : /^[^]*?<strong><i [^>]*><\/i> Failed<\/strong><p>Failed at step 2 of 3 · Implement<\/p>/u);
       const before = harness.messages.length;
       card.querySelector('[data-action="workflow-resume"]').click();
       assert.deepEqual(harness.messages.slice(before), [{ type: "conversation.runtime", conversationId: "run-1", message: { type: "workflow.resume" } }]);
@@ -7196,10 +7087,10 @@ test("uploading an attachment restores Send instead of Stop", async () => {
   } finally { harness.restore(); }
 });
 
-test("a failed result states the error once and offers restart as the primary way back", () => {
+test("a failed result states the error once and offers retry as the primary way back", () => {
   const harness = bootWebview(
     managerState({ resultsByConversation: { "run-1": failedResultState() } }),
-    panelState({ resumableWorkflow: recoverableWorkflow() }),
+    panelState({ workflowStatus: "error", resumableWorkflow: recoverableWorkflow() }),
   );
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
@@ -7218,7 +7109,8 @@ test("a failed result states the error once and offers restart as the primary wa
     const retry = harness.document.root.querySelector('[data-action="workflow-resume"]');
     assert.ok(restart, "a failed run offers no way to start over");
     assert.ok(retry, "a failed run offers no way to retry the stopped step");
-    assert.ok(restart.className.includes("primary"), "restart is not the primary action");
+    assert.ok(retry.className.includes("primary"), "retry is not the primary action");
+    assert.equal(restart.className.includes("primary"), false);
     assert.ok(html.includes(">Restart pipeline</button>"));
     assert.ok(html.includes(">Retry failed step</button>"));
     assert.equal(restart.disabled, false);
@@ -7233,24 +7125,403 @@ test("a failed result states the error once and offers restart as the primary wa
   }
 });
 
-test("restart and retry are refused while the room is busy, and say why", () => {
+test("a working room draws no result and no recovery, even beside a stale result and checkpoint", () => {
   const harness = bootWebview(
     managerState({ resultsByConversation: { "run-1": failedResultState() } }),
     panelState({ resumableWorkflow: recoverableWorkflow(), running: true, workflowStatus: "running" }),
   );
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
-    const restart = harness.document.root.querySelector('[data-action="workflow-restart"]');
-    const retry = harness.document.root.querySelector('[data-action="workflow-resume"]');
-    assert.equal(restart.disabled, true);
-    assert.equal(retry.disabled, true);
-    assert.equal(
-      restart.getAttribute("title"),
-      "Interrupt the active run before restarting it",
+    for (const view of ["chat", "execution"]) {
+      harness.document.root.querySelector(`[data-action="room-view"][data-view="${view}"]`).click();
+      const html = harness.document.root.innerHTML;
+      for (const action of ["workflow-restart", "workflow-resume", "workflow-discard"]) {
+        assert.equal(harness.document.root.querySelector(`[data-action="${action}"]`), null, `${view}: ${action}`);
+      }
+      assert.equal(harness.document.root.querySelector(".run-outcome, .result-center"), null, `${view}: result drawn`);
+      assert.doesNotMatch(html, /Open the result|ended as|stopped at step|Run result/u, view);
+    }
+    harness.document.root.querySelector('[data-action="room-view"][data-view="chat"]').click();
+    const html = harness.document.root.innerHTML;
+    assert.match(
+      html,
+      /<span role="status"[^>]*class="room-status status-running"><i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"><\/i>Working<\/span>/u,
+      "the header does not say Working beside a decorative progress indicator",
     );
+    assert.doesNotMatch(html, /codicon-sync/u, "a refresh icon stands for progress");
+    assert.ok(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), "Stop is not offered");
+  } finally {
+    harness.restore();
+  }
+});
+
+const completedResultState = () => ({
+  status: "completed",
+  changedFiles: [],
+  checks: [],
+  providers: [],
+  findings: [],
+  unresolvedRisks: [],
+  recoveredErrors: [],
+  evidence: [],
+  evidenceGaps: [],
+  finalAssessment: { outcome: "completed", method: "singleProvider", summary: "Nothing to fix.", producedBy: [] },
+});
+
+const recoveryActions = ["workflow-restart", "workflow-resume", "workflow-discard"];
+
+for (const row of [
+  {
+    name: "running beside a stale failed checkpoint and result",
+    panel: { running: true, workflowStatus: "running", resumableWorkflow: recoverableWorkflow() },
+    result: failedResultState(),
+    header: "Working",
+    tabIcon: "loading codicon-modifier-spin",
+    outcome: undefined,
+    offered: [],
+  },
+  {
+    name: "stopped by the user",
+    panel: { workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow({ outcome: "stoppedByUser" }) },
+    header: "Stopped by you",
+    tabIcon: "debug-stop",
+    outcome: "Stopped by you",
+    offered: recoveryActions,
+    step: "Resume stopped step",
+  },
+  {
+    name: "failed in a step that started",
+    panel: { workflowStatus: "error", resumableWorkflow: recoverableWorkflow() },
+    result: failedResultState(),
+    header: "Failed",
+    tabIcon: "error",
+    outcome: "Failed",
+    offered: recoveryActions,
+    step: "Retry failed step",
+  },
+  {
+    name: "failed before any participant started",
+    panel: { workflowStatus: "error", resumableWorkflow: recoverableWorkflow({ failureScope: "run", nextStepIndex: 0 }) },
+    header: "Failed",
+    tabIcon: "error",
+    outcome: "Failed",
+    offered: ["workflow-restart", "workflow-discard"],
+  },
+  {
+    name: "completed",
+    panel: { workflowStatus: "completed" },
+    result: completedResultState(),
+    header: "Completed",
+    tabIcon: "pass",
+    outcome: "Completed",
+    offered: [],
+  },
+  {
+    name: "completed beside a checkpoint that ended differently",
+    panel: { workflowStatus: "completed", resumableWorkflow: recoverableWorkflow() },
+    result: completedResultState(),
+    header: "Completed",
+    tabIcon: "pass",
+    outcome: "Completed",
+    offered: [],
+  },
+  {
+    name: "stopped beside a checkpoint that failed",
+    panel: { workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow() },
+    header: "Interrupted",
+    tabIcon: "debug-pause",
+    outcome: undefined,
+    offered: [],
+  },
+]) {
+  test(`state matrix: ${row.name}`, () => {
+    const conversation = { ...conversationSummary(), running: row.panel.running === true, workflowStatus: row.panel.workflowStatus };
+    const harness = bootWebview(
+      managerState({
+        conversations: [conversation],
+        ...(row.result === undefined ? {} : { resultsByConversation: { "run-1": row.result } }),
+      }),
+      panelState(row.panel),
+    );
+    try {
+      const html = harness.document.root.innerHTML;
+      assert.match(html, new RegExp(`class="room-status status-[a-z]+">(?:<i [^>]*><\\/i>)?${row.header}<\\/span>`, "u"), "header status");
+      assert.match(html, new RegExp(`codicon-${row.tabIcon} run-tab-status`, "u"), "tab icon");
+      assert.doesNotMatch(html, /ended as|Recoverable pipeline|codicon-sync|Needs attention/u);
+      if (row.outcome === undefined) {
+        assert.equal(harness.document.root.querySelector(".run-outcome"), null, "an outcome row was drawn");
+      } else {
+        assert.match(html, new RegExp(`<section class="run-outcome [^"]*" aria-label="Run result"><div class="run-outcome-text"><strong><i [^>]*><\\/i> ${row.outcome}<\\/strong>`, "u"));
+      }
+      for (const action of recoveryActions) {
+        const control = harness.document.root.querySelector(`.run-outcome [data-action="${action}"]`);
+        assert.equal(control !== null, row.offered.includes(action), `${action} offered`);
+        if (control) assert.equal(control.disabled, false, `${action} is drawn disabled`);
+      }
+      if (row.step === undefined) {
+        assert.doesNotMatch(html, />Resume stopped step<|>Retry failed step</u);
+      } else {
+        assert.match(html, new RegExp(`>${row.step}</button>`, "u"));
+        assert.doesNotMatch(html, new RegExp(`>${row.step === "Resume stopped step" ? "Retry failed step" : "Resume stopped step"}<`, "u"));
+      }
+      if (row.panel.running) {
+        assert.doesNotMatch(html, /Open the result|run-outcome|result-center/u);
+        assert.ok(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'));
+      }
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
+test("a room that never ran has no result card, Open result action or Execution route", () => {
+  const harness = bootWebview(managerState(), panelState({ workflowStatus: "idle" }));
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.equal(harness.document.root.querySelector(".run-outcome"), null);
+    assert.equal(
+      harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]'),
+      null,
+      "an Execution route exists with nothing to execute",
+    );
+    assert.doesNotMatch(html, /Open the result|No run has finished|result-center/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+for (const [name, panel, label] of [
+  ["a restored interruption with no user provenance", { workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow({ outcome: "interrupted" }) }, "Interrupted"],
+  ["an interruption whose checkpoint is missing", { workflowStatus: "interrupted" }, "Interrupted"],
+  ["an explicit stop by the user", { workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow({ outcome: "stoppedByUser" }) }, "Stopped by you"],
+]) {
+  test(`stop provenance: ${name} reads ${label}`, () => {
+    const harness = bootWebview(
+      managerState({ conversations: [{ ...conversationSummary(), workflowStatus: "interrupted" }] }),
+      panelState(panel),
+    );
+    try {
+      const html = harness.document.root.innerHTML;
+      assert.match(html, new RegExp(`class="room-status status-interrupted">${label}</span>`, "u"));
+      if (label === "Interrupted") assert.doesNotMatch(html, /Stopped by you/u);
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
+for (const [running, workflowStatus, header, stop] of [
+  [true, "error", "Failed", false],
+  [true, "interrupted", "Interrupted", false],
+  [true, "completed", "Completed", false],
+  [true, "paused", "Waiting for you", false],
+  [false, "paused", "Waiting for you", false],
+  [false, "running", "Working", true],
+  [true, "idle", "Working", true],
+]) {
+  test(`one phase decides header, Stop, result and recovery: running=${String(running)} status=${workflowStatus}`, () => {
+    const result = workflowStatus === "error"
+      ? failedResultState()
+      : workflowStatus === "completed" ? completedResultState() : undefined;
+    const harness = bootWebview(
+      managerState({
+        conversations: [{ ...conversationSummary(), running, workflowStatus }],
+        ...(result === undefined ? {} : { resultsByConversation: { "run-1": result } }),
+      }),
+      panelState({ running, workflowStatus, ...(workflowStatus === "error" ? { resumableWorkflow: recoverableWorkflow() } : {}) }),
+    );
+    try {
+      const html = harness.document.root.innerHTML;
+      assert.match(html, new RegExp(`class="room-status status-[a-z]+">(?:<i [^>]*><\\/i>)?${header}<\\/span>`, "u"), "header");
+      assert.equal(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]') !== null, stop, "Stop control");
+      const live = header === "Working" || header === "Waiting for you";
+      assert.equal(harness.document.root.querySelector(".run-outcome") === null, live || result === undefined, "result visibility");
+      assert.equal(harness.document.root.querySelector('.run-outcome [data-action="workflow-restart"]') !== null, workflowStatus === "error", "recovery");
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
+test("run information starts as one closed row, and every prompt names its participant and turn", () => {
+  const prompt = "Review the supplied interface.\n\nreview extension/";
+  const promptEntry = (id, agentId) => ({ id, kind: "prompt", agentId, step: "Inspect", eventType: "agent.prompt", text: prompt, createdAt: timestamp });
+  const harness = bootWebview(
+    managerState(),
+    panelState({
+      transcript: [
+        { id: "user-1", kind: "prompt", eventType: "user.message", text: "review extension/", createdAt: timestamp },
+        promptEntry("prompt-lead-1", "lead"),
+        promptEntry("prompt-worker-1", "worker"),
+        promptEntry("prompt-lead-2", "lead"),
+        { id: "step-1", kind: "event", eventType: "step.started", text: "Inspect started", createdAt: timestamp },
+      ],
+      transcriptTotal: 5,
+    }),
+  );
+  try {
+    const html = harness.document.root.innerHTML;
+    const disclosure = harness.document.root.querySelector(".run-information");
+    assert.equal(disclosure.open, false);
+    assert.match(html, /<summary id="run-information-summary"><i class="codicon codicon-info" aria-hidden="true"><\/i><span class="run-information-label">Run information<\/span><span class="info-count" aria-hidden="true">4<\/span><span class="sr-only">, 4 entries<\/span><\/summary>/u);
+    assert.equal(harness.document.root.querySelectorAll(".info-entry").length, 4, "identical prompts were merged");
+    for (const [id, who, context] of [
+      ["prompt-lead-1", "Lead", "Inspect · turn 1 of 2"],
+      ["prompt-worker-1", "Worker", "Inspect"],
+      ["prompt-lead-2", "Lead", "Inspect · turn 2 of 2"],
+    ]) {
+      assert.match(
+        html,
+        new RegExp(`<article class="info-entry" data-entry="${id}">\\s*<div class="info-entry-head"><span class="info-entry-kind">Prompt</span><span class="info-entry-who">${who}</span><span class="info-entry-context">${context}</span>`, "u"),
+        id,
+      );
+      const summary = harness.document.getElementById(`prompt-summary-${id}`);
+      assert.equal(summary.getAttribute("aria-label"), `Exact prompt for ${who}, ${context}`);
+      assert.equal(summary.parentElement.open, false, "an exact prompt starts open");
+    }
+    assert.match(html, /<span class="info-entry-kind">Step started<\/span>/u);
+    assert.doesNotMatch(html.slice(html.indexOf("run-information")), /activity-kicker|AGENT PROMPT/u, "every card repeats an uppercase heading");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("recovery actions are native, named controls, and focus returns to Discard when its confirmation is cancelled", () => {
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": failedResultState() } }),
+    panelState({
+      workflowStatus: "error",
+      resumableWorkflow: recoverableWorkflow(),
+      transcript: [
+        { id: "prompt-lead-1", kind: "prompt", agentId: "lead", step: "Implement", eventType: "agent.prompt", text: "Implement it", createdAt: timestamp },
+      ],
+      transcriptTotal: 1,
+    }),
+  );
+  try {
+    for (const action of recoveryActions) {
+      const control = harness.document.root.querySelector(`.run-outcome [data-action="${action}"]`);
+      assert.equal(control.tagName, "BUTTON", action);
+      assert.equal(control.getAttribute("tabindex"), null, `${action} was taken out of the tab order`);
+      assert.equal(control.disabled, false, action);
+    }
+    assert.equal(
+      harness.document.root.querySelector('.run-outcome [data-action="workflow-resume"]').getAttribute("aria-label"),
+      "Retry failed step: Failed at step 2 of 3 · Implement",
+    );
+
+    let discard = harness.document.root.querySelector('.run-outcome [data-action="workflow-discard"]');
+    discard.click();
+    assert.equal(harness.document.activeElement.dataset.dialogDefault, "cancel");
+    harness.document.root.querySelector('[data-dialog-default="cancel"]').click();
+    discard = harness.document.root.querySelector('.run-outcome [data-action="workflow-discard"]');
+    assert.equal(harness.document.activeElement, discard, "focus did not return to Discard");
+    assert.equal(harness.messages.filter((message) => message.message?.type === "workflow.discard").length, 0);
+
     const before = harness.messages.length;
-    restart.click();
-    assert.equal(harness.messages.length, before, "a disabled control must send nothing");
+    harness.document.root.querySelector('.run-outcome [data-action="workflow-restart"]').click();
+    assert.deepEqual(harness.messages.slice(before), [{ type: "conversation.runtime", conversationId: "run-1", message: { type: "workflow.restart" } }]);
+
+    const summary = harness.document.getElementById("run-information-summary");
+    assert.equal(summary.tagName, "SUMMARY");
+    assert.equal(summary.getAttribute("tabindex"), null);
+    const disclosure = summary.parentElement;
+    disclosure.open = true;
+    harness.document.root.dispatch("toggle", { target: disclosure });
+    harness.sendWindowMessage({
+      type: "conversation.message",
+      conversationId: "run-1",
+      message: { type: "state.snapshot", state: panelState({ workflowStatus: "error", resumableWorkflow: recoverableWorkflow(), transcript: [{ id: "prompt-lead-1", kind: "prompt", agentId: "lead", step: "Implement", eventType: "agent.prompt", text: "Implement it", createdAt: timestamp }], transcriptTotal: 1 }) },
+    });
+    assert.equal(harness.document.root.querySelector(".run-information").open, true, "the reader's disclosure choice did not survive a render");
+    assert.equal(harness.document.getElementById("prompt-summary-prompt-lead-1").parentElement.open, false, "opening the list opened the exact prompt");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("an entry with nothing recorded draws no technical-detail block", () => {
+  const harness = bootWebview(
+    managerState(),
+    panelState({
+      workflowStatus: "error",
+      transcript: [
+        { id: "error-null", kind: "error", agentId: "lead", step: "Inspect", text: "Lead stopped", data: null, createdAt: timestamp },
+        { id: "error-empty", kind: "error", agentId: "worker", step: "Inspect", text: "Worker stopped", data: {}, createdAt: timestamp },
+        { id: "status-empty", kind: "status", text: "Pipeline interrupted.", data: [], createdAt: timestamp },
+        { id: "error-detail", kind: "error", eventType: "provider.failure", text: "Provider refused", data: { code: "protocolError" }, createdAt: timestamp },
+      ],
+      transcriptTotal: 4,
+    }),
+  );
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.equal(harness.document.root.querySelectorAll(".activity-details").length, 1);
+    assert.doesNotMatch(html, /Activity · Inspect|Structured data/u);
+    assert.match(html, /Technical detail/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a refusal made before any participant started is stated once, offers the folder, and keeps diagnostics behind a disclosure", () => {
+  const message = "Choose a Git project folder. /Users/danilt/pair is not inside a Git worktree, and Usability reviewer in “Inspect” and Accessibility reviewer in “Inspect” may change files, so Bachata needs Git to validate those changes. No participant was started.";
+  const result = {
+    ...failedResultState(),
+    providers: [],
+    unresolvedRisks: [message],
+    finalAssessment: { outcome: "failedBeforeRuling", method: "none", summary: `Failed before final ruling: ${message}`, producedBy: [], failure: { error: message } },
+  };
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": result } }),
+    panelState({
+      workflowStatus: "error",
+      resumableWorkflow: recoverableWorkflow({ failureScope: "run", nextStepIndex: 0 }),
+      transcript: [
+        { id: "user-1", kind: "prompt", eventType: "user.message", text: "review extension/", createdAt: timestamp },
+        {
+          id: "preflight-1",
+          kind: "error",
+          eventType: "workflow.preflightFailed",
+          text: message,
+          createdAt: timestamp,
+          data: {
+            reason: "notGitWorktree",
+            folder: "/Users/danilt/pair",
+            detail: "fatal: not a git repository",
+            participants: [
+              { participant: "Usability reviewer", step: "Inspect" },
+              { participant: "Accessibility reviewer", step: "Inspect" },
+            ],
+          },
+        },
+      ],
+      transcriptTotal: 2,
+    }),
+  );
+  try {
+    let html = harness.document.root.innerHTML;
+    assert.equal(html.split("is not inside a Git worktree").length - 1, 1, "the refusal is stated more than once in the chat");
+    assert.equal(harness.document.root.querySelectorAll(".agent-row").length, 0, "a participant that never started is drawn as having answered");
+    const details = harness.document.root.querySelector(".run-preflight-failure .preflight-details");
+    assert.equal(details.open, false);
+    for (const detail of ["/Users/danilt/pair", "fatal: not a git repository", "Usability reviewer</dt><dd>Not started · Inspect", "Accessibility reviewer</dt><dd>Not started · Inspect"]) {
+      assert.ok(html.includes(detail), detail);
+    }
+    assert.ok(harness.document.root.querySelector('.run-preflight-failure [data-action="working-directory"]'), "no folder action beside the refusal");
+    assert.doesNotMatch(html, />null<|activity-details/u);
+    assert.match(html, /<strong><i [^>]*><\/i> Failed<\/strong><p>Could not start step 1 of 3 · Implement<\/p>/u);
+    assert.equal(harness.document.root.querySelector('[data-action="workflow-resume"]'), null, "a step that never started was offered for retry");
+    assert.match(html, /Choose a Git project folder, then restart the pipeline, or discard it\./u);
+    assert.doesNotMatch(html, /Send is disabled[^<]*reset/iu);
+
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    html = harness.document.root.innerHTML;
+    const center = html.slice(html.indexOf('class="result-center"'));
+    assert.equal(harness.document.root.querySelectorAll(".result-failure-cause").length, 1);
+    assert.match(center, /<h3>Why no participant started<\/h3>/u);
+    assert.ok(harness.document.root.querySelector('.result-failure [data-action="working-directory"]'));
+    assert.ok(harness.document.root.querySelector(".result-failure .preflight-details"));
+    assert.doesNotMatch(center, /Provider and step details/u);
   } finally {
     harness.restore();
   }
@@ -7260,14 +7531,14 @@ test("a failed-before-ruling run collapses the sections it recorded nothing in",
   const result = failedResultState();
   const harness = bootWebview(
     managerState({ resultsByConversation: { "run-1": { ...result, unresolvedRisks: [] } } }),
-    panelState({ resumableWorkflow: recoverableWorkflow() }),
+    panelState({ workflowStatus: "error", resumableWorkflow: recoverableWorkflow() }),
   );
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
     const html = harness.document.root.innerHTML;
     assert.ok(html.includes("result-empty-sections"), "empty sections are still drawn in full");
     assert.ok(
-      html.includes("Changed files, verification, final ruling and unresolved risks · nothing was recorded"),
+      html.includes("Evidence details · nothing recorded"),
     );
   } finally {
     harness.restore();
@@ -7278,7 +7549,7 @@ test("the chat's run-result card routes to the result instead of reprinting the 
   const harness = bootWebview(
     managerState({ resultsByConversation: { "run-1": failedResultState() } }),
     panelState({
-      resumableWorkflow: recoverableWorkflow(),
+      workflowStatus: "error",
       transcript: [
         { id: "user-1", kind: "prompt", eventType: "user.message", text: "Review the change", createdAt: timestamp },
         { id: "error-1", kind: "error", eventType: "provider.failure", text: "The 'gpt-6-astra' model requires a newer version of Codex.", createdAt: timestamp },
@@ -7295,7 +7566,7 @@ test("the chat's run-result card routes to the result instead of reprinting the 
       1,
       "the chat states the provider's sentence more than once",
     );
-    assert.ok(html.includes("result-summary"));
+    assert.ok(html.includes("run-outcome"));
     assert.ok(html.includes("Lead at Implement"), "the card does not say where the run stopped");
   } finally {
     harness.restore();
@@ -7623,7 +7894,7 @@ test("manual model selection is an explained, closed advanced disclosure", () =>
 
 test("an interrupted result has stopped recovery labels and no failure styling", () => {
   const result = { ...failedResultState(), status: "interrupted", unresolvedRisks: [], finalAssessment: { outcome: "failedBeforeRuling", method: "none", summary: "Stopped by you", producedBy: [] } };
-  const harness = bootWebview(managerState({ resultsByConversation: { "run-1": result } }), panelState({ workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow() }));
+  const harness = bootWebview(managerState({ resultsByConversation: { "run-1": result } }), panelState({ workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow({ outcome: "stoppedByUser" }) }));
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
     const html = harness.document.root.innerHTML;
@@ -7787,4 +8058,111 @@ test("pipeline picker follows catalog prominence, retains custom and selected sp
     assert.equal(harness.messages.at(-1).message.pipelineId, "another-catalog-common");
     assert.equal(harness.document.getElementById("pipeline-picker-list"), null);
   } finally { harness.restore(); }
+});
+
+for (const [running, workflowStatus, label] of [
+  [true, "error", "Failed"],
+  [true, "interrupted", "Interrupted"],
+  [true, "completed", "Completed"],
+  [true, "paused", "Waiting for you"],
+  [false, "paused", "Waiting for you"],
+  [false, "running", "Working"],
+]) {
+  test(`child run status uses the normalized phase: ${String(running)} / ${workflowStatus}`, () => {
+    const child = { ...conversationSummary(), id: "child-1", parentConversationId: "run-1", title: "Child task", running, workflowStatus };
+    const harness = bootWebview(managerState({ conversations: [conversationSummary(), child] }));
+    try {
+      harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+      const row = harness.document.root.querySelector('.child-run[data-conversation="child-1"]');
+      assert.ok(row);
+      assert.equal(row.className.includes("status-running"), label === "Working");
+      const status = label === "Working" ? "running" : workflowStatus;
+      assert.match(harness.document.root.innerHTML, new RegExp(`class="child-run status-${status}"[^>]*data-conversation="child-1"><span class="room-presence status-${status}"></span>[\\s\\S]*?<small>${label}</small></button>`, "u"));
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
+for (const [running, workflowStatus, announcement] of [
+  [true, "error", "Run failed."],
+  [true, "interrupted", "Run interrupted."],
+  [true, "completed", "Run completed."],
+  [true, "paused", "Run paused."],
+  [false, "paused", "Run paused."],
+  [false, "running", "Run started."],
+]) {
+  test(`run announcement uses the normalized phase: ${String(running)} / ${workflowStatus}`, () => {
+    const harness = bootWebview();
+    try {
+      harness.sendWindowMessage({
+        type: "conversation.message",
+        conversationId: "run-1",
+        message: { type: "run.patch", running, workflowStatus },
+      });
+      assert.equal(harness.document.liveStatus.textContent, announcement);
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
+for (const action of ["rename", "duplicate", "archive", "delete"]) {
+  test(`run ${action} dispatches once for an inactive run after a snapshot`, () => {
+    const other = { ...conversationSummary(), id: "run-other", title: "Other run" };
+    const manager = managerState({ conversations: [conversationSummary(), other] });
+    const harness = bootWebview(manager, panelState());
+    try {
+      let control = harness.document.root.querySelector(`[data-action="run-${action}"][data-conversation="run-other"]`);
+      const menu = control.closest("details");
+      menu.open = true;
+      harness.document.root.dispatch("toggle", { target: menu });
+      harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+      control = harness.document.root.querySelector(`[data-action="run-${action}"][data-conversation="run-other"]`);
+      control.click();
+      if (action !== "duplicate") {
+        if (action === "rename") harness.document.getElementById("app-dialog-input").value = "Renamed run";
+        harness.document.root.querySelector('[data-action="dialog-confirm"]').click();
+      }
+      const expected = action === "rename"
+        ? { type: "conversation.rename", conversationId: "run-other", title: "Renamed run" }
+        : action === "archive"
+          ? { type: "conversation.archive", conversationId: "run-other", archived: true }
+          : { type: action === "delete" ? "conversation.close" : "conversation.duplicate", conversationId: "run-other" };
+      assert.deepEqual(harness.messages.filter((message) => message.type === expected.type), [expected]);
+    } finally {
+      harness.restore();
+    }
+  });
+}
+
+test("tab and drawer menus have independent disclosure state", () => {
+  const harness = bootWebview();
+  try {
+    openRunMenu(harness);
+    harness.document.root.querySelector('[data-action="run-drawer-toggle"]').click();
+    const menus = harness.document.root.querySelectorAll(".run-action-menu");
+    const keys = menus.map((menu) => menu.dataset.disclosureKey);
+    assert.equal(new Set(keys).size, keys.length);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Escape closes pipeline tools before closing the editor", () => {
+  const harness = bootWebview();
+  try {
+    harness.document.root.querySelector('[data-action="composer-settings-toggle"]').click();
+    harness.document.root.querySelector('[data-action="pipeline-edit"]').click();
+    const menu = harness.document.root.querySelector('.pipeline-editor .header-action-menu');
+    menu.open = true;
+    harness.document.root.dispatch("toggle", { target: menu });
+    harness.document.root.dispatch("keydown", { key: "Escape", target: menu.querySelector("summary"), preventDefault: () => undefined });
+    assert.ok(harness.document.root.querySelector('.pipeline-editor'));
+    assert.equal(menu.open, false);
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState() });
+    assert.equal(harness.document.root.querySelector('.pipeline-editor .header-action-menu').open, false);
+  } finally {
+    harness.restore();
+  }
 });

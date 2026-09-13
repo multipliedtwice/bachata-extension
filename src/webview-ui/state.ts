@@ -86,7 +86,10 @@ const announceRunTransition = (
   running: boolean,
   status: WorkflowStatus,
 ): void => {
-  if (!previousRunning && running) {
+  const previousPhase = bachataWebviewBehavior.runPhase(previousRunning, previousStatus);
+  const phase = bachataWebviewBehavior.runPhase(running, status);
+  if (previousPhase === phase) return;
+  if (phase === "running") {
     announceStatus("Run started.");
     return;
   }
@@ -449,7 +452,7 @@ const announceManagerTransition = (previous: ManagerState, next: ManagerState): 
   if (previousConversation && nextConversation) {
     if (!previousConversation.waitingForResources && nextConversation.waitingForResources) {
       announceStatus("Run is waiting for shared capacity.");
-    } else if (previousConversation.waitingForResources && !nextConversation.waitingForResources && nextConversation.running) {
+    } else if (previousConversation.waitingForResources && !nextConversation.waitingForResources && bachataWebviewBehavior.runPhase(nextConversation.running, nextConversation.workflowStatus) === "running") {
       announceStatus("Shared capacity is available. Run started.");
     } else {
       announceRunTransition(

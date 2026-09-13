@@ -234,7 +234,11 @@ const pipelinePickerHtml = (panel: PanelState): string => {
   const disabled = !panel.pipelineMutable || selection !== undefined;
   const selectedId = selection?.pipelineId ?? panel.selectedPipelineId;
   const selected = panel.pipelines.find((pipeline) => pipeline.id === selectedId);
-  const label = selected?.name ?? (state.panels.has(conversationId) ? "No pipeline available" : "Loading pipelines…");
+  const label = selected?.name ?? (state.panels.has(conversationId)
+    ? "No pipeline available"
+    : state.manager.readOnly
+      ? "Pipeline unavailable"
+      : "Loading pipelines…");
   const title = selection
     ? `Switching to ${selection.pipelineId}…`
     : panel.pipelineMutationReason ?? "Choose the pipeline this run uses";
@@ -474,10 +478,10 @@ const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boo
       <div class="agents-slot-title"><strong>${escapeHtml(slot.responsibility)}</strong><small>${escapeHtml(slot.overridden ? "reassigned" : "pipeline default")}</small></div>
       <span class="agents-slot-actual">${escapeHtml(actual)}</span>
     </div>
-    <div class="agents-choices" role="radiogroup" aria-label="Provider for ${escapeAttribute(slot.responsibility)}">${defaultChoice}${cliChoices}${browserChoice}</div>
+    <details class="agents-slot-settings" ${disclosureAttributes(`agents:settings:${slot.agentId}`)}><summary>Change provider or model</summary><div class="agents-choices" role="radiogroup" aria-label="Provider for ${escapeAttribute(slot.responsibility)}">${defaultChoice}${cliChoices}${browserChoice}</div>
     ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
     ${showSessions && !isBrowser ? "" : agentSlotModelHtml(slot, panel, locked)}
-    ${statusError}
+    </details>${statusError}
   </article>`;
 };
 
@@ -532,13 +536,14 @@ const agentsPickerHtml = (panel: PanelState): string => {
     return `<div class="agents-picker" data-agents-picker>${button}</div>`;
   }
   const locked = lockReason !== undefined;
+  const interpreter = localInterpreterHtml(panel, locked);
   const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="Agent assignments">
-    <div class="agents-popover-head"><div><h2>Agents</h2><p>Assign a provider to each role for this conversation's next run. The saved pipeline is unchanged.</p></div>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">Reset to defaults</button>` : ""}</div>
+    <div class="agents-popover-head"><div><h2>Agents</h2><p>Assignments for the next run.</p></div><button type="button" class="icon-button" data-action="agents-picker-toggle" aria-label="Close agent assignments">×</button>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">Reset to defaults</button>` : ""}</div>
     ${locked ? `<p class="agents-locked">${escapeHtml(lockReason)}</p>` : ""}
     ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>Discovering agents on this machine…</p>` : ""}
     ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
     <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, locked)).join("")}</div>
-    ${localInterpreterHtml(panel, locked)}
+    ${interpreter ? `<details class="agents-slot-settings" ${disclosureAttributes("agents:local-settings")}><summary>Local interpreter settings</summary>${interpreter}</details>` : ""}
   </div>`;
   return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;
 };
@@ -555,12 +560,12 @@ const composerSettingsPanelHtml = (panel: PanelState, draft: ConversationDraft):
   const editTitle = selection
     ? `Switching to ${selection.pipelineId}…`
     : panel.pipelineMutationReason ?? "Edit the selected pipeline";
-  const running = panel.running && draft.delivery === "immediate";
+  const running = runPhaseOf(panel) === "running" && draft.delivery === "immediate";
   const advancedControls = `<div class="composer-advanced" id="composer-advanced"><label class="iteration-control"><span>Max iterations</span><input id="pipeline-iterations" type="number" min="1" max="${String(state.manager.maxPipelineIterations)}" value="${String(draft.iterationCount)}" ${running ? "disabled" : ""}></label>
         <label class="iteration-control"><span>Mode</span><select id="pipeline-iteration-mode" ${running ? "disabled" : ""}><option value="fixed" ${draft.iterationMode === "fixed" ? "selected" : ""}>Fixed</option><option value="untilClean" ${draft.iterationMode === "untilClean" ? "selected" : ""}>Until clean</option></select></label>
         ${draft.iterationMode === "untilClean" ? `<label class="iteration-control"><span>Clean passes</span><input id="pipeline-clean-passes" type="number" min="1" max="10" value="${String(draft.requiredCleanPasses)}" ${running ? "disabled" : ""}></label>` : ""}
         <label class="delivery-control"><span>Delivery</span><select id="message-delivery"><option value="immediate" ${draft.delivery === "immediate" ? "selected" : ""}>Run now</option><option value="queue" ${draft.delivery === "queue" ? "selected" : ""}>Queue</option><option value="interrupt" ${draft.delivery === "interrupt" ? "selected" : ""}>Interrupt current run</option></select></label></div>`;
-  return `<div class="composer-settings" id="composer-settings">
+  return `<div class="composer-settings" id="composer-settings" role="dialog" aria-label="Pipeline settings and run options"><div class="composer-settings-head"><h2>Run settings</h2><button class="icon-button" data-action="composer-settings-toggle" aria-label="Close run settings">×</button></div>
     <section class="composer-settings-section">
       <h3>Pipeline</h3>
       <div class="compact-actions">
@@ -581,7 +586,7 @@ const composerSettingsPanelHtml = (panel: PanelState, draft: ConversationDraft):
 const composerPrimaryActionHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const waiting = conversationById(activeId())?.waitingForResources === true;
   const pending = pendingInterrupts.has(activeId());
-  if ((panel.running || panel.workflowStatus === "running" || waiting) && draft.prompt.trim().length === 0 && draft.selectedAttachmentIds.size === 0 && draft.pendingAttachments.size === 0) {
+  if ((runPhaseOf(panel) === "running" || waiting) && draft.prompt.trim().length === 0 && draft.selectedAttachmentIds.size === 0 && draft.pendingAttachments.size === 0) {
     const label = waiting ? "Cancel wait" : "Stop";
     return `<button data-action="interrupt-run" class="send-button icon-send composer-stop" aria-label="${label}" title="${label}"${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>${pending ? '<span class="sr-only" role="status">Stopping…</span>' : ""}`;
   }

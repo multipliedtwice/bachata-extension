@@ -49,6 +49,7 @@ const READ_ONLY_SAFE_ACTIONS = new Set([
   "dialog-cancel",
   "dialog-backdrop",
   "noop",
+  "workspace-ownership",
 ]);
 
 const readOnlyHolder = (ownership: ReadOnlyOwnership): string =>
@@ -64,7 +65,7 @@ const readOnlyExplanation = (ownership: ReadOnlyOwnership): string => {
   const seen = ownership.holderLastSeenSecondsAgo === undefined
     ? ""
     : ` It was active ${String(ownership.holderLastSeenSecondsAgo)}s ago.`;
-  return `${readOnlyReason(ownership)}${seen} To take ownership, run the ${ownership.retryCommand} command from the Command Palette.`;
+  return `${readOnlyReason(ownership)}${seen}`;
 };
 
 // A control the reader cannot use keeps its place in the tab order, so the reason it is dead is
@@ -74,7 +75,7 @@ const READ_ONLY_EXPLANATION_ID = "read-only-explanation";
 const readOnlyBannerHtml = (ownership: ReadOnlyOwnership | undefined): string => {
   if (ownership === undefined) return "";
   const explanation = readOnlyExplanation(ownership);
-  return `<div class="read-only-banner" ${liveRegionAttributes("read-only-banner", "status", explanation)} data-read-only-banner="true"><strong>Read-only</strong><span id="${READ_ONLY_EXPLANATION_ID}">${escapeHtml(explanation)}</span></div>`;
+  return `<div class="read-only-banner" ${liveRegionAttributes("read-only-banner", "status", explanation)} data-read-only-banner="true"><strong>Read-only</strong><span id="${READ_ONLY_EXPLANATION_ID}">${escapeHtml(explanation)}</span><button type="button" data-action="workspace-ownership" title="${escapeAttribute(ownership.retryCommand)}">Take ownership</button></div>`;
 };
 
 const readOnlyControlAction = (control: HTMLElement): string | undefined => {

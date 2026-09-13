@@ -219,19 +219,12 @@ const clonePipeline = (pipeline: PipelineDefinition): PipelineDefinition =>
   structuredClone(pipeline);
 
 const jsonDetailsHtml = (title: string, value: unknown, key = title): string =>
-  `<details class="activity-details" ${disclosureAttributes(`json:${key}`)}><summary><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i>${escapeHtml(title)}</summary>${codeBlockHtml(safeJson(value), "json")}</details>`;
+  bachataWebviewBehavior.hasDetail(value)
+    ? `<details class="activity-details" ${disclosureAttributes(`json:${key}`)}><summary><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i>${escapeHtml(title)}</summary>${codeBlockHtml(safeJson(value), "json")}</details>`
+    : "";
 
-const statusLabel = (status: WorkflowStatus): string => {
-  const labels: Record<WorkflowStatus, string> = {
-    idle: "Ready",
-    running: "Working",
-    paused: "Waiting for you",
-    completed: "Completed",
-    interrupted: "Interrupted",
-    error: "Needs attention",
-  };
-  return labels[status] ?? status;
-};
+const statusLabel = (status: WorkflowStatus): string =>
+  bachataWebviewBehavior.runStatusPresentation(bachataWebviewBehavior.runPhase(false, status)).label;
 
 const gateActionLabel = (action: HumanGateAction): string => {
   const labels: Record<HumanGateAction, string> = {
@@ -268,7 +261,7 @@ const browserActionCard = (panel: PanelState, entry: TranscriptEntry): string =>
     <div class="action-summary">${renderMarkdown(entry.text)}</div>
     ${actionValue === undefined ? "" : jsonDetailsHtml("Action", actionValue, `${entry.id}:action`)}
     ${resultValue === undefined ? "" : jsonDetailsHtml("Result", resultValue, `${entry.id}:result`)}
-    <time>${escapeHtml(messageTime(entry.createdAt))}</time>
+    <time datetime="${escapeAttribute(entry.createdAt)}" title="${escapeAttribute(formatDateTime(entry.createdAt))}">${escapeHtml(messageTime(entry.createdAt))}</time>
   </article>`;
 };
 
@@ -376,7 +369,7 @@ const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOn
   }
   if (entry.eventType === "user.message") {
     return `<article class="message-row user-row" data-entry="${escapeAttribute(entry.id)}">
-      <div class="message user-message"><div class="message-author">You</div><div class="message-text markdown">${renderMarkdown(entry.text)}</div><time>${escapeHtml(messageTime(entry.createdAt))}</time></div>
+      <div class="message user-message"><div class="message-author">You</div><div class="message-text markdown">${renderMarkdown(entry.text)}</div><time datetime="${escapeAttribute(entry.createdAt)}" title="${escapeAttribute(formatDateTime(entry.createdAt))}">${escapeHtml(messageTime(entry.createdAt))}</time></div>
     </article>`;
   }
   if (entry.agentId && ["answer", "interrupted", "error"].includes(entry.kind)) {
@@ -390,17 +383,26 @@ const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOn
         <div class="message-text markdown">${entry.eventType === "provider.recovery" ? "" : renderMarkdown(entry.text || fallback)}</div>
         ${entry.eventType === "provider.recovery" ? providerRecoveryHtml(entry) : ""}
         ${entry.eventType === "browser.response" ? capturedAssetsHtml(entry, readOnly) : ""}
-        ${entry.eventType !== "provider.recovery" && (entry.step || entry.data !== undefined) ? jsonDetailsHtml(entry.eventType === "provider.failure" ? "Technical detail" : entry.step ? `Activity · ${entry.step}` : "Activity", entry.data ?? null, `${entry.id}:activity`) : ""}
-        <time>${escapeHtml(messageTime(entry.createdAt))}</time>
+        ${entry.eventType === "provider.recovery" ? "" : jsonDetailsHtml(entry.eventType === "provider.failure" ? "Technical detail" : entry.step ? `Activity · ${entry.step}` : "Activity", entry.data, `${entry.id}:activity`)}
+        <time datetime="${escapeAttribute(entry.createdAt)}" title="${escapeAttribute(formatDateTime(entry.createdAt))}">${escapeHtml(messageTime(entry.createdAt))}</time>
       </div>
     </article>`;
+  }
+  const preflight = preflightRecordOf(entry);
+  if (preflight !== undefined) {
+    return `<article class="system-message system-error run-preflight-failure" data-entry="${escapeAttribute(entry.id)}">
+    <p class="run-preflight-text">${escapeHtml(entry.text)}</p>
+    ${readOnly ? "" : preflightActionsHtml(preflight)}
+    ${preflightDetailsHtml(preflight, `preflight:${entry.id}`)}
+    <time datetime="${escapeAttribute(entry.createdAt)}" title="${escapeAttribute(formatDateTime(entry.createdAt))}">${escapeHtml(messageTime(entry.createdAt))}</time>
+  </article>`;
   }
   const exactPrompt = entry.eventType === "agent.prompt";
   return `<article class="system-message ${entry.kind === "error" ? "system-error" : ""} ${exactPrompt ? "exact-prompt" : ""}" data-entry="${escapeAttribute(entry.id)}">
     <div class="activity-kicker">${escapeHtml(eventLabel(entry))}${entry.step ? ` · ${escapeHtml(entry.step)}` : ""}</div>
     ${exactPrompt ? `<details ${disclosureAttributes(`prompt:${entry.id}`)}><summary>Exact prompt</summary><div class="markdown exact-prompt-body">${renderMarkdown(entry.text)}</div></details>` : `<div class="markdown">${renderMarkdown(entry.text)}</div>`}
     ${entry.data === undefined ? "" : jsonDetailsHtml(entry.eventType === "provider.failure" ? "Technical detail" : "Structured data", entry.data, `${entry.id}:structured`)}
-    <time>${escapeHtml(messageTime(entry.createdAt))}</time>
+    <time datetime="${escapeAttribute(entry.createdAt)}" title="${escapeAttribute(formatDateTime(entry.createdAt))}">${escapeHtml(messageTime(entry.createdAt))}</time>
   </article>`;
 };
 
@@ -437,9 +439,46 @@ const isRunInformationEntry = (entry: TranscriptEntry): boolean => {
   return true;
 };
 
-const runInformationHtml = (panel: PanelState, entries: TranscriptEntry[], readOnly: boolean): string => {
+const infoEntryKind = (entry: TranscriptEntry): string => {
+  if (entry.eventType === "agent.prompt") return "Prompt";
+  const label = eventLabel(entry);
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+};
+
+/**
+ * One recorded entry, identified by who it belongs to and where. Two prompts with the same text
+ * are two entries: each names its participant, its step and, when a participant was prompted more
+ * than once in that step, which turn it was.
+ */
+const runInformationEntryHtml = (
+  panel: PanelState,
+  entry: TranscriptEntry,
+  turns: Record<string, { turn: number; of: number }>,
+): string => {
+  const who = entry.agentId === undefined ? undefined : panel.agents[entry.agentId]?.name ?? entry.agentId;
+  const turn = turns[entry.id];
+  const context = [
+    entry.step,
+    turn !== undefined && turn.of > 1 ? `turn ${String(turn.turn)} of ${String(turn.of)}` : undefined,
+  ].filter((part): part is string => Boolean(part)).join(" · ");
+  const promptName = ["Exact prompt", who === undefined ? undefined : `for ${who}`].filter(Boolean).join(" ");
+  const body = entry.eventType === "agent.prompt"
+    ? `<details class="info-entry-prompt" ${disclosureAttributes(`prompt:${entry.id}`)}><summary id="${escapeAttribute(`prompt-summary-${entry.id}`)}" aria-label="${escapeAttribute(context ? `${promptName}, ${context}` : promptName)}">Exact prompt</summary><div class="markdown exact-prompt-body">${renderMarkdown(entry.text)}</div></details>`
+    : entry.text.trim()
+      ? `<div class="markdown info-entry-text">${renderMarkdown(entry.text)}</div>`
+      : "";
+  return `<article class="info-entry" data-entry="${escapeAttribute(entry.id)}">
+    <div class="info-entry-head"><span class="info-entry-kind">${escapeHtml(infoEntryKind(entry))}</span>${who === undefined ? "" : `<span class="info-entry-who">${escapeHtml(who)}</span>`}${context ? `<span class="info-entry-context">${escapeHtml(context)}</span>` : ""}<time datetime="${escapeAttribute(entry.createdAt)}" title="${escapeAttribute(formatDateTime(entry.createdAt))}">${escapeHtml(messageTime(entry.createdAt))}</time></div>
+    ${body}
+    ${jsonDetailsHtml("Structured data", entry.data, `${entry.id}:structured`)}
+  </article>`;
+};
+
+const runInformationHtml = (panel: PanelState, entries: TranscriptEntry[]): string => {
   if (entries.length === 0) return "";
-  return `<details class="info-disclosure run-information" ${disclosureAttributes("run-information")}><summary><i class="codicon codicon-info" aria-hidden="true"></i> Run information · ${String(entries.length)} recorded ${entries.length === 1 ? "entry" : "entries"}</summary><div class="run-information-body">${entries.map((entry) => transcriptMessageHtml(panel, entry, readOnly)).join("")}</div></details>`;
+  const turns = bachataWebviewBehavior.promptTurns(entries);
+  const count = String(entries.length);
+  return `<details class="info-disclosure run-information" ${disclosureAttributes("run-information")}><summary id="run-information-summary"><i class="codicon codicon-info" aria-hidden="true"></i><span class="run-information-label">Run information</span><span class="info-count" aria-hidden="true">${count}</span><span class="sr-only">, ${count} ${entries.length === 1 ? "entry" : "entries"}</span></summary><div class="run-information-body">${entries.map((entry) => runInformationEntryHtml(panel, entry, turns)).join("")}</div></details>`;
 };
 
 const liveMessagesHtml = (panel: PanelState): string =>
@@ -461,16 +500,9 @@ const queueAudience = (panel: PanelState, message: QueuedMessage): string => {
 };
 
 const queueHtml = (panel: PanelState): string => {
-  if (panel.queuedMessages.length === 0 && !panel.resumableWorkflow) {
+  if (panel.queuedMessages.length === 0) {
     return "";
   }
-  const recoveryBusy = panel.running || panel.workflowStatus === "running";
-  const recoveryBlocked = recoveryBusy
-    ? ` disabled title="Interrupt the active run before restarting it"`
-    : "";
-  const recovery = panel.resumableWorkflow
-    ? `<article class="recovery-card"><div><strong>Recoverable pipeline</strong><span>${escapeHtml(panel.resumableWorkflow.pipelineName)} · stopped at step ${String(panel.resumableWorkflow.nextStepIndex + 1)} of ${String(panel.resumableWorkflow.totalSteps)}</span></div><div class="compact-actions"><button class="primary" data-action="workflow-restart"${recoveryBlocked}>Restart pipeline</button><button data-action="workflow-resume"${recoveryBlocked}>${panel.workflowStatus === "interrupted" ? "Resume stopped step" : "Retry failed step"}</button><button data-action="workflow-discard"${recoveryBlocked}>Discard</button></div></article>`
-    : "";
   const queued = panel.queuedMessages
     .map((message, index) => {
       const headline = message.kind === "pipeline"
@@ -482,7 +514,7 @@ const queueHtml = (panel: PanelState): string => {
     })
     .join("");
   const queueBlocked = Boolean(panel.queuedMessages[0]?.blockedReason);
-  return `<section class="queue-panel">${recovery}${panel.queuedMessages.length > 0 ? `<div class="queue-heading"><strong>Queued messages</strong>${panel.queuePaused && !queueBlocked ? `<button data-action="queue-resume">Resume queue</button>` : ""}</div>${queued}` : ""}</section>`;
+  return `<section class="queue-panel"><div class="queue-heading"><strong>Queued messages</strong>${panel.queuePaused && !queueBlocked ? `<button data-action="queue-resume">Resume queue</button>` : ""}</div>${queued}</section>`;
 };
 
 const attachmentStripHtml = (panel: PanelState, draft: ConversationDraft): string => {
@@ -501,8 +533,8 @@ const attachmentStripHtml = (panel: PanelState, draft: ConversationDraft): strin
   return pending || stored ? `<div class="attachment-strip-shell"><div class="attachment-strip">${pending}${stored}</div></div>` : "";
 };
 
-const runActionsMenuHtml = (conversation: ConversationSummary): string =>
-  `<details class="run-action-menu" ${disclosureAttributes(`run-menu:${conversation.id}`)}><summary data-action="run-menu-toggle" aria-label="Actions for ${escapeAttribute(conversation.title)}">•••</summary><div class="run-action-menu-items">
+const runActionsMenuHtml = (conversation: ConversationSummary, surface = "tab"): string =>
+  `<details class="run-action-menu" ${disclosureAttributes(`run-menu:${surface}:${conversation.id}`)}><summary data-action="run-menu-toggle" aria-label="Actions for ${escapeAttribute(conversation.title)}">•••</summary><div class="run-action-menu-items">
     ${conversation.archived ? "" : `<button data-action="run-rename" data-conversation="${escapeAttribute(conversation.id)}">Rename</button>`}
     <button data-action="run-duplicate" data-conversation="${escapeAttribute(conversation.id)}">Duplicate</button>
     <button data-action="${conversation.archived ? "run-unarchive" : "run-archive"}" data-conversation="${escapeAttribute(conversation.id)}">${conversation.archived ? "Unarchive" : "Archive"}</button>
@@ -516,23 +548,21 @@ const conversationStatus = (conversation: ConversationSummary): { status: string
   if (conversation.waitingForResources) {
     return { status: "paused", label: "Waiting for capacity" };
   }
-  if (conversation.running) {
-    return { status: "running", label: statusLabel("running") };
-  }
-  return { status: conversation.workflowStatus, label: statusLabel(conversation.workflowStatus) };
+  const phase = bachataWebviewBehavior.runPhase(conversation.running, conversation.workflowStatus);
+  const outcome = state.panels.get(conversation.id)?.resumableWorkflow?.outcome;
+  return {
+    status: phase === "running" ? "running" : conversation.workflowStatus,
+    label: bachataWebviewBehavior.runStatusPresentation(phase, outcome).label,
+  };
 };
 
-const runStatusIcon = (status: string): string => {
-  const icons: Record<string, string> = {
-    running: "sync codicon-modifier-spin",
-    paused: "clock",
-    error: "error",
-    interrupted: "debug-pause",
-    completed: "pass",
-    idle: "circle-outline",
-    archived: "archive",
-  };
-  return icons[status] ?? "circle-outline";
+const runStatusIcon = (status: string, outcome?: string): string => {
+  if (status === "archived") return "archive";
+  const presentation = bachataWebviewBehavior.runStatusPresentation(
+    bachataWebviewBehavior.runPhase(false, status),
+    outcome,
+  );
+  return presentation.spinning ? `${presentation.icon} codicon-modifier-spin` : presentation.icon;
 };
 
 const pipelineNameFor = (pipelineId: string | undefined): string | undefined => {
@@ -599,7 +629,7 @@ const tabsHtml = (): string => {
       const { status, label } = conversation.archived ? { status: "archived", label: "Archived" } : conversationStatus(conversation);
       return `<div class="run-tab ${selected ? "selected" : ""} ${conversation.archived ? "archived" : ""}">
         <button class="run-tab-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" title="${escapeAttribute(runTabTooltip(conversation, label))}" ${selected ? 'aria-current="page"' : ""}>
-          <i class="codicon codicon-${escapeAttribute(runStatusIcon(status))} run-tab-status status-${escapeAttribute(status)}" aria-hidden="true"></i>
+          <i class="codicon codicon-${escapeAttribute(runStatusIcon(status, state.panels.get(conversation.id)?.resumableWorkflow?.outcome))} run-tab-status status-${escapeAttribute(status)}" aria-hidden="true"></i>
           <span>${escapeHtml(runTabLabel(conversation))}</span>
           <span class="sr-only">${escapeHtml(label)}</span>
           ${conversation.iterationCount > 1 ? `<small>${String(conversation.activeIteration)}/${String(conversation.iterationCount)}</small>` : ""}
@@ -656,7 +686,7 @@ const runDrawerHtml = (): string => {
           <span><strong>${escapeHtml(conversation.title)}</strong><small>${escapeHtml(label)}${childCount > 0 ? ` · ${String(childCount)} task run${childCount === 1 ? "" : "s"}` : ""}</small></span>
           <time title="${escapeAttribute(formatDateTime(conversation.updatedAt))}">${escapeHtml(relativeTime(conversation.updatedAt))}</time>
         </button>
-        ${runActionsMenuHtml(conversation)}
+        ${runActionsMenuHtml(conversation, "drawer")}
       </article>`;
     }).join("")}</div>
   </aside></div>`;
@@ -675,7 +705,7 @@ const recentActivityHtml = (): string => {
         ? 1
         : conversation.workflowStatus === "error"
           ? 2
-          : conversation.running
+          : bachataWebviewBehavior.runPhase(conversation.running, conversation.workflowStatus) === "running"
             ? 3
             : 4;
   const items = state.manager.conversations
@@ -783,10 +813,10 @@ const participantsHtml = (panel: PanelState, readOnly = false): string => {
       const provider = browserProviderForAdapterType(agent.adapterType);
       const providerSessions = provider ? sessions.filter((session) => session.provider === provider) : [];
       const browserSelect = provider
-        ? `<label class="field"><span>Browser conversation</span><select data-action="browser-session" data-agent="${escapeAttribute(agent.id)}" ${panel.running || readOnly ? "disabled" : ""}><option value="">Not bound</option>${providerSessions.map((session) => `<option value="${escapeAttribute(session.id)}" ${agent.sessionId === session.id ? "selected" : ""} ${session.status !== "ready" ? "disabled" : ""}>${escapeHtml(session.title ?? session.conversationUrl)} · ${escapeHtml(browserSessionCapabilityLabel(session))}</option>`).join("")}</select></label>`
+        ? `<label class="field"><span>Browser conversation</span><select data-action="browser-session" data-agent="${escapeAttribute(agent.id)}" ${runPhaseOf(panel) === "running" || readOnly ? "disabled" : ""}><option value="">Not bound</option>${providerSessions.map((session) => `<option value="${escapeAttribute(session.id)}" ${agent.sessionId === session.id ? "selected" : ""} ${session.status !== "ready" ? "disabled" : ""}>${escapeHtml(session.title ?? session.conversationUrl)} · ${escapeHtml(browserSessionCapabilityLabel(session))}</option>`).join("")}</select></label>`
         : "";
       const roles = Object.entries(panel.roles).filter(([, id]) => id === agent.id).map(([role]) => role).join(", ");
-      return `<article class="participant-card"><div class="participant-heading">${avatarHtml(agent.id, agent.name, "participant-avatar")}<div><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.adapterType)}</small></div><span class="agent-status status-${escapeAttribute(agent.status)}">${escapeHtml(agentStatusLabels[agent.status] ?? agent.status)}</span></div>${agent.error ? `<p class="error">${escapeHtml(agent.error)}</p>` : ""}${browserSelect}<details class="participant-more" ${disclosureAttributes(`participant:${agent.id}`)}><summary>Details</summary><dl><dt>Version</dt><dd>${escapeHtml(agent.version ?? "Not reported")}</dd><dt>Session</dt><dd>${escapeHtml(agent.sessionId ?? "Not bound")}</dd><dt>Roles</dt><dd>${escapeHtml(roles || "None")}</dd></dl><button data-action="session-reset" data-agent="${escapeAttribute(agent.id)}" ${panel.running || readOnly ? "disabled" : ""}>Reset session</button></details></article>`;
+      return `<article class="participant-card"><div class="participant-heading">${avatarHtml(agent.id, agent.name, "participant-avatar")}<div><strong>${escapeHtml(agent.name)}</strong><small>${escapeHtml(agent.adapterType)}</small></div><span class="agent-status status-${escapeAttribute(agent.status)}">${escapeHtml(agentStatusLabels[agent.status] ?? agent.status)}</span></div>${agent.error ? `<p class="error">${escapeHtml(agent.error)}</p>` : ""}${browserSelect}<details class="participant-more" ${disclosureAttributes(`participant:${agent.id}`)}><summary>Details</summary><dl><dt>Version</dt><dd>${escapeHtml(agent.version ?? "Not reported")}</dd><dt>Session</dt><dd>${escapeHtml(agent.sessionId ?? "Not bound")}</dd><dt>Roles</dt><dd>${escapeHtml(roles || "None")}</dd></dl><button data-action="session-reset" data-agent="${escapeAttribute(agent.id)}" ${runPhaseOf(panel) === "running" || readOnly ? "disabled" : ""}>Reset session</button></details></article>`;
     })
     .join("");
 };
@@ -1060,7 +1090,8 @@ const focusAfterRender = (focus: () => void): void => {
 
 const render = (): void => {
   for (const id of pendingInterrupts) {
-    if (!state.panels.get(id)?.running && !conversationById(id)?.waitingForResources) pendingInterrupts.delete(id);
+    const panel = state.panels.get(id);
+    if ((!panel || runPhaseOf(panel) !== "running") && !conversationById(id)?.waitingForResources) pendingInterrupts.delete(id);
   }
   if (!state.hydrated) {
     root.innerHTML = `<div class="app-shell">${tabsHtml()}<div class="workspace-shell"><main class="room-empty" aria-busy="true"><p class="muted">Loading runs…</p></main></div></div>`;
@@ -1131,6 +1162,12 @@ const render = (): void => {
   revealSelectedTab();
   updateTabStripEdges();
   scrollPickerActiveOptionIntoView();
+  root.querySelectorAll<HTMLDetailsElement>(transientMenuSelector).forEach((menu) => {
+    if (menu.open) {
+      const summary = menu.querySelector<HTMLElement>("summary");
+      if (summary) positionRunMenu(summary);
+    }
+  });
   const focus = pendingRenderFocus;
   pendingRenderFocus = undefined;
   focus?.();
@@ -1519,6 +1556,7 @@ const startPipelineDelete = (
 // Opening a menu, and marking notifications read, leave what is behind the menu as it was; every
 // other action changes it, so the menu that issued the action is dismissed with the rest.
 const menuPreservingActions = new Set(["run-menu-toggle", "notification-read-all"]);
+const dialogMenuActions = new Set(["task-reset", "run-rename", "run-archive", "run-delete", "workflow-discard"]);
 
 const dismissTransientMenus = (origin: Element | null): void => {
   // An item chosen from a menu changes what is behind it, so that menu is dismissed too.
@@ -1538,7 +1576,7 @@ const dismissTransientMenus = (origin: Element | null): void => {
   });
   // Host-only actions leave the room in place. Keep focus reachable after their menu closes;
   // actions which open a view/dialog subsequently move focus to that destination.
-  if (chosenMenu && chosenMenu !== keptMenu && chosen?.dataset.action !== "task-reset") chosenMenu.querySelector<HTMLElement>("summary")?.focus();
+  if (chosenMenu && chosenMenu !== keptMenu && !dialogMenuActions.has(chosen?.dataset.action ?? "")) chosenMenu.querySelector<HTMLElement>("summary")?.focus();
   if (
     state.composerSettingsOpen &&
     !origin?.closest(".composer-settings, .composer-settings-button") &&
@@ -1716,6 +1754,10 @@ document.addEventListener("keydown", (event) => {
       }
     }
   }
+  if (event.key === "Escape" && !state.dialog && closeActiveMenu()) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape" && state.dialog) {
     event.preventDefault();
     closeDialog();
@@ -1733,16 +1775,6 @@ document.addEventListener("keydown", (event) => {
     state.composerSettingsOpen = false;
     scheduleRender();
     requestAnimationFrame(() => root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.focus());
-  } else if (event.key === "Escape") {
-    const open = Array.from(root.querySelectorAll<HTMLDetailsElement>(transientMenuSelector))
-      .filter((menu) => menu.open);
-    if (open.length > 0) {
-      event.preventDefault();
-      open.forEach((menu) => {
-        menu.open = false;
-      });
-      (open[0]?.querySelector<HTMLElement>("summary"))?.focus();
-    }
   }
 });
 
@@ -2345,7 +2377,8 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     pruneResultSelections(message.state.conversations);
     for (const conversation of message.state.conversations) {
       const draft = state.drafts.get(conversation.id);
-      if (draft && !state.panels.get(conversation.id)?.running) {
+      const panel = state.panels.get(conversation.id);
+      if (draft && (!panel || runPhaseOf(panel) !== "running")) {
         draft.iterationCount = conversation.iterationCount;
       }
     }

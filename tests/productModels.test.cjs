@@ -338,7 +338,7 @@ test("a persisted run keeps its own run binding when merged with a later project
     retainedWorktree: "/work/.bachata/runs/run-a/integration",
     retainedRunId: "run-a",
   });
-  const live = projectRunResult({ status: "idle", transcript: [] });
+  const live = projectRunResult({ status: "completed", transcript: [] });
   assert.equal(mergeRunResults(persisted, live).retainedRunId, "run-a");
 });
 
@@ -501,7 +501,7 @@ test("the same execution still merges persisted evidence with a thinner projecti
     expectations: { changedFiles: true, verification: true, finalRuling: false },
   });
   const live = projectRunResult({
-    status: "idle",
+    status: "completed",
     transcript: [],
     executionRef: "E7",
     expectations: { changedFiles: true, verification: true, finalRuling: false },
@@ -664,20 +664,21 @@ test("a failed recheck never leaves a merged run completed", () => {
   assert.equal(merged.finalAssessment.outcome, "verificationFailed");
 });
 
-test("a run that has not completed has no completed assessment", () => {
-  for (const status of ["interrupted", "error", "paused"]) {
+test("a run that has not completed has no completed assessment, and a live run has no result at all", () => {
+  const { resultStatusOf } = require("../dist/results/projectResult.js");
+  for (const [status, summary] of [
+    ["interrupted", "Stopped before a final assessment was produced"],
+    ["error", "The run failed before a final assessment was produced"],
+  ]) {
     const result = verifiedRun({
       status,
       checks: [{ command: "bachata:project-checks", status: "passed" }],
     });
     assert.equal(result.finalAssessment.outcome, "inconclusive");
+    assert.equal(result.finalAssessment.summary, summary);
   }
-  for (const status of ["idle", "running"]) {
-    const result = verifiedRun({
-      status,
-      checks: [{ command: "bachata:project-checks", status: "passed" }],
-    });
-    assert.equal(result.finalAssessment.outcome, "notApplicable");
+  for (const status of ["idle", "running", "paused"]) {
+    assert.equal(resultStatusOf(status), undefined, `${status} was given a result status`);
   }
 });
 
@@ -732,7 +733,7 @@ test("an inconclusive run needs an explicit override, and a blocked run needs a 
     checks: [{ command: "bachata:project-checks", status: "passed" }],
   });
   assert.equal(interrupted.applyBlockedReason, undefined);
-  assert.match(interrupted.applyOverrideReason, /interrupted/u);
+  assert.match(interrupted.applyOverrideReason, /Stopped before a final assessment/u);
 });
 
 test("apply state survives persistence and merge", () => {
@@ -1112,11 +1113,11 @@ test("a ruling brings its own attribution, never the stored run's", () => {
   assert.equal(kept.rulingBy, "claude", "a stored ruling was reattributed to whoever patched it");
 });
 
-test("an idle patch does not overwrite a status the stored run had reached", () => {
-  // A projection with nothing in it reports idle. Letting that overwrite a finished run would
-  // walk a completed run backwards every time a thin projection arrived.
+test("the live projection's ended status is the merged status", () => {
+  // An idle room is never projected: the manager projects a reloaded room with the status its
+  // persisted result recorded, so a live projection always carries an ended status.
   assert.equal(
-    mergeRunResults({ ...mergeBase, status: "completed" }, { ...mergeBase, status: "idle" }).status,
+    mergeRunResults({ ...mergeBase, status: "completed" }, { ...mergeBase, status: "completed" }).status,
     "completed",
   );
   assert.equal(

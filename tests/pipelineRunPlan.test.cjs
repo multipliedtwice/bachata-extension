@@ -29,6 +29,7 @@ const runSettings = {
 
 const workflow = (overrides = {}) =>
   resumableWorkflowFrom({
+    attemptId: "attempt-1",
     pipelineId: "review",
     pipelineName: "Review",
     pipelineHash: "hash-1",
@@ -89,6 +90,8 @@ test("the allowed-path list is copied, not shared with the caller", () => {
 test("the resumable record states the run it can be resumed into", () => {
   const record = workflow();
   assert.deepEqual(record, {
+    attemptId: "attempt-1",
+    outcome: "running",
     runSettings,
     pipelineId: "review",
     pipelineName: "Review",

@@ -336,6 +336,10 @@ window.__executionPanelState = {
   ],
   transcriptTotal: 5,
   resumableWorkflow: {
+    attemptId: "attempt-1",
+    outcome: "failed",
+    failureScope: "step",
+    stepName: "Implement the change and record every repository verification command it ran",
     pipelineId: "custom-b",
     pipelineName: "Implement and review",
     pipelineHash: "b".repeat(64),

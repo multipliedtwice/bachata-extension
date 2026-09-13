@@ -14,16 +14,16 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Extension version | 0.7.1 |
 | Pinned Browser Bridge version | 0.6.7 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 645 |
-| Maintained source manifest SHA-256 (Git-tracked) | 6a29c99088f4ff214aa0dfe3e17dae231215e8917b420d49adbda03e0365a5df |
+| Maintained source files (Git-tracked) | 677 |
+| Maintained source manifest SHA-256 (Git-tracked) | 559157cc2c8b1037708c260c3b6602d89ec1f6abb009da7cde6e72db34c8a0a2 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "Bachata: TODO orchestration" | 21 |
 | Settings in "Bachata: Browser and managed execution" | 41 |
 | Settings in "Bachata: Advanced" | 40 |
 | Contributed commands | 28 |
-| Built-in presets (Git-tracked) | 29 |
-| Test files (Git-tracked) | 197 |
+| Built-in presets (Git-tracked) | 31 |
+| Test files (Git-tracked) | 209 |
 | Declared artifact promotion types | design, recommendation, requirement |
 | Benchmark tasks (Git-tracked) | 4 |
 | Benchmark arms declared (Git-tracked tasks) | 8 |
@@ -32,23 +32,23 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Moderated validation rows | 33 |
 | Moderated rows marked Not performed | 26 |
 | Release-metadata findings (identity stage) | 0 |
-| Release-metadata findings (evidence stage) | 47 |
+| Release-metadata findings (evidence stage) | 48 |
 
 ## Observed on one machine
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 29043917e3d6ba4d15e91702f24b225cf8d86816.
+The working tree was modified, so these values describe the working tree and not commit 5b612f6ced12973f39e781678b20ee4ee5fc1ef9.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 29043917e3d6ba4d15e91702f24b225cf8d86816 |
+| Revision | 5b612f6ced12973f39e781678b20ee4ee5fc1ef9 |
 | Working tree | modified |
-| Maintained source files (working tree, what source:export carries) | 677 |
+| Maintained source files (working tree, what source:export carries) | 685 |
 | Platform | Darwin 24.5.0 arm64 |
 | Node | v23.6.1 |
-| Git | git version 2.15.0 |
-| dist | 8.47 MB |
+| Git | git version 2.55.0 |
+| dist | 8.57 MB |
 | node_modules/typescript | 22.87 MB |
 | node_modules/ts-morph | 1.46 MB |
 | node_modules/@ts-morph | 11.69 MB |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | bachata-vscode-0.7.1.vsix, 12.25 MB, SHA-256 6d653300b77018b71996cd1162ae8d2b73801b6ff41dbf4a1404dc3330e5467e |
+| Staged VSIX | bachata-vscode-0.7.1.vsix, 12.27 MB, SHA-256 536a770ecb65bbeec0e65332e10e606fa96c5045e023fb76fff5667c6e65832f |
 | Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.7.zip, 1.05 MB, SHA-256 b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd |
 | Test run | not collected in this generation |
 

@@ -4,6 +4,14 @@ const test = require("node:test");
 const {
   approvalIsStale,
   discardReturnsToIdle,
+  exposedRecoveryOutcome,
+  failedRunWorkflowStatus,
+  parseRecoveryFailureScope,
+  parseRecoveryRecordOutcome,
+  recoveryFailureScope,
+  recoveryWorkflowStatus,
+  restartSurvivesFolderChange,
+  restoredRecoveryOutcome,
   resultIsStale,
   resumeRefusal,
   taskResetBaseline,
@@ -146,4 +154,50 @@ test("discarding a checkpoint returns only an interrupted or failed run to idle"
   assert.equal(discardReturnsToIdle("idle"), false);
   assert.equal(discardReturnsToIdle("running"), false);
   assert.equal(discardReturnsToIdle("completed"), false);
+});
+
+test("a checkpoint names how its run ended, and one the host lost mid-run reads as an interruption", () => {
+  for (const value of ["running", "stoppedByUser", "failed"]) {
+    assert.equal(parseRecoveryRecordOutcome(value), value);
+  }
+  for (const value of ["interrupted", undefined, "legacy", 3]) {
+    assert.equal(parseRecoveryRecordOutcome(value), "interrupted");
+  }
+  assert.equal(parseRecoveryFailureScope("run"), "run");
+  assert.equal(parseRecoveryFailureScope("step"), "step");
+  assert.equal(parseRecoveryFailureScope("other"), undefined);
+  assert.equal(parseRecoveryFailureScope(undefined), undefined);
+  assert.equal(restoredRecoveryOutcome("running"), "interrupted");
+  for (const outcome of ["stoppedByUser", "interrupted", "failed"]) {
+    assert.equal(restoredRecoveryOutcome(outcome), outcome);
+  }
+});
+
+test("a live run's checkpoint is never offered as recovery, and an ended one restores its own status", () => {
+  assert.equal(exposedRecoveryOutcome("running"), undefined);
+  for (const outcome of ["stoppedByUser", "interrupted", "failed"]) {
+    assert.equal(exposedRecoveryOutcome(outcome), outcome);
+  }
+  assert.equal(recoveryWorkflowStatus(undefined), "idle");
+  assert.equal(recoveryWorkflowStatus("failed"), "error");
+  assert.equal(recoveryWorkflowStatus("stoppedByUser"), "interrupted");
+  assert.equal(recoveryWorkflowStatus("interrupted"), "interrupted");
+  assert.equal(recoveryWorkflowStatus("running"), "interrupted");
+});
+
+test("a stop by the user stays an interruption and never becomes a failure", () => {
+  assert.equal(failedRunWorkflowStatus("interrupted"), "interrupted");
+  for (const status of ["error", "running", "idle", "completed", "paused"]) {
+    assert.equal(failedRunWorkflowStatus(status), "error", status);
+  }
+});
+
+test("only a failure after a participant started has a step to retry, and only one before any start survives a folder change", () => {
+  assert.equal(recoveryFailureScope(true), "step");
+  assert.equal(recoveryFailureScope(false), "run");
+  assert.equal(restartSurvivesFolderChange({ outcome: "failed", failureScope: "run" }), true);
+  assert.equal(restartSurvivesFolderChange({ outcome: "failed", failureScope: "step" }), false);
+  assert.equal(restartSurvivesFolderChange({ outcome: "failed" }), false);
+  assert.equal(restartSurvivesFolderChange({ outcome: "stoppedByUser", failureScope: "run" }), false);
+  assert.equal(restartSurvivesFolderChange(undefined), false);
 });

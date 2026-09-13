@@ -22,10 +22,14 @@
   --bachata-green-text: color-mix(in srgb, var(--bachata-green) 56%, var(--vscode-foreground));
   --bachata-warn-text: color-mix(in srgb, var(--vscode-notificationsWarningIcon-foreground) 46%, var(--vscode-foreground));
   --bachata-success-text: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground, var(--bachata-green-text)));
-  --bachata-content-max: 1240px;
-  --bachata-font-xs: max(11px, 0.8em);
-  --bachata-font-sm: max(11px, 0.86em);
-  --bachata-font-md: max(12px, 0.92em);
+  --bachata-content-max: 960px;
+  --bachata-font-body: max(14px, var(--vscode-font-size));
+  --bachata-font-heading: max(16px, calc(var(--vscode-font-size) * 1.15));
+  --bachata-font-title: max(18px, calc(var(--vscode-font-size) * 1.3));
+  --bachata-gutter: 24px;
+  --bachata-font-xs: max(13px, calc(var(--vscode-font-size) * 0.93));
+  --bachata-font-sm: var(--bachata-font-xs);
+  --bachata-font-md: var(--bachata-font-body);
   --bachata-danger: color-mix(in srgb, var(--vscode-errorForeground) 56%, var(--vscode-foreground));
   --bachata-focus-ring: color-mix(in srgb, var(--vscode-focusBorder) 85%, var(--vscode-foreground));
   --bachata-code-background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
@@ -57,7 +61,8 @@ body {
   color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
   font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
+  font-size: var(--bachata-font-body);
+  line-height: 1.5;
 }
 
 button,
@@ -78,7 +83,7 @@ textarea {
 }
 
 button {
-  min-height: 30px;
+  min-height: 32px;
   padding: 5px 9px;
   cursor: pointer;
   background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
@@ -149,7 +154,7 @@ button.caution:hover:not(:disabled) {
 
 input,
 select {
-  min-height: 31px;
+  min-height: 36px;
   padding: 5px 8px;
   /* A select sizes itself to its longest option, so a long initiative or pipeline name pushed it
      past a narrow panel at a large editor font. It may not outgrow the column it sits in. */
@@ -231,6 +236,8 @@ strong + small {
 }
 
 .app-shell {
+  font-size: var(--bachata-font-body);
+  line-height: 1.5;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   width: 100%;
@@ -509,6 +516,9 @@ strong + small {
 }
 
 .room-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 700;
 }
 
@@ -564,7 +574,7 @@ strong + small {
 .conversation-scroll {
   min-height: 0;
   overflow-y: auto;
-  padding: 22px max(18px, calc((100vw - var(--bachata-content-max)) / 2));
+  padding: 24px var(--bachata-gutter);
   scroll-behavior: smooth;
 }
 
@@ -585,26 +595,56 @@ strong + small {
   top: 6px;
 }
 
-.result-summary {
+.run-outcome {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 8px 12px;
   max-width: 880px;
-  margin: 12px auto 18px;
-  padding: 12px 15px;
+  margin: 12px auto;
+  padding: 10px 12px;
   border: 1px solid var(--bachata-border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--bachata-surface);
 }
 
-.result-summary p {
-  margin: 4px 0 0;
-  color: var(--bachata-muted);
+.run-outcome-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.result-summary .decision-label {
-  display: block;
+.run-outcome-text strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-outcome-text p {
+  margin: 2px 0 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.run-outcome.status-failed .run-outcome-text strong {
+  color: var(--bachata-danger);
+}
+
+.run-outcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.run-outcome-actions button {
+  min-height: 32px;
+}
+
+.result-recovery-position {
+  margin: 4px 0 0;
+  color: var(--bachata-muted);
 }
 
 .markdown-table {
@@ -802,8 +842,8 @@ strong + small {
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
   font-weight: 750;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .message time,
@@ -883,7 +923,7 @@ strong + small {
   border-radius: 4px;
   background: var(--vscode-textCodeBlock-background);
   font-family: var(--vscode-editor-font-family);
-  font-size: 0.92em;
+  font-size: var(--bachata-font-sm);
 }
 
 .markdown a {
@@ -903,7 +943,7 @@ strong + small {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 31px;
+  min-height: 36px;
   padding: 3px 5px 3px 10px;
   color: var(--bachata-muted);
   border-bottom: 1px solid var(--bachata-border);
@@ -927,7 +967,7 @@ strong + small {
   border-radius: 0;
   background: var(--bachata-code-background);
   font-family: var(--vscode-editor-font-family);
-  font-size: var(--vscode-editor-font-size);
+  font-size: max(13px, var(--vscode-editor-font-size));
   line-height: 1.48;
   white-space: pre;
 }
@@ -1051,6 +1091,29 @@ strong + small {
   width: min(100%, 820px);
 }
 
+.system-message.run-preflight-failure {
+  width: min(100%, 820px);
+  color: var(--vscode-foreground);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.run-preflight-text {
+  margin: 0 0 8px;
+}
+
+.run-preflight-failure .info-disclosure {
+  margin: 8px 0 0;
+  border: 0;
+  border-top: 1px solid var(--bachata-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.run-preflight-failure .info-disclosure > summary {
+  padding-inline: 0;
+}
+
 .exact-prompt-body {
   margin-top: 10px;
   color: var(--vscode-foreground);
@@ -1094,7 +1157,7 @@ strong + small {
 
 .decision-card h2 {
   margin: 3px 0 7px;
-  font-size: 1.17em;
+  font-size: var(--bachata-font-title);
 }
 
 .decision-label {
@@ -1116,7 +1179,6 @@ strong + small {
 }
 
 .queue-heading,
-.recovery-card,
 .queue-item {
   display: flex;
   align-items: center;
@@ -1126,25 +1188,6 @@ strong + small {
 
 .queue-heading {
   margin-bottom: 7px;
-}
-
-.recovery-card {
-  margin-bottom: 10px;
-  padding: 10px;
-  border: 1px solid var(--vscode-focusBorder);
-  border-radius: 9px;
-  background: var(--bachata-card);
-}
-
-.recovery-card strong,
-.recovery-card span {
-  display: block;
-}
-
-.recovery-card span {
-  margin-top: 3px;
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-sm);
 }
 
 .queue-item {
@@ -1187,7 +1230,7 @@ strong + small {
      that scrolls; the surface and its toolbar stay in view. */
   max-height: calc(100cqh - 140px);
   min-width: 0;
-  padding: 10px max(14px, calc((100vw - var(--bachata-content-max)) / 2));
+  padding: 12px var(--bachata-gutter);
   background: var(--vscode-editor-background);
 }
 
@@ -1282,7 +1325,7 @@ strong + small {
   align-items: center;
   justify-content: center;
   min-width: 30px;
-  min-height: 30px;
+  min-height: 32px;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -1553,8 +1596,8 @@ strong + small {
 }
 
 .app-dialog {
-  width: min(460px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(460px, 100%);
+  max-height: 100%;
   overflow: auto;
   padding: 18px;
   border: 1px solid var(--bachata-border);
@@ -1573,7 +1616,7 @@ strong + small {
 
 .app-dialog > header h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--bachata-font-title);
 }
 
 .app-dialog > header button {
@@ -1594,8 +1637,9 @@ strong + small {
 .pipeline-editor {
   display: grid;
   grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
-  width: min(1040px, 96vw);
-  height: min(900px, 94vh);
+  width: min(1040px, 100%);
+  max-height: 100%;
+  height: min(720px, 100%);
   overflow: hidden;
   border: 1px solid var(--bachata-border);
   border-radius: 13px;
@@ -1625,7 +1669,7 @@ strong + small {
 }
 
 .pipeline-editor > header h2 {
-  font-size: 17px;
+  font-size: var(--bachata-font-title);
 }
 
 .pipeline-editor > header p {
@@ -1696,7 +1740,7 @@ strong + small {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 31px;
+  min-height: 36px;
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
 }
@@ -1800,7 +1844,7 @@ strong + small {
   }
 
   .conversation-scroll {
-    padding: 18px 12px;
+    padding: 16px;
   }
 
   .composer {
@@ -1868,8 +1912,8 @@ strong + small {
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
   font-weight: 750;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .browser-asset {
@@ -2122,7 +2166,7 @@ strong + small {
 .queue-panel p,
 .workflow-timeline li,
 .workflow-timeline p,
-.recovery-card > div,
+.run-outcome-text,
 .ruling-list li > span {
   min-width: 0;
 }
@@ -2136,7 +2180,7 @@ strong + small {
 }
 
 .direction-center > header h2 {
-  font-size: 1.17em;
+  font-size: var(--bachata-font-title);
 }
 
 .result-center > section > h3,
@@ -2440,7 +2484,7 @@ input.interaction-text {
 .header-action-menu > summary {
   display: grid;
   place-items: center;
-  min-height: 30px;
+  min-height: 32px;
   padding: 5px 8px;
   list-style: none;
   border: 1px solid var(--vscode-input-border, var(--bachata-border));
@@ -2880,7 +2924,7 @@ select[multiple] option:checked {
 }
 
 .step-flow-item .codicon {
-  font-size: 12px;
+  font-size: var(--bachata-font-sm);
   color: var(--bachata-warn-text);
 }
 
@@ -3322,7 +3366,7 @@ select[multiple] option:checked {
   flex: 1;
   text-align: right;
   color: var(--bachata-muted);
-  font-size: 0.92em;
+  font-size: var(--bachata-font-sm);
 }
 
 .guardrail-chevron {
@@ -3374,7 +3418,7 @@ select[multiple] option:checked {
   align-items: center;
   justify-content: center;
   min-width: 30px;
-  min-height: 30px;
+  min-height: 32px;
 }
 
 .composer-settings-button {
@@ -3412,7 +3456,7 @@ select[multiple] option:checked {
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  min-height: 30px;
+  min-height: 32px;
   padding: 4px 8px;
   text-align: left;
 }
@@ -3521,7 +3565,7 @@ select[multiple] option:checked {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: 30px;
+  min-height: 32px;
   padding: 4px 8px;
 }
 
@@ -3824,7 +3868,7 @@ select[multiple] option:checked {
 
 .header-action-menu > summary {
   width: 30px;
-  min-height: 30px;
+  min-height: 32px;
   padding: 0;
   border-color: transparent;
   background: transparent;
@@ -3931,6 +3975,11 @@ details[open] > summary .disclosure-chevron {
 }
 
 @media (forced-colors: active) {
+  .run-outcome,
+  .info-count {
+    border: 1px solid CanvasText;
+  }
+
   button.primary,
   button.send-button {
     color: ButtonText;
@@ -4011,7 +4060,7 @@ details[open] > summary .disclosure-chevron {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
+  min-height: 32px;
   padding: 6px 10px;
   cursor: pointer;
   font-size: var(--bachata-font-xs);
@@ -4484,7 +4533,7 @@ details[open] > summary .disclosure-chevron {
   border-radius: 8px;
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
-  font-size: 11px;
+  font-size: var(--bachata-font-sm);
   text-align: center;
 }
 
@@ -4605,7 +4654,7 @@ details[open] > summary .disclosure-chevron {
 .read-only-banner {
   display: flex;
   gap: 8px;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   padding: 8px 12px;
   margin-bottom: 8px;
@@ -4615,10 +4664,19 @@ details[open] > summary .disclosure-chevron {
   color: var(--vscode-foreground);
 }
 
+.read-only-banner span {
+  flex: 1 1 32rem;
+}
+
+.read-only-banner button {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .read-only-banner strong {
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 0.85em;
+  font-size: var(--bachata-font-sm);
 }
 
 .room-empty-promise {
@@ -4775,10 +4833,11 @@ summary[aria-disabled="true"] {
 .direction-evidence-list > li,
 .direction-merges > li,
 .direction-reconciliation > ul > li {
-  padding: 10px 12px;
-  border: 1px solid var(--bachata-border);
-  border-radius: 9px;
-  background: var(--bachata-card);
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--bachata-border);
+  border-radius: 0;
+  background: transparent;
 }
 
 .direction-center li > div > small,
@@ -5340,6 +5399,88 @@ details.direction-evidence > ul,
   min-width: 0;
 }
 
+.run-information > summary .run-information-label {
+  color: var(--vscode-foreground);
+}
+
+.info-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--bachata-card-strong);
+  color: var(--vscode-foreground);
+  font-size: var(--bachata-font-xs);
+  line-height: 18px;
+  text-align: center;
+}
+
+.run-information-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-entry {
+  min-width: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--bachata-border);
+  overflow-wrap: anywhere;
+}
+
+.info-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: var(--bachata-font-sm);
+}
+
+.info-entry-kind {
+  font-weight: 650;
+}
+
+.info-entry-context,
+.info-entry-head time {
+  color: var(--bachata-muted);
+}
+
+.info-entry-head time {
+  margin-left: auto;
+  font-size: var(--bachata-font-xs);
+}
+
+.info-entry-prompt > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  cursor: pointer;
+}
+
+.info-entry-text {
+  margin-top: 4px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+/* Run information and recovery text never drops below the 13px reading floor; the rows stay
+   compact through spacing, not through smaller type. */
+.run-information > summary,
+.info-count,
+.info-entry-head,
+.info-entry-head time,
+.info-entry-prompt > summary,
+.info-entry-text,
+.run-outcome-text p,
+.result-recovery-position,
+.run-preflight-failure,
+.run-preflight-failure time,
+.run-preflight-failure .info-disclosure > summary,
+.preflight-details dt,
+.preflight-details dd {
+  font-size: max(13px, 1em);
+}
+
 /* The raw event stream keeps the timeline's own row rules once it is inside a disclosure. */
 .workflow-timeline.info-disclosure {
   padding: 0;
@@ -5361,15 +5502,12 @@ details.direction-evidence > ul,
 }
 
 .execution-content {
-  --bachata-font-xs: 13px;
-  --bachata-font-sm: 13px;
-  --bachata-font-md: 14px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   padding: 24px clamp(16px, 3vw, 32px) 32px;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: var(--bachata-font-body);
+  line-height: 1.5;
 }
 
 .execution-content > * {
@@ -5398,12 +5536,12 @@ details.direction-evidence > ul,
 }
 
 .execution-content h2 {
-  font-size: 18px;
+  font-size: var(--bachata-font-title);
   line-height: 1.35;
 }
 
 .execution-content h3 {
-  font-size: 15px;
+  font-size: var(--bachata-font-heading);
   line-height: 1.4;
 }
 
@@ -5417,7 +5555,7 @@ details.direction-evidence > ul,
 .execution-content .info-disclosure > summary {
   min-height: 40px;
   padding: 10px 0;
-  font-size: 13px;
+  font-size: var(--bachata-font-sm);
 }
 
 .notification-panel {
@@ -5444,21 +5582,21 @@ details.direction-evidence > ul,
 
 .execution-content .result-decision { background: transparent; border: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
 .execution-content .result-decision p { margin: 0; }
-.execution-content .result-failure { padding: 16px; border: 0; border-left: 3px solid var(--vscode-errorForeground); border-radius: 0; }
+.execution-content .result-failure { padding: 0; border: 0; border-radius: 0; }
 .execution-content .result-failure h3 { margin: 0 0 12px; }
-.execution-content .result-empty-sections { width: 100%; margin: 20px 0 0; }
+.execution-content .result-empty-sections { width: 100%; margin: 0; }
 .execution-content .pipeline-step { border: 0; border-radius: 0; background: transparent; padding: 12px 0; }
 .execution-content .pipeline-step + .pipeline-step { border-top: 1px solid var(--vscode-widget-border); }
 
-.pipeline-picker-guidance { margin: 12px 14px; font-size: 13px; line-height: 1.45; color: var(--vscode-descriptionForeground); }
+.pipeline-picker-guidance { margin: 12px 14px; font-size: var(--bachata-font-sm); line-height: 1.45; color: var(--vscode-descriptionForeground); }
 .pipeline-picker-more { width: calc(100% - 24px); margin: 8px 12px 12px; min-height: 36px; white-space: normal; }
-.agents-bridge-setup { margin-top: 16px; padding: 16px; border: 1px solid var(--vscode-widget-border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
+.agents-bridge-setup { margin-top: 16px; padding: 16px; border: 1px solid var(--vscode-widget-border); border-radius: 8px; font-size: var(--bachata-font-sm); line-height: 1.5; }
 .agents-bridge-setup h3 { margin: 0 0 12px; font-size: 15px; }
 .agents-bridge-setup ol { padding-left: 20px; margin: 12px 0; }
 .agents-bridge-setup li + li { margin-top: 12px; }
 .agents-model-advanced { margin-top: 12px; }
-.agents-model-advanced summary { min-height: 32px; cursor: pointer; font-size: 13px; }
-.agents-model-advanced p { font-size: 13px; line-height: 1.5; }
+.agents-model-advanced summary { min-height: 32px; cursor: pointer; font-size: var(--bachata-font-sm); }
+.agents-model-advanced p { font-size: var(--bachata-font-sm); line-height: 1.5; }
 @media (max-width: 480px) {
   .agents-model-explicit { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
   .agents-model-explicit input { width: 100%; min-width: 0; }
@@ -5474,4 +5612,340 @@ details.direction-evidence > ul,
 @media (max-width: 480px) {
   .execution-content .result-decision-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .execution-content .result-decision-grid dd + dt { margin-top: 12px; }
+}
+
+.conversation-column {
+  container-type: size;
+}
+
+.conversation-scroll,
+.execution-content,
+.composer {
+  padding-inline: var(--bachata-gutter);
+}
+
+.conversation-scroll > :not(.sr-only),
+.composer > :not(.sr-only) {
+  width: 100%;
+  max-width: var(--bachata-content-max);
+  margin-inline: auto;
+}
+
+.message-row.user-row {
+  justify-content: flex-start;
+}
+
+.message-row.agent-row.right {
+  flex-direction: row;
+}
+
+.system-message {
+  width: 100%;
+  max-width: none;
+  text-align: left;
+}
+
+.message {
+  max-width: min(100%, 80ch);
+  border-radius: 10px;
+}
+
+.user-message {
+  min-width: 0;
+}
+
+.direction-center,
+.result-center {
+  gap: 24px;
+}
+
+.direction-grid {
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 24px;
+}
+
+.direction-center > section,
+.direction-center > details,
+.direction-grid > section {
+  padding: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--bachata-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.direction-center > .direction-next {
+  padding: 16px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--bachata-surface);
+}
+
+.direction-center :is(h3, h4),
+.result-center h3,
+.agents-popover-head h2 {
+  font-size: var(--bachata-font-heading);
+  line-height: 1.35;
+}
+
+.direction-center h2,
+.app-dialog h2,
+.pipeline-editor > header h2 {
+  font-size: var(--bachata-font-title);
+  line-height: 1.3;
+}
+
+.direction-center p {
+  margin: 8px 0;
+}
+
+.direction-center :is(li, fieldset),
+.agents-slot {
+  background: transparent;
+  border-radius: 0;
+}
+
+.direction-edit > summary,
+.direction-management > summary,
+.agents-slot-settings > summary,
+.recovery-menu > summary {
+  min-height: 32px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.direction-edit[open] > summary,
+.direction-management[open] > summary,
+.agents-slot-settings[open] > summary {
+  margin-bottom: 12px;
+}
+
+.direction-center .field {
+  margin-block: 12px;
+}
+
+.initiative-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.initiative-control {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.initiative-control .field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.initiative-control button {
+  min-height: 36px;
+}
+
+.execution-content :is(.result-center, .pipeline-summary, .decision-card) {
+  padding: 16px;
+}
+
+.result-failure {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.result-center > header,
+.run-outcome {
+  align-items: flex-start;
+}
+
+.result-center > header {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.run-outcome-actions,
+.compact-actions {
+  align-items: center;
+  gap: 8px;
+}
+
+.recovery-menu {
+  position: relative;
+}
+
+.recovery-menu > summary {
+  padding-inline: 8px;
+}
+
+.pipeline-step-completed .pipeline-step-state {
+  color: var(--bachata-green-text);
+}
+
+.view-switch button,
+.composer-toolbar .icon-button,
+.run-outcome-actions button {
+  min-height: 32px;
+}
+
+.composer {
+  position: relative;
+  overflow: visible;
+}
+
+.composer > .composer-settings {
+  position: absolute;
+  z-index: 35;
+  bottom: calc(100% + 8px);
+  right: var(--bachata-gutter);
+  width: min(480px, calc(100% - var(--bachata-gutter) * 2));
+  max-height: min(560px, calc(100cqh - 180px));
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--bachata-border);
+  border-radius: 8px;
+  background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+
+.composer-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-settings-head h2 {
+  margin: 0;
+  font-size: var(--bachata-font-title);
+}
+
+.agents-popover {
+  width: min(480px, 100%);
+  max-height: min(600px, calc(100cqh - 180px));
+  padding: 16px;
+}
+
+.agents-popover-head {
+  flex-wrap: wrap;
+}
+
+.agents-slot {
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.agents-slot-head {
+  align-items: flex-start;
+}
+
+.agents-slot-title strong {
+  font-size: var(--bachata-font-body);
+}
+
+.agents-slot-settings .agents-choices {
+  gap: 8px;
+}
+
+.agents-slot-settings .agents-choice {
+  border-radius: 6px;
+}
+
+@container (max-width: 600px) {
+  .conversation-scroll,
+  .execution-content,
+  .composer {
+    --bachata-gutter: 16px;
+  }
+
+  .execution-content :is(.result-center, .pipeline-summary, .decision-card) {
+    padding: 12px;
+  }
+
+  .direction-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .run-tabs-brand {
+    display: none;
+  }
+
+  .run-tab:not(.selected) {
+    display: none;
+  }
+
+  .run-tab.selected {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .run-tabs-scroll {
+    width: 100%;
+  }
+
+  .run-tab-all {
+    padding-inline: 12px;
+  }
+
+  .modal-backdrop {
+    padding: 16px;
+  }
+
+  .pipeline-editor {
+    width: 100%;
+    height: min(720px, 100%);
+  }
+}
+
+.room-actions {
+  flex: 0 0 auto;
+  width: auto;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.room-utility-lead {
+  flex: 1 1 auto;
+}
+
+.room-status {
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .room-utility {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .room-utility-lead:not(:empty) {
+    flex-basis: 100%;
+  }
+
+  .room-actions {
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+}
+
+.pipeline-editor {
+  width: min(1040px, 100%);
+  height: min(720px, 100%);
+  border-radius: 12px;
+}
+
+.system-message .markdown,
+.system-message .markdown :is(p, li) {
+  font-size: var(--bachata-font-body);
+}
+
+.pipeline-editor > footer > .header-action-menu > summary {
+  white-space: nowrap;
 }

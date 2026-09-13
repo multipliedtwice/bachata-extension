@@ -67,8 +67,8 @@ test("iteration events say which pass this is and how it ended", () => {
   assert.deepEqual(iterationEndEvent({ status: "interrupted", displayIndex: 2 }), { type: "iteration.interrupted", title: "Iteration 2 interrupted" });
 });
 
-test("a resume that failed while a recoverable workflow remains is an interruption that keeps its queued directory", () => {
-  assert.deepEqual(iterationFailurePlan({ resume: true, hasResumableWorkflow: true, displayIndex: 3, error: new Error("boom") }), {
+test("a resume refused before it started keeps the interruption the runtime still reports, and its queued directory", () => {
+  assert.deepEqual(iterationFailurePlan({ resume: true, runtimeStatus: "interrupted", hasResumableWorkflow: true, displayIndex: 3, error: new Error("boom") }), {
     status: "interrupted",
     workflowStatus: "interrupted",
     eventType: "iteration.resume.failed",
@@ -78,15 +78,17 @@ test("a resume that failed while a recoverable workflow remains is an interrupti
   });
 });
 
-test("a first attempt that failed while a checkpoint survives is retryable, and still called a failure", () => {
-  assert.deepEqual(iterationFailurePlan({ resume: false, hasResumableWorkflow: true, displayIndex: 1, error: new Error("provider refused") }), {
-    status: "interrupted",
-    workflowStatus: "interrupted",
-    eventType: "iteration.failed",
-    title: "Iteration 1 failed",
-    message: "provider refused",
-    dropPendingWorkingDirectory: false,
-  });
+test("a failure that left a checkpoint is still a failure: the checkpoint decides recovery, not the category", () => {
+  for (const runtimeStatus of ["error", "running", "idle"]) {
+    assert.deepEqual(iterationFailurePlan({ resume: false, runtimeStatus, hasResumableWorkflow: true, displayIndex: 1, error: new Error("provider refused") }), {
+      status: "failed",
+      workflowStatus: "error",
+      eventType: "iteration.failed",
+      title: "Iteration 1 failed",
+      message: "provider refused",
+      dropPendingWorkingDirectory: false,
+    }, runtimeStatus);
+  }
 });
 
 test("a failure with no checkpoint is a failure that drops the queued directory", () => {
@@ -96,6 +98,7 @@ test("a failure with no checkpoint is a failure that drops the queued directory"
   ]) {
     const plan = iterationFailurePlan({
       resume: input.resume,
+      runtimeStatus: "error",
       hasResumableWorkflow: input.hasResumableWorkflow,
       displayIndex: 1,
       error: "text",

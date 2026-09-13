@@ -9,8 +9,13 @@ const { createStateCatalog } = require("../dist/state/catalog.js");
 const { createLongitudinalService } = require("../dist/longitudinal/service.js");
 const { createResourceBroker, resourceKey } = require("../dist/concurrency/resourceBroker.js");
 const { canonicalWorkspaceStateIdentity } = require("../dist/state/workspaceIdentity.js");
+const { pipelineDefinitionHash } = require("../dist/pipeline/identity.js");
 
 const root = path.join(__dirname, "..");
+const selectedPipeline = JSON.parse(fs.readFileSync(
+  path.join(root, "presets", "ui-ux-review.pipeline.json"),
+  "utf8",
+));
 
 const uriOf = (fsPath) => ({
   fsPath,
@@ -76,6 +81,9 @@ const persistWriterState = (storageRoot, repositoryRoot) => {
     input: "Review the cancellation code",
     legacyConversationId: "conversation-reviewed",
     iterationCount: 2,
+    pipelineId: selectedPipeline.id,
+    pipelineVersion: 1,
+    pipelineHash: pipelineDefinitionHash(selectedPipeline),
     workingRoot: repositoryRoot,
     terminalResult: terminalResult(),
     status: "completed",
@@ -456,13 +464,20 @@ const openPanel = async (secondary) => {
       .find((message) => message.state.conversations.length > 0),
     "a manager snapshot carrying the writer's runs",
   );
-  openedPanel = { panel, snapshot };
+  const panelSnapshot = await waitFor(
+    () => panel.posted.find((message) =>
+      message.type === "conversation.message" &&
+      message.conversationId === snapshot.state.activeConversationId &&
+      message.message?.type === "state.snapshot"),
+    "a panel snapshot carrying the readable pipeline catalog",
+  );
+  openedPanel = { panel, snapshot, panelSnapshot };
   return openedPanel;
 };
 
 test("a read-only window opens the normal panel over the state the writer persisted", async () => {
   const secondary = await secondaryWindow();
-  const { snapshot } = await openPanel(secondary);
+  const { snapshot, panelSnapshot } = await openPanel(secondary);
   const state = snapshot.state;
 
   assert.deepEqual(
@@ -506,6 +521,13 @@ test("a read-only window opens the normal panel over the state the writer persis
   assert.equal(state.readOnly.owned, false);
   assert.match(state.readOnly.reason, /already controlled by another Bachata Extension Host/u);
   assert.equal(state.readOnly.retryCommand, "Bachata: Workspace Ownership");
+  assert.equal(panelSnapshot.message.state.selectedPipelineId, "ui-ux-review");
+  assert.equal(panelSnapshot.message.state.selectedPipelineDefinition.name, "UI/UX review");
+  assert.ok(
+    panelSnapshot.message.state.pipelines.some((pipeline) => pipeline.id === "ui-ux-review"),
+    "the production read-only path sent no pipeline catalog",
+  );
+  assert.equal(panelSnapshot.message.state.pipelineMutable, false);
 });
 
 test("every command a read-only window claims to offer is registered and reads", async () => {
@@ -597,6 +619,15 @@ test("the panel refuses protocol mutations below the UI", async () => {
     "a snapshot after selecting a run",
   );
   assert.equal(selected.state.activeConversationId, "conversation-draft");
+});
+
+test("the panel's ownership action reaches the registered ownership command", async () => {
+  const secondary = await secondaryWindow();
+  const { panel } = await openPanel(secondary);
+  const before = secondary.harness.informationMessages.length;
+  await panel.messageHandler({ type: "workspace.ownership" });
+  assert.equal(secondary.harness.informationMessages.length, before + 1);
+  assert.match(secondary.harness.informationMessages.at(-1), /Another window owns this workspace state/u);
 });
 
 test("opening and reading the product in a read-only window changes no stored byte", async () => {

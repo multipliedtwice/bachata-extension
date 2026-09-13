@@ -120,6 +120,7 @@ export const createReadOnlyProductService = (
   let disposed = false;
   const watchers: FSWatcher[] = [];
   let refreshTimer: NodeJS.Timeout | undefined;
+  let pollTimer: NodeJS.Timeout | undefined;
 
   const note = (error: unknown): void => {
     input.onError?.(error instanceof Error ? error.message : String(error));
@@ -223,20 +224,50 @@ export const createReadOnlyProductService = (
     refreshTimer.unref?.();
   };
 
+  const startPolling = (): void => {
+    if (disposed || pollTimer !== undefined) return;
+    pollTimer = setInterval(notify, 1_000);
+    pollTimer.unref?.();
+  };
+
   if (input.watchStorage !== false) {
     const watchDirectory = input.watchFactory
       ?? ((target, options, listener) => watch(target, options, listener));
     // The writer persists into this directory; a change there is the only signal a
     // read-only window needs to show the writer's newest state.
-    const watchPath = (target: string, recursive: boolean): void => {
+    let fallbackInstalled = false;
+    const retainWatcher = (watcher: FSWatcher, onFailure: () => void): void => {
+      watcher.unref();
+      watchers.push(watcher);
+      if (typeof watcher.on !== "function") return;
+      watcher.on("error", (error) => {
+        const index = watchers.indexOf(watcher);
+        if (index >= 0) watchers.splice(index, 1);
+        try {
+          watcher.close();
+        } catch {
+          // The error may already have closed the platform handle.
+        }
+        note(error);
+        onFailure();
+      });
+    };
+    const watchPath = (target: string, recursive: boolean): boolean => {
       try {
         const watcher = watchDirectory(target, { recursive }, () => scheduleRefresh());
-        // Watching persisted state must not by itself keep a process alive.
-        watcher.unref();
-        watchers.push(watcher);
+        retainWatcher(watcher, startPolling);
+        return true;
       } catch (error) {
         note(error);
+        return false;
       }
+    };
+    const installFallback = (): void => {
+      if (fallbackInstalled || disposed) return;
+      fallbackInstalled = true;
+      const storageWatched = watchPath(input.storageRoot, false);
+      const orchestrationWatched = watchPath(path.join(input.storageRoot, "orchestration"), false);
+      if (!storageWatched || !orchestrationWatched) startPolling();
     };
     try {
       const watcher = watchDirectory(
@@ -244,13 +275,12 @@ export const createReadOnlyProductService = (
         { recursive: true },
         () => scheduleRefresh(),
       );
-      watcher.unref();
-      watchers.push(watcher);
-    } catch {
+      retainWatcher(watcher, installFallback);
+    } catch (error) {
+      note(error);
       // Recursive watching is not available on every platform: watch the two directories
       // whose contents a reader projects instead.
-      watchPath(input.storageRoot, false);
-      watchPath(path.join(input.storageRoot, "orchestration"), false);
+      installFallback();
     }
   }
 
@@ -269,6 +299,8 @@ export const createReadOnlyProductService = (
       disposed = true;
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = undefined;
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = undefined;
       watchers.forEach((watcher) => {
         try {
           watcher.close();

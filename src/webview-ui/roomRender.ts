@@ -7,8 +7,7 @@
 
 // Readiness the host has already refused is not "Ready", whatever the workflow status says.
 const readinessBlocked = (panel: PanelState): boolean =>
-  panel.workflowStatus === "idle" &&
-  !panel.running &&
+  runPhaseOf(panel) === "idle" &&
   ((panel.readiness?.findings ?? []).some((finding) => finding.status !== "ready") ||
     (panel.executionContract?.policyRefusals ?? []).length > 0);
 
@@ -22,7 +21,7 @@ const roomHeaderHtml = (
   const readOnly = conversation.archived;
   const waitingForResources = conversation.waitingForResources === true;
   // The composer's stop lives in the chat view only; every other view needs the same escape hatch.
-  const interrupt = !readOnly && state.roomView !== "chat" && (panel.running || waitingForResources)
+  const interrupt = !readOnly && state.roomView !== "chat" && (runPhaseOf(panel) === "running" || waitingForResources)
     ? `<button data-action="interrupt-run"${pendingInterrupts.has(conversation.id) ? ' disabled aria-busy="true"' : ""}>${waitingForResources ? "Cancel wait" : "Stop"}</button>`
     : "";
   const selection = pendingPipelineSelection(conversation.id);
@@ -43,15 +42,19 @@ const roomHeaderHtml = (
     panel.approvals.length > 0 ||
     panel.workflowStatus === "paused" ||
     state.manager.interactions.some((interaction) => interaction.conversationId === conversation.id);
+  const phase = runPhaseOf(panel);
+  const presentation = bachataWebviewBehavior.runStatusPresentation(phase, panel.resumableWorkflow?.outcome);
   const roomStatus = readinessBlocked(panel)
-    ? { status: "error", label: "Blocked" }
+    ? { status: "error", label: "Blocked", spinning: false }
     : waitingForHuman
-      ? { status: "paused", label: "Waiting for you" }
+      ? { status: "paused", label: "Waiting for you", spinning: false }
       : waitingForResources
-        ? { status: "paused", label: "Waiting for capacity" }
-        : panel.running || conversation.running
-          ? { status: "running", label: statusLabel("running") }
-          : { status: panel.workflowStatus, label: statusLabel(panel.workflowStatus) };
+        ? { status: "paused", label: "Waiting for capacity", spinning: false }
+        : {
+            status: phase === "running" ? "running" : panel.workflowStatus,
+            label: presentation.label,
+            spinning: presentation.spinning,
+          };
   const moreActions = readOnly
     ? `${inspectorItem}<button data-action="pipeline-new" disabled title="${escapeAttribute(selection ? `Switching to ${selection.pipelineId}…` : panel.pipelineMutationReason ?? "Archived runs are read-only")}">New pipeline</button><button data-action="transcript-export">Export transcript</button><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">Unarchive run</button>`
     : `${inspectorItem}<button data-action="pipeline-new" ${panel.pipelineMutable && !selection ? "" : "disabled"} title="${escapeAttribute(selection ? `Switching to ${selection.pipelineId}…` : panel.pipelineMutationReason ?? "Create pipeline")}">New pipeline</button><button data-action="pipeline-fork" ${panel.selectedPipelineDefinition && panel.pipelineMutable && !selection ? "" : "disabled"} title="${escapeAttribute(selection ? "Wait for pipeline selection" : !panel.selectedPipelineDefinition ? "Select a pipeline to fork" : panel.pipelineMutationReason ?? "Create an editable copy of this pipeline")}">Fork selected pipeline</button><button data-action="availability-check">Check agents</button><button data-action="working-directory">Choose folder</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}<button data-action="transcript-export">Export transcript</button><button class="danger" data-action="task-reset">Reset run</button>`;
@@ -60,7 +63,7 @@ const roomHeaderHtml = (
   // never a plain "Ready", and the run's name stays as the accessible heading for the landmark.
   const showStatus = !(roomStatus.status === "idle" && roomStatus.label === "Ready");
   const statusPill = showStatus
-    ? `<span class="room-status status-${escapeAttribute(roomStatus.status)}">${escapeHtml(roomStatus.label)}</span>`
+    ? `<span ${liveRegionAttributes(`room-status:${conversation.id}`, "status", roomStatus.label)} class="room-status status-${escapeAttribute(roomStatus.status)}">${roomStatus.spinning ? `<i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"></i>` : ""}${escapeHtml(roomStatus.label)}</span>`
     : "";
   const context = [
     readOnly ? `<span class="room-context">Archived · read-only</span>` : "",
@@ -207,10 +210,26 @@ const sendBlockers = (
       condition: "Waiting for shared capacity.",
       requirement: "No provider or verification command has started. Cancel the wait, or queue this message instead.",
     });
-  } else if (draft.delivery === "immediate" && panel.running) {
+  } else if (draft.delivery === "immediate" && runPhaseOf(panel) === "running") {
     blockers.push({
       condition: "A run is already executing here.",
       requirement: "Stop it, or choose Queue or Interrupt in the run options.",
+    });
+  }
+  const recovery = runRecoveryOf(panel, runPhaseOf(panel));
+  if (draft.delivery === "immediate" && recovery !== undefined) {
+    const preflight = recovery.step === "none" ? latestPreflightRecord(panel) : undefined;
+    const needsFolder = preflight !== undefined && preflightActionsHtml(preflight) !== "";
+    blockers.push({
+      condition: recovery.step === "resume"
+        ? "This run's pipeline was stopped and can still continue."
+        : "This run's pipeline failed and can be restarted.",
+      requirement: needsFolder
+        ? "Choose a Git project folder, then restart the pipeline, or discard it."
+        : "Restart it, continue it, or discard it before starting another pipeline.",
+      action: needsFolder
+        ? { label: "Choose folder", attributes: `data-action="working-directory"` }
+        : { label: "Restart pipeline", attributes: `data-action="workflow-restart"` },
     });
   }
   if (draft.prompt.trim().length === 0) {
@@ -339,7 +358,7 @@ const mainRoomHtml = (): string => {
       .join("");
     // The decision that stops the run sits where the run is being read, not one view away.
     const decisions = has.decisions ? `${gateHtml(panel)}${approvalsHtml(panel)}` : "";
-    return `${notificationBubbleHtml()}${has.interactions ? interactionsHtml(conversation.id) : ""}<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${runInformationHtml(panel, information, readOnly)}${decisions}${has.result ? resultSummaryHtml(conversation.id) : ""}${readOnly ? "" : queueHtml(panel)}`;
+    return `${notificationBubbleHtml()}${has.interactions ? interactionsHtml(conversation.id) : ""}<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${runInformationHtml(panel, information)}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}${readOnly ? "" : queueHtml(panel)}`;
   };
   const executionContent = (): string => `${has.result ? resultCenterHtml(conversation.id, panel) : ""}${has.providerHistory ? providerHistoryHtml(conversation.id) : ""}${has.orchestration ? orchestrationHtml() : ""}${has.workflow ? workflowHtml(conversation.id) : ""}${has.childRuns ? childRunsHtml(conversation.id) : ""}${has.decisions ? `${gateHtml(panel)}${approvalsHtml(panel)}` : ""}${has.interactions ? interactionsHtml(conversation.id) : ""}${hasExecutionState ? "" : `<section class="conversation-intro">${bachataMarkHtml}<h2>Execution view</h2><p>Pipeline stages, task runs, gates, evidence, and final rulings appear here while the run executes.</p></section>`}`;
   const content = state.roomView === "direction"
@@ -348,23 +367,32 @@ const mainRoomHtml = (): string => {
   return `<section class="room-shell">${roomHeaderHtml(panel, conversation, { direction: hasDirectionState(), execution: hasExecutionState })}${archivedBanner}${blockingBanner}<div class="room-body ${state.inspectorOpen ? "with-inspector" : ""}"><main class="conversation-column"${inspectorCoversRoom() ? " inert" : ""}><div class="conversation-scroll ${state.roomView === "execution" ? "execution-content" : ""} ${introNeeded && state.roomView !== "execution" ? "is-empty" : ""}" id="conversation-scroll">${content}${state.roomView === "chat" ? "" : panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}</div>${readOnly || state.roomView !== "chat" ? "" : composerHtml(panel, draft)}</main>${inspectorHtml(panel, readOnly)}</div></section>`;
 };
 
-// The finished run's verdict, said at the end of the transcript where the reader is, with the
-// route to the evidence. Without it a completed run opened on the raw chat and nothing said
-// there was a result.
-const resultSummaryHtml = (conversationId: string): string => {
-  const result = state.manager.resultsByConversation?.[conversationId];
-  if (!result) return "";
-  const failure = result.finalAssessment?.failure;
+// The ended run's verdict and its ways back in, in one row at the end of the transcript. A run
+// that is still working has neither, so nothing is drawn for it.
+const runOutcomeHtml = (
+  conversation: ConversationSummary,
+  panel: PanelState,
+  readOnly: boolean,
+): string => {
+  const phase = runPhaseOf(panel);
+  if (phase === "running" || phase === "waiting") return "";
+  const result = state.manager.resultsByConversation?.[conversation.id];
+  const recovery = readOnly ? undefined : runRecoveryOf(panel, phase);
+  if (!result && !recovery) return "";
+  const failure = result?.finalAssessment?.failure;
   // A failed run's assessment summary embeds the provider's own sentence, and the chat has just
-  // shown that sentence where the failure happened. Printing it again two rows below reads as a
-  // second problem, so the card says where the run stopped and routes to the result instead.
+  // shown that sentence where the failure happened, so this row says where instead.
   const assessment = failure
     ? [
         failure.participant ?? failure.agentId,
         failure.step === undefined ? undefined : `at ${failure.step}`,
       ].filter((part): part is string => part !== undefined).join(" ")
-    : result.finalAssessment?.summary;
-  return `<section class="result-summary"><div><span class="decision-label">Run result</span><strong>${escapeHtml(resultHeadlineLabel(result))}</strong>${assessment ? `<p>${escapeHtml(assessment)}</p>` : ""}</div><button data-action="room-view" data-view="execution">Open the result</button></section>`;
+    : result?.status === "interrupted" ? undefined : result?.finalAssessment?.summary;
+  const detail = recovery ? recoveryPositionText(panel, recovery) : assessment;
+  const shownPhase = result ? bachataWebviewBehavior.runPhase(false, result.status) : phase;
+  const presentation = bachataWebviewBehavior.runStatusPresentation(shownPhase, panel.resumableWorkflow?.outcome);
+  const headline = result ? resultHeadlineLabel(result, panel.resumableWorkflow?.outcome) : presentation.label;
+  return `<section class="run-outcome status-${escapeAttribute(shownPhase)}" aria-label="Run result"><div class="run-outcome-text"><strong><i class="codicon codicon-${escapeAttribute(presentation.icon)}" aria-hidden="true"></i> ${escapeHtml(headline)}</strong>${detail ? `<p>${escapeHtml(detail)}</p>` : ""}</div><div class="run-outcome-actions">${recoveryActionsHtml(panel, recovery)}${recovery ? `<details class="header-action-menu wide-trigger recovery-menu" ${disclosureAttributes(`recovery-menu:${conversation.id}`)}><summary aria-label="Recovery actions">More</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}</div></details>` : ""}${result ? `<button data-action="room-view" data-view="execution">Open the result</button>` : ""}</div></section>`;
 };
 
 const defaultAgentNames = ["Lead", "Worker", "Reviewer"];

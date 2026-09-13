@@ -30,6 +30,7 @@ import {
 import { AgentAdapter, AgentEvent, SendRequest } from "./types";
 import { assertGitHeadUnchanged, captureGitHeadSnapshot, GitHeadSnapshot } from "./gitHeadGuard";
 import {
+  assertWorkspaceExecutionSupported,
   assertWorkspacePolicyAudit,
   captureWorkspacePolicyAudit,
   type WorkspacePolicyAuditSnapshot,
@@ -491,6 +492,7 @@ export const createClaudeCodeAdapter = (
         }
         if (requestData.workspacePolicy) {
           workspaceAuditBaseline = await captureWorkspacePolicyAudit(requestData, signal);
+          assertWorkspaceExecutionSupported(requestData, workspaceAuditBaseline);
         }
       } catch (error) {
         if (activeOperation === operation) activeOperation = undefined;

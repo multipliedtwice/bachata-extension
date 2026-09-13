@@ -6,6 +6,7 @@ import type { PipelineResumeState } from "../pipeline/runner";
 import type { PipelineSnapshot } from "../pipeline/identity";
 import type { WorkspaceWriteScope } from "../adapters/types";
 import type { ResumableWorkflow } from "../webview/protocol";
+import type { RecoveryRecordOutcome } from "./recoveryTransition";
 import type { RunSettingRejection, RunSettingsSnapshot } from "./settingsSnapshot";
 
 /**
@@ -36,7 +37,8 @@ export type RunExecutionPlan = {
   trackWorkspaceChanges?: boolean | undefined;
 };
 
-export type PersistedResumableWorkflow = ResumableWorkflow & {
+export type PersistedResumableWorkflow = Omit<ResumableWorkflow, "outcome" | "stepName"> & {
+  outcome: RecoveryRecordOutcome;
   checkpoint: PipelineResumeState;
   pipelineSnapshot: PipelineSnapshot;
   executionPlan?: RunExecutionPlan | undefined;
@@ -126,6 +128,7 @@ export const parseRunExecutionPlan = (
  * run says it was executing.
  */
 export const resumableWorkflowFrom = (input: {
+  attemptId: string;
   pipelineId: string;
   pipelineName: string;
   pipelineHash: string;
@@ -142,6 +145,8 @@ export const resumableWorkflowFrom = (input: {
   sourceQueueMessageId?: string | undefined;
   resumeSourceQueueMessageId?: string | undefined;
 }): PersistedResumableWorkflow => ({
+  attemptId: input.attemptId,
+  outcome: "running",
   runSettings: input.runSettings,
   pipelineId: input.pipelineId,
   pipelineName: input.pipelineName,
