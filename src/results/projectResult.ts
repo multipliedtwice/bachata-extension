@@ -803,8 +803,8 @@ export const mergeRunResults = (
   const verificationProvenance = liveOwnsChecks
     ? live.verificationProvenance
     : persisted.verificationProvenance;
-  const finalRuling = live.finalRuling ?? persisted.finalRuling;
-  const rulingSource = live.finalRuling === undefined ? persisted : live;
+  const finalRuling = live.finalDecision?.status === "pending" ? live.finalRuling : live.finalRuling ?? persisted.finalRuling;
+  const rulingSource = live.finalRuling === undefined && live.finalDecision === undefined ? persisted : live;
   const finalDecision = rulingSource.finalDecision ?? (
     live.finalRuling === persisted.finalRuling &&
     (live.finalDecisionEventId === undefined || live.finalDecisionEventId === persisted.finalDecisionEventId)

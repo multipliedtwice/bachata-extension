@@ -44,7 +44,7 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
       const visible = el => el.checkVisibility() && !el.closest('.sr-only') && getComputedStyle(el).visibility !== 'hidden';
       return {
         overflow: document.documentElement.scrollWidth > innerWidth + 1,
-        small: [...document.querySelectorAll('p,small,time,label>span,h2,h3,h4,button,summary,.message-author')].filter(visible).filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 13).map(el => el.className || el.tagName),
+        small: [...document.querySelectorAll('p,small,time,label>span,h2,h3,h4,button,select,summary,.message-author')].filter(visible).filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 12).map(el => el.className || el.tagName),
       };
     })()`);
     assert.equal(issues.overflow, false, `${label}: horizontal overflow`);
@@ -68,7 +68,7 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
         await press(session, '[data-action="room-view"][data-view="execution"]');
         await frame(session);
         await readable(`${label} Execution`);
-        assert.ok(await session.evaluate("parseFloat(getComputedStyle(document.querySelector('.result-failure-cause')).fontSize)") >= Math.max(14, font), `${label}: Execution respects text size`);
+        assert.ok(await session.evaluate("parseFloat(getComputedStyle(document.querySelector('.result-failure-cause')).fontSize)") >= Math.max(13, font), `${label}: Execution respects text size`);
         await press(session, '[data-action="room-view"][data-view="chat"]');
         await frame(session);
         await press(session, '.composer-settings-button');
@@ -81,15 +81,20 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
         await press(session, '#agents-picker-button');
         await frame(session);
         await readable(`${label} Agents`);
-        assert.equal(await session.evaluate("[...document.querySelectorAll('.agents-slot-settings')].every(el => !el.open)"), true, `${label}: agent settings collapsed`);
-        await press(session, '.agents-slot-settings > summary');
-        await frame(session);
-        await readable(`${label} agent options`);
+        assert.equal(await session.evaluate(`(() => {
+          const slots = [...document.querySelectorAll('.agents-slot')];
+          return slots.length > 0 && slots.every(slot =>
+            slot.querySelector('.agents-provider-select')?.checkVisibility() &&
+            (slot.querySelector('.agents-model-select')?.checkVisibility() || slot.querySelector('.agents-model-note')?.checkVisibility())
+          );
+        })()`), true, `${label}: provider and model settings are visible`);
         await key(session, "Escape", "Escape", 27);
         await frame(session);
         await session.evaluate(`window.__managerState.direction = ${JSON.stringify(direction)}; window.__boot()`);
         await frame(session);
-        await press(session, '[data-action="room-view"][data-view="direction"]');
+        await press(session, '[data-action="run-drawer-toggle"]');
+        await frame(session);
+        await press(session, ".run-drawer-direction");
         await frame(session);
         await readable(`${label} Direction`);
         assert.equal(await session.evaluate("document.querySelector('[data-action=\"direction-section-toggle\"][data-section=\"direction-edit\"]').getAttribute('aria-expanded')"), "false");

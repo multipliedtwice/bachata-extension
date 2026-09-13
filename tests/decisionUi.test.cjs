@@ -18,9 +18,9 @@ const decision = (id, status = "pending", overrides = {}) => ({
 const opening = (id) => ({ id, type: "run.started", createdAt: timestamp });
 
 const load = ({ events = [], interactions = [], panel = {}, roomView = "chat" } = {}) => {
-  const currentPanel = { agents: {}, approvals: [], selectedPipelineDefinition: { steps: [] }, workflowStatus: "paused", ...panel };
+  const currentPanel = { agents: {}, approvals: [], workspaceRoots: ["/workspace"], selectedPipelineDefinition: { steps: [] }, workflowStatus: "paused", ...panel };
   const state = {
-    roomView, panels: new Map([["run-1", currentPanel]]), gateDrafts: new Map(),
+    roomView, panels: new Map([["run-1", currentPanel]]), gateDrafts: new Map(), pendingRuns: new Map(),
     manager: { conversations: [{ id: "run-1", title: "New run", archived: false }], interactions, eventsByConversation: { "run-1": events } },
   };
   const context = vm.createContext({
@@ -29,11 +29,12 @@ const load = ({ events = [], interactions = [], panel = {}, roomView = "chat" } 
     jsonString: (value) => typeof value === "string" ? value : undefined,
     formatDateTime: (value) => value, disclosureAttributes: () => "",
     activeId: () => "run-1", runPhaseOf: () => "idle", rootConversationFor: (value) => value,
+    draftFor: () => ({ prompt: "", delivery: "immediate", pendingAttachments: new Map() }),
     conversationById: (id) => state.manager.conversations.find((conversation) => conversation.id === id),
     pendingInterrupts: new Set(), hasOrchestrationState: () => false, orchestrationStartButtonHtml: () => "",
     agentsAssignable: () => true,
     liveRegionAttributes: () => "", notificationBellHtml: () => "", runTabLabel: (value) => value.title,
-    bachataWebviewBehavior: { runPhase: () => "idle", runStatusPresentation: () => ({ label: "Ready", spinning: false }) },
+    bachataWebviewBehavior: { runRecovery: () => undefined, runPhase: () => "idle", runStatusPresentation: () => ({ label: "Ready", spinning: false }) },
   });
   const source = ["executionRender.ts", "roomRender.ts"].map((file) => fs.readFileSync(path.join(__dirname, "../src/webview-ui", file), "utf8")).join("\n");
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;

@@ -261,6 +261,7 @@ class FakeDocument {
   constructor() {
     this.activeElement = null;
     this.elements = new Map();
+    this.externalElements = new Map();
     this.documentElement = { scrollTop: 0 };
     this.root = new FakeRoot();
     this.liveStatus = new FakeHTMLElement("div");
@@ -270,7 +271,7 @@ class FakeDocument {
   }
 
   getElementById(id) {
-    return this.elements.get(id) ?? null;
+    return this.externalElements.get(id) ?? this.elements.get(id) ?? null;
   }
 
   // The webview listens for keydown on the document, because a modal must still answer Escape
@@ -691,8 +692,15 @@ const panelState = (overrides = {}) => ({
   ...overrides,
 });
 
-const bootWebview = (manager = managerState(), panel = panelState()) => {
+const bootWebview = (manager = managerState(), panel = panelState(), localization) => {
   const harness = installGlobals();
+  if (localization !== undefined) {
+    const configuration = new FakeHTMLElement("script");
+    configuration.id = "bachata-localization";
+    configuration.setAttribute("type", "application/json");
+    configuration.textContent = JSON.stringify(localization);
+    harness.document.externalElements.set(configuration.id, configuration);
+  }
   delete require.cache[require.resolve("../dist/webview-behavior.js")];
   delete require.cache[require.resolve("../dist/webview.js")];
   require("../dist/webview-behavior.js");
@@ -806,7 +814,7 @@ test("pipeline editor preserves omitted attachment defaults and uses one checkli
   }
 });
 
-test("a disabled Send states every blocking condition with a direct fix", () => {
+test("a disabled Send opens actionable requirements outside the composer", () => {
   const harness = bootWebview(
     managerState(),
     panelState({
@@ -816,52 +824,35 @@ test("a disabled Send states every blocking condition with a direct fix", () => 
         status: "needsSetup",
         findings: [
           { id: "workspace", label: "Workspace", status: "ready", detail: "/workspace" },
-          {
-            id: "adapter.codex",
-            label: "Codex",
-            status: "needsSetup",
-            detail: "codex unavailable: spawn codex ENOENT",
-            remediationId: "provider.install.codex",
-          },
+          { id: "adapter.codex", label: "Codex", status: "needsSetup", detail: "codex unavailable: spawn codex ENOENT", remediationId: "provider.install.codex" },
         ],
       },
     }),
   );
   try {
     const html = harness.document.root.innerHTML;
-    assert.match(html, /Send is disabled/u);
-    assert.match(html, /No working root is selected in this multi-root window\./u);
-    assert.match(html, /codex unavailable: spawn codex ENOENT/u);
-    assert.match(html, /Resolve this before the run can start\./u);
-    // EX-UI-02. The empty input is what the field's own placeholder says, and the intro card says
-    // it a second time. A third copy at the top of the blocker list was the first thing a reader
-    // met in an empty room. It still refuses Send, and the refusal still travels on the control.
+    assert.equal(harness.document.root.querySelector(".composer-blockers"), null);
+    assert.equal(harness.document.root.querySelector(".composer-note"), null);
     assert.doesNotMatch(html, /The run input is empty\./u);
     const send = harness.document.root.querySelector('[data-action="submit-message"]');
     assert.equal(send.getAttribute("aria-disabled"), "true");
-    assert.equal(send.getAttribute("aria-describedby"), "composer-blockers");
-    // Blockers live outside the rounded input surface, after its toolbar.
-    assert.ok(
-      html.indexOf('id="composer-blockers"') > html.indexOf('class="composer-toolbar"'),
-      "the blockers are inside the composer surface",
-    );
-    const disclosure = harness.document.getElementById("composer-blockers");
-    assert.ok(disclosure);
-    assert.equal(disclosure.open, false, "blockers should stay compact until requested");
+    assert.match(send.getAttribute("aria-description"), /No working root is selected/u);
+    assert.match(send.getAttribute("aria-description"), /codex unavailable/u);
     const beforeSend = harness.messages.length;
     send.click();
-    assert.equal(disclosure.open, true, "blocked Send should reveal the actionable reasons");
-    assert.equal(harness.messages.length, beforeSend, "revealing blockers must not start a run");
-
+    const dialog = harness.document.root.querySelector(".app-dialog");
+    assert.ok(dialog);
+    assert.match(harness.document.root.innerHTML, /<strong>No working root is selected in this multi-root window\.<\/strong>/u);
+    assert.match(harness.document.root.innerHTML, /<p>Resolve this before the run can start\.<\/p>/u);
+    assert.equal(harness.messages.length, beforeSend, "opening requirements must not start a run");
     harness.document.root.querySelector('[data-action="readiness-remediate"]').click();
+    assert.equal(harness.document.root.querySelector(".app-dialog"), null);
     assert.deepEqual(harness.messages.at(-1), {
       type: "readiness.remediate",
       remediationId: "provider.install.codex",
       detail: "codex unavailable: spawn codex ENOENT",
     });
-  } finally {
-    harness.restore();
-  }
+  } finally { harness.restore(); }
 });
 
 test("advanced pipeline settings stay hidden until advanced mode is on", () => {
@@ -1088,7 +1079,8 @@ test("pipeline selection locks editing until the selected definition is confirme
     openComposerSettings(harness);
     assert.equal(harness.document.root.querySelector('[data-action="pipeline-edit"]').disabled, true);
     assert.equal(harness.document.root.querySelector('[data-action="pipeline-new"]').disabled, true);
-    assert.match(harness.document.root.innerHTML, /Switching pipeline/);
+    assert.equal(harness.document.root.querySelector('[data-action="pipeline-picker-toggle"]').getAttribute("aria-busy"), "true");
+    assert.equal(harness.document.root.querySelector('[data-action="pipeline-picker-toggle"]').getAttribute("title"), "Switching to Custom B…");
 
     harness.sendWindowMessage({
       type: "conversation.message",
@@ -1457,11 +1449,10 @@ test("Agents popover reassigns a browser slot to a local CLI", () => {
   );
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const claude = harness.document.root.querySelector(
-      '[data-action="agents-assign"][data-agent="builder"][data-adapter="claude-code"]',
-    );
-    assert.ok(claude);
-    claude.click();
+    const provider = harness.document.getElementById("agents-provider-builder");
+    assert.ok(provider);
+    provider.value = "claude-code";
+    harness.document.root.dispatch("change", { target: provider });
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
       conversationId: "run-1",
@@ -1531,190 +1522,175 @@ const cliAssignmentPanel = (assignmentOverrides = {}, slotOverrides = {}) => {
   return panel;
 };
 
-const modelRadios = (harness) =>
-  Array.from(harness.document.root.querySelectorAll('[role="radio"]'))
-    .filter((radio) => (radio.getAttribute("id") ?? "").startsWith("agents-model-"));
+const chooseAgentOption = (harness, id, value) => {
+  const select = harness.document.getElementById(id);
+  assert.ok(select);
+  select.value = value;
+  harness.document.root.dispatch("change", { target: select });
+};
 
-test("a CLI slot offers keyboard-reachable model choices that assign only on activation", () => {
-  const harness = bootWebview(
-    managerState(),
-    cliAssignmentPanel({
-      adapterModels: {
-        "codex-app-server": {
-          status: "listed",
-          models: [
-            { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", isDefault: true },
-            { id: "gpt-5.5", label: "GPT-5.5" },
-          ],
-        },
-      },
-    }),
-  );
+test("a CLI slot offers every provider-reported model through a labeled selector", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: {
+      "codex-app-server": { status: "listed", models: [
+        { id: "provider-model-one", label: "Model one", isDefault: true },
+        { id: "provider-model-two", label: "Model two" },
+      ] },
+    },
+  }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const radios = modelRadios(harness);
-    assert.equal(radios.length, 3, "provider default plus every model the provider reported");
-    // One tab stop, arrow keys inside it: the same contract the provider choices keep.
-    const tabbable = radios.filter((radio) => radio.getAttribute("tabindex") === "0");
-    assert.equal(tabbable.length, 1);
-    assert.equal(tabbable[0].getAttribute("aria-checked"), "true");
-    assert.equal(
-      tabbable[0].getAttribute("id"),
-      "agents-model-builder-default",
-      "with no model chosen the provider's own default carries the tab stop",
-    );
-
-    const before = harness.messages.length;
-    for (const key of ["ArrowDown", "ArrowUp", "Home", "End"]) {
-      harness.document.root.dispatch("keydown", {
-        key,
-        target: radios[0],
-        preventDefault: () => undefined,
-      });
-    }
-    assert.equal(harness.messages.length, before, "moving focus must not change the model");
-
-    harness.document.root
-      .querySelector('[data-action="agents-model"][data-agent="builder"][data-model="gpt-5.5"]')
-      .click();
+    const select = harness.document.getElementById("agents-model-select-builder");
+    assert.equal(select.getAttribute("aria-label"), "Model for Builder");
+    const options = harness.document.root.innerHTML.match(/<select id="agents-model-select-builder"[^>]*>([\s\S]*?)<\/select>/u)?.[1] ?? "";
+    assert.equal(options.match(/<option /gu)?.length, 4);
+    assert.match(options, /Provider default · Model one/u);
+    assert.equal(harness.document.root.querySelector("details.agents-slot-settings"), null);
+    assert.equal(harness.document.root.querySelector(".agents-model-explicit"), null);
+    assert.equal(harness.messages.some((entry) => entry.message?.type === "agents.model.discover"), false);
+    chooseAgentOption(harness, "agents-model-select-builder", "provider-model-two");
     assert.deepEqual(harness.messages.at(-1), {
-      type: "conversation.runtime",
-      conversationId: "run-1",
-      message: { type: "agents.model.select", agentId: "builder", model: "gpt-5.5" },
+      type: "conversation.runtime", conversationId: "run-1",
+      message: { type: "agents.model.select", agentId: "builder", model: "provider-model-two" },
     });
-  } finally {
-    harness.restore();
-  }
+  } finally { harness.restore(); }
 });
 
-test("choosing the provider default clears the reader's model rather than substituting one", () => {
-  const harness = bootWebview(
-    managerState(),
-    cliAssignmentPanel(
-      {
-        adapterModels: {
-          "codex-app-server": { status: "listed", models: [{ id: "gpt-5.5", label: "GPT-5.5" }] },
-        },
-      },
-      { assignedModel: "gpt-5.5" },
-    ),
-  );
+test("choosing the provider default clears the selected model", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "provider-model", label: "Model" }] } },
+  }, { assignedModel: "provider-model" }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    harness.document.getElementById("agents-model-builder-default").click();
+    chooseAgentOption(harness, "agents-model-select-builder", "");
     assert.deepEqual(harness.messages.at(-1), {
-      type: "conversation.runtime",
-      conversationId: "run-1",
+      type: "conversation.runtime", conversationId: "run-1",
       message: { type: "agents.model.select", agentId: "builder" },
     });
-  } finally {
-    harness.restore();
-  }
+  } finally { harness.restore(); }
 });
 
-test("a provider that cannot list models keeps an explicit field rather than an empty catalog", () => {
-  const harness = bootWebview(managerState(), cliAssignmentPanel());
+test("opening Agents loads unknown catalogs once per provider without starting a run", () => {
+  const panel = cliAssignmentPanel();
+  panel.agentAssignments.slots.push({ ...panel.agentAssignments.slots[0], agentId: "reviewer", responsibility: "Reviewer" });
+  const harness = bootWebview(managerState(), panel);
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.match(
-      harness.document.root.innerHTML,
-      /has not been asked which models it accepts/u,
-      "not asked is stated as not asked, never as offering nothing",
-    );
+    harness.document.getElementById("agents-picker-button").click();
+    harness.document.getElementById("agents-picker-button").click();
+    const requests = harness.messages.filter((entry) => entry.message?.type === "agents.model.discover");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].message.agentId, "builder");
+    assert.equal(harness.messages.some((entry) => ["pipeline.run", "message.send"].includes(entry.message?.type)), false);
     assert.ok(harness.document.root.querySelector('[data-action="agents-model-discover"]'));
+  } finally { harness.restore(); }
+});
+
+test("a provider without a catalog exposes exact model entry without a disclosure", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: { "codex-app-server": { status: "unsupported", models: [], detail: "No listing method" } },
+  }));
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    assert.match(harness.document.root.innerHTML, /Model list unavailable/u);
     const input = harness.document.getElementById("agents-model-input-builder");
-    assert.ok(input, "an explicit model field stays usable");
-    input.value = "gpt-6-astra";
+    assert.ok(input);
+    assert.equal(input.closest("details"), null);
+    input.value = "provider-exact-alias";
     harness.document.root.dispatch("input", { target: input });
-    harness.document.root
-      .querySelector('[data-action="agents-model-apply"][data-agent="builder"]')
-      .click();
+    harness.document.root.querySelector('[data-action="agents-model-apply"][data-agent="builder"]').click();
     assert.deepEqual(harness.messages.at(-1), {
-      type: "conversation.runtime",
-      conversationId: "run-1",
-      message: { type: "agents.model.select", agentId: "builder", model: "gpt-6-astra" },
+      type: "conversation.runtime", conversationId: "run-1",
+      message: { type: "agents.model.select", agentId: "builder", model: "provider-exact-alias" },
     });
-  } finally {
-    harness.restore();
-  }
+  } finally { harness.restore(); }
 });
 
-test("a chosen model the provider no longer lists stays visible instead of being dropped", () => {
-  const harness = bootWebview(
-    managerState(),
-    cliAssignmentPanel(
-      {
-        adapterModels: {
-          "codex-app-server": { status: "listed", models: [{ id: "gpt-5.5", label: "GPT-5.5" }] },
-        },
-      },
-      { assignedModel: "gpt-6-astra" },
-    ),
-  );
+test("entering a custom model from a known catalog opens a field without changing the assignment", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "reported-model", label: "Reported model" }] } },
+  }));
   try {
-    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const chosen = harness.document.getElementById("agents-model-builder-chosen");
-    assert.ok(chosen, "the reader's own choice is never silently removed");
-    assert.equal(chosen.getAttribute("aria-checked"), "true");
-    assert.match(harness.document.root.innerHTML, /gpt-6-astra/u);
-  } finally {
-    harness.restore();
-  }
-});
-
-test("a browser slot states that the model is the website's and unreported", () => {
-  const harness = bootWebview(managerState(), assignmentPanel());
-  try {
-    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.match(harness.document.root.innerHTML, /selected in the browser · unreported/u);
-    assert.equal(
-      modelRadios(harness).length,
-      0,
-      "a model cannot be chosen for a conversation the website owns",
-    );
-  } finally {
-    harness.restore();
-  }
-});
-
-test("a slot's provider choices are one tab stop with the assigned choice checked", () => {
-  const harness = bootWebview(managerState(), assignmentPanel());
-  try {
-    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const radios = Array.from(
-      harness.document.root.querySelectorAll('.agents-choices [role="radio"]'),
-    );
-    assert.ok(radios.length >= 2);
-    const tabbable = radios.filter((radio) => radio.getAttribute("tabindex") === "0");
-    assert.equal(tabbable.length, 1, "a radiogroup is one tab stop");
-    assert.equal(tabbable[0].getAttribute("aria-checked"), "true");
-    assert.equal(
-      radios.filter((radio) => radio.getAttribute("aria-checked") === "true").length,
-      1,
-    );
-  } finally {
-    harness.restore();
-  }
-});
-
-test("arrow keys move within a slot's choices without assigning a provider", () => {
-  const harness = bootWebview(managerState(), assignmentPanel());
-  try {
-    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const radio = harness.document.root.querySelector('.agents-choices [role="radio"]');
+    harness.document.getElementById("agents-picker-button").click();
     const before = harness.messages.length;
-    for (const key of ["ArrowDown", "ArrowRight", "ArrowUp", "Home", "End"]) {
-      harness.document.root.dispatch("keydown", {
-        key,
-        target: radio,
-        preventDefault: () => undefined,
-      });
-    }
-    // Assigning restarts a provider, so it is never what an arrow key costs.
+    chooseAgentOption(harness, "agents-model-select-builder", "__bachata_custom_model__");
     assert.equal(harness.messages.length, before);
-  } finally {
-    harness.restore();
-  }
+    const input = harness.document.getElementById("agents-model-input-builder");
+    assert.ok(input);
+    assert.equal(harness.document.activeElement, input);
+    input.value = "provider-exact-alias";
+    harness.document.root.dispatch("input", { target: input });
+    harness.document.root.querySelector('[data-action="agents-model-apply"]').click();
+    assert.deepEqual(harness.messages.at(-1).message, { type: "agents.model.select", agentId: "builder", model: "provider-exact-alias" });
+  } finally { harness.restore(); }
+});
+
+test("a model no longer listed stays selected and is identified as unlisted", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "provider-current", label: "Current" }] } },
+  }, { assignedModel: "provider-previous" }));
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    assert.ok(harness.document.getElementById("agents-model-select-builder"));
+    const options = harness.document.root.innerHTML.match(/<select id="agents-model-select-builder"[^>]*>([\s\S]*?)<\/select>/u)?.[1] ?? "";
+    assert.match(options, /<option value="provider-previous" selected>provider-previous · not listed<\/option>/u);
+  } finally { harness.restore(); }
+});
+
+test("a browser slot leaves model selection in the connected website", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    assert.match(harness.document.root.innerHTML, /Choose the model in the connected browser conversation/u);
+    assert.equal(harness.document.root.querySelector(".agents-model-select"), null);
+    assert.equal(harness.messages.some((entry) => entry.message?.type === "agents.model.discover"), false);
+  } finally { harness.restore(); }
+});
+
+test("a provider selector is labeled and exposes the current provider", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    const select = harness.document.getElementById("agents-provider-builder");
+    assert.equal(select.getAttribute("aria-label"), "Provider for Builder");
+    const options = harness.document.root.innerHTML.match(/<select id="agents-provider-builder"[^>]*>([\s\S]*?)<\/select>/u)?.[1] ?? "";
+    assert.match(options, /<option value="" selected>/u);
+    assert.match(options, /<option value="codex-app-server"/u);
+    assert.match(options, /<option value="claude-code"/u);
+  } finally { harness.restore(); }
+});
+
+test("model catalogs remain discoverable while an interrupted run keeps its assignments", () => {
+  const panel = cliAssignmentPanel({ lockReason: "Reset this run before reassigning agents" });
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    assert.equal(harness.messages.filter((entry) => entry.message?.type === "agents.model.discover").length, 1);
+    assert.equal(harness.document.getElementById("agents-provider-builder").disabled, true);
+    assert.equal(harness.document.getElementById("agents-model-select-builder").disabled, true);
+    const refresh = harness.document.root.querySelector('[data-action="agents-model-discover"]');
+    assert.equal(refresh.disabled, false);
+    refresh.click();
+    assert.equal(harness.messages.filter((entry) => entry.message?.type === "agents.model.discover").length, 2);
+    assert.ok(harness.document.root.querySelector(".agents-locked"));
+    assert.match(harness.document.root.innerHTML, /<span>This run keeps its original providers and models\.<\/span>/u);
+    assert.ok(harness.document.root.querySelector('.agents-locked [data-action="create-conversation"]'));
+    const before = harness.messages.length;
+    chooseAgentOption(harness, "agents-model-select-builder", "wrong-model");
+    assert.equal(harness.messages.length, before);
+  } finally { harness.restore(); }
+});
+
+test("archived runs expose no provider or model mutation controls", () => {
+  const harness = bootWebview(managerState({ conversations: [{ ...conversationSummary(), archived: true }] }), cliAssignmentPanel());
+  try {
+    assert.equal(harness.document.getElementById("agents-picker-button"), null);
+    assert.equal(harness.document.getElementById("agents-provider-builder"), null);
+    assert.equal(harness.document.getElementById("agents-model-select-builder"), null);
+    assert.equal(harness.document.root.querySelector('[data-action="agents-model-discover"]'), null);
+    assert.equal(harness.document.root.querySelector(".agents-model-explicit"), null);
+    assert.equal(harness.messages.some((entry) => entry.message?.type === "agents.model.discover"), false);
+  } finally { harness.restore(); }
 });
 
 test("Escape closes the Agents popover", () => {
@@ -1741,11 +1717,9 @@ test("a locked assignment states why and offers no control", () => {
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
     assert.match(harness.document.root.innerHTML, /Clear the queue before reassigning agents/u);
-    const radios = Array.from(
-      harness.document.root.querySelectorAll('.agents-choices [role="radio"]'),
-    );
-    assert.ok(radios.length > 0);
-    assert.equal(radios.every((radio) => radio.disabled === true), true);
+    const selectors = Array.from(harness.document.root.querySelectorAll('.agents-provider-select, .agents-model-select'));
+    assert.ok(selectors.length > 0);
+    assert.equal(selectors.every((select) => select.disabled === true), true);
     assert.equal(harness.document.root.querySelector('[data-action="agents-reset-all"]'), null);
   } finally {
     harness.restore();
@@ -1963,7 +1937,7 @@ test("resource waiting is visible and cancellable before providers start", () =>
     panelState({ running: false, workflowStatus: "idle" }),
   );
   try {
-    assert.match(harness.document.root.innerHTML, /Waiting for shared capacity/);
+    assert.match(harness.document.root.innerHTML, /Waiting for capacity/);
     const cancel = harness.document.root.querySelector('[data-action="interrupt-run"]');
     assert.ok(cancel);
     assert.match(harness.document.root.innerHTML, /Cancel wait/);
@@ -2308,7 +2282,7 @@ for (
       name: "agents",
       toggle: '[data-action="agents-picker-toggle"]',
       button: "agents-picker-button",
-      drawn: '[data-action="agents-assign"]',
+      drawn: '[data-agents-provider-for]',
     },
   ]
 ) {
@@ -3910,7 +3884,8 @@ test("Ctrl+Enter cannot bypass the send blockers the button enforces", () => {
       false,
       "a keyboard submit started a run while a readiness finding blocked it",
     );
-    assert.match(harness.document.root.innerHTML, /Bachata did not send this run/u);
+    assert.ok(harness.document.root.querySelector(".app-dialog"));
+    assert.match(harness.document.root.innerHTML, /<strong>Codex: codex unavailable: spawn codex ENOENT<\/strong>/u);
   } finally {
     harness.restore();
   }
@@ -3982,6 +3957,13 @@ test("a Markdown specification is accepted and typed, while an unsupported binar
   }
 });
 
+const openWorkspaceDirection = (harness) => {
+  if (!harness.document.getElementById("run-drawer")) {
+    harness.document.root.querySelector('[data-action="run-drawer-toggle"]').click();
+  }
+  harness.document.root.querySelector('.run-drawer-direction').click();
+};
+
 const directionState = (overrides = {}) => ({
   ...structuredClone(require("./fixtures/webview-layout/direction.json")),
   ...overrides,
@@ -3995,7 +3977,7 @@ test("Direction replaces record identities with labeled selectors and keeps merg
   direction.direction.outstandingAcceptedFindings = [source];
   const harness = bootWebview(managerState({ direction }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.document.root.querySelector('[data-action="finding-merge"][data-record="finding-source-secret"]').click();
     let select = harness.document.getElementById("app-dialog-input");
     assert.equal(select.tagName, "SELECT");
@@ -4021,7 +4003,7 @@ test("Direction supersede choices are existing records and reject missing replac
   direction.direction.decisionsNeedingHuman = [source];
   const harness = bootWebview(managerState({ direction }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.document.root.querySelector('[data-action="resolve-record"][data-record="decision-source-secret"][data-resolution="supersede"]').click();
     const select = harness.document.getElementById("app-dialog-input");
     assert.equal(select.tagName, "SELECT");
@@ -4040,7 +4022,7 @@ test("Direction uses accessible secondary panels and keeps internal references o
   const direction = directionState();
   const harness = bootWebview(managerState({ direction }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const center = harness.document.root.querySelector(".direction-center");
     assert.equal(center.querySelectorAll("details").length, 0);
     const text = harness.document.root.innerHTML.replace(/<[^>]*>/gu, " ");
@@ -4059,7 +4041,7 @@ test("Direction uses accessible secondary panels and keeps internal references o
 test("the direction surface answers the top-level questions without a transcript", () => {
   const harness = bootWebview(managerState({ direction: directionState() }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     for (const marker of [
       "Project direction",
@@ -4101,7 +4083,7 @@ test("run notices link pending project decisions without repeating the project g
 test("the direction surface sends initiative, cycle, fresh review, and resolution intents", () => {
   const harness = bootWebview(managerState({ direction: directionState() }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.messages.length = 0;
 
     harness.document.root.querySelector('[data-action="review-fresh"]').click();
@@ -4134,7 +4116,7 @@ test("the direction surface sends initiative, cycle, fresh review, and resolutio
 test("the direction surface states the candidate, its drift, and the recorded checks", () => {
   const harness = bootWebview(managerState({ direction: directionState() }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     for (const marker of [
       "Repository and checks",
@@ -4156,7 +4138,7 @@ test("the direction surface states the candidate, its drift, and the recorded ch
 test("the direction surface sends candidate, fix, merge, and initiative intents", () => {
   const harness = bootWebview(managerState({ direction: directionState() }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.messages.length = 0;
 
     harness.document.root.querySelector('[data-action="cycle-rebaseline"]').click();
@@ -4203,7 +4185,7 @@ test("the direction surface sends candidate, fix, merge, and initiative intents"
 test("merging a finding collects a target and a reason before it is sent", () => {
   const harness = bootWebview(managerState({ direction: directionState() }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.messages.length = 0;
 
     harness.document.root
@@ -4248,7 +4230,7 @@ test("merging a finding collects a target and a reason before it is sent", () =>
 test("reopening a finding collects a reason and a material evidence delta before it is sent", () => {
   const harness = bootWebview(managerState({ direction: directionState() }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.messages.length = 0;
     harness.document.root
       .querySelector('[data-action="resolve-record"][data-target="finding"][data-record="FH1"][data-resolution="reopen"]')
@@ -4309,7 +4291,7 @@ test("the lifecycle matrix decides which resolutions a record offers", () => {
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const actionsFor = (record) =>
       Array.from(
         harness.document.root.querySelectorAll(`[data-action="resolve-record"][data-record="${record}"]`),
@@ -4334,7 +4316,7 @@ test("the direction surface states longitudinal failures instead of hiding them"
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     assert.ok(html.includes("Some changes could not be saved"), html.slice(0, 400));
     assert.ok(html.includes("Decision 2 has no evidence"));
@@ -4349,7 +4331,7 @@ test("superseding a record requires an explicit replacement that is not itself",
   direction.decisions = [{ ...direction.direction.decisionsNeedingHuman[0], id: "D9", subject: "Manual resumption", state: "accepted" }];
   const harness = bootWebview(managerState({ direction }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.messages.length = 0;
     harness.document.root
       .querySelector('[data-action="resolve-record"][data-target="decision"][data-resolution="supersede"]')
@@ -4382,10 +4364,11 @@ test("empty project direction remains reachable without adding an empty run noti
   const harness = bootWebview();
   try {
     const html = harness.document.root.innerHTML;
-    assert.equal(html.includes(">Direction<"), true);
+    assert.equal(harness.document.root.querySelector('.run-tabs [data-view="direction"]'), null);
     assert.equal(html.includes("direction-banner"), false);
     assert.equal(html.includes("No goal is recorded"), false);
-    assert.ok(harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]'));
+    openWorkspaceDirection(harness);
+    assert.ok(harness.document.root.querySelector(".direction-center"));
   } finally {
     harness.restore();
   }
@@ -4406,7 +4389,7 @@ test("the direction surface degrades safely when a cycle exists but nothing is r
     },
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     assert.ok(html.includes("Define the goal"));
     assert.ok(html.includes("Decisions to resolve"));
@@ -4518,7 +4501,7 @@ test("the direction surface reports the quiet-review fact and keeps close availa
     },
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     assert.ok(html.includes("One of 2 consecutive fresh reviews found no material change."));
     assert.ok(html.includes("Continue or close the cycle."));
@@ -4556,7 +4539,7 @@ test("only ambiguous finding mappings ask the human, and they offer the candidat
     },
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     assert.ok(html.includes("Possible duplicate findings"));
     assert.ok(html.includes("Ambiguous match"));
@@ -4622,7 +4605,7 @@ test("the project notice links to Direction and its primary action uses a concre
       harness.document.root.innerHTML.includes('data-view="direction">Review direction</button>'),
       "the project notice has no route to Direction",
     );
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const centre = harness.document.root.innerHTML;
     assert.ok(
       /data-action="direction-next-action"[^>]*>Resolve decisions<\/button>/u.test(centre),
@@ -4693,7 +4676,7 @@ test("resolved, rejected and superseded records stay reachable in history", () =
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     for (const marker of [
       "History",
@@ -4738,7 +4721,7 @@ test("a history record opens the run that produced it and the file it names", ()
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     harness.document.root.querySelector('[data-action="open-producing-run"]').click();
     assert.deepEqual(
       harness.messages.filter((message) => message.type === "history.openRun"),
@@ -4782,7 +4765,7 @@ for (const readOnly of [undefined, {
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     assert.ok(harness.document.root.innerHTML.includes("Retry budget"));
     const filter = harness.document.root.querySelector("#history-filter");
     assert.notEqual(filter.readOnly, true);
@@ -4839,7 +4822,7 @@ test("a surfaced judgment keeps options readable and groups supporting evidence"
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     for (const marker of [
       ">Options<",
@@ -4877,7 +4860,7 @@ test("a bare judgment retains its question without empty metadata panels", () =>
     }),
   }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     const html = harness.document.root.innerHTML;
     assert.ok(html.includes("What should happen?"));
     assert.equal(html.includes("No recommendation was supplied."), false);
@@ -5780,12 +5763,9 @@ test("the no-run room offers the Direction centre only where there is direction"
 const MARKERS = {
   taskInput: 'id="composer-prompt"',
   primaryAction: 'class="composer-send"',
-  blockers: "composer-blockers",
+  blockers: 'data-action="run-requirements"',
   bell: "notification-center",
   directionBanner: "direction-banner",
-  // The tab, by its own label: the overflow menu keeps an "Open direction" route when the tab is
-  // hidden, and that route is not the tab.
-  directionTab: ">Direction<",
   executionTab: 'data-view="execution"',
   runResult: "result-center",
   blockingBanner: "blocking-workflow-banner",
@@ -5798,7 +5778,7 @@ const MARKERS = {
 
 const assertMatrixRow = (label, html, expected) => {
   for (const [marker, pattern] of Object.entries(MARKERS)) {
-    const shouldShow = marker === "directionTab" || expected.visible.includes(marker);
+    const shouldShow = expected.visible.includes(marker);
     assert.equal(
       html.includes(pattern),
       shouldShow,
@@ -5831,11 +5811,8 @@ test("the room's DOM state matrix asserts what is shown and what stays hidden", 
     // EX-UI-02. An empty input is not a blocker list. The field's placeholder and the intro card
     // already say it; the refusal travels on Send itself, where a reader who asks is told.
     assertMatrixRow("pristine", html, { visible: ["taskInput", "primaryAction"] });
-    assert.equal(
-      html.split("The run input is empty.").length - 1,
-      1,
-      "the empty input is stated more than once in an empty room",
-    );
+    assert.doesNotMatch(html, /<(?:p|strong|li)[^>]*>The run input is empty\./u);
+    assert.equal(harness.document.root.querySelector(".run-requirements-list"), null);
     const pristineSend = harness.document.root.querySelector('[data-action="submit-message"]');
     assert.equal(pristineSend.getAttribute("aria-disabled"), "true");
     assert.match(
@@ -5898,7 +5875,7 @@ test("the room's DOM state matrix asserts what is shown and what stays hidden", 
   }));
   try {
     const html = harness.document.root.innerHTML;
-    assertMatrixRow("running", html, { visible: ["taskInput", "primaryAction", "blockers"] });
+    assertMatrixRow("running", html, { visible: ["taskInput", "primaryAction"] });
     assert.match(html, /status-running/u);
     assert.ok(harness.document.root.querySelector('[data-action="interrupt-run"]') !== null);
   } finally {
@@ -5920,7 +5897,7 @@ test("the room's DOM state matrix asserts what is shown and what stays hidden", 
   try {
     const html = harness.document.root.innerHTML;
     assertMatrixRow("blocking human input", html, {
-      visible: ["taskInput", "primaryAction", "blockers", "executionTab", "blockingBanner"],
+      visible: ["taskInput", "primaryAction", "executionTab", "blockingBanner"],
     });
     assert.match(html, /1 decision pending/u);
   } finally {
@@ -5994,7 +5971,7 @@ test("the room's DOM state matrix asserts what is shown and what stays hidden", 
   harness = bootWebview(managerState({ direction: base }));
   try {
     assertMatrixRow("material direction decision", harness.document.root.innerHTML, {
-      visible: ["taskInput", "primaryAction", "directionBanner", "directionTab"],
+      visible: ["taskInput", "primaryAction", "directionBanner"],
     });
   } finally {
     harness.restore();
@@ -6091,7 +6068,7 @@ test("the human gate is answerable from the chat view, names its default and its
     assert.match(html, /class="primary" data-action="gate" data-gate-action="continue"/u, "no default action");
     assert.match(html, /Ask Worker to rule/u, "the arbiter button names a fixed agent");
     assert.match(html, /<label for="rollback-target">Return to step<\/label>/u, "the rollback target has no visible label");
-    assert.match(html, /class="room-status status-paused">Waiting for you</u, "the header pill contradicts the gate");
+    assert.match(html, /class="room-status status-paused"><span[^>]*>Waiting for you<\/span>/u, "the header contradicts the gate");
     assert.doesNotMatch(html, /<small>int-/u);
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"][data-focus="pending-decision"]').click();
     assert.equal(harness.document.activeElement.id, "pending-gate", "Review and continue left focus on the body");
@@ -6156,10 +6133,10 @@ test("a refused policy blocks Send once and the contract lists it under one head
     assert.doesNotMatch(html, /<h4>/u, "the contract skips a heading level");
     const send = harness.document.root.querySelector('[data-action="submit-message"]');
     assert.equal(send.getAttribute("aria-disabled"), "true", "a refused run still offers Send");
-    assert.match(html, /class="room-status status-error">Blocked</u);
-    const blockers = harness.document.getElementById("composer-blockers");
-    assert.match(blockers.dataset.announcement, /^Send is disabled\. Shell access is disabled by policy\. This repository.{1,6}s policy file refuses this run/u);
-    assert.doesNotMatch(blockers.dataset.announcement, /Fix|Discard|Stop/u, "button labels leak into the announcement");
+    const status = harness.document.root.querySelector('[data-action="run-requirements"]');
+    assert.match(status.getAttribute("aria-label"), /^Blocked\./u);
+    assert.match(send.getAttribute("aria-description"), /^Shell access is disabled by policy\. This repository.{1,6}s policy file refuses this run/u);
+    assert.doesNotMatch(send.getAttribute("aria-description"), /Fix|Discard|Stop/u, "button labels leak into the description");
   } finally {
     harness.restore();
   }
@@ -6174,6 +6151,7 @@ test("a submit the runtime never answers can be discarded from the composer", ()
     harness.document.root.querySelector('[data-action="submit-message"]').click();
     assert.equal(harness.messages.at(-1).message.type, "pipeline.run");
     assert.equal(harness.document.root.querySelector('[data-action="submit-message"]').getAttribute("aria-disabled"), "true");
+    harness.document.root.querySelector('[data-action="run-requirements"]').click();
     const discard = harness.document.root.querySelector('[data-action="run-discard-pending"]');
     assert.ok(discard, "no way out of a pending submit");
     discard.click();
@@ -6418,13 +6396,13 @@ test("switching runs opens the next run on its chat", () => {
   const second = { ...conversationSummary(), id: "run-2", runRef: "run-2", title: "Second" };
   const harness = bootWebview(managerState({ conversations: [conversationSummary(), second] }), panelState());
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
-    assert.equal(harness.document.root.querySelector('.workspace-direction').getAttribute("aria-pressed"), "true");
+    openWorkspaceDirection(harness);
+    assert.ok(harness.document.root.querySelector('.direction-center'));
     harness.document.root.querySelector('[data-action="select-conversation"][data-conversation="run-2"]').click();
     // The next run opens on its chat — the composer only renders in the chat view — and the
     // previous run's Direction view does not follow the reader.
     assert.ok(harness.document.getElementById("composer-prompt"), "the next run did not open on its chat");
-    assert.equal(harness.document.root.querySelector('.workspace-direction').getAttribute("aria-pressed"), "false");
+    assert.equal(harness.document.root.querySelector('.direction-center'), null);
   } finally {
     harness.restore();
   }
@@ -6688,8 +6666,6 @@ test("a read-only window disables pairing mutations", () => {
   );
   try {
     openBridgeInspector(harness);
-    // Discover and Reset change the workspace's pairing, so the read-only sweep must still refuse
-    // them. Reading a token that is already on screen changes nothing and stays available.
     for (const action of ["bridge-discover", "bridge-reset"]) {
       const control = harness.document.root.querySelector(`[data-action="${action}"]`);
       assert.ok(control, `missing ${action}`);
@@ -7113,7 +7089,6 @@ for (const [status, outcome, label] of [["interrupted", "stoppedByUser", "Resume
 
 for (const [action, runtimeType, surface] of [
   ["inspector-toggle", null, ".inspector"],
-  ["room-view", null, ".conversation-scroll"],
   ["pipeline-new", null, ".pipeline-editor"],
   ["pipeline-fork", "pipeline.fork", null],
   ["availability-check", "availability.check", ".agents-popover"],
@@ -7129,11 +7104,9 @@ for (const [action, runtimeType, surface] of [
       const menu = harness.document.root.querySelector(".header-action-menu");
       assert.equal(menu.open, true);
       if (["pipeline-new", "pipeline-fork"].includes(action)) openComposerSettings(harness);
-      const control = action === "room-view"
-        ? harness.document.root.querySelector('.workspace-direction')
-        : ["pipeline-new", "pipeline-fork"].includes(action)
-          ? harness.document.root.querySelector(`.composer-settings [data-action="${action}"]`)
-          : menu.querySelector(`[data-action="${action}"]`);
+      const control = ["pipeline-new", "pipeline-fork"].includes(action)
+        ? harness.document.root.querySelector(`.composer-settings [data-action="${action}"]`)
+        : menu.querySelector(`[data-action="${action}"]`);
       assert.ok(control); assert.equal(control.disabled, false);
       const before = harness.messages.length;
       control.focus(); control.click();
@@ -7148,13 +7121,14 @@ for (const [action, runtimeType, surface] of [
           assert.equal(sent[0].message.type, runtimeType);
           assert.equal(typeof sent[0].message.requestId, "string");
           assert.equal(sent[0].message.pipelineId, "custom-a");
+        } else if (runtimeType === "availability.check") {
+          assert.deepEqual(sent, [expected, { type: "conversation.runtime", conversationId: "run-1", message: { type: "agents.model.discover", agentId: "lead" } }]);
         } else assert.deepEqual(sent, [expected]);
       }
       if (["working-directory", "transcript-export", "orchestration-start"].includes(action)) {
         assert.equal(harness.document.activeElement, harness.document.getElementById("room-actions-button"));
       }
       if (surface) assert.ok(harness.document.root.querySelector(surface));
-      if (action === "room-view") assert.equal(harness.document.root.querySelector('.workspace-direction').getAttribute("aria-pressed"), "true");
       if (action === "task-reset") {
         assert.equal(sent.length, 0);
         assert.equal(harness.document.activeElement.dataset.dialogDefault, "cancel");
@@ -7253,11 +7227,7 @@ test("a working room draws no result and no recovery, even beside a stale result
     }
     harness.document.root.querySelector('[data-action="room-view"][data-view="chat"]').click();
     const html = harness.document.root.innerHTML;
-    assert.match(
-      html,
-      /<span role="status"[^>]*class="room-status status-running"><i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"><\/i>Working<\/span>/u,
-      "the header does not say Working beside a decorative progress indicator",
-    );
+    assert.match(html, /class="room-status status-running"><i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"><\/i><span[^>]*>Working<\/span>/u);
     assert.doesNotMatch(html, /codicon-sync/u, "a refresh icon stands for progress");
     assert.ok(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), "Stop is not offered");
   } finally {
@@ -7355,7 +7325,7 @@ for (const row of [
     );
     try {
       const html = harness.document.root.innerHTML;
-      assert.match(html, new RegExp(`class="room-status status-[a-z]+">(?:<i [^>]*><\\/i>)?${row.header}<\\/span>`, "u"), "header status");
+      assert.match(html, new RegExp(`class="room-status status-[a-z]+[^\"]*"[^>]*>(?:<i [^>]*></i>)?<span[^>]*>${row.header}</span>`, "u"), "header status");
       assert.match(html, new RegExp(`codicon-${row.tabIcon} run-tab-status`, "u"), "tab icon");
       assert.doesNotMatch(html, /ended as|Recoverable pipeline|codicon-sync|Needs attention/u);
       if (row.outcome === undefined) {
@@ -7412,7 +7382,7 @@ for (const [name, panel, label] of [
     );
     try {
       const html = harness.document.root.innerHTML;
-      assert.match(html, new RegExp(`class="room-status status-interrupted">${label}</span>`, "u"));
+      assert.match(html, new RegExp(`class="room-status status-interrupted[^\"]*"[^>]*><span[^>]*>${label}</span>`, "u"));
       if (label === "Interrupted") assert.doesNotMatch(html, /Stopped by you/u);
     } finally {
       harness.restore();
@@ -7442,7 +7412,7 @@ for (const [running, workflowStatus, header, stop] of [
     );
     try {
       const html = harness.document.root.innerHTML;
-      assert.match(html, new RegExp(`class="room-status status-[a-z]+">(?:<i [^>]*><\\/i>)?${header}<\\/span>`, "u"), "header");
+      assert.match(html, new RegExp(`class="room-status status-[a-z]+[^\"]*"[^>]*>(?:<i [^>]*></i>)?<span[^>]*>${header}</span>`, "u"), "header status");
       assert.equal(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]') !== null, stop, "Stop control");
       const live = header === "Working" || header === "Waiting for you";
       assert.equal(harness.document.root.querySelector(".run-outcome") === null, live || result === undefined, "result visibility");
@@ -7608,7 +7578,8 @@ test("a refusal made before any participant started is stated once, offers the f
     assert.doesNotMatch(html, />null<|activity-details/u);
     assert.match(html, /<strong><i [^>]*><\/i> Failed<\/strong><p>Could not start step 1 of 3 · Implement<\/p>/u);
     assert.equal(harness.document.root.querySelector('[data-action="workflow-resume"]'), null, "a step that never started was offered for retry");
-    assert.match(html, /Choose a Git project folder, then restart the pipeline, or discard it\./u);
+    const refusedSend = harness.document.root.querySelector('[data-action="submit-message"]');
+    assert.match(refusedSend.getAttribute("aria-description"), /Choose a Git project folder before restarting\./u);
     assert.doesNotMatch(html, /Send is disabled[^<]*reset/iu);
 
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
@@ -7935,7 +7906,7 @@ test("Browser Bridge activation starts discovery and keeps pairing steps beside 
   const harness = bootWebview(managerState(), panel);
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    harness.document.root.querySelector('[data-action="agents-browser-toggle"]').click();
+    chooseAgentOption(harness, "agents-provider-builder", "browser");
     assert.equal(harness.messages.at(-1).message.type, "bridge.discover");
     assert.match(harness.document.root.innerHTML, /Connect Browser Bridge/u);
     assert.ok(harness.document.root.querySelector('[data-action="bridge-copy-token"]'));
@@ -7943,16 +7914,14 @@ test("Browser Bridge activation starts discovery and keeps pairing steps beside 
   } finally { harness.restore(); }
 });
 
-test("manual model selection is an explained, closed advanced disclosure", () => {
+test("manual model selection is visible beside provider choices", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel());
   try {
-    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const advanced = harness.document.root.querySelector('.agents-model-advanced');
-    assert.ok(advanced);
-    assert.equal(advanced.open, false);
-    assert.match(harness.document.root.innerHTML, /Other model \(advanced\)/u);
-    assert.match(harness.document.root.innerHTML, /does not install a model/u);
-    assert.match(harness.document.root.innerHTML, /Apply model override/u);
+    harness.document.getElementById("agents-picker-button").click();
+    assert.equal(harness.document.root.querySelector('.agents-model-advanced'), null);
+    assert.ok(harness.document.root.querySelector('.agents-model-explicit'));
+    assert.match(harness.document.root.innerHTML, /Provider model ID or alias/u);
+    assert.match(harness.document.root.innerHTML, /Use model/u);
   } finally { harness.restore(); }
 });
 
@@ -8091,7 +8060,7 @@ test("candidate-bound evidence retains acceptance context and groups provenance 
   direction.resolutionMatrix = { ...(direction.resolutionMatrix ?? {}), externalEvidence: { proposed: ["accept", "reject", "defer", "supersede"] } };
   const harness = bootWebview(managerState({ direction }));
   try {
-    harness.document.root.querySelector('[data-action="room-view"][data-view="direction"]').click();
+    openWorkspaceDirection(harness);
     assert.match(harness.document.root.innerHTML, /supports Cancellation guard/u);
     assert.match(harness.document.root.innerHTML, /Verification: passed/u);
     const disclosure = harness.document.root.querySelector('[data-action="direction-section-toggle"][data-section="verification-X1"]');
@@ -8242,14 +8211,76 @@ test("Escape closes pipeline tools before closing the editor", () => {
   }
 });
 
+test("workspace shell uses the existing logo and keeps Direction inside Runs", () => {
+  const harness = bootWebview();
+  try {
+    const before = harness.messages.length;
+    const logo = harness.document.root.querySelector(".run-tabs-brand");
+    assert.equal(logo.tagName, "BUTTON");
+    assert.equal(logo.getAttribute("aria-label"), "Home");
+    assert.equal(logo.getAttribute("title"), "Bachata");
+    const path = harness.document.root.innerHTML.match(/<svg class="workspace-logo"[^>]*><path d="([^"]+)"/u)?.[1];
+    assert.ok(path);
+    assert.ok(require("node:fs").readFileSync(require("node:path").join(__dirname, "../media/icon.svg"), "utf8").includes(`d="${path}"`));
+    assert.equal(harness.document.root.querySelector('.run-tabs [data-view="direction"]'), null);
+    harness.document.root.querySelector('[data-action="run-drawer-toggle"]').click();
+    const direction = harness.document.root.querySelector(".run-drawer-direction");
+    assert.ok(direction);
+    assert.equal(direction.getAttribute("aria-pressed"), "false");
+    direction.focus();
+    direction.click();
+    assert.equal(harness.document.getElementById("run-drawer"), null);
+    assert.ok(harness.document.root.querySelector(".direction-center"));
+    assert.equal(harness.document.activeElement, harness.document.getElementById("conversation-scroll"));
+    assert.equal(harness.document.root.querySelector(".run-tab-select").getAttribute("aria-current"), null);
+    assert.equal(harness.document.root.querySelector(".run-tab-all").getAttribute("aria-current"), "page");
+    harness.document.root.querySelector('[data-action="run-drawer-toggle"]').click();
+    assert.equal(harness.document.root.querySelector(".run-drawer-direction").getAttribute("aria-pressed"), "true");
+    assert.deepEqual(harness.messages.slice(before), []);
+  } finally { harness.restore(); }
+});
+
+test("Home returns to the active chat without changing run selection or order", () => {
+  const first = conversationSummary();
+  const second = { ...first, id: "run-2", runRef: "run-2", title: "Second run" };
+  const harness = bootWebview(managerState({ conversations: [first, second] }));
+  try {
+    const before = harness.messages.length;
+    const order = () => harness.document.root.querySelectorAll(".run-tab-select").map((control) => control.dataset.conversation);
+    const initialOrder = order();
+    openWorkspaceDirection(harness);
+    const logo = harness.document.root.querySelector(".run-tabs-brand");
+    logo.focus();
+    logo.click();
+    assert.ok(harness.document.getElementById("composer-prompt"));
+    assert.equal(harness.document.root.querySelector(".direction-center"), null);
+    assert.equal(harness.document.root.querySelector('.run-tab-select[data-conversation="run-1"]').getAttribute("aria-current"), "page");
+    assert.deepEqual(order(), initialOrder);
+    assert.equal(harness.document.root.querySelector(".run-tab-all").getAttribute("aria-current"), null);
+    assert.deepEqual(harness.messages.slice(before), []);
+  } finally { harness.restore(); }
+});
+
+test("Runs opens Direction before the workspace has any runs", () => {
+  const harness = bootWebview(managerState({ conversations: [], activeConversationId: undefined }));
+  try {
+    const before = harness.messages.length;
+    openWorkspaceDirection(harness);
+    assert.equal(harness.document.getElementById("run-drawer"), null);
+    assert.ok(harness.document.root.querySelector(".direction-center"));
+    assert.ok(harness.document.getElementById("initiative-goal"));
+    assert.deepEqual(harness.messages.slice(before), []);
+  } finally { harness.restore(); }
+});
+
 test("clicking the active run restores Chat from workspace Direction", () => {
   const harness = bootWebview();
   try {
-    harness.document.root.querySelector('.workspace-direction').click();
+    openWorkspaceDirection(harness);
     assert.equal(harness.document.getElementById("composer-prompt"), null);
     harness.document.root.querySelector('.run-tab-select[data-conversation="run-1"]').click();
     assert.ok(harness.document.getElementById("composer-prompt"));
-    assert.equal(harness.document.root.querySelector('.workspace-direction').getAttribute("aria-pressed"), "false");
+    assert.equal(harness.document.root.querySelector('.direction-center'), null);
   } finally { harness.restore(); }
 });
 
@@ -8569,9 +8600,13 @@ for (const operationActive of [undefined, true]) {
         assert.equal(root.querySelector(`.header-action-menu [data-action="${action}"]`).disabled, true);
       }
       root.querySelector('[data-action="inspector-toggle"]').click();
-      for (const action of ["availability-check", "working-directory", "bridge-reset", "bridge-discover", "session-reset"]) {
+      for (const action of ["availability-check", "working-directory", "bridge-reset", "session-reset"]) {
         assert.equal(root.querySelector(`.inspector [data-action="${action}"]`).disabled, true);
       }
+      const discovery = root.querySelector('.inspector [data-action="bridge-discover"]');
+      assert.equal(discovery.disabled, false);
+      discovery.click();
+      assert.equal(harness.messages.at(-1).message.type, "bridge.discover");
       const messages = harness.messages.length;
       root.dispatch("click", { target: root.querySelector('[data-action="availability-check"]') });
       assert.equal(harness.messages.length, messages);
@@ -8598,4 +8633,341 @@ test("configuration controls unlock after terminal operation bookkeeping", () =>
     harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "run.patch", running: false, workflowStatus: "idle" } });
     assert.equal(checkProviders().disabled, false);
   } finally { harness.restore(); }
+});
+
+
+test("localization fixtures translate controls and dialogs while rename dispatch stays stable", () => {
+  const localization = {
+    locale: "fr-FR",
+    messages: {
+      Runs: "Fixture runs",
+      Ready: "Fixture ready",
+      "Run input": "Fixture input",
+      "Describe the job for the selected pipeline…": "Fixture prompt",
+      "Attach image, text, log, or specification": "Fixture attachment",
+      "Rename run": "Fixture rename dialog",
+      "Run title": "Fixture title",
+      Rename: "Fixture rename",
+      Cancel: "Fixture cancel",
+      "Close dialog": "Fixture close",
+      "Enter a title for this run.": "Fixture title required",
+    },
+  };
+  const harness = bootWebview(managerState(), panelState(), localization);
+  try {
+    assert.match(harness.document.root.innerHTML, />Fixture runs<\/button>/u);
+    assert.equal(harness.document.root.querySelector(".room-status"), null);
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("aria-label"), "Fixture input");
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("placeholder"), "Fixture prompt");
+    assert.equal(harness.document.root.querySelector('[data-action="attachment-pick"]').getAttribute("aria-label"), "Fixture attachment");
+    harness.document.root.querySelector('[data-action="run-rename"]').click();
+    assert.match(harness.document.root.innerHTML, /id="app-dialog-title">Fixture rename dialog<\/h2>/u);
+    assert.match(harness.document.root.innerHTML, />Fixture title<\/span>/u);
+    assert.match(harness.document.root.innerHTML, />Fixture cancel<\/button>/u);
+    assert.equal(harness.document.root.querySelector('[data-action="dialog-cancel"]').getAttribute("aria-label"), "Fixture close");
+    const input = harness.document.getElementById("app-dialog-input");
+    input.value = "";
+    harness.document.root.querySelector('[data-action="dialog-confirm"]').click();
+    assert.equal(harness.document.getElementById("app-dialog-error").textContent, "Fixture title required");
+    input.value = "Runs";
+    const before = harness.messages.length;
+    harness.document.root.querySelector('[data-action="dialog-confirm"]').click();
+    assert.deepEqual(harness.messages.slice(before), [{ type: "conversation.rename", conversationId: "run-1", title: "Runs" }]);
+    assert.ok(harness.document.getElementById("bachata-localization"));
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("aria-label"), "Fixture input");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("localization fixtures translate stopped recovery and Chat without changing resume dispatch", () => {
+  const result = { ...failedResultState(), status: "interrupted" };
+  const manager = managerState({ resultsByConversation: { "run-1": result } });
+  const panel = panelState({ workflowStatus: "interrupted", resumableWorkflow: recoverableWorkflow({ outcome: "stoppedByUser" }) });
+  const harness = bootWebview(manager, panel, {
+    locale: "fr-FR",
+    messages: {
+      Chat: "Fixture chat",
+      "Stopped by you": "Fixture stopped",
+      "Resume stopped step": "Fixture resume",
+      "Retry failed step": "Fixture retry",
+      "Stopped at step {0} of {1}": "Fixture step {0}/{1}",
+    },
+  });
+  try {
+    assert.match(harness.document.root.innerHTML, /data-view="chat"[^>]*>Fixture chat<\/button>/u);
+    assert.match(harness.document.root.innerHTML, />Fixture resume<\/button>/u);
+    assert.match(harness.document.root.innerHTML, /Fixture stopped/u);
+    assert.match(harness.document.root.innerHTML, /Fixture step 2\/3 · Implement/u);
+    assert.doesNotMatch(harness.document.root.innerHTML, />Fixture retry<\/button>/u);
+    const card = harness.document.root.querySelector(".run-outcome");
+    const before = harness.messages.length;
+    card.querySelector('[data-action="workflow-resume"]').click();
+    assert.deepEqual(harness.messages.slice(before), [{ type: "conversation.runtime", conversationId: "run-1", message: { type: "workflow.resume" } }]);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("localization fixtures escape translated markup and placeholder data without translating participant content", () => {
+  const definition = pipelineDefinition();
+  definition.agents[0].name = 'Role"><button data-action="placeholder-injection">x</button>';
+  const panel = panelState({
+    selectedPipelineDefinition: definition,
+    transcript: [
+      { id: "localized-user", kind: "prompt", eventType: "user.message", text: "Runs", createdAt: timestamp },
+      { id: "localized-answer", kind: "answer", agentId: "lead", text: "Run title", createdAt: timestamp },
+    ],
+  });
+  const harness = bootWebview(managerState(), panel, {
+    locale: "fr-FR",
+    messages: {
+      Runs: "Fixture runs",
+      "Run title": '<button data-action="translated-injection">Fixture title</button> & "quoted"',
+      "Provider for {0}": 'Fixture "{0}" <&>',
+    },
+  });
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /data-entry="localized-user"[^]*?class="message-text markdown"><p>Runs<\/p>/u);
+    assert.match(html, /data-entry="localized-answer"[^]*?class="message-text markdown"><p>Run title<\/p>/u);
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const provider = harness.document.getElementById("agents-provider-lead");
+    assert.equal(provider.getAttribute("aria-label"), "Fixture &quot;Role&quot;&gt;&lt;button data-action=&quot;placeholder-injection&quot;&gt;x&lt;/button&gt;&quot; &lt;&amp;&gt;");
+    assert.equal(harness.document.root.querySelector('[data-action="placeholder-injection"]'), null);
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    harness.document.root.querySelector('[data-action="run-rename"]').click();
+    assert.ok(harness.document.root.innerHTML.includes('&lt;button data-action=&quot;translated-injection&quot;&gt;Fixture title&lt;/button&gt; &amp; &quot;quoted&quot;'));
+    assert.equal(harness.document.root.querySelector('[data-action="translated-injection"]'), null);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("localization configuration controls displayed dates and attachment number formatting", () => {
+  const locale = "de-DE";
+  const panel = panelState({
+    transcript: [{ id: "dated-message", kind: "prompt", eventType: "user.message", text: "Message", createdAt: timestamp }],
+    attachments: [{ id: "locale-attachment", name: "sample.txt", mimeType: "text/plain", size: 1536 }],
+  });
+  const harness = bootWebview(managerState(), panel, { locale, messages: {} });
+  try {
+    const message = harness.document.root.querySelector(".user-message");
+    assert.equal(message.getAttribute("title"), new Date(timestamp).toLocaleString(locale));
+    const expectedTime = new Date(timestamp).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+    assert.ok(harness.document.root.innerHTML.includes(`datetime="${timestamp}">${expectedTime}</time>`));
+    const expectedSize = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(1.5);
+    assert.ok(harness.document.root.innerHTML.includes(`<small>${expectedSize} KB</small>`));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Browser Bridge connection states update without recovery controls or error banners", () => {
+  const bridge = { enabled: true, connected: false, sessions: [], connectionState: "connecting" };
+  const harness = bootWebview(managerState(), panelState({ browserBridge: bridge }));
+  try {
+    openBridgeInspector(harness);
+    const before = harness.messages.length;
+    for (const [connectionState, connected, label] of [
+      ["connecting", false, "Connecting…"],
+      ["retrying", false, "Browser unavailable — retrying"],
+      ["connected", true, "Connected"],
+      ["disconnected", false, "Disconnected"],
+    ]) {
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "bridge.patch", status: { ...bridge, connectionState, connected } } });
+      const status = harness.document.root.innerHTML.match(new RegExp(`<span data-bridge-state="${connectionState}"([^>]*)>([^<]*)</span>`, "u"));
+      assert.ok(status, connectionState);
+      assert.equal(status[2], label);
+      assert.match(status[1], /role="status"/u);
+      if (connectionState === "connecting") assert.match(status[1], /aria-live="off"/u);
+      else assert.doesNotMatch(status[1], /aria-live="off"/u);
+      assert.equal(harness.document.root.querySelector("[data-bridge-reason]"), null);
+      assert.equal(harness.document.root.querySelector(".error-banner"), null);
+      assert.doesNotMatch(harness.document.root.innerHTML, /Verify and reconnect|clear quarantine|verify recovery/iu);
+    }
+    assert.equal(harness.messages.length, before);
+  } finally { harness.restore(); }
+});
+
+test("Browser Bridge blocked states show only known user-facing reasons", () => {
+  const reasons = [
+    ["portUnavailable", "Another application is using the browser connection."],
+    ["localWindowRequired", "Open this workspace in a local VS Code window"],
+    ["browserUpdateRequired", "Update the Bachata Browser Bridge extension"],
+    ["pairingExpired", "Pairing has expired. Reset pairing"],
+    ["accessDenied", "Your computer denied permission"],
+  ];
+  const bridge = { enabled: true, connected: false, sessions: [], connectionState: "blocked", error: "Shared resource is quarantined: browser-bridge:profile owner-secret database.sqlite" };
+  const harness = bootWebview(managerState(), panelState({ browserBridge: bridge }));
+  try {
+    openBridgeInspector(harness);
+    for (const [blockedReason, message] of reasons) {
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "bridge.patch", status: { ...bridge, blockedReason } } });
+      assert.match(harness.document.root.innerHTML, /data-bridge-state="blocked"[^>]*>Browser unavailable</u);
+      const reason = harness.document.root.querySelector(`[data-bridge-reason="${blockedReason}"]`);
+      assert.ok(reason);
+      assert.ok(harness.document.root.innerHTML.includes(`>${message}`));
+      assert.doesNotMatch(harness.document.root.innerHTML, /quarantin|browser-bridge:profile|owner-secret|database\.sqlite/iu);
+    }
+    for (const blockedReason of [undefined, "owner-secret"]) {
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "bridge.patch", status: { ...bridge, blockedReason } } });
+      assert.match(harness.document.root.innerHTML, /data-bridge-state="retrying"[^>]*>Browser unavailable — retrying</u);
+      assert.equal(harness.document.root.querySelector("[data-bridge-reason]"), null);
+      assert.doesNotMatch(harness.document.root.innerHTML, /quarantin|browser-bridge:profile|owner-secret|database\.sqlite/iu);
+    }
+  } finally { harness.restore(); }
+});
+
+test("Browser Bridge announces changed states and reasons without repeating unchanged snapshots", () => {
+  const bridge = { enabled: true, connected: false, sessions: [], connectionState: "connecting" };
+  const harness = bootWebview(managerState(), panelState({ browserBridge: bridge }));
+  try {
+    openBridgeInspector(harness);
+    const patch = (status) => harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "bridge.patch", status } });
+    const current = () => harness.document.root.innerHTML.match(/<span data-bridge-state="[^"]+"([^>]*)>/u)?.[1] ?? "";
+    assert.match(current(), /role="status"/u);
+    patch(bridge);
+    assert.match(current(), /aria-live="off"/u);
+    patch({ ...bridge, connectionState: "retrying" });
+    assert.doesNotMatch(current(), /aria-live="off"/u);
+    const blocked = { ...bridge, connectionState: "blocked", blockedReason: "portUnavailable" };
+    patch(blocked);
+    const reason = () => harness.document.root.querySelector("[data-bridge-reason]");
+    assert.equal(reason().getAttribute("role"), "status");
+    assert.notEqual(reason().getAttribute("aria-live"), "off");
+    patch(blocked);
+    assert.match(current(), /aria-live="off"/u);
+    assert.equal(reason().getAttribute("aria-live"), "off");
+    patch({ ...blocked, blockedReason: "accessDenied" });
+    assert.match(current(), /aria-live="off"/u);
+    assert.notEqual(reason().getAttribute("aria-live"), "off");
+    patch({ ...bridge, connectionState: "connected", connected: true });
+    assert.equal(reason(), null);
+    assert.doesNotMatch(current(), /aria-live="off"/u);
+  } finally { harness.restore(); }
+});
+
+test("Browser Bridge unknown snapshot states remain ordinary retry states", () => {
+  const harness = bootWebview();
+  try {
+    openBridgeInspector(harness);
+    for (const connectionState of ["reconnecting", "browser-bridge:profile", "constructor", "__proto__"]) {
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panelState({
+        browserBridge: { enabled: true, connected: false, sessions: [], connectionState },
+      }) } });
+      const status = harness.document.root.innerHTML.match(/<span data-bridge-state="([^"]+)"/u)?.[1];
+      assert.equal(status, "retrying");
+      assert.match(harness.document.root.innerHTML, /data-bridge-state="retrying"[^>]*>Browser unavailable — retrying</u);
+      assert.doesNotMatch(harness.document.root.innerHTML, /browser-bridge:profile|\[object Object\]|function Object/u);
+      assert.equal(harness.document.root.querySelector(".render-failure"), null);
+    }
+  } finally { harness.restore(); }
+});
+
+test("Browser Bridge legacy errors stay out of both normal setup surfaces", () => {
+  for (const surface of ["inspector", "agents"]) {
+    const panel = cliAssignmentPanel();
+    panel.browserBridge = { enabled: true, connected: false, sessions: [], error: "Shared resource is quarantined: browser-bridge:profile owner-secret database.sqlite" };
+    const harness = bootWebview(managerState(), panel);
+    try {
+      if (surface === "inspector") {
+        openBridgeInspector(harness);
+      } else {
+        harness.document.getElementById("agents-picker-button").click();
+        chooseAgentOption(harness, "agents-provider-builder", "browser");
+      }
+      assert.match(harness.document.root.innerHTML, /data-bridge-state="retrying"[^>]*>Browser unavailable — retrying</u);
+      assert.equal(harness.document.root.querySelector("[data-bridge-reason]"), null);
+      assert.doesNotMatch(harness.document.root.innerHTML, /quarantin|browser-bridge:profile|owner-secret|database\.sqlite|Verify and reconnect/iu);
+    } finally { harness.restore(); }
+  }
+});
+
+test("Find browser only discovers and Reset pairing only requests new credentials", () => {
+  const harness = bootWebview(managerState(), bridgePanelWithToken("PAIRING_FIXTURE"));
+  try {
+    openBridgeInspector(harness);
+    const before = harness.messages.length;
+    harness.document.root.querySelector('[data-action="bridge-discover"]').click();
+    assert.equal(harness.messages.length, before + 1);
+    assert.deepEqual(harness.messages.at(-1).message, { type: "bridge.discover" });
+    harness.document.root.querySelector('[data-action="bridge-reset"]').click();
+    assert.equal(harness.messages.length, before + 1);
+    const dialog = harness.document.root.querySelector(".app-dialog");
+    assert.ok(dialog);
+    const message = harness.document.root.innerHTML.match(/<p id="app-dialog-message">([^<]*)<\/p>/u)?.[1];
+    assert.match(message, /Replace the pairing token and disconnect the paired browser/u);
+    assert.doesNotMatch(message, /repair|recover|quarantin|owner/iu);
+    assert.match(harness.document.root.innerHTML, /data-action="dialog-confirm"[^>]*>Reset pairing<\/button>/u);
+    harness.document.root.querySelector('[data-action="dialog-confirm"]').click();
+    assert.equal(harness.messages.length, before + 2);
+    assert.deepEqual(harness.messages.at(-1).message, { type: "bridge.reset" });
+  } finally { harness.restore(); }
+});
+
+test("Browser Bridge product states retain localized escaped copy and stable actions", () => {
+  const label = "Connexion <locale>…";
+  const bridge = { enabled: true, connected: false, sessions: [], connectionState: "connecting" };
+  const harness = bootWebview(managerState(), panelState({ browserBridge: bridge }), { locale: "fr", messages: { "Connecting…": label, "Find browser": "Trouver le navigateur" } });
+  try {
+    openBridgeInspector(harness);
+    assert.match(harness.document.root.innerHTML, /data-bridge-state="connecting"[^>]*>Connexion &lt;locale&gt;…</u);
+    assert.equal(harness.document.root.innerHTML.includes("<locale>"), false);
+    assert.ok(harness.document.root.querySelector('[data-action="bridge-discover"]'));
+    assert.match(harness.document.root.innerHTML, /data-action="bridge-discover"[^>]*>Trouver le navigateur</u);
+  } finally { harness.restore(); }
+});
+
+test("legacy Browser Bridge quarantine errors never become global alerts or hidden attributes", () => {
+  const raw = "Shared resource is quarantined: browser-bridge:profile; ownerId=private-owner; database=private.sqlite";
+  const harness = bootWebview(managerState(), panelState({ browserBridge: { enabled: true, connected: false, sessions: [], connectionState: "retrying" } }));
+  try {
+    harness.sendWindowMessage({ type: "manager.error", message: raw });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "error", message: `Error: ${raw}` } });
+    assert.equal(harness.document.root.querySelectorAll(".global-error").length, 0);
+    assert.doesNotMatch(harness.document.root.innerHTML, /quarantin|browser-bridge:profile|private-owner|private\.sqlite/iu);
+    openBridgeInspector(harness);
+    assert.match(harness.document.root.innerHTML, /data-bridge-state="retrying"[^>]*>Browser unavailable — retrying</u);
+    for (const browserBridge of [
+      { enabled: true, connected: false, sessions: [], connectionState: "connecting" },
+      { enabled: true, connected: true, sessions: [], connectionState: "connected" },
+    ]) {
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panelState({ browserBridge }) } });
+      assert.equal(harness.document.root.querySelectorAll(".global-error").length, 0);
+      assert.doesNotMatch(harness.document.root.innerHTML, /quarantin|browser-bridge:profile|private-owner|private\.sqlite/iu);
+    }
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "error", message: "Permission denied when saving review.md" } });
+    assert.equal(harness.document.root.querySelectorAll(".global-error").length, 1);
+    assert.match(harness.document.root.innerHTML, /Permission denied when saving review\.md/u);
+  } finally { harness.restore(); }
+});
+
+test("non-Bridge quarantine failures remain visible and dismissible without cleanup internals", () => {
+  const unrelated = "Invalid pipeline quarantine-review.pipeline.json";
+  const cases = [
+    ["Shared resource is quarantined: local-agents:global, working-directory:private-workspace", "Local agents are unavailable"],
+    ["Shared resource is quarantined: browser-bridge:profile, local-agents:global", "Local agents are unavailable"],
+    ["Previous provider cleanup is unconfirmed. Once the previous agents are stopped, run Bachata: Clear Resource Quarantine, then try again.", "Local agents are unavailable"],
+    ["Shared resource is quarantined: repository-execution:private-repository", "This operation is unavailable"],
+  ];
+  for (const [raw, visible] of cases) {
+    const harness = bootWebview();
+    try {
+      harness.sendWindowMessage({ type: "manager.error", message: raw });
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "error", message: unrelated } });
+      assert.equal(harness.document.root.querySelectorAll(".global-error").length, 2);
+      assert.ok(harness.document.root.innerHTML.includes(visible));
+      assert.ok(harness.document.root.innerHTML.includes(unrelated));
+      assert.doesNotMatch(harness.document.root.innerHTML, /Shared resource is quarantined|Clear Resource Quarantine|local-agents:global|working-directory:|private-workspace|private-repository|browser-bridge:profile/iu);
+      const dismiss = [...harness.document.root.querySelectorAll('[data-action="error-dismiss"]')].find((button) => button.dataset.errorMessage.startsWith(visible));
+      assert.ok(dismiss);
+      dismiss.click();
+      assert.equal(harness.document.root.querySelectorAll(".global-error").length, 1);
+      assert.ok(harness.document.root.innerHTML.includes(unrelated));
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panelState() } });
+      assert.equal(harness.document.root.querySelectorAll(".global-error").length, 1);
+      assert.equal(harness.document.root.innerHTML.includes(visible), false);
+    } finally { harness.restore(); }
+  }
 });

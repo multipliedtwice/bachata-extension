@@ -48,7 +48,7 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 
 | Item | Value |
 | --- | --- |
-| Date | 2026-09-05 for retained Bridge-only measurements; 2026-09-13 for current candidate rows |
+| Date | 2026-09-05 for retained Bridge-only measurements; 2026-09-14 for current candidate rows |
 | OS | macOS, Darwin 24.5.0 |
 | Node | v23.6.1 |
 | Git | 2.55.0 at `/opt/homebrew/bin/git` |
@@ -59,10 +59,10 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 
 | Gate | Result |
 | --- | --- |
-| VS Code `npm test` | pass inside `npm run package` prepublish on 2026-09-13: 3662 tests, 3655 passed, 0 failed, 7 skips, summed from `test:source-distribution` and `test:unit`. The 7 skips are Linux-only `setsid` cases and are not counted as evidence. |
+| VS Code `npm test` | pass inside `npm run package` prepublish on 2026-09-14: 3784 tests, 3777 passed, 0 failed, 7 skips, summed from `test:source-distribution` and `test:unit`. The 7 skips are Linux-only `setsid` cases and are not counted as evidence. |
 | Browser Bridge `npm test` | pass on the current tree, measured 2026-09-05 as `npm run test:unlocked`: 984 tests, 984 passed, 0 failed, 0 skips. Counted as every `node --test` invocation the chain runs: `test:source-distribution` and the main suite. |
 | Browser Bridge `npm run test:coverage` | pass on the current tree, measured 2026-09-05. Core: 91.66% lines, 82.20% branches, 98.33% functions over the gated files. Per-file floors are declared in `scripts/run-coverage-gates.mjs` |
-| VS Code `npm run test:coverage` | pass, exit 0, measured 2026-09-13 with Git 2.55 first on `PATH`. All 43 declared coverage gates ran with no test failure or threshold violation. Source lane: 3662 tests, 3655 passed, 0 failed, 7 skips; the floors, not these percentages, are the claim: 78 / 73 / 80 lines / branches / functions. Instrumented webview: 251 tests, 251 passed, 0 failed, 0 skipped. `exportPlan` and `applyConfirmation` remain at 100 / 100 / 100 and passed 9 of 9 and 8 of 8 respectively. |
+| VS Code `npm run test:coverage` | pass, exit 0, measured 2026-09-13 with Git 2.55 first on `PATH`. All 43 declared coverage gates ran with no test failure or threshold violation. Source lane: 3784 tests, 3777 passed, 0 failed, 7 skips; the floors, not these percentages, are the claim: 78 / 73 / 80 lines / branches / functions. Instrumented webview: 275 tests, 275 passed, 0 failed, 0 skipped. `exportPlan` and `applyConfirmation` remain at 100 / 100 / 100 and passed 9 of 9 and 8 of 8 respectively. |
 | Production dependency audit | Extension and Browser Bridge `npm audit --omit=dev --audit-level=high` passed on 2026-09-13 with 0 vulnerabilities. The artifact-bound row remains open until this evidence is bound to the current VSIX. |
 | `npm run check-types` | pass, measured 2026-09-13, all three projects |
 | `npm run check:no-telemetry` | pass |
@@ -73,10 +73,10 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 | `npm run check:policy-docs` | pass |
 | `npm run check:build-facts` | pass after regeneration for the current source. `BUILD_FACTS.md` is outside the VSIX. |
 | `npm run validate:local` | pass on this repository |
-| `npm run test:webview-layout` | pass, exit 0, measured 2026-09-13: 69 product interaction/layout cases and 132 rendered surfaces, 0 failed, 0 skipped. Tab and stopped-run checks passed at 320, 360, 400, 480, 700, 792, 900 and 1280 px. Covered state precedence, recovery controls, text size, menus, focus, disclosures, gutters and horizontal overflow. |
-| Cypress UI re-audit | pass, exit 0, measured 2026-09-13: 28 tests, 28 passed, 0 failed, 0 skipped. The decision flow was captured in 24 states: light, dark, and high contrast at 320, 360, 400, 480, 700, 792, 900, and 1280 px. Also exercised decision submission, notification settings, keyboard workflow selection, minimap navigation, Latest, control sizing, and horizontal overflow. The lead inspected all 24 images for layout, gutters, wrapping, alignment, type, contrast, focus, and control placement. This is source-fixture evidence; the human packaged-build screenshot gate remains open. |
+| `npm run test:webview-layout` | pass, exit 0, measured 2026-09-13: 67 product interaction/layout cases and 132 rendered surfaces, 0 failed, 0 skipped. Tab and stopped-run checks passed at 320, 360, 400, 480, 700, 792, 900 and 1280 px. Covered state precedence, recovery controls, participant prompt dialogs, text size, menus, focus, disclosures, gutters and horizontal overflow. |
+| Cypress UI re-audit | pass, exit 0, measured 2026-09-13: 196 tests, 196 passed, 0 failed, 0 skipped across `read-only-window`, `run-state-matrix`, and `ui-reaudit`. The read-only and decision flows produced 48 screenshots: light, dark, and high contrast at 320, 360, 400, 480, 700, 792, 900, and 1280 px. Also exercised run-state precedence, restart and retry, participant prompt dialogs, decision submission, notification settings, keyboard workflow selection, minimap navigation, Latest, control sizing, and horizontal overflow. The lead inspected all 48 images for layout, gutters, wrapping, alignment, type, contrast, focus, and control placement. This is source-fixture evidence; the human packaged-build screenshot gate remains open. |
 | Live panel inspection | pass, measured 2026-09-13 against current `dist/webview.js` through live Chrome inspection. At 400 px in light, dark and high contrast: user messages align left; execution gutters are 16 px; six information disclosures start closed behind an info icon; minimum text is 13 px; visible controls are at least 24 px; Restart and Retry render. At 320 px: notification controls live under the bell; action-menu controls remain within the viewport; Escape restores focus. Empty running composer shows Stop, typing swaps it for Send at the same position. User stop renders `Stopped by you`, an interrupted result, Restart, and Resume stopped step. The picker shows five common workflows and reveals the remaining 16 through its disclosure. |
-| Installed-build activation smoke | pass, exit 0, measured 2026-09-13 against `~/.vscode/extensions/rememo.bachata-vscode-0.7.1`: all 31 catalog pipelines loaded, rendered and remained selectable; pipeline editing and JSON recovery passed; `globalAlertCount` was 0. |
+| Installed-build activation smoke | pass, exit 0, measured 2026-09-14 against `~/.vscode/extensions/rememo.bachata-vscode-0.7.1`: all 31 catalog pipelines loaded, rendered and remained selectable; pipeline editing and JSON recovery passed; `globalAlertCount` was 0. |
 | Bridge ZIP vs Bridge `dist` | pass, measured 2026-09-12 against a Browser Bridge archive rebuilt in this session: `bachata-browser-bridge-0.6.7.zip`, 58 files, SHA-256 `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`. `tests/releaseBinding.test.cjs`, 63 tests, 63 passed, 0 failed, 0 skipped, including the structural comparison of every archive entry against the build it was packaged from |
 
 ## Artifact checks and open release gates
@@ -85,9 +85,9 @@ The order is therefore: build the candidate, validate it by hand, bind, verify. 
 | --- | --- |
 | `npm run check:release-metadata` | open by design. Identity passes; the evidence stage returns to 48 open items after voiding the stale artifact-bound audit. Final combined findings must be re-measured after the fresh artifact exists. |
 | `npm run release:verify` | not run. Final verification follows the remaining human evidence and `npm run release:bind`. |
-| `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` | pass, exit 0, measured 2026-09-13: 1971 archive files, 12270735 bytes, 868 build-equivalent runtime files. The installed extension has all 1969 packaged extension files with zero mismatches, plus VS Code's injected `.vsixmanifest`; injected `package.json` metadata was excluded from the content comparison. |
+| `node scripts/verify-vsix.mjs bachata-vscode-0.7.1.vsix` | pass, exit 0, measured 2026-09-14 against the freshly rebuilt candidate. Exact artifact measurements live in `BUILD_FACTS.md`. The installed extension matches the packaged runtime; VS Code's injected manifest and package metadata are excluded from the content comparison. |
 | `npm run check:managed-fallback` | pass, exit 0, 240 checks, measured 2026-09-11, including the invariant that the worktree manager manufactures no commit object |
-| `npm run package` | pass, exit 0, measured 2026-09-13. Prepublish, packaging and built-file verification completed before the VSIX was force-installed and checked independently. |
+| `npm run package` | pass, exit 0, measured 2026-09-14. Prepublish, packaging and built-file verification completed before the VSIX was force-installed and checked independently. |
 
 `npm run check:release-metadata:identity` and `npm run check:release-metadata:evidence`
 remain the source-only views of the open owner inputs. The combined command requires both

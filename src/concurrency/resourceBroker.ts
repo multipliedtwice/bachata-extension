@@ -37,6 +37,7 @@ export type ResourceLease = {
   assertValid: () => void;
   release: () => Promise<void>;
   quarantine: (reason: string) => Promise<void>;
+  confirmCleanup?: () => Promise<void>;
 };
 
 export type ResourceBrokerOptions = {
@@ -49,9 +50,25 @@ export type ResourceBrokerOptions = {
   staleOwnerMs?: number;
 };
 
+export type BrowserBridgeAcquireRequest = {
+  deadlineAt: number;
+  signal?: AbortSignal;
+  endpoint: string;
+  isEndpointReserved: (endpoint: string) => boolean;
+};
+
+export type BrowserBridgeOwnership = {
+  held: boolean;
+  heartbeatAt?: number;
+  endpoint?: string;
+  quarantined: boolean;
+};
+
 export type ResourceBroker = {
   ownerId: string;
   acquire: (request: ResourceAcquireRequest) => Promise<ResourceLease>;
+  acquireBrowserBridge: (request: BrowserBridgeAcquireRequest) => Promise<ResourceLease>;
+  inspectBrowserBridgeOwnership: () => BrowserBridgeOwnership;
   describeLeaseHolder: (resourceKey: string) => { held: boolean; heartbeatAt?: number };
   listQuarantine: () => ResourceQuarantine[];
   clearQuarantine: (keys?: string[]) => number;
@@ -90,7 +107,9 @@ export class ResourceQuarantinedError extends Error {
   readonly keys: string[];
 
   constructor(keys: string[]) {
-    super(`Shared resource is quarantined: ${keys.join(", ")}`);
+    super(keys.includes("local-agents:global")
+      ? "Previous provider cleanup is unconfirmed. Once the previous agents are stopped, run Bachata: Clear Resource Quarantine, then try again."
+      : "Previous resource cleanup is unconfirmed. Once the previous operation has stopped, run Bachata: Clear Resource Quarantine, then try again.");
     this.name = "ResourceQuarantinedError";
     this.keys = keys;
   }
@@ -117,6 +136,22 @@ type LocalLeaseState = {
   fences: Readonly<Record<string, number>>;
   controller: AbortController;
   invalidReason?: string;
+};
+
+const browserBridgeResourceKey = "browser-bridge:profile";
+
+const normalizeBridgeEndpoint = (endpoint: string): string => {
+  const value = new URL(endpoint);
+  if (
+    value.protocol !== "ws:" ||
+    value.hostname !== "127.0.0.1" ||
+    !value.port || Number(value.port) < 1 ||
+    value.username || value.password || value.search || value.hash ||
+    !["/", "/bachata-browser-bridge-v9"].includes(value.pathname)
+  ) {
+    throw new Error("Browser connection endpoint must be a local WebSocket address");
+  }
+  return `ws://127.0.0.1:${value.port}/bachata-browser-bridge-v9`;
 };
 
 const positiveInteger = (value: number | undefined, fallback: number): number => {
@@ -265,7 +300,12 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
           resource_key TEXT PRIMARY KEY,
           reason TEXT NOT NULL,
           quarantined_at INTEGER NOT NULL,
-          owner_id TEXT
+          owner_id TEXT,
+          lease_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS browser_bridge_endpoint (
+          profile TEXT PRIMARY KEY CHECK (profile = 'profile'),
+          endpoint TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS resource_request_owner_idx ON resource_request(owner_id);
         CREATE INDEX IF NOT EXISTS resource_lease_owner_idx ON resource_lease(owner_id);
@@ -280,6 +320,13 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
       }
       if (!leaseColumns.has("fence_token")) {
         value.exec("ALTER TABLE resource_lease_item ADD COLUMN fence_token INTEGER NOT NULL DEFAULT 0");
+      }
+      const quarantineColumns = new Set(
+        (value.prepare("PRAGMA table_info(resource_quarantine)").all() as Array<Record<string, unknown>>)
+          .map((row) => String(row.name)),
+      );
+      if (!quarantineColumns.has("lease_id")) {
+        value.exec("ALTER TABLE resource_quarantine ADD COLUMN lease_id TEXT");
       }
       value.exec("DELETE FROM resource_capacity");
     });
@@ -401,7 +448,8 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
               ON CONFLICT(resource_key) DO UPDATE SET
                 reason = excluded.reason,
                 quarantined_at = excluded.quarantined_at,
-                owner_id = excluded.owner_id
+                owner_id = excluded.owner_id,
+                lease_id = NULL
             `).run(item.resource_key, "Resource owner heartbeat expired", now(), stale.owner_id);
           }
         }
@@ -472,13 +520,15 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
               continue;
             }
             database.prepare(`
-              INSERT INTO resource_quarantine(resource_key, reason, quarantined_at, owner_id)
-              VALUES (?, ?, ?, ?)
+              INSERT INTO resource_quarantine(resource_key, reason, quarantined_at, owner_id, lease_id)
+              VALUES (?, ?, ?, ?, ?)
               ON CONFLICT(resource_key) DO UPDATE SET
                 reason = excluded.reason,
                 quarantined_at = excluded.quarantined_at,
-                owner_id = excluded.owner_id
-            `).run(claim.key, quarantineReason, now(), ownerId);
+                owner_id = excluded.owner_id,
+                lease_id = CASE WHEN resource_quarantine.lease_id = excluded.lease_id
+                  THEN excluded.lease_id ELSE NULL END
+            `).run(claim.key, quarantineReason, now(), ownerId, leaseId);
           }
         }
         database.prepare("DELETE FROM resource_lease WHERE lease_id = ? AND owner_id = ?")
@@ -518,7 +568,10 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
     }
   };
 
-  const acquireInternal = async (request: ResourceAcquireRequest): Promise<ResourceLease> => {
+  const acquireInternal = async (
+    request: ResourceAcquireRequest,
+    bridgeRequest?: BrowserBridgeAcquireRequest,
+  ): Promise<ResourceLease> => {
     assertNotDisposed();
     const resources = normalizeClaims(request.resources);
     if (resources.length === 0) {
@@ -541,7 +594,7 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
       throw new ResourceAcquireCancelledError("Shared-resource wait was cancelled");
     }
     const initialQuarantine = quarantinedKeys(resources);
-    if (initialQuarantine.length > 0) {
+    if (initialQuarantine.length > 0 && !bridgeRequest) {
       throw new ResourceQuarantinedError(initialQuarantine);
     }
 
@@ -596,7 +649,7 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
           }
 
           const quarantined = quarantinedKeys(resources);
-          if (quarantined.length > 0) {
+          if (quarantined.length > 0 && !bridgeRequest) {
             return { type: "quarantined" as const, keys: quarantined };
           }
 
@@ -607,6 +660,12 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
             return { type: "waiting" as const };
           }
 
+          if (bridgeRequest && database.prepare(
+            "SELECT 1 FROM resource_lease_item WHERE resource_key = ? LIMIT 1",
+          ).get(browserBridgeResourceKey)) {
+            return { type: "waiting" as const };
+          }
+
           for (const claim of resources) {
             const usageRow = database
               .prepare("SELECT COALESCE(SUM(units), 0) AS used FROM resource_lease_item WHERE resource_key = ?")
@@ -614,6 +673,27 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
             if (usageRow.used + claim.units > effectiveCapacity(claim.key, claim.capacity, current.sequence)) {
               return { type: "waiting" as const };
             }
+          }
+
+          if (bridgeRequest) {
+            const prior = database.prepare(
+              "SELECT endpoint FROM browser_bridge_endpoint WHERE profile = 'profile'",
+            ).get() as { endpoint: string } | undefined;
+            const requiredEndpoints = new Set([bridgeRequest.endpoint, ...(prior ? [prior.endpoint] : [])]);
+            if (Array.from(requiredEndpoints).some((endpoint) => bridgeRequest.isEndpointReserved(endpoint) !== true)) {
+              throw new ResourceAcquireCancelledError("Browser connection reservation is unavailable");
+            }
+            assertNotDisposed();
+            if (request.signal?.aborted) {
+              throw new ResourceAcquireCancelledError("Browser connection was cancelled");
+            }
+            database.prepare("DELETE FROM resource_quarantine WHERE resource_key = ?")
+              .run(browserBridgeResourceKey);
+            database.prepare(`
+              INSERT INTO browser_bridge_endpoint(profile, endpoint)
+              VALUES ('profile', ?)
+              ON CONFLICT(profile) DO UPDATE SET endpoint = excluded.endpoint
+            `).run(bridgeRequest.endpoint);
           }
 
           const leaseId = randomUUID();
@@ -669,6 +749,19 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
             });
             return settlement;
           };
+          const confirmCleanup = async (): Promise<void> => {
+            assertNotDisposed();
+            if (!settlement) {
+              throw new Error("Release or quarantine the lease before confirming cleanup");
+            }
+            await settlement;
+            await retry(() => {
+              beginImmediate(database, () => {
+                database.prepare("DELETE FROM resource_quarantine WHERE owner_id = ? AND lease_id = ?")
+                  .run(ownerId, outcome.leaseId);
+              });
+            });
+          };
           return {
             id: outcome.leaseId,
             resources,
@@ -685,6 +778,7 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
             assertValid: () => assertLeaseValid(outcome.leaseId),
             release: () => settle(),
             quarantine: (reason) => settle(reason || "Cleanup was not confirmed"),
+            confirmCleanup,
           };
         }
         const remaining = Math.min(
@@ -706,11 +800,14 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
     }
   };
 
-  const acquire = async (request: ResourceAcquireRequest): Promise<ResourceLease> => {
+  const trackAcquisition = async (
+    request: ResourceAcquireRequest,
+    bridgeRequest?: BrowserBridgeAcquireRequest,
+  ): Promise<ResourceLease> => {
     if (disposed) {
       throw new Error("Resource broker is disposed");
     }
-    const running = acquireInternal(request);
+    const running = acquireInternal(request, bridgeRequest);
     const settled: Promise<void> = running.then(
       () => undefined,
       () => undefined,
@@ -719,6 +816,45 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
     });
     pendingAcquisitions.add(settled);
     return running;
+  };
+
+  const acquire = (request: ResourceAcquireRequest): Promise<ResourceLease> => trackAcquisition(request);
+
+  const acquireBrowserBridge = (request: BrowserBridgeAcquireRequest): Promise<ResourceLease> => {
+    const endpoint = normalizeBridgeEndpoint(request.endpoint);
+    return trackAcquisition({
+      resources: [{ key: browserBridgeResourceKey, kind: "physical" }],
+      deadlineAt: request.deadlineAt,
+      ...(request.signal ? { signal: request.signal } : {}),
+      label: "Browser connection",
+    }, { ...request, endpoint });
+  };
+
+  const inspectBrowserBridgeOwnership = (): BrowserBridgeOwnership => {
+    assertNotDisposed();
+    return beginImmediate(database, () => {
+      const lease = database.prepare(`
+        SELECT owner.heartbeat_at AS heartbeatAt
+        FROM resource_lease_item AS item
+        JOIN resource_lease AS lease ON lease.lease_id = item.lease_id
+        LEFT JOIN resource_owner AS owner ON owner.owner_id = lease.owner_id
+        WHERE item.resource_key = ?
+        ORDER BY lease.acquired_at DESC
+        LIMIT 1
+      `).get(browserBridgeResourceKey) as { heartbeatAt: number | null } | undefined;
+      const endpoint = database.prepare(
+        "SELECT endpoint FROM browser_bridge_endpoint WHERE profile = 'profile'",
+      ).get() as { endpoint: string } | undefined;
+      const quarantine = database.prepare(
+        "SELECT 1 FROM resource_quarantine WHERE resource_key = ?",
+      ).get(browserBridgeResourceKey);
+      return {
+        held: lease !== undefined,
+        quarantined: quarantine !== undefined,
+        ...(lease?.heartbeatAt != null ? { heartbeatAt: lease.heartbeatAt } : {}),
+        ...(endpoint ? { endpoint: endpoint.endpoint } : {}),
+      };
+    });
   };
 
   const listQuarantine = (): ResourceQuarantine[] =>
@@ -798,6 +934,8 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
   return {
     ownerId,
     acquire,
+    acquireBrowserBridge,
+    inspectBrowserBridgeOwnership,
     describeLeaseHolder,
     listQuarantine,
     clearQuarantine,

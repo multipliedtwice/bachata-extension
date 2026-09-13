@@ -30,6 +30,7 @@ const profiles = {
       "UI-ITERATION.md",
       "package-lock.json",
       "package.json",
+      "package.nls.json",
       "tsconfig.json",
       "tsconfig.webview-behavior.json",
       "tsconfig.webview.json",
@@ -42,6 +43,7 @@ const profiles = {
       "cypress",
       "docs",
       "e2e",
+      "l10n",
       "media",
       "presets",
       "protocol",
@@ -57,11 +59,13 @@ const profiles = {
       "README.md",
       "package-lock.json",
       "package.json",
+      "package.nls.json",
       "tsconfig.json",
       "tsconfig.webview-behavior.json",
       "tsconfig.webview.json",
       "benchmarks",
       "docs",
+      "l10n",
       "presets",
       "protocol",
       "scripts",
@@ -70,6 +74,7 @@ const profiles = {
       "tests",
     ]),
     requiredFiles: new Set([
+      "l10n/bundle.l10n.json",
       "media/readme-header.png",
       "protocol/browser-bridge.compatibility.json",
       "protocol/browser-protocol-v9.contract.json",
@@ -213,6 +218,9 @@ const readProfile = async (root) => {
   return { profile, packageName: packageValue.name };
 };
 
+const isTopLevelFileAllowed = (profile, name) =>
+  profile.files.has(name) || /^package\.nls\.[a-z0-9]+(?:-[a-z0-9]+)*\.json$/iu.test(name);
+
 const assertTopLevelAllowed = (profile, name, directory) => {
   if (directory) {
     if (!profile.directories.has(name)) {
@@ -220,7 +228,7 @@ const assertTopLevelAllowed = (profile, name, directory) => {
     }
     return;
   }
-  if (!profile.files.has(name)) {
+  if (!isTopLevelFileAllowed(profile, name)) {
     throw new Error(`Unknown top-level file is not maintained source: ${name}`);
   }
 };
@@ -409,7 +417,7 @@ export const verifySourceDistribution = async (root) => {
         continue;
       }
       seenFiles.add(normalized);
-      if (!relativeDirectory && !profile.files.has(entry.name)) {
+      if (!relativeDirectory && !isTopLevelFileAllowed(profile, entry.name)) {
         violations.push(`${normalized}: unknown top-level file`);
       }
     }

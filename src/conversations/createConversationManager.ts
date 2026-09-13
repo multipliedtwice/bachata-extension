@@ -16,9 +16,9 @@ import * as vscode from "vscode";
 
 import type { WorkspaceWriteScope } from "../adapters/types";
 import {
-  BrowserBridgeStatus,
   createBrowserBridgeServer,
 } from "../browser/bridgeServer";
+import { createBrowserBridgeRecovery } from "../browser/bridgeRecovery";
 import { BrowserConversationBinding } from "../browser/protocol";
 import { DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES } from "../browser/limits";
 import { pathInsideRelative } from "../process/pathBoundary";
@@ -226,6 +226,7 @@ import {
 import { OrchestrationLedger, OrchestrationSnapshot } from "../orchestrator/types";
 import { AttachmentMetadata } from "../attachments/attachmentStore";
 import {
+  createResourceBroker,
   ResourceBroker,
   ResourceClaim,
   ResourceLease,
@@ -1861,6 +1862,7 @@ export const createConversationManager = (
   };
 
   const executionLeases = new Map<string, ExecutionLeaseState>();
+  const providerShutdowns = new WeakMap<Runtime, Promise<void>>();
   const suspendedExecutionUsers = new Map<string, { userId: string; demand: LocalAgentDemand }>();
   const executionLeaseAcquisitions = new Map<string, Promise<void>>();
   const executionLeaseControllers = new Map<string, AbortController>();
@@ -2112,6 +2114,41 @@ export const createConversationManager = (
     }
   };
 
+  const shutdownExecutionProviders = (slot: RuntimeSlot): Promise<void> | undefined => {
+    const current = providerShutdowns.get(slot.runtime);
+    if (current) {
+      return current;
+    }
+    const shutdown = (slot.runtime as Runtime & { shutdownIdleProviders?: () => Promise<void> })
+      .shutdownIdleProviders;
+    if (!shutdown) {
+      return undefined;
+    }
+    const operation = Promise.resolve().then(() => shutdown.call(slot.runtime));
+    providerShutdowns.set(slot.runtime, operation);
+    void operation.finally(() => {
+      if (providerShutdowns.get(slot.runtime) === operation) {
+        providerShutdowns.delete(slot.runtime);
+      }
+    }).catch(() => undefined);
+    return operation;
+  };
+
+  const confirmExecutionCleanupAfter = (
+    cleanup: Promise<void>,
+    leases: ResourceLease[],
+  ): void => {
+    void cleanup.then(async () => {
+      const outcomes = await Promise.allSettled(leases.map((lease) => lease.confirmCleanup?.()));
+      const failures = rejectedReasons(outcomes);
+      if (failures.length > 0) {
+        throw new AggregateError(failures, "Provider cleanup completed but recovery remains blocked");
+      }
+    }).catch((error) => {
+      output.appendLine(`Execution cleanup recovery: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  };
+
   const closeExecutionLease = async (
     conversationId: string,
     slot: RuntimeSlot,
@@ -2126,11 +2163,10 @@ export const createConversationManager = (
     );
     const leases = executionStateLeases(current);
     const closing = (async (): Promise<void> => {
+      const cleanup = shutdownExecutionProviders(slot);
       try {
-        const shutdown = (slot.runtime as Runtime & { shutdownIdleProviders?: () => Promise<void> })
-          .shutdownIdleProviders;
-        if (shutdown) {
-          await bounded(shutdown.call(slot.runtime), cleanupTimeoutMs, "Provider cleanup");
+        if (cleanup) {
+          await bounded(cleanup, cleanupTimeoutMs, "Provider cleanup");
         }
         const releaseFailure = leaseReleaseFailure(
           rejectedReasons(await Promise.allSettled(leases.map((lease) => lease.release()))),
@@ -2141,6 +2177,9 @@ export const createConversationManager = (
       } catch (error) {
         const reason = quarantineReasonFor(error);
         const quarantines = await Promise.allSettled(leases.map((lease) => lease.quarantine(reason)));
+        if (cleanup) {
+          confirmExecutionCleanupAfter(cleanup, leases);
+        }
         throw leaseQuarantineOutcome(error, rejectedReasons(quarantines));
       } finally {
         if (executionLeases.get(conversationId) === current) {
@@ -3170,17 +3209,21 @@ export const createConversationManager = (
     }
     notifiedInteractions.add(interaction.interactionRef);
     const readableTitle = parseRunTitle(summary.title)?.title ?? summary.title;
-    const message = `${readableTitle} needs input${title ? ` · ${title}` : ""}`;
-    void vscode.window.showInformationMessage(message, "Open", "Pause").then(
+    const message = title
+      ? vscode.l10n.t("{0} needs input · {1}", readableTitle, title)
+      : vscode.l10n.t("{0} needs input", readableTitle);
+    const openLabel = vscode.l10n.t("Open");
+    const pauseLabel = vscode.l10n.t("Pause");
+    void vscode.window.showInformationMessage(message, openLabel, pauseLabel).then(
       async (choice) => {
-        if (choice === "Open") {
+        if (choice === openLabel) {
           options.focusInteraction?.({
             conversationId: summary.id,
             interactionRef: interaction.interactionRef,
           });
           return;
         }
-        if (choice === "Pause") {
+        if (choice === pauseLabel) {
           try {
             catalog.pauseInteraction(interaction.interactionRef, "toast");
             deadlineScheduler.wake();
@@ -3574,44 +3617,57 @@ export const createConversationManager = (
     });
   };
 
-  let browserBridgeLease: ResourceLease | undefined;
-  let browserBridgeStartOperation: Promise<void> | undefined;
-
-  const sharedBridge = createBrowserBridgeServer({
+  const ownedBridgeBroker = options.resourceBroker ? undefined : createResourceBroker({
+    databasePath: path.join(context.globalStorageUri.fsPath, "concurrency", "resources.sqlite"),
+  });
+  const browserBridgePort = vscode.workspace.getConfiguration("bachata").get<number>("browserBridgePort", 43127);
+  const sharedBridge = createBrowserBridgeRecovery({
     enabled: vscode.env.remoteName === undefined,
+    endpoint: `ws://127.0.0.1:${browserBridgePort}/bachata-browser-bridge-v9`,
+    broker: options.resourceBroker ?? ownedBridgeBroker!,
     secretStore: context.secrets,
     log: (message) => output.appendLine(message),
-    maxMessageBytes: vscode.workspace
-      .getConfiguration("bachata")
-      .get<number>("browserBridgeMaxMessageBytes", DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES),
-    port: vscode.workspace
-      .getConfiguration("bachata")
-      .get<number>("browserBridgePort", 43127),
-    localModelConfig: () => {
-      const current = vscode.workspace.getConfiguration("bachata");
-      const endpoint = current.get<string>("browserSelectorHealingEndpoint", "").trim();
-      // The host's resolution is the authority whenever there is a host to ask. Falling back to the
-      // configured name when it resolved nothing was a way past the compatibility check: a model
-      // that had just failed the contract would still be sent to the bridge under its own name.
-      // No resolution means no model, and the bridge refuses — which is the intended answer.
-      const service = options.localModelService;
-      const resolved = service?.resolvedConfig("selectorHealing");
-      const configuredModel = current.get<string>("browserSelectorHealingModel", "").trim();
-      return {
-        enabled: current.get<boolean>("browserSelectorHealingEnabled", false),
-        backend: resolved?.backend
-          ?? current.get<"auto" | "lmstudio" | "ollama">("browserSelectorHealingBackend", "auto"),
-        ...(resolved?.endpoint ? { endpoint: resolved.endpoint } : endpoint ? { endpoint } : {}),
-        model: service ? resolved?.model ?? "" : configuredModel,
-        timeoutMs: Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => current.get(settingKey, settingFallback), "browserSelectorHealingTimeoutMs", 30_000)),
-      };
-    },
-    originOverrideForTests:
-      process.env.BACHATA_HUMAN_E2E === "1" &&
-      context.extensionMode === vscode.ExtensionMode.Development
-        ? "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        : undefined,
-    onStatusChange: (_status: BrowserBridgeStatus) => undefined,
+    onStatusChange: () => undefined,
+    attemptTimeoutMs: Math.max(250, readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "browserBridgeOwnerTimeoutMs", 2_000)),
+    createOwnedServer: (onStatusChange, sharedToken) => createBrowserBridgeServer({
+      enabled: vscode.env.remoteName === undefined,
+      secretStore: context.secrets,
+      log: (message) => output.appendLine(message),
+      maxMessageBytes: vscode.workspace
+        .getConfiguration("bachata")
+        .get<number>("browserBridgeMaxMessageBytes", DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES),
+      port: browserBridgePort,
+      sharedToken,
+      localModelConfig: () => {
+        const current = vscode.workspace.getConfiguration("bachata");
+        const endpoint = current.get<string>("browserSelectorHealingEndpoint", "").trim();
+        // The host's resolution is the authority whenever there is a host to ask. Falling back to the
+        // configured name when it resolved nothing was a way past the compatibility check: a model
+        // that had just failed the contract would still be sent to the bridge under its own name.
+        // No resolution means no model, and the bridge refuses — which is the intended answer.
+        const service = options.localModelService;
+        const resolved = service?.resolvedConfig("selectorHealing");
+        const configuredModel = current.get<string>("browserSelectorHealingModel", "").trim();
+        return {
+          enabled: current.get<boolean>("browserSelectorHealingEnabled", false),
+          backend: resolved?.backend
+            ?? current.get<"auto" | "lmstudio" | "ollama">("browserSelectorHealingBackend", "auto"),
+          ...(resolved?.endpoint ? { endpoint: resolved.endpoint } : endpoint ? { endpoint } : {}),
+          model: service ? resolved?.model ?? "" : configuredModel,
+          timeoutMs: Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => current.get(settingKey, settingFallback), "browserSelectorHealingTimeoutMs", 30_000)),
+        };
+      },
+      originOverrideForTests:
+        process.env.BACHATA_HUMAN_E2E === "1" &&
+        context.extensionMode === vscode.ExtensionMode.Development
+          ? "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          : undefined,
+      onStatusChange,
+    }),
+  });
+  sharedBridge.startAutomatic();
+  const browserBridgeWindowSubscription = vscode.window.onDidChangeWindowState?.((event) => {
+    if (event.focused) sharedBridge.notifyWake();
   });
   const selectorHealingConfigurationKeys = [
     "bachata.browserSelectorHealingEnabled",
@@ -3628,84 +3684,6 @@ export const createConversationManager = (
       output.appendLine(`Failed to refresh Browser Bridge selector-healing configuration: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
-
-  const ensureBrowserBridgeOwnership = async (): Promise<void> => {
-    if (vscode.env.remoteName !== undefined) {
-      throw new Error("Browser Bridge is available only in a local VS Code window");
-    }
-    if (browserBridgeStartOperation) {
-      return browserBridgeStartOperation;
-    }
-    const operation = (async (): Promise<void> => {
-      let acquiredLease: ResourceLease | undefined;
-      try {
-        if (options.resourceBroker && !browserBridgeLease) {
-          acquiredLease = await options.resourceBroker.acquire({
-            resources: [{ key: "browser-bridge:profile", kind: "physical" }],
-            deadlineAt: Date.now() + Math.max(
-              250,
-              readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "browserBridgeOwnerTimeoutMs", 2_000),
-            ),
-            label: "Browser Bridge ownership",
-          });
-          browserBridgeLease = acquiredLease;
-          acquiredLease.signal.addEventListener("abort", () => {
-            if (browserBridgeLease === acquiredLease) {
-              browserBridgeLease = undefined;
-            }
-            void sharedBridge.close().catch((closeError) => {
-              output.appendLine(
-                `Failed to close Browser Bridge after ownership was lost: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
-              );
-            });
-          }, { once: true });
-        }
-        await sharedBridge.start();
-      } catch (error) {
-        if (acquiredLease) {
-          try {
-            await bounded(
-              sharedBridge.close(),
-              Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "browserBridgeCloseTimeoutMs", 10_000)),
-              "Browser Bridge startup cleanup",
-            );
-            await acquiredLease.release();
-          } catch (cleanupError) {
-            try {
-              await acquiredLease.quarantine(
-                `Browser Bridge startup cleanup was not confirmed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-              );
-            } catch (quarantineError) {
-              throw new AggregateError(
-                [error, cleanupError, quarantineError],
-                "Browser Bridge startup, cleanup, and quarantine all failed",
-              );
-            } finally {
-              if (browserBridgeLease === acquiredLease) {
-                browserBridgeLease = undefined;
-              }
-            }
-            throw new AggregateError(
-              [error, cleanupError],
-              "Browser Bridge startup failed and cleanup was not confirmed",
-            );
-          }
-          if (browserBridgeLease === acquiredLease) {
-            browserBridgeLease = undefined;
-          }
-        }
-        throw error;
-      }
-    })();
-    browserBridgeStartOperation = operation;
-    try {
-      await operation;
-    } finally {
-      if (browserBridgeStartOperation === operation) {
-        browserBridgeStartOperation = undefined;
-      }
-    }
-  };
 
   const runtimeStorage = (
     conversationId: string,
@@ -6047,9 +6025,10 @@ export const createConversationManager = (
     executionLeaseControllers.get(conversationId)?.abort();
     const slot = await ensureRuntime(conversationId);
     let interruptError: unknown;
+    const interruption = slot.runtime.interrupt();
     try {
       await bounded(
-        slot.runtime.interrupt(),
+        interruption,
         Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "managerInterruptTimeoutMs", 15_000)),
         "Runtime interruption",
       );
@@ -6071,6 +6050,13 @@ export const createConversationManager = (
             throw new AggregateError(failures, "Execution resources could not be quarantined");
           }
           executionLeases.delete(conversationId);
+          confirmExecutionCleanupAfter(interruption.then(async () => {
+            const cleanup = shutdownExecutionProviders(slot);
+            if (!cleanup) {
+              throw new Error("Provider shutdown confirmation is unavailable");
+            }
+            await cleanup;
+          }), executionStateLeases(current));
         } catch (quarantineError) {
           interruptError = new AggregateError(
             [error, quarantineError],
@@ -6114,15 +6100,7 @@ export const createConversationManager = (
       state.conversations.forEach((conversation) =>
         claimPersistedBrowserBindings(conversation.id),
       );
-      if (vscode.env.remoteName === undefined) {
-        try {
-          await ensureBrowserBridgeOwnership();
-        } catch (error) {
-          output.appendLine(
-            `Browser Bridge is owned by another VS Code window or quarantined: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
+      await sharedBridge.ensureAvailable();
       deadlineScheduler.start();
       initializationInfrastructureReady = true;
     }
@@ -6287,25 +6265,25 @@ export const createConversationManager = (
         policyErrors: policyLoad.errors,
         excluded: filtered.excluded.length,
         literals: policyApplied.applied,
-      });
+      }, vscode.l10n.t);
       const preview = await vscode.workspace.openTextDocument({
         content,
         language: "json",
       });
       await vscode.window.showTextDocument(preview, { preview: true });
       const confirmation = await vscode.window.showWarningMessage(
-        `Export the initiative "${bundle.initiative.title}"?`,
+        vscode.l10n.t("Export the initiative \"{0}\"?", bundle.initiative.title),
         {
           modal: true,
           detail: exportConfirmationDetail({
             content,
             rules,
-            contents: `Contents: ${String(bundle.cycles.length)} cycles, ${String(bundle.findings.length)} findings, ${String(bundle.decisions.length)} decisions, ${String(bundle.artifacts.length)} artifacts.`,
-          }),
+            contents: vscode.l10n.t("Contents: {0} cycles, {1} findings, {2} decisions, {3} artifacts.", bundle.cycles.length, bundle.findings.length, bundle.decisions.length, bundle.artifacts.length),
+          }, vscode.l10n.t),
         },
-        "Save export",
+        vscode.l10n.t("Save export"),
       );
-      if (confirmation !== "Save export") {
+      if (confirmation !== vscode.l10n.t("Save export")) {
         output.appendLine(`Initiative export cancelled after preview: ${bundle.initiative.id}`);
         return;
       }
@@ -6314,8 +6292,8 @@ export const createConversationManager = (
           repositoryRoot ?? storageRoot,
           `${bundle.initiative.id}.initiative.json`,
         )),
-        filters: { "Bachata initiative": ["json"] },
-        saveLabel: "Export initiative",
+        filters: { [vscode.l10n.t("Bachata initiative")]: ["json"] },
+        saveLabel: vscode.l10n.t("Export initiative"),
       });
       if (!selected) return;
       await vscode.workspace.fs.writeFile(selected, Buffer.from(content, "utf8"));
@@ -6326,8 +6304,8 @@ export const createConversationManager = (
       const service = await ensureActiveLongitudinal();
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
-        filters: { "Bachata initiative": ["json"] },
-        openLabel: "Import initiative",
+        filters: { [vscode.l10n.t("Bachata initiative")]: ["json"] },
+        openLabel: vscode.l10n.t("Import initiative"),
       });
       const file = picked?.[0];
       if (!file) return;
@@ -6762,7 +6740,7 @@ export const createConversationManager = (
         format: message.format,
         hasEvidence: evidenceInput !== undefined,
         runRef: summary.runRef,
-      });
+      }, vscode.l10n.t);
       if (planned.refusal !== undefined) {
         throw new Error(planned.refusal);
       }
@@ -6783,7 +6761,7 @@ export const createConversationManager = (
         policyErrors: policyLoad.errors,
         excluded: 0,
         literals: policyApplied.applied,
-      });
+      }, vscode.l10n.t);
       const preview = await vscode.workspace.openTextDocument({
         content,
         language: plan.language,
@@ -6791,10 +6769,10 @@ export const createConversationManager = (
       await vscode.window.showTextDocument(preview, { preview: true });
       const confirmation = await vscode.window.showWarningMessage(
         plan.prompt,
-        { modal: true, detail: exportConfirmationDetail({ content, rules }) },
-        "Save export",
+        { modal: true, detail: exportConfirmationDetail({ content, rules }, vscode.l10n.t) },
+        vscode.l10n.t("Save export"),
       );
-      if (confirmation !== "Save export") {
+      if (confirmation !== vscode.l10n.t("Save export")) {
         output.appendLine(`Export cancelled after preview: ${plan.format}`);
         return;
       }
@@ -6955,8 +6933,8 @@ export const createConversationManager = (
       if (patch.trim().length === 0) {
         await vscode.window.showInformationMessage(
           selectionIsEmpty(selection)
-            ? "This run changed nothing, so there is no patch to export."
-            : "The selected work carries no change from this run, so there is no patch to export.",
+            ? vscode.l10n.t("This run changed nothing, so there is no patch to export.")
+            : vscode.l10n.t("The selected work carries no change from this run, so there is no patch to export."),
         );
         return;
       }
@@ -6964,8 +6942,8 @@ export const createConversationManager = (
       await vscode.window.showTextDocument(preview, { preview: true });
       const selected = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(path.join(storageRoot, `${message.runId}.patch`)),
-        filters: { "Git patch": ["patch", "diff"] },
-        saveLabel: "Export patch",
+        filters: { [vscode.l10n.t("Git patch")]: ["patch", "diff"] },
+        saveLabel: vscode.l10n.t("Export patch"),
       });
       if (selected) {
         await vscode.workspace.fs.writeFile(selected, Buffer.from(patch, "utf8"));
@@ -6984,7 +6962,7 @@ export const createConversationManager = (
         ...(boundResult?.applyOverrideReason === undefined ? {} : { overrideReason: boundResult.applyOverrideReason }),
         selection,
         hasSelectionVerifier: Boolean(todoOrchestrator.verifyRetainedSelection),
-      });
+      }, vscode.l10n.t);
       if (verdict.kind === "blocked") {
         output.appendLine(verdict.logLine);
         await vscode.window.showWarningMessage(verdict.message, { modal: true, detail: verdict.detail });
@@ -7011,7 +6989,7 @@ export const createConversationManager = (
         });
         const notice = applySelectionUnprovenNotice({
           unproven: selectionChecks.filter((check) => check.status !== "passed"),
-        });
+        }, vscode.l10n.t);
         if (notice) {
           await vscode.window.showWarningMessage(notice.message, { modal: true, detail: notice.detail });
           return;
@@ -7021,12 +6999,12 @@ export const createConversationManager = (
       if (!result.applied) {
         output.appendLine(`Run apply refused: ${result.reason ?? "unknown reason"}`);
         await vscode.window.showWarningMessage(
-          `This run was not applied: ${result.reason ?? "unknown reason."}`,
+          vscode.l10n.t("This run was not applied: {0}", result.reason ?? vscode.l10n.t("unknown reason.")),
           {
             modal: true,
             detail: result.conflicts.length > 0
-              ? `Conflicting paths: ${result.conflicts.slice(0, 20).join(", ")}\n\nThe run worktree was kept so nothing is lost.`
-              : "The run worktree was kept so nothing is lost.",
+              ? vscode.l10n.t("Conflicting paths: {0}\n\nThe run worktree was kept so nothing is lost.", result.conflicts.slice(0, 20).join(", "))
+              : vscode.l10n.t("The run worktree was kept so nothing is lost."),
           },
         );
         return;
@@ -7043,10 +7021,12 @@ export const createConversationManager = (
       }
       emitSnapshot();
       const next = await vscode.window.showInformationMessage(
-        `Staged ${String(result.stagedFiles.length)} file${result.stagedFiles.length === 1 ? "" : "s"} on ${result.targetBranch}. Nothing was committed.`,
-        "Open Source Control",
+        result.stagedFiles.length === 1
+          ? vscode.l10n.t("Staged {0} file on {1}. Nothing was committed.", result.stagedFiles.length, result.targetBranch)
+          : vscode.l10n.t("Staged {0} files on {1}. Nothing was committed.", result.stagedFiles.length, result.targetBranch),
+        vscode.l10n.t("Open Source Control"),
       );
-      if (next === "Open Source Control") {
+      if (next === vscode.l10n.t("Open Source Control")) {
         await vscode.commands.executeCommand("workbench.view.scm");
       }
       return;
@@ -7078,7 +7058,7 @@ export const createConversationManager = (
       }
       const results = await todoOrchestrator.rerunRetainedChecks(message.runId);
       if (results.length === 0) {
-        await vscode.window.showInformationMessage("This run declared no final verification to rerun.");
+        await vscode.window.showInformationMessage(vscode.l10n.t("This run declared no final verification to rerun."));
         return;
       }
       results.forEach((result) => {
@@ -7088,12 +7068,16 @@ export const createConversationManager = (
       const failed = results.filter((result) => result.status !== "passed");
       if (failed.length === 0) {
         await vscode.window.showInformationMessage(
-          `Reran ${String(results.length)} check${results.length === 1 ? "" : "s"}; all passed.`,
+          results.length === 1
+            ? vscode.l10n.t("Reran {0} check; all passed.", results.length)
+            : vscode.l10n.t("Reran {0} checks; all passed.", results.length),
         );
         return;
       }
       await vscode.window.showWarningMessage(
-        `Reran ${String(results.length)} check${results.length === 1 ? "" : "s"}; ${String(failed.length)} did not pass.`,
+        results.length === 1
+          ? vscode.l10n.t("Reran {0} check; {1} did not pass.", results.length, failed.length)
+          : vscode.l10n.t("Reran {0} checks; {1} did not pass.", results.length, failed.length),
         {
           modal: true,
           detail: failed
@@ -7222,9 +7206,6 @@ export const createConversationManager = (
       if (message.message.type === "run.interrupt") {
         await interruptConversation(message.conversationId);
         return;
-      }
-      if (message.message.type === "bridge.discover" || message.message.type === "bridge.reset") {
-        await ensureBrowserBridgeOwnership();
       }
       if (message.message.type === "pipeline.run" && message.message.delivery === "immediate") {
         const runMessage = message.message;
@@ -7537,6 +7518,8 @@ export const createConversationManager = (
         return disposeOperation;
       }
       disposed = true;
+      const browserBridgeDisposal = sharedBridge.dispose();
+      void browserBridgeDisposal.catch(() => undefined);
       disposeOperation = (async () => {
         const timeoutMs = Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "managerDisposeTimeoutMs", 30_000));
         const failures: unknown[] = [];
@@ -7567,6 +7550,7 @@ export const createConversationManager = (
 
         options.workspaceLease?.signal.removeEventListener("abort", handleWorkspaceLeaseLost);
         browserSelectorHealingConfigurationSubscription.dispose();
+        browserBridgeWindowSubscription?.dispose();
         if (pipelineCatalogRefreshTimer) {
           clearTimeout(pipelineCatalogRefreshTimer);
           pipelineCatalogRefreshTimer = undefined;
@@ -7614,44 +7598,8 @@ export const createConversationManager = (
           ),
         );
         interactionWaiters.clear();
-        if (browserBridgeStartOperation) {
-          await capture(() => bounded(
-            browserBridgeStartOperation as Promise<void>,
-            timeoutMs,
-            "Browser Bridge startup shutdown",
-          ));
-        }
-        if (browserBridgeLease) {
-          const lease = browserBridgeLease;
-          try {
-            await bounded(
-              sharedBridge.close(),
-              Math.max(1_000, readTimeoutSetting((settingKey, settingFallback) => configuration.get(settingKey, settingFallback), "browserBridgeCloseTimeoutMs", 10_000)),
-              "Browser Bridge shutdown",
-            );
-            await lease.release();
-          } catch (error) {
-            try {
-              await lease.quarantine(
-                `Browser Bridge shutdown was not confirmed: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            } catch (quarantineError) {
-              failures.push(new AggregateError(
-                [error, quarantineError],
-                "Browser Bridge shutdown failed and ownership could not be quarantined",
-              ));
-            }
-            if (!failures.some((failure) => failure === error || (failure instanceof AggregateError && failure.errors.includes(error)))) {
-              failures.push(error);
-            }
-          } finally {
-            if (browserBridgeLease === lease) {
-              browserBridgeLease = undefined;
-            }
-          }
-        } else {
-          await capture(() => bounded(sharedBridge.close(), timeoutMs, "Browser Bridge shutdown"));
-        }
+        await capture(() => bounded(browserBridgeDisposal, timeoutMs, "Browser Bridge shutdown"));
+        if (ownedBridgeBroker) await capture(() => ownedBridgeBroker.dispose());
         if (!options.workspaceLease || options.workspaceLease.isValid()) {
           await capture(() => bounded(persist(), timeoutMs, "Manager state persistence"));
           await capture(() => bounded(persistQueue, timeoutMs, "Manager persistence queue"));

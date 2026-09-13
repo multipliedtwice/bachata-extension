@@ -61,17 +61,17 @@ const READ_ONLY_SAFE_ACTIONS = new Set([
 
 const readOnlyHolder = (ownership: ReadOnlyOwnership): string =>
   ownership.holderDescription === undefined
-    ? "Another Bachata window"
-    : `Another Bachata window (${ownership.holderDescription})`;
+    ? localize("Another Bachata window")
+    : localize("Another Bachata window ({0})", ownership.holderDescription);
 
 // The one sentence a control's tooltip carries; the banner says the rest once.
 const readOnlyReason = (ownership: ReadOnlyOwnership): string =>
-  `${readOnlyHolder(ownership)} owns this repository's state, so this window can only read it.`;
+  localize("{0} owns this repository's state, so this window can only read it.", readOnlyHolder(ownership));
 
 const readOnlyExplanation = (ownership: ReadOnlyOwnership): string => {
   const seen = ownership.holderLastSeenSecondsAgo === undefined
     ? ""
-    : ` It was active ${String(ownership.holderLastSeenSecondsAgo)}s ago.`;
+    : " " + localize("It was active {0}s ago.", ownership.holderLastSeenSecondsAgo);
   return `${readOnlyReason(ownership)}${seen}`;
 };
 
@@ -82,7 +82,7 @@ const READ_ONLY_EXPLANATION_ID = "read-only-explanation";
 const readOnlyBannerHtml = (ownership: ReadOnlyOwnership | undefined): string => {
   if (ownership === undefined) return "";
   const explanation = readOnlyExplanation(ownership);
-  return `<div class="read-only-banner" ${liveRegionAttributes("read-only-banner", "status", explanation)} data-read-only-banner="true"><strong>Read-only</strong><span id="${READ_ONLY_EXPLANATION_ID}">${escapeHtml(explanation)}</span><button type="button" data-action="workspace-ownership" title="${escapeAttribute(ownership.retryCommand)}">Take ownership</button></div>`;
+  return `<div class="read-only-banner" ${liveRegionAttributes("read-only-banner", "status", explanation)} data-read-only-banner="true"><strong>${escapeHtml(localize("Read-only"))}</strong><span id="${READ_ONLY_EXPLANATION_ID}">${escapeHtml(explanation)}</span><button type="button" data-action="workspace-ownership" title="${escapeAttribute(ownership.retryCommand)}">${escapeHtml(localize("Take ownership"))}</button></div>`;
 };
 
 const readOnlyControlAction = (control: HTMLElement): string | undefined => {

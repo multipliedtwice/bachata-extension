@@ -29,18 +29,15 @@ const safeJson = (value: unknown): string => {
 };
 
 const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) {
-    return `${String(bytes)} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const value = bytes;
+  if (value < 1024) return localize("{0} B", formatNumber(value));
+  if (value < 1024 * 1024) return localize("{0} KB", formatNumber(value / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+  return localize("{0} MB", formatNumber(value / (1024 * 1024), { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
 };
 
 const formatDateTime = (value: string): string => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(webviewLocale);
 };
 
 const padTwo = (value: number): string => String(value).padStart(2, "0");
@@ -55,9 +52,9 @@ const formatDuration = (milliseconds: number): string => {
 
 /** Coarse form, for a limit stated once in prose. */
 const durationLabel = (milliseconds: number): string => {
-  if (milliseconds < 60_000) return `${String(Math.round(milliseconds / 1000))}s`;
+  if (milliseconds < 60_000) return localize("{0}s", formatNumber(Math.round(milliseconds / 1000)));
   const minutes = Math.round(milliseconds / 60_000);
-  return minutes < 60 ? `${String(minutes)} min` : `${String(Math.round(minutes / 60))} h`;
+  return minutes < 60 ? localize("{0} min", formatNumber(minutes)) : localize("{0} h", formatNumber(Math.round(minutes / 60)));
 };
 
 const listText = (value: unknown, separator: string): string =>
@@ -70,8 +67,13 @@ const verificationChecksText = (
     .map((check) => `${check.id} = ${check.command}`)
     .join("\n");
 
-const countLabel = (count: number, singular: string, plural = `${singular}s`): string =>
-  `${String(count)} ${count === 1 ? singular : plural}`;
+const countLabel = (count: number, singular: string, plural = `${singular}s`): string => {
+  const number = formatNumber(count);
+  if (singular === "step") return count === 1 ? localize("{0} step", number) : localize("{0} steps", number);
+  if (singular === "participant") return count === 1 ? localize("{0} participant", number) : localize("{0} participants", number);
+  if (singular === "run") return count === 1 ? localize("{0} run", number) : localize("{0} runs", number);
+  return localize("{0} {1}", number, count === 1 ? singular : plural);
+};
 
 /**
  * S6. Identifiers the bridge and the catalogue speak, said in words.
@@ -82,19 +84,19 @@ const countLabel = (count: number, singular: string, plural = `${singular}s`): s
  * present, so an unmapped value is a protocol change rather than a gap.
  */
 const browserSessionStatusLabel: Record<string, string> = {
-  disconnected: "Disconnected",
-  notAuthenticated: "Not signed in",
-  notReady: "Not ready",
-  ready: "Ready",
-  submitting: "Sending",
-  streaming: "Answering",
-  failed: "Failed",
+  disconnected: localize("Disconnected"),
+  notAuthenticated: localize("Not signed in"),
+  notReady: localize("Not ready"),
+  ready: localize("Ready"),
+  submitting: localize("Sending"),
+  streaming: localize("Answering"),
+  failed: localize("Failed"),
 };
 
 const browserActionPolicyLabel: Record<string, string> = {
-  auto: "Allowed without asking",
-  ask: "Ask every time",
-  disabled: "Never allowed",
+  auto: localize("Allowed without asking"),
+  ask: localize("Ask every time"),
+  disabled: localize("Never allowed"),
 };
 
 /**
@@ -104,10 +106,10 @@ const browserActionPolicyLabel: Record<string, string> = {
  * prefix and an absolute path, so this reads the shape rather than indexing a map.
  */
 const pipelineScopeLabel = (scopeKey: string, scopeRoot?: string): string => {
-  if (scopeKey === "builtin") return "built-in";
+  if (scopeKey === "builtin") return localize("built-in");
   const folder = scopeRoot?.replaceAll("\\", "/").split("/").filter(Boolean).at(-1);
-  if (folder) return `workspace ${folder}`;
-  return scopeKey.startsWith("workspace:") ? "this workspace" : "extension-local";
+  if (folder) return localize("workspace {0}", folder);
+  return scopeKey.startsWith("workspace:") ? localize("this workspace") : localize("extension-local");
 };
 
 /**
@@ -120,11 +122,11 @@ const pipelineScopeLabel = (scopeKey: string, scopeRoot?: string): string => {
  * is per kind, and it never promises a Lead, which the webview cannot know exists.
  */
 const interactionTimeoutConsequence = (kind: string): string => {
-  if (kind === "permission") return "If it resolves first, the request is denied.";
-  if (kind === "humanGate") return "If it resolves first, the run stops here.";
-  if (kind === "executionChecklist") return "If it resolves first, no task runs and the run stops here.";
-  if (kind === "secret") return "If it resolves first, the run continues without it.";
-  return "If it resolves first, the Lead answers instead when this workspace has one.";
+  if (kind === "permission") return localize("If it resolves first, the request is denied.");
+  if (kind === "humanGate") return localize("If it resolves first, the run stops here.");
+  if (kind === "executionChecklist") return localize("If it resolves first, no task runs and the run stops here.");
+  if (kind === "secret") return localize("If it resolves first, the run continues without it.");
+  return localize("If it resolves first, the Lead answers instead when this workspace has one.");
 };
 
 // Generic judgement presentation: a surfaced record states what it rests on, or says nothing
@@ -134,20 +136,65 @@ const interactionTimeoutConsequence = (kind: string): string => {
 // label rather than assembled from it. An unrecognised label falls back to a form that states
 // the same thing without needing to agree with a number.
 const emptyJudgementSentence: Record<string, string> = {
-  evidence: "No evidence was supplied.",
-  challenges: "No challenges were supplied.",
-  options: "No options were supplied.",
+  evidence: localize("No evidence was supplied."),
+  challenges: localize("No challenges were supplied."),
+  options: localize("No options were supplied."),
 };
 
 const judgementEmptyText = (label: string): string =>
-  emptyJudgementSentence[label.toLowerCase()] ?? `${label}: none supplied.`;
+  emptyJudgementSentence[label.toLowerCase()] ?? localize("{0}: none supplied.", label);
 
 const judgementEvidenceHtml = (label: string, items: string[]): string =>
   items.length === 0
     ? `<p class="muted">${escapeHtml(judgementEmptyText(label))}</p>`
-    : `<details class="direction-evidence"><summary>${escapeHtml(`${label} (${String(items.length)})`)}</summary><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`;
+    : `<details class="direction-evidence"><summary>${escapeHtml(localize("{0} ({1})", label, items.length))}</summary><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`;
 
 const producingRunHtml = (runRef: string | undefined): string =>
   runRef === undefined
     ? ""
-    : `<button data-action="open-producing-run" data-run="${escapeAttribute(runRef)}">Open the run that produced this</button>`;
+    : `<button data-action="open-producing-run" data-run="${escapeAttribute(runRef)}">${escapeHtml(localize("Open the run that produced this"))}</button>`;
+
+const browserBridgePresentation = (bridge: BrowserBridgeStatus, scope: string) => {
+  const reasons = {
+    portUnavailable: localize("Another application is using the browser connection. Close that application to reconnect."),
+    localWindowRequired: localize("Open this workspace in a local VS Code window to connect your browser."),
+    browserUpdateRequired: localize("Update the Bachata Browser Bridge extension, then reconnect your browser."),
+    pairingExpired: localize("Pairing has expired. Reset pairing and pair the browser again."),
+    accessDenied: localize("Your computer denied permission to open the browser connection. Check your security settings."),
+  };
+  const reason = !bridge.enabled ? "localWindowRequired" : bridge.connectionState === "blocked" ? bridge.blockedReason : undefined;
+  const message = reason && Object.hasOwn(reasons, reason) ? reasons[reason] : undefined;
+  const requestedState = !bridge.enabled ? "blocked"
+    : bridge.connected ? "connected"
+      : bridge.connectionState === "blocked" && !message ? "retrying"
+        : bridge.connectionState ?? (bridge.error ? "retrying" : "connecting");
+  const labels = {
+    connecting: localize("Connecting…"),
+    retrying: localize("Browser unavailable — retrying"),
+    connected: localize("Connected"),
+    blocked: localize("Browser unavailable"),
+    disconnected: localize("Disconnected"),
+  };
+  const state = typeof requestedState === "string" && Object.hasOwn(labels, requestedState) ? requestedState : "retrying";
+  return {
+    statusHtml: `<span data-bridge-state="${escapeAttribute(state)}" ${liveRegionAttributes(`${scope}:status`, "status", labels[state])} aria-atomic="true">${escapeHtml(labels[state])}</span>`,
+    reasonHtml: state === "blocked" && message ? `<p class="error" data-bridge-reason="${escapeAttribute(reason ?? "")}" ${liveRegionAttributes(`${scope}:reason`, "status", message)}>${escapeHtml(message)}</p>` : "",
+  };
+};
+
+const productErrorMessage = (message: string | undefined): string | undefined => {
+  if (!message) return undefined;
+  const quarantine = message.match(/\bShared resource is quarantined:\s*([^;\n]*)/iu);
+  if (quarantine) {
+    const resources = quarantine[1]?.split(",").map((resource) => resource.trim().split(/\s/u)[0]);
+    if (resources?.length && resources.every((resource) => resource === "browser-bridge:profile")) return undefined;
+  }
+  const localAgents = /\blocal-agents:global\b|Previous provider cleanup is unconfirmed/iu.test(message);
+  const cleanupFailure = /Previous (?:provider|resource) cleanup is unconfirmed|(?:resources?|catalog|reservation)[^\n]{0,100}could (?:not be|neither be released nor) quarantined/iu.test(message);
+  if (quarantine || cleanupFailure) {
+    return localAgents
+      ? localize("Local agents are unavailable because a previous operation did not stop cleanly.")
+      : localize("This operation is unavailable because a previous operation did not stop cleanly.");
+  }
+  return message;
+};

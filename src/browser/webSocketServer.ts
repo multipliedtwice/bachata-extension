@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createServer, IncomingMessage } from "node:http";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { TextDecoder } from "node:util";
 
@@ -13,6 +13,7 @@ export type TextSocket = {
 
 export type TextWebSocketServer = {
   listen: () => Promise<number>;
+  isListening: () => boolean;
   close: () => Promise<void>;
 };
 
@@ -28,6 +29,8 @@ export type TextWebSocketServerOptions = {
   onMessage: (socket: TextSocket, text: string) => void;
   onClose: (socket: TextSocket) => void;
   onError: (error: Error) => void;
+  protocolEnabled?: () => boolean;
+  onRequest?: (request: IncomingMessage, response: ServerResponse) => void;
 };
 
 const webSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -191,15 +194,35 @@ const parseUpgrade = (
 export const createTextWebSocketServer = (
   options: TextWebSocketServerOptions,
 ): TextWebSocketServer => {
-  const server = createServer((_request, response) => {
+  const server = createServer((request, response) => {
+    if (options.protocolEnabled && !options.protocolEnabled()) {
+      response.writeHead(503, { "Connection": "close" });
+      response.end();
+      return;
+    }
+    if (options.onRequest) {
+      options.onRequest(request, response);
+      return;
+    }
     response.statusCode = 404;
     response.end();
   });
   const sockets = new Set<Socket>();
+  const httpSockets = new Set<Socket>();
+  server.on("connection", (socket: Socket) => {
+    httpSockets.add(socket);
+    socket.once("close", () => httpSockets.delete(socket));
+  });
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 30_000;
   const connections = new Map<Socket, TextSocket>();
 
   server.on("upgrade", (request, socket, head) => {
     const netSocket = socket as Socket;
+    if (options.protocolEnabled && !options.protocolEnabled()) {
+      rejectUpgrade(netSocket, "503 Service Unavailable");
+      return;
+    }
     if (sockets.size >= options.maxConnections) {
       rejectUpgrade(netSocket, "503 Service Unavailable");
       return;
@@ -450,6 +473,7 @@ export const createTextWebSocketServer = (
   server.on("error", (error) => options.onError(error));
 
   return {
+    isListening: () => server.listening,
     listen: () =>
       new Promise((resolve, reject) => {
         const onError = (error: Error): void => {
@@ -467,10 +491,10 @@ export const createTextWebSocketServer = (
         };
         server.once("error", onError);
         server.once("listening", onListening);
-        server.listen(options.port, options.host);
+        server.listen({ port: options.port, host: options.host, exclusive: true });
       }),
     close: () =>
-      new Promise((resolve) => {
+      new Promise((resolve, reject) => {
         // `close()` writes a close frame and calls `end()`. Destroying in the same tick threw
         // that frame away whenever it had not already reached the kernel, so a peer saw the
         // connection vanish instead of closing. Give the flush a short, bounded grace and
@@ -481,12 +505,12 @@ export const createTextWebSocketServer = (
         const finish = (): void => {
           if (settled) return;
           settled = true;
-          sockets.forEach((activeSocket) => activeSocket.destroy());
+          httpSockets.forEach((activeSocket) => activeSocket.destroy());
           if (!server.listening) {
             resolve();
             return;
           }
-          server.close(() => resolve());
+          server.close((error) => error ? reject(error) : resolve());
         };
         if (remaining.length === 0) {
           finish();

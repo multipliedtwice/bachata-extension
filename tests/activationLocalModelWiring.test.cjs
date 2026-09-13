@@ -4,6 +4,7 @@ const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { createL10nStub } = require("./fixtures/vscodeL10n.cjs");
 
 const { CONTRACT_PROBE_CANDIDATES } = require("../dist/providers/localModelDiscovery.js");
 
@@ -85,6 +86,7 @@ const createVscodeStub = (settings, workspaceFolders) => {
   const outputLines = [];
   const configurationListeners = new Set();
   const vscode = {
+    l10n: createL10nStub(),
     Disposable: class {
       constructor(callOnDispose) {
         this.callOnDispose = callOnDispose;

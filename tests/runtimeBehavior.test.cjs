@@ -769,6 +769,31 @@ test("a shared bridge may publish its current status synchronously", async () =>
   }
 });
 
+test("Find browser discovers without restarting the shared infrastructure", async () => {
+  const tracked = createTrackedBridge([]);
+  let starts = 0;
+  let discoveries = 0;
+  let resets = 0;
+  tracked.bridge.start = async () => { starts += 1; };
+  tracked.bridge.discover = () => { discoveries += 1; };
+  tracked.bridge.resetPairing = async () => { resets += 1; };
+  const harness = loadRuntimeHarness({ runtimeOptions: { bridge: tracked.bridge, startBridge: false, closeBridge: false } });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.handleMessage({ type: "bridge.discover" });
+    assert.equal(discoveries, 1);
+    assert.equal(starts, 0);
+    assert.equal(resets, 0);
+    await harness.runtime.handleMessage({ type: "bridge.reset" });
+    assert.equal(resets, 1);
+    assert.equal(starts, 0);
+    assert.equal(discoveries, 1);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
 test("failed browser selection persistence restores the previous routing", async () => {
   const oldSession = createBrowserSession("old-session", "Old conversation");
   const newSession = createBrowserSession("new-session", "New conversation");
@@ -7947,5 +7972,108 @@ test("a working-directory change re-asks Git before the next run decides", async
     harness.cleanup();
     removeScratchSync(extensionRoot);
     removeScratchSync(workspace);
+  }
+});
+
+test("programmatic interruption cancels foreground work and waits for attachment cleanup", async () => {
+  const resolveStarted = deferred();
+  const releaseResolve = deferred();
+  let cleaned = false;
+  const harness = loadRuntimeHarness({
+    resolvePaths: async () => {
+      resolveStarted.resolve();
+      await releaseResolve.promise;
+      return { paths: [], dispose: async () => { cleaned = true; } };
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    const send = harness.runtime.handleMessage(sendMessage());
+    await resolveStarted.promise;
+    let interrupted = false;
+    const stop = harness.runtime.interrupt().then(() => { interrupted = true; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(interrupted, false);
+    releaseResolve.resolve();
+    await Promise.all([send, stop]);
+    assert.equal(cleaned, true);
+    assert.equal(harness.adapterControls.get("codex").sendCount, 0);
+    assert.equal(harness.runtime.isBusy(), false);
+  } finally {
+    releaseResolve.resolve();
+    harness.adapterControls.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("localized working-folder confirmation routes by the displayed action", async () => {
+  for (const accepted of [false, true]) {
+    let targetDirectory;
+    const confirmations = [];
+    const notifications = [];
+    const folderLabel = "[localized] working folder";
+    const confirmLabel = "[localized] change and reset";
+    const harness = loadRuntimeHarness({
+      initialTranscript: [{ id: "kept-input", kind: "user", text: "Original user content {0}", createdAt: new Date().toISOString() }],
+      translations: {
+        "Use as Bachata working directory": folderLabel,
+        "Change and reset": confirmLabel,
+        "Working folder: {0}": "[localized] folder: {0}",
+      },
+      showOpenDialog: ({ dialogOptions }) => {
+        assert.equal(dialogOptions.openLabel, folderLabel);
+        return [{ fsPath: targetDirectory }];
+      },
+      showWarningMessage: (...args) => {
+        confirmations.push(args);
+        return accepted ? confirmLabel : "Change and reset";
+      },
+      showInformationMessage: (...args) => notifications.push(args),
+    });
+    try {
+      await harness.runtime.handleMessage({ type: "ready" });
+      targetDirectory = path.join(harness.workspaceDirectory, "replacement");
+      fs.mkdirSync(targetDirectory);
+      await harness.runtime.handleMessage({ type: "workingDirectory.pick" });
+      assert.equal(confirmations.length, 1);
+      assert.equal(confirmations[0][2], confirmLabel);
+      assert.equal(harness.runtime.getState().workingDirectory, fs.realpathSync(accepted ? targetDirectory : harness.workspaceDirectory));
+      if (accepted) {
+        assert.equal(notifications.at(-1)[0], `[localized] folder: ${fs.realpathSync(targetDirectory)}`);
+      } else {
+        assert.ok(harness.transcript.some((entry) => entry.text === "Original user content {0}"));
+      }
+    } finally {
+      await harness.runtime.dispose();
+      harness.cleanup();
+    }
+  }
+});
+
+test("localized transcript save labels do not change exported user content", async () => {
+  let destination;
+  const notifications = [];
+  const harness = loadRuntimeHarness({
+    initialTranscript: [{ id: "original-input", kind: "user", text: "Original content {0}", createdAt: new Date().toISOString() }],
+    translations: {
+      "Export Bachata transcript": "[localized] export transcript",
+      "Bachata transcript exported to {0}": "[localized] exported to {0}",
+    },
+    showSaveDialog: ({ dialogOptions, workspaceDirectory }) => {
+      assert.equal(dialogOptions.saveLabel, "[localized] export transcript");
+      destination = path.join(workspaceDirectory, "translated-export.json");
+      return { fsPath: destination };
+    },
+    showInformationMessage: (...args) => notifications.push(args),
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.handleMessage({ type: "transcript.export" });
+    assert.ok(JSON.parse(fs.readFileSync(destination, "utf8")).transcript.some((entry) => entry.text === "Original content {0}"));
+    assert.equal(notifications.at(-1)[0], `[localized] exported to ${destination}`);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
   }
 });

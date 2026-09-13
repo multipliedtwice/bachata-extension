@@ -35,7 +35,7 @@ const roomHeaderHtml = (
   const waitingForResources = conversation.waitingForResources === true;
   // The composer's stop lives in the chat view only; every other view needs the same escape hatch.
   const interrupt = !readOnly && state.roomView !== "chat" && (runPhaseOf(panel) === "running" || waitingForResources)
-    ? `<button data-action="interrupt-run"${pendingInterrupts.has(conversation.id) ? ' disabled aria-busy="true"' : ""}>${waitingForResources ? "Cancel wait" : "Stop"}</button>`
+    ? `<button data-action="interrupt-run"${pendingInterrupts.has(conversation.id) ? ' disabled aria-busy="true"' : ""}>${escapeHtml(waitingForResources ? localize("Cancel wait") : localize("Stop"))}</button>`
     : "";
   const parentNavigation = rootConversation.id === conversation.id
     ? ""
@@ -43,7 +43,7 @@ const roomHeaderHtml = (
   // A hidden Direction tab must not be a deleted Direction view: defining an initiative is only
   // reachable there, and a room with no direction yet is exactly the room where someone would want
   // to define one.
-  const inspectorItem = `<button data-action="inspector-toggle" aria-expanded="${state.inspectorOpen ? "true" : "false"}">${state.inspectorOpen ? "Hide details" : "Show details"}</button><button data-action="notification-settings">Notifications</button>`;
+  const inspectorItem = `<button data-action="inspector-toggle" aria-expanded="${state.inspectorOpen ? "true" : "false"}">${escapeHtml(state.inspectorOpen ? localize("Hide details") : localize("Show details"))}</button><button data-action="notification-settings">${escapeHtml(localize("Notifications"))}</button>`;
   // The tab and the drawer row say "Waiting for you" and "Blocked"; the pill beside the title
   // used to say "Ready" in both cases. The panel stays the authority on running, since it is
   // what the runtime patches first.
@@ -51,54 +51,60 @@ const roomHeaderHtml = (
   const phase = runPhaseOf(panel);
   const controlsLocked = runConfigurationLocked(panel, conversation.id);
   const providerCheckDisabled = controlsLocked
-    ? 'disabled title="Available after the active operation finishes"'
-    : agentsAssignable(panel) ? "" : 'disabled title="Select a pipeline with participants to check providers."';
+    ? `disabled title="${escapeAttribute(localize("Available after the active operation finishes"))}"`
+    : agentsAssignable(panel) ? "" : `disabled title="${escapeAttribute(localize("Select a pipeline with participants to check providers."))}"`;
   const presentation = bachataWebviewBehavior.runStatusPresentation(phase, panel.resumableWorkflow?.outcome);
   const roomStatus = readinessBlocked(panel)
-    ? { status: "error", label: "Blocked", spinning: false }
+    ? { status: "error", label: localize("Blocked"), spinning: false }
     : waitingForHuman
-      ? { status: "paused", label: "Waiting for you", spinning: false }
+      ? { status: "paused", label: localize("Waiting for you"), spinning: false }
       : waitingForResources
-        ? { status: "paused", label: "Waiting for capacity", spinning: false }
+        ? { status: "paused", label: localize("Waiting for capacity"), spinning: false }
         : {
             status: phase === "running" ? "running" : panel.workflowStatus,
-            label: presentation.label,
+            label: localRunStatusLabel(presentation.label),
             spinning: presentation.spinning,
           };
   const moreActions = readOnly
-    ? `${inspectorItem}<button data-action="transcript-export">Export transcript</button><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">Unarchive run</button>`
-    : `${inspectorItem}<button data-action="availability-check" ${providerCheckDisabled}>Check providers</button><button data-action="working-directory" ${controlsLocked ? 'disabled title="Available after the active operation finishes"' : ""}>Choose folder</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}<button data-action="transcript-export">Export transcript</button><button class="danger" data-action="task-reset" ${controlsLocked ? 'disabled title="Stop the active operation before resetting"' : ""}>Reset run</button>`;
+    ? `${inspectorItem}<button data-action="transcript-export">${escapeHtml(localize("Export transcript"))}</button><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">${escapeHtml(localize("Unarchive run"))}</button>`
+    : `${inspectorItem}<button data-action="availability-check" ${providerCheckDisabled}>${escapeHtml(localize("Check providers"))}</button><button data-action="working-directory" ${controlsLocked ? `disabled title="${escapeAttribute(localize("Available after the active operation finishes"))}"` : ""}>${escapeHtml(localize("Choose folder"))}</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}<button data-action="transcript-export">${escapeHtml(localize("Export transcript"))}</button><button class="danger" data-action="task-reset" ${controlsLocked ? `disabled title="${escapeAttribute(localize("Stop the active operation before resetting"))}"` : ""}>${escapeHtml(localize("Reset run"))}</button>`;
   // The run tab already carries the title, status icon and rename; this row does not repeat them.
   // A run's status is echoed here only when it is something to act on (waiting, blocked, running),
   // never a plain "Ready", and the run's name stays as the accessible heading for the landmark.
-  const showStatus = !(roomStatus.status === "idle" && roomStatus.label === "Ready");
-  const statusPill = showStatus
-    ? `<span ${liveRegionAttributes(`room-status:${conversation.id}`, "status", roomStatus.label)} class="room-status status-${escapeAttribute(roomStatus.status)}">${roomStatus.spinning ? `<i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"></i>` : ""}${escapeHtml(roomStatus.label)}</span>`
-    : "";
+  const requirements = readOnly ? [] : sendBlockers(conversation.id, panel, draftFor(conversation.id)).filter((blocker) => blocker.quiet !== true);
+  const ready = roomStatus.status === "idle" && phase === "idle";
+  const statusLabel = requirements.length > 0 && ready ? localize("Needs attention") : roomStatus.label;
+  const showStatus = requirements.length > 0 || !ready;
+  const statusText = `${roomStatus.spinning ? `<i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"></i>` : ""}<span ${liveRegionAttributes(`room-status:${conversation.id}`, "status", statusLabel)}>${escapeHtml(statusLabel)}</span>`;
+  const statusPill = !showStatus
+    ? ""
+    : requirements.length > 0
+      ? `<button type="button" class="room-status status-${escapeAttribute(roomStatus.status)} run-requirements-trigger" data-action="run-requirements" data-conversation="${escapeAttribute(conversation.id)}" aria-haspopup="dialog" aria-label="${escapeAttribute(localize("{0}. Review run requirements", statusLabel))}" title="${escapeAttribute(localize("Review run requirements"))}">${statusText}<i class="codicon codicon-chevron-right" aria-hidden="true"></i></button>`
+      : `<span class="room-status status-${escapeAttribute(roomStatus.status)}">${statusText}</span>`;
   const context = [
-    readOnly ? `<span class="room-context">Archived · read-only</span>` : "",
+    readOnly ? `<span class="room-context">${escapeHtml(localize("Archived · read-only"))}</span>` : "",
     panel.activeStep ? `<span class="room-context">${escapeHtml(panel.activeStep)}</span>` : "",
-    state.roomView === "execution" ? `<span class="room-context">${escapeHtml(panel.selectedPipelineDefinition?.name ?? "No pipeline")}</span>` : "",
-    conversation.iterationCount > 1 ? `<span class="room-context">Iteration ${String(conversation.activeIteration)} of ${String(conversation.iterationCount)}</span>` : "",
+    state.roomView === "execution" ? `<span class="room-context">${escapeHtml(panel.selectedPipelineDefinition?.name ?? localize("No pipeline"))}</span>` : "",
+    conversation.iterationCount > 1 ? `<span class="room-context">${escapeHtml(localize("Iteration {0} of {1}", conversation.activeIteration, conversation.iterationCount))}</span>` : "",
   ].join("");
   // A lone "Chat" button is nothing to switch between; the view switch appears only once there is a
   // Direction or Execution view to reach, or one is already open.
   const showViewSwitch = views.execution || state.roomView !== "chat";
   const viewSwitch = showViewSwitch
-    ? `<div class="view-switch" role="group" aria-label="Run view"><button data-action="room-view" data-view="chat" class="${state.roomView === "chat" ? "selected" : ""}" aria-pressed="${state.roomView === "chat" ? "true" : "false"}">Chat</button>${views.execution || state.roomView === "execution" ? `<button data-action="room-view" data-view="execution" class="${state.roomView === "execution" ? "selected" : ""}" aria-pressed="${state.roomView === "execution" ? "true" : "false"}">Execution${blockingCount > 0 ? ` (${String(blockingCount)})` : ""}</button>` : ""}</div>`
+    ? `<div class="view-switch" role="group" aria-label="${escapeAttribute(localize("Run view"))}"><button data-action="room-view" data-view="chat" class="${state.roomView === "chat" ? "selected" : ""}" aria-pressed="${state.roomView === "chat" ? "true" : "false"}">${escapeHtml(localize("Chat"))}</button>${views.execution || state.roomView === "execution" ? `<button data-action="room-view" data-view="execution" class="${state.roomView === "execution" ? "selected" : ""}" aria-pressed="${state.roomView === "execution" ? "true" : "false"}">${escapeHtml(blockingCount > 0 ? localize("Execution ({0})", blockingCount) : localize("Execution"))}</button>` : ""}</div>`
     : "";
-  return `<header class="room-header"><h1 class="sr-only">${escapeHtml(runTabLabel(conversation))}</h1><div class="room-utility"><div class="room-utility-lead">${parentNavigation}${statusPill}${context}</div><div class="room-actions">${interrupt}${notificationBellHtml()}${viewSwitch}<details class="header-action-menu" ${disclosureAttributes(`header-menu:${conversation.id}`)}><summary id="room-actions-button" aria-label="Run actions" title="Run actions"><i class="codicon codicon-ellipsis" aria-hidden="true"></i></summary><div>${moreActions}</div></details></div></div></header>`;
+  return `<header class="room-header"><h1 class="sr-only">${escapeHtml(runTabLabel(conversation))}</h1><div class="room-utility"><div class="room-utility-lead">${parentNavigation}${statusPill}${context}</div><div class="room-actions">${interrupt}${notificationBellHtml()}${viewSwitch}<details class="header-action-menu" ${disclosureAttributes(`header-menu:${conversation.id}`)}><summary id="room-actions-button" aria-label="${escapeAttribute(localize("Run actions"))}" title="${escapeAttribute(localize("Run actions"))}"><i class="codicon codicon-ellipsis" aria-hidden="true"></i></summary><div>${moreActions}</div></details></div></div></header>`;
 };
 
 const findingStateLabel: Record<LongitudinalFindingState, string> = {
-  new: "New",
-  repeated: "Repeated",
-  accepted: "Accepted",
-  rejected: "Rejected",
-  unresolved: "Unresolved",
-  resolved: "Resolved",
-  regressed: "Regressed",
-  reopened: "Reopened",
+  new: localize("New"),
+  repeated: localize("Repeated"),
+  accepted: localize("Accepted"),
+  rejected: localize("Rejected"),
+  unresolved: localize("Unresolved"),
+  resolved: localize("Resolved"),
+  regressed: localize("Regressed"),
+  reopened: localize("Reopened"),
 };
 
 const findingLocationLabel = (finding: DirectionFinding): string =>
@@ -154,11 +160,11 @@ const providerRecoveryHtml = (entry: TranscriptEntry): string => {
     })
     .join("");
   return `<section class="failure-recovery">
-    <h3>${escapeHtml(title || "This step failed")}</h3>
+    <h3>${escapeHtml(title || localize("This step failed"))}</h3>
     <p>${escapeHtml(statement)}</p>
-    <p class="muted">Bachata will not run this somewhere else on its own.</p>
+    <p class="muted">${escapeHtml(localize("Bachata will not run this somewhere else on its own."))}</p>
     ${actions ? `<ul class="failure-recovery-choices">${actions}</ul>` : ""}
-    ${detail ? `<details class="failure-recovery-detail" ${disclosureAttributes(`recovery:${entry.id}`)}><summary>Technical detail</summary><div class="markdown">${renderMarkdown(detail)}</div></details>` : ""}
+    ${detail ? `<details class="failure-recovery-detail" ${disclosureAttributes(`recovery:${entry.id}`)}><summary>${escapeHtml(localize("Technical detail"))}</summary><div class="markdown">${renderMarkdown(detail)}</div></details>` : ""}
   </section>`;
 };
 
@@ -179,10 +185,10 @@ const sendBlockers = (
   const blockers: SendBlocker[] = [];
   if (conversation?.archived === true) {
     blockers.push({
-      condition: "This run is archived and read-only.",
-      requirement: "Unarchive it to continue work.",
+      condition: localize("This run is archived and read-only."),
+      requirement: localize("Unarchive it to continue work."),
       action: {
-        label: "Unarchive",
+        label: localize("Unarchive"),
         attributes: `data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversationFor(conversation).id)}"`,
       },
     });
@@ -190,40 +196,44 @@ const sendBlockers = (
   if (!panel.workingDirectory && panel.workspaceRoots.length !== 1) {
     blockers.push({
       condition: panel.workspaceRoots.length === 0
-        ? "No workspace folder is open."
-        : "No working root is selected in this multi-root window.",
-      requirement: "Choose the repository this run targets.",
-      action: { label: "Choose folder", attributes: `data-action="working-directory"` },
+        ? localize("No workspace folder is open.")
+        : localize("No working root is selected in this multi-root window."),
+      requirement: localize("Choose the repository this run targets."),
+      action: { label: localize("Choose folder"), attributes: `data-action="working-directory"` },
     });
   }
   if (draft.pendingAttachments.size > 0) {
     blockers.push({
-      condition: `${String(draft.pendingAttachments.size)} attachment${draft.pendingAttachments.size === 1 ? " is" : "s are"} still being stored.`,
-      requirement: "Wait for the attachment to finish.",
+      condition: draft.pendingAttachments.size === 1
+        ? localize("One attachment is still being stored.")
+        : localize("{0} attachments are still being stored.", draft.pendingAttachments.size),
+      requirement: localize("Wait for the attachment to finish."),
     });
   }
   if (Array.from(state.pendingRuns.values()).some(
     (request) => request.conversationId === conversationId && !request.accepted,
   )) {
     blockers.push({
-      condition: "A previous submit has not been accepted by the runtime yet.",
-      requirement: "Wait for it to be accepted or rejected, or discard it and send again.",
-      action: { label: "Discard pending submit", attributes: `data-action="run-discard-pending"` },
+      condition: localize("A previous submit has not been accepted by the runtime yet."),
+      requirement: localize("Wait for it to be accepted or rejected, or discard it and send again."),
+      action: { label: localize("Discard pending submit"), attributes: `data-action="run-discard-pending"` },
     });
   }
   (panel.executionContract?.policyRefusals ?? []).forEach((refusal) => blockers.push({
     condition: refusal,
-    requirement: "This repository's policy file refuses this run; change the pipeline or the policy before it can start.",
+    requirement: localize("This repository's policy file refuses this run; change the pipeline or the policy before it can start."),
   }));
   if (draft.delivery === "immediate" && conversation?.waitingForResources === true) {
     blockers.push({
-      condition: "Waiting for shared capacity.",
-      requirement: "No provider or verification command has started. Cancel the wait, or queue this message instead.",
+      condition: localize("Waiting for shared capacity."),
+      requirement: localize("Cancel the wait, or queue this message instead."),
+      quiet: true,
     });
   } else if (draft.delivery === "immediate" && runPhaseOf(panel) === "running") {
     blockers.push({
-      condition: "A run is already executing here.",
-      requirement: "Stop it, or choose Queue or Interrupt in the run options.",
+      condition: localize("A run is already executing here."),
+      requirement: localize("Stop it, or choose Queue or Interrupt in the run options."),
+      quiet: true,
     });
   }
   const recovery = runRecoveryOf(panel, runPhaseOf(panel));
@@ -232,14 +242,18 @@ const sendBlockers = (
     const needsFolder = preflight !== undefined && preflightActionsHtml(preflight) !== "";
     blockers.push({
       condition: recovery.step === "resume"
-        ? "This run's pipeline was stopped and can still continue."
-        : "This run's pipeline failed and can be restarted.",
+        ? localize("The pipeline is stopped.")
+        : localize("The pipeline failed."),
       requirement: needsFolder
-        ? "Choose a Git project folder, then restart the pipeline, or discard it."
-        : "Restart it, continue it, or discard it before starting another pipeline.",
+        ? localize("Choose a Git project folder before restarting.")
+        : recovery.step === "resume"
+          ? localize("Resume from the saved step, or start a new run for a different task.")
+          : localize("Restart the pipeline after resolving the failure."),
       action: needsFolder
-        ? { label: "Choose folder", attributes: `data-action="working-directory"` }
-        : { label: "Restart pipeline", attributes: `data-action="workflow-restart"` },
+        ? { label: localize("Choose folder"), attributes: `data-action="working-directory"` }
+        : recovery.step === "resume"
+          ? { label: localize("Resume"), attributes: `data-action="workflow-resume"` }
+          : { label: localize("Restart pipeline"), attributes: `data-action="workflow-restart"` },
     });
   }
   if (draft.prompt.trim().length === 0) {
@@ -247,8 +261,8 @@ const sendBlockers = (
     // list, because the field's own placeholder and the room's intro card already say it and a
     // third copy is the first thing a reader sees in an empty room.
     blockers.push({
-      condition: "The run input is empty.",
-      requirement: "Describe what this run must do.",
+      condition: localize("The run input is empty."),
+      requirement: localize("Describe what this run must do."),
       quiet: true,
     });
   }
@@ -257,12 +271,12 @@ const sendBlockers = (
     .forEach((finding) => blockers.push({
       condition: `${finding.label}: ${finding.detail}`,
       requirement: finding.status === "unsupported"
-        ? "This pipeline cannot run in this window."
-        : "Resolve this before the run can start.",
+        ? localize("This pipeline cannot run in this window.")
+        : localize("Resolve this before the run can start."),
       ...(finding.remediationId
         ? {
             action: {
-              label: "Fix",
+              label: localize("Fix"),
               attributes: `data-action="readiness-remediate" data-remediation="${escapeAttribute(finding.remediationId)}" data-detail="${escapeAttribute(finding.detail)}"`,
             },
           }
@@ -277,49 +291,33 @@ const composerCanSubmit = (
   draft: ConversationDraft,
 ): boolean => sendBlockers(conversationId, panel, draft).length === 0;
 
-const sendBlockersHtml = (blockers: SendBlocker[]): string => {
+const sendRequirementsDescription = (blockers: SendBlocker[]): string => {
   const visible = blockers.filter((blocker) => blocker.quiet !== true);
-  if (visible.length === 0) {
-    return "";
-  }
-  return sendBlockersListHtml(visible);
+  return (visible.length > 0 ? visible : blockers)
+    .map((blocker) => `${blocker.condition} ${blocker.requirement}`)
+    .join(" ");
 };
 
-// What a screen reader is told when Send refuses: the conditions as sentences, not the
-// container's textContent, which runs the button labels into them.
-const sendBlockersAnnouncement = (blockers: SendBlocker[]): string =>
-  `Send is disabled. ${blockers.map((blocker) => `${blocker.condition} ${blocker.requirement}`).join(" ")}`;
-
-const sendBlockersListHtml = (blockers: SendBlocker[]): string => {
-  const announcement = sendBlockersAnnouncement(blockers);
-  return `<details class="composer-blockers" id="composer-blockers" tabindex="-1" ${disclosureAttributes("composer:blockers")} data-announcement="${escapeAttribute(announcement)}"><summary><strong ${liveRegionAttributes("composer-blockers", "status", announcement)}>Send is disabled: ${escapeHtml(countLabel(blockers.length, "condition"))}</strong></summary><ul>${blockers.map((blocker) => `<li><span class="blocker-condition">${escapeHtml(blocker.condition)}</span> <span class="blocker-requirement">${escapeHtml(blocker.requirement)}</span> ${blocker.action ? `<button ${blocker.action.attributes}>${escapeHtml(blocker.action.label)}</button>` : ""}</li>`).join("")}</ul></details>`;
-};
-
-/**
- * A blocked Send stays reachable and says why.
- *
- * `disabled` takes the control out of the tab order, so a keyboard reader arrives at the end of
- * the composer having never met the button and never heard the conditions that hold it. The
- * control keeps its place, is marked aria-disabled, points at the list of conditions, and the
- * action dispatcher is what refuses to fire it.
- */
-const composerSubmitStateAttributes = (canSubmit: boolean, blockers: SendBlocker[]): string => {
-  if (canSubmit) return "";
-  // EX-UI-02. When the only condition is the one the field itself states, the reason travels on
-  // the control rather than as a third copy of the same sentence above it.
+const runRequirementsHtml = (conversationId: string): string => {
+  const panel = state.panels.get(conversationId) ?? emptyPanel();
+  const blockers = sendBlockers(conversationId, panel, draftFor(conversationId));
   const visible = blockers.filter((blocker) => blocker.quiet !== true);
-  return visible.length > 0
-    ? `aria-disabled="true" aria-describedby="composer-blockers"`
-    : `aria-disabled="true" aria-description="${escapeAttribute(blockers.map((blocker) => `${blocker.condition} ${blocker.requirement}`).join(" "))}"`;
+  const requirements = visible.length > 0 ? visible : blockers;
+  if (requirements.length === 0) return `<p class="run-requirements-ready" role="status">${escapeHtml(localize("Ready to send."))}</p>`;
+  return `<ul class="run-requirements-list">${requirements.map((blocker) => `<li><div><strong>${escapeHtml(blocker.condition)}</strong><p>${escapeHtml(blocker.requirement)}</p></div>${blocker.action ? `<button type="button" data-run-requirement-remedy="true" ${blocker.action.attributes}>${escapeHtml(blocker.action.label)}</button>` : ""}</li>`).join("")}</ul>`;
 };
+
+const composerSubmitStateAttributes = (canSubmit: boolean, blockers: SendBlocker[]): string =>
+  canSubmit ? "" : `aria-disabled="true" aria-description="${escapeAttribute(sendRequirementsDescription(blockers))}"`;
 
 const mainRoomHtml = (): string => {
   const conversation = activeConversation();
   if (!conversation) {
+    if (state.roomView === "direction") return `<main class="room-empty workspace-direction"><div class="conversation-scroll" id="conversation-scroll" data-scroll-key="workspace:direction">${directionHtml()}</div></main>`;
     // EX-UI-02. The Direction centre is offered where there is direction state, the same rule the
     // room header and `directionRender` already apply. Without it this room drew the whole centre,
     // five permanently visible secondary buttons included, for a workspace that has no direction.
-    return `<main class="room-empty"><div><h1>No run selected</h1><p class="room-empty-promise">Bachata reviews code with several AI agents that challenge each other's findings. Start a run to pick a pipeline and describe the job.</p><div class="compact-actions room-empty-actions"><button class="primary" data-action="create-conversation">Start a run</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}</div></div>${hasDirectionState() ? directionHtml() : ""}${orchestrationHtml()}${recentActivityHtml()}</main>`;
+    return `<main class="room-empty"><div><h1>${escapeHtml(localize("No run selected"))}</h1><p class="room-empty-promise">${escapeHtml(localize("Bachata reviews code with several AI agents that challenge each other's findings. Start a run to pick a pipeline and describe the job."))}</p><div class="compact-actions room-empty-actions"><button class="primary" data-action="create-conversation">${escapeHtml(localize("Start a run"))}</button>${hasOrchestrationState() ? "" : orchestrationStartButtonHtml()}</div></div>${hasDirectionState() ? directionHtml() : ""}${orchestrationHtml()}${recentActivityHtml()}</main>`;
   }
   const readOnly = conversation.archived;
   const panel = activePanel();
@@ -340,12 +338,12 @@ const mainRoomHtml = (): string => {
   const introNeeded = panel.transcript.length === 0 &&
     !has.workflow && !has.childRuns && !has.interactions && !has.result;
   const archivedBanner = readOnly
-    ? `<div class="archive-readonly-banner"><strong>Archived run</strong><span>History is read-only. Unarchive it to continue work.</span><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">Unarchive</button></div>`
+    ? `<div class="archive-readonly-banner"><strong>${escapeHtml(localize("Archived run"))}</strong><span>${escapeHtml(localize("History is read-only. Unarchive it to continue work."))}</span><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">${escapeHtml(localize("Unarchive"))}</button></div>`
     : "";
   const blockingCount = blockingDecisionCount(panel, conversation.id);
-  const blockingSummary = `${String(blockingCount)} ${blockingCount === 1 ? "decision" : "decisions"} pending`;
+  const blockingSummary = blockingCount === 1 ? localize("{0} decision pending", blockingCount) : localize("{0} decisions pending", blockingCount);
   const blockingBanner = !readOnly && blockingCount > 0
-    ? `<div class="blocking-workflow-banner" ${liveRegionAttributes("blocking-decisions", "status", blockingSummary)}><strong>${escapeHtml(blockingSummary)}</strong><button data-action="room-view" data-view="execution" data-focus="pending-decision">Review decision${blockingCount > 1 ? "s" : ""}</button></div>`
+    ? `<div class="blocking-workflow-banner" ${liveRegionAttributes("blocking-decisions", "status", blockingSummary)}><strong>${escapeHtml(blockingSummary)}</strong><button data-action="room-view" data-view="execution" data-focus="pending-decision">${escapeHtml(blockingCount > 1 ? localize("Review decisions") : localize("Review decision"))}</button></div>`
     : "";
   // A tab that leads to a placeholder is not a route to anything. Execution is offered once the
   // room has something to execute or something already executed, and always while the user is
@@ -355,8 +353,8 @@ const mainRoomHtml = (): string => {
   const chatContent = (): string => {
     const intro = introNeeded
       ? readOnly
-        ? `<section class="conversation-intro">${bachataMarkHtml}<h2>Archived run</h2><p>No transcript entries were stored for this run.</p></section>`
-        : `<section class="conversation-intro">${bachataMarkHtml}<h2>Start a run</h2><p>Pick a pipeline, enter a job, and watch it execute.</p></section>${recentActivityHtml()}`
+        ? `<section class="conversation-intro">${bachataMarkHtml}<h2>${escapeHtml(localize("Archived run"))}</h2><p>${escapeHtml(localize("No transcript entries were stored for this run."))}</p></section>`
+        : `<section class="conversation-intro">${bachataMarkHtml}<h2>${escapeHtml(localize("Start a run"))}</h2><p>${escapeHtml(localize("Pick a pipeline, enter a job, and watch it execute."))}</p></section>${recentActivityHtml()}`
       : "";
     const transcript = panel.transcript
       .filter((entry) => !isRunInformationEntry(entry))
@@ -364,13 +362,13 @@ const mainRoomHtml = (): string => {
       .join("");
     // The decision that stops the run sits where the run is being read, not one view away.
     const decisions = has.decisions ? pendingDecisionCardsHtml(panel, conversation.id) : "";
-    return `<h2 class="sr-only">Conversation</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">Load older messages</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${has.interactions ? interactionsHtml(conversation.id) : ""}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}${readOnly ? "" : queueHtml(panel)}`;
+    return `<h2 class="sr-only">${escapeHtml(localize("Conversation"))}</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">${escapeHtml(localize("Load older messages"))}</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${has.interactions ? interactionsHtml(conversation.id) : ""}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}${readOnly ? "" : queueHtml(panel)}`;
   };
-  const executionContent = (): string => `${has.interactions ? interactionsHtml(conversation.id) : ""}${has.decisions ? pendingDecisionCardsHtml(panel, conversation.id) : ""}${has.result ? resultCenterHtml(conversation.id, panel) : ""}${has.orchestration ? orchestrationHtml() : ""}${has.workflow ? workflowHtml(conversation.id) : ""}${has.childRuns ? childRunsHtml(conversation.id) : ""}${hasExecutionState ? "" : `<section class="conversation-intro">${bachataMarkHtml}<h2>Execution</h2><p>Progress and results appear here.</p></section>`}`;
+  const executionContent = (): string => `${has.interactions ? interactionsHtml(conversation.id) : ""}${has.decisions ? pendingDecisionCardsHtml(panel, conversation.id) : ""}${has.result ? resultCenterHtml(conversation.id, panel) : ""}${has.orchestration ? orchestrationHtml() : ""}${has.workflow ? workflowHtml(conversation.id) : ""}${has.childRuns ? childRunsHtml(conversation.id) : ""}${hasExecutionState ? "" : `<section class="conversation-intro">${bachataMarkHtml}<h2>${escapeHtml(localize("Execution"))}</h2><p>${escapeHtml(localize("Progress and results appear here."))}</p></section>`}`;
   const content = state.roomView === "direction"
     ? directionHtml()
     : `${directionBannerHtml()}${state.roomView === "execution" ? executionContent() : chatContent()}`;
-  return `<section class="room-shell">${roomHeaderHtml(panel, conversation, { direction: hasDirectionState(), execution: hasExecutionState })}${archivedBanner}${blockingBanner}<div class="room-body ${state.inspectorOpen ? "with-inspector" : ""}"><main class="conversation-column"${inspectorCoversRoom() ? " inert" : ""}><div class="conversation-viewport ${state.roomView === "chat" ? "with-chat-navigation" : ""}"><div class="conversation-scroll ${state.roomView === "execution" ? "execution-content" : ""} ${introNeeded && state.roomView !== "execution" ? "is-empty" : ""}" id="conversation-scroll" data-scroll-key="${escapeAttribute(`${conversation.id}:${state.roomView}`)}">${content}${state.roomView === "chat" ? "" : panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}</div>${state.roomView === "chat" ? `${chatMinimapHtml(panel)}<button class="jump-latest" data-action="jump-latest" hidden>Latest</button>` : ""}</div>${readOnly || state.roomView !== "chat" ? "" : composerHtml(panel, draft)}</main>${inspectorHtml(panel, readOnly)}</div></section>`;
+  return `<section class="room-shell">${roomHeaderHtml(panel, conversation, { direction: hasDirectionState(), execution: hasExecutionState })}${archivedBanner}${blockingBanner}<div class="room-body ${state.inspectorOpen ? "with-inspector" : ""}"><main class="conversation-column"${inspectorCoversRoom() ? " inert" : ""}><div class="conversation-viewport ${state.roomView === "chat" ? "with-chat-navigation" : ""}"><div class="conversation-scroll ${state.roomView === "execution" ? "execution-content" : ""} ${introNeeded && state.roomView !== "execution" ? "is-empty" : ""}" id="conversation-scroll" data-scroll-key="${escapeAttribute(`${conversation.id}:${state.roomView}`)}">${content}${state.roomView === "chat" ? "" : panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}</div>${state.roomView === "chat" ? `${chatMinimapHtml(panel)}<button class="jump-latest" data-action="jump-latest" hidden>${escapeHtml(localize("Latest"))}</button>` : ""}</div>${readOnly || state.roomView !== "chat" ? "" : composerHtml(panel, draft)}</main>${inspectorHtml(panel, readOnly)}</div></section>`;
 };
 
 // The ended run's verdict and its ways back in, in one row at the end of the transcript. A run
@@ -391,14 +389,14 @@ const runOutcomeHtml = (
   const assessment = failure
     ? [
         failure.participant ?? failure.agentId,
-        failure.step === undefined ? undefined : `at ${failure.step}`,
+        failure.step === undefined ? undefined : localize("at {0}", failure.step),
       ].filter((part): part is string => part !== undefined).join(" ")
     : result?.status === "interrupted" ? undefined : resultSummaryText(result?.finalAssessment?.summary);
   const detail = recovery ? recoveryPositionText(panel, recovery) : assessment;
   const shownPhase = result ? bachataWebviewBehavior.runPhase(false, result.status) : phase;
   const presentation = bachataWebviewBehavior.runStatusPresentation(shownPhase, panel.resumableWorkflow?.outcome);
-  const headline = result ? resultHeadlineLabel(result, panel.resumableWorkflow?.outcome) : presentation.label;
-  return `<section class="run-outcome status-${escapeAttribute(shownPhase)}" aria-label="Run result"><div class="run-outcome-text"><strong><i class="codicon codicon-${escapeAttribute(presentation.icon)}" aria-hidden="true"></i> ${escapeHtml(headline)}</strong>${detail ? `<p>${escapeHtml(detail)}</p>` : ""}</div><div class="run-outcome-actions">${recoveryActionsHtml(panel, recovery)}${recovery ? `<details class="header-action-menu wide-trigger recovery-menu" ${disclosureAttributes(`recovery-menu:${conversation.id}`)}><summary aria-label="Recovery actions">More</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}</div></details>` : ""}${result ? `<button data-action="room-view" data-view="execution">Open the result</button>` : ""}</div></section>`;
+  const headline = result ? resultHeadlineLabel(result, panel.resumableWorkflow?.outcome) : localRunStatusLabel(presentation.label);
+  return `<section class="run-outcome status-${escapeAttribute(shownPhase)}" aria-label="${escapeAttribute(localize("Run result"))}"><div class="run-outcome-text"><strong><i class="codicon codicon-${escapeAttribute(presentation.icon)}" aria-hidden="true"></i> ${escapeHtml(headline)}</strong>${detail ? `<p>${escapeHtml(detail)}</p>` : ""}</div><div class="run-outcome-actions">${recoveryActionsHtml(panel, recovery)}${recovery ? `<details class="header-action-menu wide-trigger recovery-menu" ${disclosureAttributes(`recovery-menu:${conversation.id}`)}><summary aria-label="${escapeAttribute(localize("Recovery actions"))}">${escapeHtml(localize("More"))}</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}</div></details>` : ""}${result ? `<button data-action="room-view" data-view="execution">${escapeHtml(localize("Open the result"))}</button>` : ""}</div></section>`;
 };
 
 const defaultAgentNames = ["Lead", "Worker", "Reviewer"];

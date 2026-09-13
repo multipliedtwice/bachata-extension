@@ -1,3 +1,4 @@
+import { formatMessage, type Localize } from "../localization/message";
 /**
  * What a provider's interaction request means, apart from asking it.
  *
@@ -433,19 +434,20 @@ export const mcpUrlOutcome = (
 export const mcpFieldValidation = (
   field: Pick<McpFormFieldLike, "type" | "required">,
   input: string,
+  localize: Localize = formatMessage,
 ): string | undefined => {
   if (!input && field.required) {
-    return "A value is required";
+    return localize("A value is required");
   }
   if (!input || field.type === "string") {
     return undefined;
   }
   const parsed = Number(input);
   if (!Number.isFinite(parsed)) {
-    return "Enter a valid number";
+    return localize("Enter a valid number");
   }
   if (field.type === "integer" && !Number.isInteger(parsed)) {
-    return "Enter a whole number";
+    return localize("Enter a whole number");
   }
   return undefined;
 };
@@ -525,6 +527,7 @@ export const codexQuestionInputBox = (
 
 export const codexQuestionWidget = (
   question: Pick<CodexUserInputQuestion, "header" | "question" | "isOther" | "isSecret" | "options">,
+  localize: Localize = formatMessage,
 ): CodexQuestionWidget => {
   if (!question.options || question.options.length === 0) {
     return { kind: "input", ...codexQuestionInputBox(question) };
@@ -540,7 +543,7 @@ export const codexQuestionWidget = (
         value: option.label,
       })),
       ...(question.isOther
-        ? [{ label: "Other…", description: "Enter another answer", value: CODEX_OTHER_ANSWER_ID }]
+        ? [{ label: localize("Other…"), description: localize("Enter another answer"), value: CODEX_OTHER_ANSWER_ID }]
         : []),
     ],
   };
@@ -585,7 +588,7 @@ export type McpFieldWidget =
     }
   | { kind: "input"; title: string; prompt: string; value?: string; password: boolean };
 
-export const mcpFieldWidget = (field: McpFieldPresentation, message: string): McpFieldWidget => {
+export const mcpFieldWidget = (field: McpFieldPresentation, message: string, localize: Localize = formatMessage): McpFieldWidget => {
   if (field.values) {
     return {
       kind: "pick",
@@ -604,8 +607,8 @@ export const mcpFieldWidget = (field: McpFieldPresentation, message: string): Mc
       title: field.title,
       placeHolder: field.description ?? message,
       items: [
-        { label: "True", value: true },
-        { label: "False", value: false },
+        { label: localize("True"), value: true },
+        { label: localize("False"), value: false },
       ],
     };
   }

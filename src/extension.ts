@@ -182,12 +182,12 @@ const registerBlockedCommands = (
         readOnlyOwnership ?? { owned: false, reason, retryCommand: "Bachata: Workspace Ownership" },
       );
       output.appendLine(refusal.message);
-      await vscode.window.showErrorMessage(`Bachata: ${refusal.message}`);
+      await vscode.window.showErrorMessage(vscode.l10n.t("Bachata: {0}", refusal.message));
     }));
   const clear = vscode.commands.registerCommand("bachata.resources.clearQuarantine", async () => {
     const quarantined = broker.listQuarantine();
     if (quarantined.length === 0) {
-      await vscode.window.showInformationMessage("No resources are quarantined.");
+      await vscode.window.showInformationMessage(vscode.l10n.t("No resources are quarantined."));
       return;
     }
     const selected = await vscode.window.showQuickPick(
@@ -199,19 +199,19 @@ const registerBlockedCommands = (
       })),
       {
         canPickMany: true,
-        placeHolder: "Select resources only after confirming their processes and services are stopped",
-        title: "Bachata: Clear Resource Quarantine",
+        placeHolder: vscode.l10n.t("Select resources only after confirming their processes and services are stopped"),
+        title: vscode.l10n.t("Bachata: Clear Resource Quarantine"),
       },
     );
     if (!selected || selected.length === 0) {
       return;
     }
     const confirmation = await vscode.window.showWarningMessage(
-      `Clear quarantine for ${String(selected.length)} resource${selected.length === 1 ? "" : "s"}?`,
-      { modal: true, detail: "Clearing quarantine does not stop orphan processes or reset databases." },
-      "Clear",
+      (selected.length === 1 ? vscode.l10n.t("Clear quarantine for {0} resource?", String(selected.length)) : vscode.l10n.t("Clear quarantine for {0} resources?", String(selected.length))),
+      { modal: true, detail: vscode.l10n.t("Clearing quarantine does not stop orphan processes or reset databases.") },
+      vscode.l10n.t("Clear"),
     );
-    if (confirmation !== "Clear") {
+    if (confirmation !== vscode.l10n.t("Clear")) {
       return;
     }
     broker.clearQuarantine(selected.map((item) => item.key));
@@ -222,7 +222,7 @@ const registerBlockedCommands = (
 
 const workspaceOwnerStaleMs = 15_000;
 
-const SHOW_OUTPUT_LABEL = "Show Output";
+const SHOW_OUTPUT_LABEL = vscode.l10n.t("Show Output");
 
 // An ownership report states a situation; it never confirms anything, so it interrupts nothing.
 // Its detail is longer than a notification renders, so the Output channel carries it in full.
@@ -231,17 +231,29 @@ const presentOwnershipReport = async (
   output: vscode.OutputChannel,
 ): Promise<OwnershipActionId | undefined> => {
   output.appendLine(`${report.title}\n${report.detail}`);
+  const title = report.title === "This window owns the workspace state"
+    ? vscode.l10n.t("This window owns the workspace state")
+    : report.title === "Another window owns this workspace state"
+      ? vscode.l10n.t("Another window owns this workspace state")
+      : report.title;
+  const labels: Record<OwnershipActionId, string> = {
+    retry: vscode.l10n.t("Request ownership now"),
+    reload: vscode.l10n.t("Reload window"),
+    release: vscode.l10n.t("Release and reload"),
+    dismiss: vscode.l10n.t("Dismiss"),
+  };
+  const actions = report.actions.map((action) => ({ id: action.id, label: labels[action.id] }));
   const choice = await vscode.window.showInformationMessage(
-    report.title,
+    title,
     { modal: false },
-    ...report.actions.map((action) => action.label),
+    ...actions.map((action) => action.label),
     SHOW_OUTPUT_LABEL,
   );
   if (choice === SHOW_OUTPUT_LABEL) {
     output.show(true);
     return undefined;
   }
-  return report.actions.find((action) => action.label === choice)?.id;
+  return actions.find((action) => action.label === choice)?.id;
 };
 
 type GitExtensionExports = {
@@ -343,7 +355,7 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
     // and must not run without it (docs/CONCURRENCY.md). What is repaired here is the way out —
     // the channel is disposed instead of leaked, and because there is then no channel to read
     // the reason in, it is shown instead.
-    const reason = `Bachata could not open its coordination store, so this window did not start: ${error instanceof Error ? error.message : String(error)}`;
+    const reason = vscode.l10n.t("Bachata could not open its coordination store, so this window did not start: {0}", error instanceof Error ? error.message : String(error));
     output.dispose();
     void vscode.window.showErrorMessage(reason).then(undefined, () => undefined);
     throw error;
@@ -389,12 +401,17 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
     const holderAgeMs = describeWorkspaceWriter().ageMs;
     const holderNote = holderAgeMs === undefined
       ? ""
-      : ` The other writer was active ${Math.round(holderAgeMs / 1_000)}s ago.`;
-    const reason = `This workspace is already controlled by another Bachata Extension Host using the same profile state store. Close the other window, then reload this window.${holderNote}`;
+      : vscode.l10n.t("The other writer was active {0}s ago.", Math.round(holderAgeMs / 1_000));
+    const reason = [vscode.l10n.t("This workspace is already controlled by another Bachata Extension Host using the same profile state store. Close the other window, then reload this window."), holderNote].filter(Boolean).join(" ");
     output.appendLine(`${reason} ${error instanceof Error ? error.message : String(error)}`);
     workspaceStateLease = await resolveWorkspaceOwnershipAfterFailure({
       initialReason: reason,
-      prompt: async (message) => vscode.window.showErrorMessage(`Bachata: ${message}`, "Retry", "Dismiss"),
+      prompt: async (message) => {
+        const retry = vscode.l10n.t("Retry");
+        const dismiss = vscode.l10n.t("Dismiss");
+        const choice = await vscode.window.showErrorMessage(vscode.l10n.t("Bachata: {0}", message), retry, dismiss);
+        return choice === retry ? "Retry" : choice === dismiss ? "Dismiss" : undefined;
+      },
       waitForRetry: async () => {
         const graceElapsed = Date.now() - brokerStartedAt;
         if (graceElapsed < 15_000) {
@@ -402,7 +419,7 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
         }
       },
       acquire: acquireWorkspaceWriterLease,
-      retryReason: () => `${reason} Still unavailable after retry.`,
+      retryReason: () => vscode.l10n.t("{0} Still unavailable after retry.", reason),
       block: (blockedReason) => {
         // A window that did not win ownership is read-only, not dead: it still shows the
         // product, and every mutation refuses at the command boundary below.
@@ -480,21 +497,21 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
             const lease = await acquireWorkspaceWriterLease();
             await lease.release();
             const reload = await vscode.window.showInformationMessage(
-              "Bachata can take ownership of this workspace now. Reload the window to start.",
-              "Reload window",
+              vscode.l10n.t("Bachata can take ownership of this workspace now. Reload the window to start."),
+              vscode.l10n.t("Reload window"),
             );
-            if (reload === "Reload window") {
+            if (reload === vscode.l10n.t("Reload window")) {
               await vscode.commands.executeCommand("workbench.action.reloadWindow");
             }
           } catch (retryError) {
             await vscode.window.showWarningMessage(
-              `Bachata still cannot take ownership: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
+              vscode.l10n.t("Bachata still cannot take ownership: {0}", retryError instanceof Error ? retryError.message : String(retryError)),
             );
           }
         }));
       },
       notifyRetryFailure: async (retryReason) => {
-        await vscode.window.showErrorMessage(`Bachata: ${retryReason}`);
+        await vscode.window.showErrorMessage(vscode.l10n.t("Bachata: {0}", retryReason));
       },
     });
     if (!workspaceStateLease) {
@@ -898,14 +915,14 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
       }), output);
       if (action !== "release") return;
       const confirmation = await vscode.window.showWarningMessage(
-        "Release workspace ownership?",
+        vscode.l10n.t("Release workspace ownership?"),
         {
           modal: true,
-          detail: "This window stops writing Bachata state and reloads. Another window can then take ownership. Nothing is deleted.",
+          detail: vscode.l10n.t("This window stops writing Bachata state and reloads. Another window can then take ownership. Nothing is deleted."),
         },
-        "Release and reload",
+        vscode.l10n.t("Release and reload"),
       );
-      if (confirmation !== "Release and reload") return;
+      if (confirmation !== vscode.l10n.t("Release and reload")) return;
       output.appendLine("Releasing workspace state ownership on request");
       await deactivate();
       await vscode.commands.executeCommand("workbench.action.reloadWindow");

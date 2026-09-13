@@ -56,6 +56,7 @@ test("completed structured decisions have one readable canonical result", () => 
     assert.equal(harness.document.root.querySelectorAll(".final-ruling-card").length, 1);
     assert.ok(harness.document.root.querySelector(".result-center .final-ruling-card"));
     assert.match(html, /<strong>Decision placement<\/strong>/u);
+    assert.match(html, /<ul class="result-items result-items-text">/u);
     assert.doesNotMatch(html, /&quot;findings&quot;|internal-finding-id/u);
     assert.doesNotMatch(html, /<h3>Changed files<\/h3>|<h3>Verification<\/h3>|<h3>Unresolved risks<\/h3>/u);
   } finally { harness.restore(); }
@@ -268,5 +269,60 @@ test("canonical decisions never carry over into a different result execution", (
   const saved = resultFor({ executionRef: "E1", finalDecision: { stepId: "review", status: "accepted", candidate } });
   assert.equal(mergeRunResults(saved, resultFor({ executionRef: "E5", finalRuling: undefined })).finalDecision, undefined);
   assert.equal(mergeRunResults(saved, resultFor({ executionRef: "E1", finalRuling: "A different completion" })).finalDecision, undefined);
-  assert.equal(parseRunResult({ ...saved, finalDecision: { stepId: "review", status: "pending", candidate } }).finalDecision, undefined);
+  assert.equal(parseRunResult({ ...saved, finalDecision: { stepId: "review", status: "not-a-decision", candidate } }).finalDecision, undefined);
+});
+
+
+test("stopped pending reviews retain participant conclusions independently of event previews", () => {
+  const participants = identities.map((identity, index) => ({
+    agentId: identity.agentId, valid: true, accepted: true,
+    candidate: { summary: `Review ${index}: ` + "Full participant conclusion. ".repeat(100) + `FINAL RULE ${index}` },
+    objections: [], unresolvedRisks: [], validationErrors: [],
+  }));
+  const decision = { stepId: "review", status: "pending", round: 2, participants };
+  const result = resultFor({ status: "interrupted", finalRuling: undefined, rulingProvenance: undefined,
+    finalDecision: decision, finalDecisionEventId: 2, executionRef: "E1" });
+  const restored = parseRunResult(JSON.parse(JSON.stringify(result)));
+  assert.equal(restored.finalRuling, undefined);
+  assert.equal(restored.finalDecision.status, "pending");
+  assert.equal(restored.rulingProvenance, undefined);
+  const bounded = catalogEventView({ ...event(2, "decision.published"), runRef: "run-1", payload: decision });
+  assert.doesNotMatch(JSON.stringify(bounded.payload), /FINAL RULE/u);
+  for (const events of [[], [event(1, "run.started"), bounded, event(3, "run.interrupted")]]) {
+    const harness = openResult(restored, events, { workflowStatus: "interrupted" });
+    try {
+      const html = harness.document.root.innerHTML;
+      assert.equal(harness.document.root.querySelectorAll(".final-ruling-card").length, 1);
+      assert.match(html, /Unresolved review/u);
+      assert.match(html, /FINAL RULE 0/u);
+      assert.match(html, /FINAL RULE 1/u);
+      assert.doesNotMatch(html, />Agreed<|No output was published|Consensus decision/u);
+    } finally { harness.restore(); }
+  }
+  const previous = resultFor({ status: "interrupted", finalRuling: undefined, rulingProvenance: undefined,
+    finalDecision: { ...decision, participants: [{ ...participants[0], candidate: "Earlier round" }] },
+    finalDecisionEventId: 1, executionRef: "E1" });
+  assert.deepEqual(mergeRunResults(previous, restored).finalDecision, restored.finalDecision);
+  assert.equal(mergeRunResults(previous, restored).finalDecisionEventId, 2);
+  const resolved = resultFor({ finalRuling: "Resolved conclusion", finalDecision: { ...decision, status: "accepted", candidate: "Resolved conclusion" }, finalDecisionEventId: 4, executionRef: "E1" });
+  assert.equal(mergeRunResults(restored, resolved).finalDecision.status, "accepted");
+});
+
+test("missing preview content links to the recorded message without claiming no output", () => {
+  const pipeline = { ...pipelineDefinition("review"), steps: [{ id: "review", name: "Review interface", kind: "prompt", agent: "lead", prompt: "Review" }] };
+  const decision = { stepId: "review", status: "pending", participants: [{ agentId: "lead", valid: true, accepted: true }] };
+  const harness = openResult(resultFor({ status: "interrupted", finalRuling: undefined, rulingProvenance: undefined,
+    finalDecision: decision }), [], { workflowStatus: "interrupted", selectedPipelineDefinition: pipeline,
+    transcript: [{ id: "actual-review-answer", kind: "answer", agentId: "lead", step: "Review interface", text: "The recorded conclusion", createdAt: "2026-09-13T00:00:00Z" },
+      { id: "other-step-answer", kind: "answer", agentId: "lead", step: "A later step", text: "A different conclusion", createdAt: "2026-09-13T00:01:00Z" }] });
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /This saved preview does not include the conclusion/u);
+    assert.doesNotMatch(html, /No output was published/u);
+    const link = harness.document.root.querySelector('[data-action="focus-agent-output"][data-message-id="actual-review-answer"]');
+    assert.ok(link);
+    assert.match(html, /data-message-id="actual-review-answer">Open participant message<\/button>/u);
+    link.click();
+    assert.equal(harness.document.activeElement.dataset.entry, "actual-review-answer");
+  } finally { harness.restore(); }
 });

@@ -241,7 +241,7 @@ import {
   webviewDispatchPlan,
 } from "./webviewDispatch";
 import {
-  INTERVENTION_CONSENT,
+  interventionConsent,
   continueNeedsInterventionConsent,
   gateDecidedRecord,
   gateOpenedRecord,
@@ -2118,6 +2118,8 @@ export const createRuntime = (
       throw new Error(`Unknown participant ${agentId}`);
     }
     const adapterType = adapter.adapterType;
+    const previousCatalog = adapterModelCatalogs.get(adapterType);
+    if (previousCatalog?.status === "discovering") return;
     const listModels = adapter.listModels;
     if (!listModels) {
       adapterModelCatalogs.set(adapterType, {
@@ -2126,7 +2128,7 @@ export const createRuntime = (
         detail: "This provider does not report a model list, so a model name is taken as written.",
       });
     } else {
-      adapterModelCatalogs.set(adapterType, { status: "discovering", models: [] });
+      adapterModelCatalogs.set(adapterType, { status: "discovering", models: previousCatalog?.models ?? [] });
       refreshAgentAssignments();
       if (!disposed) {
         emitSnapshot();
@@ -2875,7 +2877,7 @@ export const createRuntime = (
         ask: async (question) => {
         let answer: string | undefined;
         let timedOut = false;
-        const widget = codexQuestionWidget(question);
+        const widget = codexQuestionWidget(question, vscode.l10n.t);
         if (widget.kind === "pick") {
           const picked = codexPickOutcome(await timedQuickPick(
             agentId,
@@ -3090,15 +3092,17 @@ export const createRuntime = (
           return { action: "decline", content: null };
         }
         const target = uri;
+        const openLabel = vscode.l10n.t("Open");
+        const declineLabel = vscode.l10n.t("Decline");
         const choice = await vscode.window.showInformationMessage(
           request.message,
           { modal: true, detail: url },
-          "Open",
-          "Decline",
+          openLabel,
+          declineLabel,
         );
         const outcome = mcpUrlOutcome(
-          choice,
-          choice === "Open" ? await vscode.env.openExternal(target) : false,
+          choice === openLabel ? "Open" : choice === declineLabel ? "Decline" : undefined,
+          choice === openLabel ? await vscode.env.openExternal(target) : false,
         );
         if (outcome.completed !== undefined) {
           await appendTranscript(
@@ -3130,7 +3134,7 @@ export const createRuntime = (
       const secretFields: string[] = [];
       for (const field of fields) {
         let value: JsonValue | undefined;
-        const widget = mcpFieldWidget(field, request.message);
+        const widget = mcpFieldWidget(field, request.message, vscode.l10n.t);
         if (widget.kind === "pick") {
           const selected = await vscode.window.showQuickPick(widget.items, {
             title: widget.title,
@@ -3145,7 +3149,7 @@ export const createRuntime = (
             ...(widget.value === undefined ? {} : { value: widget.value }),
             password: widget.password,
             ignoreFocusOut: true,
-            validateInput: (input) => mcpFieldValidation(field, input),
+            validateInput: (input) => mcpFieldValidation(field, input, vscode.l10n.t),
           });
           value = mcpFieldValue(field, entered);
         }
@@ -9051,8 +9055,8 @@ export const createRuntime = (
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
-      filters: { "Bachata pipeline": ["json"] },
-      openLabel: "Import pipeline",
+      filters: { [vscode.l10n.t("Bachata pipeline")]: ["json"] },
+      openLabel: vscode.l10n.t("Import pipeline"),
     });
     const filePath = selected?.at(0)?.fsPath;
     if (!filePath) {
@@ -9080,8 +9084,8 @@ export const createRuntime = (
       defaultUri: vscode.Uri.file(
         path.join(state.workingDirectory ?? storageDirectory, `${pipeline.id}.pipeline.json`),
       ),
-      filters: { "Bachata pipeline": ["json"] },
-      saveLabel: "Export pipeline",
+      filters: { [vscode.l10n.t("Bachata pipeline")]: ["json"] },
+      saveLabel: vscode.l10n.t("Export pipeline"),
     });
     if (!selected) {
       return false;
@@ -9492,12 +9496,12 @@ export const createRuntime = (
     const assetOrigin = isCanonicalHttpOrigin(asset.sourceOrigin)
       ? asset.sourceOrigin
       : undefined;
-    const saveTitle = browserAssetSaveTitle(assetOrigin);
+    const saveTitle = browserAssetSaveTitle(assetOrigin, vscode.l10n.t);
     const selected = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(
         path.join(resolvedWorkingDirectory, safeBrowserAssetName(asset.name)),
       ),
-      saveLabel: "Save browser asset",
+      saveLabel: vscode.l10n.t("Save browser asset"),
       ...(saveTitle === undefined ? {} : { title: saveTitle }),
     });
     if (!selected) {
@@ -9627,7 +9631,7 @@ export const createRuntime = (
           ),
         );
         await vscode.window.showInformationMessage(
-          `Saved browser asset to ${relativePath || path.basename(destination)}`,
+          vscode.l10n.t("Saved browser asset to {0}", relativePath || path.basename(destination)),
         );
       } catch (error) {
         await appendTranscript(
@@ -9679,10 +9683,10 @@ export const createRuntime = (
         path.join(defaultDirectory, `bachata-transcript-${state.taskId}.json`),
       ),
       filters: { JSON: ["json"] },
-      saveLabel: "Export Bachata transcript",
+      saveLabel: vscode.l10n.t("Export Bachata transcript"),
     });
     if (!selected) {
-      await vscode.window.showInformationMessage("Transcript export cancelled.");
+      await vscode.window.showInformationMessage(vscode.l10n.t("Transcript export cancelled."));
       return;
     }
     const payload = {
@@ -9709,7 +9713,7 @@ export const createRuntime = (
     await atomicWriteText(selected.fsPath, `${JSON.stringify(payload, null, 2)}
 `);
     await vscode.window.showInformationMessage(
-      `Bachata transcript exported to ${selected.fsPath}`,
+      vscode.l10n.t("Bachata transcript exported to {0}", selected.fsPath),
     );
   };
 
@@ -9735,16 +9739,16 @@ export const createRuntime = (
         canSelectFolders: true,
         canSelectMany: false,
         ...(defaultDirectoryUri === undefined ? {} : { defaultUri: defaultDirectoryUri }),
-        openLabel: "Use as Bachata working directory",
+        openLabel: vscode.l10n.t("Use as Bachata working directory"),
       });
       const candidate = selected?.at(0)?.fsPath;
       if (!candidate) {
-        await vscode.window.showInformationMessage("Folder selection cancelled.");
+        await vscode.window.showInformationMessage(vscode.l10n.t("Folder selection cancelled."));
         return;
       }
       const resolved = await resolveAllowedDirectory(candidate);
       if (resolved === state.workingDirectory) {
-        await vscode.window.showInformationMessage(`Already using ${resolved}`);
+        await vscode.window.showInformationMessage(vscode.l10n.t("Already using {0}", resolved));
         return;
       }
       // A run that failed before any participant started did nothing the new folder invalidates,
@@ -9755,12 +9759,12 @@ export const createRuntime = (
       if (hasDurableTaskState() || state.workflowStatus !== "idle") {
         const answer = await vscode.window.showWarningMessage(
           carriedRecovery
-            ? "Changing the working directory will start a new Bachata task and remove queued work. The pipeline that could not start stays ready to restart in the new folder."
-            : "Changing the working directory will start a new Bachata task and remove queued or recoverable work from this run.",
+            ? vscode.l10n.t("Changing the working directory will start a new Bachata task and remove queued work. The pipeline that could not start stays ready to restart in the new folder.")
+            : vscode.l10n.t("Changing the working directory will start a new Bachata task and remove queued or recoverable work from this run."),
           { modal: true },
-          "Change and reset",
+          vscode.l10n.t("Change and reset"),
         );
-        if (answer !== "Change and reset") {
+        if (answer !== vscode.l10n.t("Change and reset")) {
           return;
         }
       }
@@ -9776,7 +9780,7 @@ export const createRuntime = (
         await setResumableWorkflow(carriedRecovery);
         patchRun(false, "error");
       }
-      await vscode.window.showInformationMessage(`Working folder: ${resolved}`);
+      await vscode.window.showInformationMessage(vscode.l10n.t("Working folder: {0}", resolved));
     } finally {
       pickingWorkingDirectory = false;
     }
@@ -9978,12 +9982,13 @@ export const createRuntime = (
           interventionCount: pendingGateInterventions.length,
         })
       ) {
+        const consent = interventionConsent(vscode.l10n.t);
         const choice = await vscode.window.showWarningMessage(
-          INTERVENTION_CONSENT.message,
+          consent.message,
           { modal: true },
-          INTERVENTION_CONSENT.confirm,
+          consent.confirm,
         );
-        if (choice !== INTERVENTION_CONSENT.confirm) {
+        if (choice !== consent.confirm) {
           return;
         }
       }
@@ -10286,7 +10291,6 @@ export const createRuntime = (
       return;
     }
     if (message.type === "bridge.discover") {
-      await bridge.start();
       bridge.discover();
       handleBridgeStatus(bridge.getStatus());
       return;
@@ -10598,7 +10602,7 @@ export const createRuntime = (
           emitSnapshot();
           schedulePersist();
           await vscode.window.showWarningMessage(
-            "The Bachata working directory is no longer in this workspace. Agent sessions were reset. Select a new working directory before continuing.",
+            vscode.l10n.t("The Bachata working directory is no longer in this workspace. Agent sessions were reset. Select a new working directory before continuing."),
           );
           return;
         }
@@ -11153,12 +11157,7 @@ export const createRuntime = (
 
   const interruptProgrammatic = async (): Promise<void> => {
     await awaitInitialization();
-    const reason = new UserStopError();
-    workflowController?.abort(reason);
-    gateResolver?.resolve({ action: "cancel" });
-    gateResolver = undefined;
-    await interruptAgents(Object.keys(adapters), reason);
-    await activeWorkflow?.catch(() => undefined);
+    await interruptCurrentExecution();
   };
 
   const shutdownIdleProviders = async (): Promise<void> => {

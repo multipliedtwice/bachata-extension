@@ -1,3 +1,4 @@
+import { formatMessage, type Localize } from "../localization/message";
 import type { HumanGateAction, HumanGateDecision, PipelineIntervention } from "../pipeline/runner";
 import type { PendingHumanGate } from "../webview/protocol";
 
@@ -46,11 +47,12 @@ export const continueNeedsInterventionConsent = (input: {
   interventionCount: number;
 }): boolean => input.action === "continue" && input.interventionCount > 0;
 
-export const INTERVENTION_CONSENT: { message: string; confirm: string } = {
-  message:
-    "Corrections were sent after this step. Continuing accepts them without rerunning the configured review step.",
-  confirm: "Continue anyway",
-};
+export const interventionConsent = (localize: Localize = formatMessage): { message: string; confirm: string } => ({
+  message: localize("Corrections were sent after this step. Continuing accepts them without rerunning the configured review step."),
+  confirm: localize("Continue anyway"),
+});
+
+export const INTERVENTION_CONSENT = interventionConsent();
 
 /** What the ledger records for the decision: the gate it answered and the corrections it carried. */
 export const gateDecidedRecord = (input: {

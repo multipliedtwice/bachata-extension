@@ -112,7 +112,12 @@ test("the webview build concatenates the extracted modules ahead of main", () =>
     path.join(__dirname, "..", "tsconfig.webview.json"),
     "utf8",
   ));
-  assert.equal(config.include.at(0), "src/webview-ui/types.ts", "types must be declared first");
+  assert.equal(config.include.at(0), "src/webview-ui/localization.ts", "localization must initialize before rendered labels");
+  assert.ok(
+    config.include.indexOf("src/webview-ui/types.ts") <
+      config.include.indexOf("src/webview-ui/render.ts"),
+    "types must be declared before the renderers",
+  );
   assert.equal(config.include.at(-1), "src/webview-ui/main.ts", "main must be concatenated last");
   assert.ok(
     config.include.indexOf("src/webview-ui/state.ts") <
@@ -121,6 +126,7 @@ test("the webview build concatenates the extracted modules ahead of main", () =>
   );
   assert.ok(config.include.length >= 10, "the webview was not decomposed into modules");
   assert.equal(config.compilerOptions.module, "None");
+  assert.equal(evaluate(["webviewLocale"]).webviewLocale, "en", "render declarations must work without a DOM localization payload");
 });
 
 // EX-3 / main.ts size bound. Markdown rendering left the bootstrap for markdownRender.ts; these are
@@ -254,4 +260,39 @@ test("a fenced block registers its code for the copy control and names its langu
   assert.equal(codeBlocks.get(id), "const a = 1;");
   assert.match(html, /<p>after<\/p>$/u);
   assert.match(renderMarkdown("~~~\nplain text\n~~~"), /data-code-region="text code block"/u);
+});
+
+
+test("raw and fenced JSON format without changing numeric precision or copied text", () => {
+  const { renderMarkdown, codeBlocks } = markdown();
+  const source = '{"value":9007199254740993,"tiny":1e-1000,"negative":-0,"same":1,"same":2,"text":"<button>\\n\\u0061","nested":{"items":[]}}';
+  for (const input of [source, `\`\`\`json\n${source}\n\`\`\``, `\`\`\`\n${source}\n\`\`\``]) {
+    const html = renderMarkdown(input);
+    assert.match(html, /language-json/u);
+    assert.match(html, /\n  &quot;value&quot;: 9007199254740993,/u);
+    assert.match(html, /&quot;tiny&quot;: 1e-1000/u);
+    assert.match(html, /&quot;negative&quot;: -0/u);
+    assert.match(html, /&quot;same&quot;: 1,[\s\S]*&quot;same&quot;: 2/u);
+    assert.match(html, /&lt;button&gt;/u);
+    assert.equal(codeBlocks.get(/data-code-id="(code-\d+)"/u.exec(html)[1]), source);
+  }
+});
+
+test("unfenced JSON between prose blocks retains blank lines and safe escaped strings", () => {
+  const { renderMarkdown, codeBlocks } = markdown();
+  const source = '{\n\n  "text": "a } bracket and \\" quote",\n  "items": [1, 2]\n}';
+  const html = renderMarkdown(`Review result:\n${source}\nNext action.`);
+  assert.match(html, /^<p>Review result:<\/p><section class="code-block">/u);
+  assert.match(html, /<p>Next action\.<\/p>$/u);
+  assert.equal(codeBlocks.get(/data-code-id="(code-\d+)"/u.exec(html)[1]), source);
+});
+
+test("streaming JSON remains code without repairing or dropping unfinished text", () => {
+  const { renderMarkdown, codeBlocks } = markdown();
+  const source = '{\n  "findings": [{"message": "Still streaming';
+  const html = renderMarkdown(source);
+  assert.match(html, /language-json/u);
+  assert.equal(codeBlocks.get(/data-code-id="(code-\d+)"/u.exec(html)[1]), source);
+  assert.equal(renderMarkdown("[Not a JSON array]"), "<p>[Not a JSON array]</p>");
+  assert.equal(renderMarkdown("{A prose placeholder}"), "<p>{A prose placeholder}</p>");
 });

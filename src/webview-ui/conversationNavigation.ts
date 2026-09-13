@@ -6,10 +6,10 @@ const conversationScrollBehavior = (): ScrollBehavior =>
 const chatMinimapHtml = (panel: PanelState): string => {
   const turns = panel.transcript.filter((entry) => entry.eventType === "user.message" || (entry.agentId && ["answer", "interrupted", "error"].includes(entry.kind)));
   if (turns.length < 3) return "";
-  return `<nav class="chat-minimap" aria-label="Conversation turns">${turns.map((entry, index) => {
-    const name = entry.eventType === "user.message" ? "You" : panel.agents[entry.agentId ?? ""]?.name ?? "Participant";
+  return `<nav class="chat-minimap" aria-label="${escapeAttribute(localize("Conversation turns"))}">${turns.map((entry, index) => {
+    const name = entry.eventType === "user.message" ? localize("You") : panel.agents[entry.agentId ?? ""]?.name ?? localize("Participant");
     const kind = entry.eventType === "user.message" ? "user" : "participant";
-    return `<button class="${kind}" data-action="jump-message" data-message-id="${escapeAttribute(entry.id)}" tabindex="${index === turns.length - 1 ? "0" : "-1"}" aria-label="Go to ${escapeAttribute(name)}, turn ${String(index + 1)}" title="${escapeAttribute(`${name} · turn ${String(index + 1)}`)}"><span></span></button>`;
+    return `<button class="${kind}" data-action="jump-message" data-message-id="${escapeAttribute(entry.id)}" tabindex="${index === turns.length - 1 ? "0" : "-1"}" aria-label="${escapeAttribute(localize("Go to {0}, turn {1}", name, index + 1))}" title="${escapeAttribute(localize("{0} · turn {1}", name, index + 1))}"><span></span></button>`;
   }).join("")}</nav>`;
 };
 

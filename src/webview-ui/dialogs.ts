@@ -40,6 +40,22 @@ const restoreDialogFocus = (selector: string | undefined): void => {
   });
 };
 
+const isCloseOnlyDialog = (dialog: AppDialog): boolean =>
+  ["turnDetails", "notificationSettings", "runRequirements"].includes(dialog.kind);
+
+const openRunRequirements = (conversationId = activeId()): void => {
+  openDialog({ kind: "runRequirements", conversationId, title: localize("Run requirements"), message: "", confirmLabel: localize("Close") });
+};
+
+const explainSendRequirements = (conversationId: string, blockers: SendBlocker[]): void => {
+  announceStatus(sendRequirementsDescription(blockers));
+  if (blockers.length === 1 && blockers[0]?.quiet && !draftFor(conversationId).prompt.trim()) {
+    document.getElementById("composer-prompt")?.focus();
+    return;
+  }
+  openRunRequirements(conversationId);
+};
+
 const openDialog = (dialog: AppDialog): void => {
   const returnFocusSelector = dialogReturnFocusSelector();
   setOptionalProperty(state, "dialogReturnFocusSelector", returnFocusSelector);
@@ -51,7 +67,7 @@ const openDialog = (dialog: AppDialog): void => {
     const cancel = root.querySelector<HTMLButtonElement>('[data-dialog-default="cancel"]');
     const danger = "danger" in dialog && dialog.danger;
     const initialFocus = bachataWebviewBehavior.dialogInitialFocus(Boolean(input), danger);
-    (dialog.kind === "turnDetails" || dialog.kind === "notificationSettings" ? cancel : initialFocus === "input" ? input : initialFocus === "cancel" ? cancel : confirm)?.focus();
+    (isCloseOnlyDialog(dialog) ? cancel : initialFocus === "input" ? input : initialFocus === "cancel" ? cancel : confirm)?.focus();
     if (input instanceof HTMLInputElement) input.select();
   });
 };
@@ -77,23 +93,24 @@ const appDialogHtml = (): string => {
     : dialog.kind === "resolveRecord" && dialog.mode === "supersede"
       ? directionRecordOptions(dialog.target, dialog.recordId)
       : [];
-  const recordSelect = `<select id="app-dialog-input"${recordOptions.length === 0 ? " disabled" : ""}><option value="">${recordOptions.length === 0 ? "No eligible records" : "Choose a record"}</option>${recordOptions.map((item) => `<option value="${escapeAttribute(item.id)}"${"inputValue" in dialog && dialog.inputValue === item.id ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select>`;
+  const recordSelect = `<select id="app-dialog-input"${recordOptions.length === 0 ? " disabled" : ""}><option value="">${escapeHtml(recordOptions.length === 0 ? localize("No eligible records") : localize("Choose a record"))}</option>${recordOptions.map((item) => `<option value="${escapeAttribute(item.id)}"${"inputValue" in dialog && dialog.inputValue === item.id ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select>`;
   const input = dialog.kind === "renameRun"
-    ? `<label class="field"><span>Run title</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label>`
+    ? `<label class="field"><span>${escapeHtml(localize("Run title"))}</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label>`
     : dialog.kind === "resolveRecord"
       ? dialog.mode === "reopen"
-        ? `<label class="field"><span>Reason</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="2000"></label><label class="field"><span>Material evidence delta (one per line)</span><textarea id="app-dialog-delta" rows="3">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
-        : `<label class="field"><span>Replacement</span>${recordSelect}</label><label class="field"><span>Reason (optional)</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
+        ? `<label class="field"><span>${escapeHtml(localize("Reason"))}</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="2000"></label><label class="field"><span>${escapeHtml(localize("Material evidence delta (one per line)"))}</span><textarea id="app-dialog-delta" rows="3">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
+        : `<label class="field"><span>${escapeHtml(localize("Replacement"))}</span>${recordSelect}</label><label class="field"><span>${escapeHtml(localize("Reason (optional)"))}</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
       : dialog.kind === "createInitiative"
-        ? `<label class="field"><span>Title</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label><label class="field"><span>Goal</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
+        ? `<label class="field"><span>${escapeHtml(localize("Title"))}</span><input id="app-dialog-input" value="${escapeAttribute(dialog.inputValue)}" maxlength="200"></label><label class="field"><span>${escapeHtml(localize("Goal"))}</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
       : dialog.kind === "mergeFinding"
-        ? `<label class="field"><span>Finding to keep</span>${recordSelect}</label><label class="field"><span>Why are these the same defect?</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
+        ? `<label class="field"><span>${escapeHtml(localize("Finding to keep"))}</span>${recordSelect}</label><label class="field"><span>${escapeHtml(localize("Why are these the same defect?"))}</span><textarea id="app-dialog-delta" rows="2">${escapeHtml(dialog.deltaValue ?? "")}</textarea></label>`
         : "";
   const turnDetails = dialog.kind === "turnDetails"
     ? `<div class="turn-details">${dialog.context ? `<p class="muted">${escapeHtml(dialog.context)}</p>` : ""}<div class="markdown">${renderMarkdown(dialog.prompt)}</div></div>`
     : "";
   const notificationSettings = dialog.kind === "notificationSettings" ? notificationModeControlHtml() : "";
-  const closeOnly = dialog.kind === "turnDetails" || dialog.kind === "notificationSettings";
+  const requirements = dialog.kind === "runRequirements" ? runRequirementsHtml(dialog.conversationId) : "";
+  const closeOnly = isCloseOnlyDialog(dialog);
   const unavailable = (dialog.kind === "mergeFinding" || dialog.kind === "resolveRecord" && dialog.mode === "supersede") && recordOptions.length === 0;
   const danger = "danger" in dialog && dialog.danger;
   // A refusal is held in the store and drawn from it, so a background render puts it back
@@ -103,7 +120,7 @@ const appDialogHtml = (): string => {
   const marked = refusedField === undefined
     ? input
     : input.replace(`id="${refusedField}"`, `id="${refusedField}" aria-invalid="true" aria-describedby="app-dialog-error"`);
-  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message"><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button data-action="dialog-cancel" aria-label="Close dialog">×</button></header><p id="app-dialog-message">${escapeHtml(dialog.message)}</p>${turnDetails}${notificationSettings}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">Close</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">Cancel</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
+  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title"${dialog.message ? ' aria-describedby="app-dialog-message"' : ""}><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button data-action="dialog-cancel" aria-label="${escapeAttribute(localize("Close dialog"))}">×</button></header>${dialog.message ? `<p id="app-dialog-message">${escapeHtml(dialog.message)}</p>` : ""}${turnDetails}${notificationSettings}${requirements}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Close"))}</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Cancel"))}</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
 };
 
 type ControlSnapshot = {
@@ -421,7 +438,7 @@ const confirmDialog = (): void => {
     const input = document.getElementById("app-dialog-input") as HTMLInputElement | null;
     const title = input?.value.trim() ?? "";
     if (!title) {
-      rejectDialog("app-dialog-input", "Enter a title for this run.");
+      rejectDialog("app-dialog-input", localize("Enter a title for this run."));
       return;
     }
     closeDialog();
@@ -434,11 +451,11 @@ const confirmDialog = (): void => {
     const title = input?.value.trim() ?? "";
     const goal = (extra?.value ?? "").trim();
     if (!title) {
-      rejectDialog("app-dialog-input", "Enter a title for this initiative.");
+      rejectDialog("app-dialog-input", localize("Enter a title for this initiative."));
       return;
     }
     if (!goal) {
-      rejectDialog("app-dialog-delta", "State what this initiative has to achieve.");
+      rejectDialog("app-dialog-delta", localize("State what this initiative has to achieve."));
       return;
     }
     closeDialog();
@@ -451,15 +468,15 @@ const confirmDialog = (): void => {
     const canonicalIdentity = input?.value.trim() ?? "";
     const reason = (extra?.value ?? "").trim();
     if (!directionMergeOptions(dialog.absorbedIdentity).some((item) => item.id === canonicalIdentity)) {
-      rejectDialog("app-dialog-input", "Choose an available finding to keep.");
+      rejectDialog("app-dialog-input", localize("Choose an available finding to keep."));
       return;
     }
     if (canonicalIdentity === dialog.absorbedIdentity) {
-      rejectDialog("app-dialog-input", "Merge into a different finding: this is the finding being merged.");
+      rejectDialog("app-dialog-input", localize("Merge into a different finding: this is the finding being merged."));
       return;
     }
     if (!reason) {
-      rejectDialog("app-dialog-delta", "Say why these two findings are the same defect.");
+      rejectDialog("app-dialog-delta", localize("Say why these two findings are the same defect."));
       return;
     }
     closeDialog();
@@ -483,17 +500,17 @@ const confirmDialog = (): void => {
       rejectDialog(
         "app-dialog-input",
         dialog.mode === "reopen"
-          ? "Give a reason for reopening this record."
-          : "Choose the record that replaces this one.",
+          ? localize("Give a reason for reopening this record.")
+          : localize("Choose the record that replaces this one."),
       );
       return;
     }
     if (dialog.mode === "reopen" && secondary.length === 0) {
-      rejectDialog("app-dialog-delta", "Reopening needs at least one line of new material evidence.");
+      rejectDialog("app-dialog-delta", localize("Reopening needs at least one line of new material evidence."));
       return;
     }
     if (dialog.mode === "supersede" && !directionRecordOptions(dialog.target, dialog.recordId).some((item) => item.id === primary)) {
-      rejectDialog("app-dialog-input", "Choose an available replacement record.");
+      rejectDialog("app-dialog-input", localize("Choose an available replacement record."));
       return;
     }
     closeDialog();

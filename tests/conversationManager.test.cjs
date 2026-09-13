@@ -125,15 +125,51 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
   const workingDirectory = harnessOptions.noWorkingDirectory
     ? undefined
     : harnessOptions.workingDirectory ?? "/workspace";
+  const bridgeEndpoint = harnessOptions.bridgeEndpoint ?? { owner: undefined };
+  const bridgeSecrets = harnessOptions.bridgeSecrets ?? new Map();
+  const bridgeSecretWrites = [];
+  const bridgeStatusListeners = new Set();
+  const bridgeStatus = { enabled: true, connected: false, sessions: [] };
+  let bridgeOptions;
+  let reservation;
+  const updateBridgeStatus = (next) => {
+    Object.assign(bridgeStatus, next);
+    bridgeOptions?.onStatusChange({ ...bridgeStatus });
+    bridgeStatusListeners.forEach((listener) => listener({ ...bridgeStatus }));
+  };
   const bridge = {
+    reserveCount: 0,
     startCount: 0,
     closeCount: 0,
+    resetPairingCount: 0,
+    discoverCount: 0,
+    reserve: async () => {
+      bridge.reserveCount += 1;
+      if (bridgeEndpoint.owner && bridgeEndpoint.owner !== bridge) {
+        throw Object.assign(new Error("Address already in use"), { code: "EADDRINUSE" });
+      }
+      bridgeEndpoint.owner = bridge;
+      reservation ??= {
+        endpoint: "ws://127.0.0.1:43127",
+        isHeld: () => bridgeEndpoint.owner === bridge,
+        release: async () => {
+          if (bridgeEndpoint.owner === bridge) await bridge.close();
+        },
+      };
+      return reservation;
+    },
     start: async () => {
       bridge.startCount += 1;
       await harnessOptions.beforeBridgeStart?.();
       if (harnessOptions.bridgeStartError) {
         throw harnessOptions.bridgeStartError;
       }
+      if (!reservation) await bridge.reserve();
+      updateBridgeStatus({
+        endpoint: reservation.endpoint,
+        connected: true,
+        connectionState: "connected",
+      });
     },
     close: async () => {
       bridge.closeCount += 1;
@@ -141,14 +177,19 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
       if (harnessOptions.bridgeCloseError) {
         throw harnessOptions.bridgeCloseError;
       }
+      if (bridgeEndpoint.owner === bridge) bridgeEndpoint.owner = undefined;
+      reservation = undefined;
+      updateBridgeStatus({ connected: false, connectionState: "disconnected" });
     },
-    getStatus: () => ({ enabled: true, connected: false, sessions: [] }),
+    getStatus: () => ({ ...bridgeStatus }),
     subscribeStatus: (listener) => {
-      listener({ enabled: true, connected: false, sessions: [] });
-      return { dispose: () => undefined };
+      bridgeStatusListeners.add(listener);
+      listener({ ...bridgeStatus });
+      return { dispose: () => bridgeStatusListeners.delete(listener) };
     },
-    resetPairing: async () => undefined,
-    discover: () => undefined,
+    resetPairing: async () => { bridge.resetPairingCount += 1; },
+    discover: () => { bridge.discoverCount += 1; },
+    refreshLocalModelConfig: () => undefined,
     bindConversation: () => undefined,
     releaseBinding: () => undefined,
     sendConversation: () => {
@@ -159,7 +200,42 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
 
   const bridgePath = require.resolve("../dist/browser/bridgeServer.js");
   injectModule(bridgePath, {
-    createBrowserBridgeServer: () => bridge,
+    createBrowserBridgeServer: (options) => {
+      bridgeOptions = options;
+      return bridge;
+    },
+  });
+  const transportPath = require.resolve("../dist/browser/sharedBridgeTransport.js");
+  injectModule(transportPath, {
+    probeBrowserBridgeEndpoint: async () => {
+      await harnessOptions.beforeBridgeProbe?.();
+      return {
+        reachable: bridgeEndpoint.owner !== undefined,
+        ...(bridgeEndpoint.owner
+          ? { status: bridgeEndpoint.owner.getStatus() }
+          : {}),
+      };
+    },
+    reserveBrowserBridgeEndpoint: () => bridge.reserve(),
+    createSharedBrowserBridgeClient: (options) => {
+      let subscription;
+      return {
+        ...bridge,
+        start: async () => {
+          subscription = bridgeEndpoint.owner?.subscribeStatus(options.onStatusChange);
+        },
+        getStatus: () => bridgeEndpoint.owner?.getStatus() ?? {
+          enabled: true,
+          connected: false,
+          sessions: [],
+        },
+        subscribeStatus: (listener) => bridgeEndpoint.owner?.subscribeStatus(listener)
+          ?? { dispose: () => undefined },
+        discover: () => bridgeEndpoint.owner?.discover(),
+        resetPairing: async () => bridgeEndpoint.owner?.resetPairing(),
+        close: async () => subscription?.dispose(),
+      };
+    },
   });
 
   const runtimePath = require.resolve("../dist/runtime/createRuntime.js");
@@ -259,6 +335,12 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
             await harnessOptions.beforeRuntimeMessage?.(instance, message);
             if (message.type === instance.throwOnMessageType) {
               throw new Error(`Simulated ${message.type} failure`);
+            }
+            if (message.type === "bridge.discover") {
+              options.bridge.discover();
+            }
+            if (message.type === "bridge.reset") {
+              await options.bridge.resetPairing();
             }
             if (message.type === "ready") {
               await target?.postMessage({ type: "state.snapshot", state });
@@ -467,6 +549,9 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
               throw new Error("No recoverable workflow is available");
             }
             instance.resumeCalls.push({ recovery: structuredClone(recovery) });
+            if (harnessOptions.reserveResumeExecution) {
+              await instance.options.prepareProviderExecution?.();
+            }
             await runOptions.onAccepted?.();
             instance.options.onPipelineStep?.({
               step: {
@@ -536,7 +621,9 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
                   scopeKey: "extension",
                 }
               : undefined,
-          interrupt: async () => undefined,
+          interrupt: async () => {
+            await harnessOptions.beforeRuntimeInterrupt?.(instance);
+          },
           shutdownIdleProviders: async () => {
             instance.shutdownIdleProvidersCalls += 1;
             await harnessOptions.beforeProviderShutdown?.(instance);
@@ -603,6 +690,9 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
   const exportPreviews = [];
   const exportConfirmations = [];
   const vscode = {
+    l10n: { t: (message, ...args) =>
+      (harnessOptions.translations?.[message] ?? message).replace(/\{(\d+)\}/gu, (placeholder, index) =>
+        args[Number(index)] === undefined ? placeholder : String(args[Number(index)])) },
     Disposable,
     RelativePattern,
     ExtensionMode: { Production: 1, Development: 2, Test: 3 },
@@ -614,10 +704,12 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
     },
     env: { remoteName: undefined },
     window: {
-      showInformationMessage: async () => undefined,
+      showInformationMessage: async (...args) => harnessOptions.showInformationMessage?.(...args),
       showWarningMessage: async (message, options, ...actions) => {
         exportConfirmations.push({ message, options, actions });
-        return harnessOptions.cancelExport ? undefined : actions[0];
+        return harnessOptions.showWarningMessage
+          ? harnessOptions.showWarningMessage(message, options, ...actions)
+          : harnessOptions.cancelExport ? undefined : actions[0];
       },
       showTextDocument: async (document) => {
         exportPreviews.push(document);
@@ -683,6 +775,7 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
   const managerPath = require.resolve(
     "../dist/conversations/createConversationManager.js",
   );
+  delete require.cache[require.resolve("../dist/browser/bridgeRecovery.js")];
   delete require.cache[managerPath];
   let createConversationManager;
   try {
@@ -691,6 +784,7 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
     Module._load = originalLoad;
   }
 
+  const outputLines = [];
   const manager = createConversationManager(
     {
       workspaceState: {
@@ -708,7 +802,17 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
       storageUri: { fsPath: storageRoot },
       globalStorageUri: { fsPath: storageRoot },
       extensionMode: harnessOptions.extensionMode ?? vscode.ExtensionMode.Production,
-      secrets: {},
+      secrets: {
+        get: async (key) => bridgeSecrets.get(key),
+        store: async (key, value) => {
+          bridgeSecretWrites.push({ key, value });
+          bridgeSecrets.set(key, value);
+        },
+        delete: async (key) => {
+          bridgeSecretWrites.push({ key });
+          bridgeSecrets.delete(key);
+        },
+      },
     },
     { appendLine: (line) => outputLines.push(line) },
     {
@@ -728,7 +832,6 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
     }
   };
   const posted = [];
-  const outputLines = [];
   const subscription = manager.attachWebview({
     postMessage: async (message) => {
       posted.push(message);
@@ -744,6 +847,9 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
     outputLines,
     options: harnessOptions,
     bridge,
+    bridgeEndpoint,
+    bridgeSecrets,
+    bridgeSecretWrites,
     runtimeInstances,
     workspaceState,
     posted,
@@ -1134,7 +1240,7 @@ test("conversation tabs use isolated runtime storage and one shared bridge", asy
       harness.runtimeInstances[0].options.storageKey,
       "bachata.runtimeState.v5",
     );
-    assert.equal(harness.runtimeInstances[0].options.bridge, harness.bridge);
+    assert.equal(harness.runtimeInstances[0].options.bridge.getStatus().connected, true);
 
     await harness.manager.handleMessage({ type: "conversation.create" });
     assert.equal(harness.runtimeInstances.length, 2);
@@ -1148,7 +1254,8 @@ test("conversation tabs use isolated runtime storage and one shared bridge", asy
       harness.runtimeInstances[1].options.storageDirectory,
       new RegExp(`conversations[\\/]${active}$`),
     );
-    assert.equal(harness.runtimeInstances[1].options.bridge, harness.bridge);
+    assert.equal(harness.runtimeInstances[1].options.bridge, harness.runtimeInstances[0].options.bridge);
+    assert.equal(harness.bridge.startCount, 1);
   } finally {
     harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());
     harness.runtimeInstances.forEach((instance) => instance.run.resolve());
@@ -1567,7 +1674,6 @@ test("a waiting conversation can be cancelled and never starts after capacity re
 
 test("losing Browser Bridge ownership closes the local server", async () => {
   const controller = new AbortController();
-  let releaseCount = 0;
   const lease = {
     id: "browser-lease",
     resources: [{ key: "browser-bridge:profile", kind: "physical" }],
@@ -1579,9 +1685,7 @@ test("losing Browser Bridge ownership closes the local server", async () => {
         throw new Error("Browser Bridge ownership was lost");
       }
     },
-    release: async () => {
-      releaseCount += 1;
-    },
+    release: async () => undefined,
     quarantine: async () => undefined,
   };
   const harness = loadHarness(undefined, {
@@ -1596,11 +1700,255 @@ test("losing Browser Bridge ownership closes the local server", async () => {
     await harness.manager.handleMessage({ type: "manager.ready" });
     assert.equal(harness.bridge.startCount, 1);
     controller.abort(new Error("replaced"));
-    await waitFor(() => harness.bridge.closeCount === 1);
-    assert.equal(releaseCount, 0);
+    await waitFor(() => harness.bridge.closeCount >= 1, 1_000);
+    assert.equal(harness.bridge.startCount, 1);
+    assert.equal(harness.bridgeEndpoint.owner, undefined);
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
+  }
+});
+
+test("activation heals only stale Browser Bridge quarantine without a message or pairing reset", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-activation-"));
+  const broker = createResourceBroker({
+    databasePath: path.join(root, "resources.sqlite"),
+    ownerId: "activation-manager",
+    pollIntervalMs: 10,
+  });
+  const oldLease = await broker.acquire({
+    resources: [
+      { key: "browser-bridge:profile", kind: "physical" },
+      { key: "working-directory:retained", kind: "physical" },
+    ],
+    deadlineAt: Date.now() + 1_000,
+  });
+  await oldLease.quarantine("Previous shutdown did not finish");
+  const bridgeSecrets = new Map([
+    ["bachata.browserBridge.connectionToken.v8", "existing-pairing-credential"],
+    ["bachata.browserBridge.extensionOrigin.v8", "chrome-extension://existing-browser"],
+    ["bachata.browserBridge.sharedToken.v1", "existing-window-credential"],
+  ]);
+  const credentials = [...bridgeSecrets];
+  const harness = loadHarness(undefined, {
+    storageRoot: path.join(root, "manager"),
+    removeStorageOnDispose: false,
+    resourceBroker: broker,
+    bridgeSecrets,
+  });
+  try {
+    await waitFor(() => harness.bridge.getStatus().connected);
+    assert.equal(harness.bridge.startCount, 1);
+    assert.equal(harness.bridge.resetPairingCount, 0);
+    assert.deepEqual([...bridgeSecrets], credentials);
+    assert.deepEqual(harness.bridgeSecretWrites, []);
+    assert.deepEqual(broker.listQuarantine().map((item) => item.key), ["working-directory:retained"]);
+    assert.equal(broker.inspectBrowserBridgeOwnership().held, true);
+    assert.equal(harness.runtimeInstances.some((instance) =>
+      instance.messages.some((message) => message.type !== "ready")), false);
+    assert.equal(harness.posted.some((message) => message.type === "error"), false);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+    await broker.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("automatic activation preserves a reachable Browser Bridge even with stale quarantine", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-reachable-"));
+  const broker = createResourceBroker({
+    databasePath: path.join(root, "resources.sqlite"),
+    ownerId: "reachable-manager",
+    pollIntervalMs: 10,
+  });
+  const oldLease = await broker.acquire({
+    resources: [{ key: "browser-bridge:profile", kind: "physical" }],
+    deadlineAt: Date.now() + 1_000,
+  });
+  await oldLease.quarantine("Previous owner has not confirmed shutdown");
+  const sharedStatus = {
+    enabled: true,
+    connected: true,
+    connectionState: "connected",
+    endpoint: "ws://127.0.0.1:43127",
+    sessions: [{ id: "existing-browser", provider: "chatgpt", title: "Existing browser" }],
+  };
+  let discoveryCount = 0;
+  const availableBridge = {
+    getStatus: () => sharedStatus,
+    subscribeStatus: (listener) => {
+      listener(sharedStatus);
+      return { dispose: () => undefined };
+    },
+    discover: () => { discoveryCount += 1; },
+  };
+  const bridgeEndpoint = { owner: availableBridge };
+  const harness = loadHarness(undefined, {
+    storageRoot: path.join(root, "manager"),
+    removeStorageOnDispose: false,
+    resourceBroker: broker,
+    bridgeEndpoint,
+    bridgeSecrets: new Map([["bachata.browserBridge.sharedToken.v1", "available-window-token"]]),
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    await waitFor(() => harness.runtimeInstances[0].options.bridge.getStatus().connected);
+    assert.equal(harness.bridge.reserveCount, 0);
+    assert.equal(harness.bridge.startCount, 0);
+    assert.equal(bridgeEndpoint.owner, availableBridge);
+    assert.equal(broker.inspectBrowserBridgeOwnership().held, false);
+    assert.deepEqual(broker.listQuarantine().map((item) => item.key), ["browser-bridge:profile"]);
+    assert.ok(discoveryCount > 0);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+    await broker.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("automatic startup failure releases ownership and retries without user recovery", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-start-retry-"));
+  const broker = createResourceBroker({
+    databasePath: path.join(root, "resources.sqlite"),
+    ownerId: "startup-retry-manager",
+    pollIntervalMs: 10,
+  });
+  const options = {
+    storageRoot: path.join(root, "manager"),
+    removeStorageOnDispose: false,
+    resourceBroker: broker,
+    bridgeStartError: Object.assign(new Error("Port could not be opened"), { code: "EACCES" }),
+  };
+  const harness = loadHarness(undefined, options);
+  try {
+    await waitFor(() => harness.bridge.closeCount > 0);
+    assert.equal(harness.bridge.getStatus().connected, false);
+    assert.equal(harness.bridgeEndpoint.owner, undefined);
+    assert.equal(broker.inspectBrowserBridgeOwnership().held, false);
+    assert.equal(harness.posted.some((message) => message.type === "error"), false);
+    delete options.bridgeStartError;
+    await waitFor(() => harness.bridge.getStatus().connected);
+    assert.ok(harness.bridge.startCount >= 2);
+    assert.equal(broker.inspectBrowserBridgeOwnership().held, true);
+    assert.equal(harness.bridge.resetPairingCount, 0);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+    await broker.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload heals Browser Bridge automatically while retaining a stopped workflow for continuation", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "bachata-bridge-stopped-reload-"));
+  const databasePath = path.join(root, "resources.sqlite");
+  const firstBroker = createResourceBroker({ databasePath, ownerId: "before-reload", pollIntervalMs: 10 });
+  const bridgeSecrets = new Map([
+    ["bachata.browserBridge.connectionToken.v8", "retained-pairing-token"],
+    ["bachata.browserBridge.extensionOrigin.v8", "chrome-extension://paired-browser"],
+  ]);
+  const first = loadHarness(undefined, {
+    storageRoot: path.join(root, "manager"),
+    removeStorageOnDispose: false,
+    resourceBroker: firstBroker,
+    bridgeSecrets,
+  });
+  let secondBroker;
+  let second;
+  try {
+    await first.manager.handleMessage({ type: "manager.ready" });
+    const conversation = await first.manager.createConversation({
+      title: "Continue after reload",
+      pipelineId: "cross-reference-development",
+      workingDirectory: "/workspace",
+    });
+    const runtime = first.runtimeInstances.at(-1);
+    runtime.pipelineResults.push({
+      status: "interrupted",
+      answers: {},
+      outputs: {},
+      decisions: [],
+      roles: {},
+    });
+    await first.manager.runConversation(conversation.id, "Finish the interrupted review");
+    const recovery = structuredClone(runtime.state.resumableWorkflow);
+    assert.ok(recovery);
+    assert.equal(runtime.state.workflowStatus, "interrupted");
+    const credentials = [...bridgeSecrets];
+    first.subscription.dispose();
+    await first.manager.dispose();
+    const staleLease = await firstBroker.acquire({
+      resources: [{ key: "browser-bridge:profile", kind: "physical" }],
+      deadlineAt: Date.now() + 1_000,
+    });
+    await staleLease.quarantine("Shutdown ended before completion");
+    await firstBroker.dispose();
+    secondBroker = createResourceBroker({ databasePath, ownerId: "after-reload", pollIntervalMs: 10 });
+    second = loadHarness(undefined, {
+      storageRoot: first.storageRoot,
+      workspaceState: first.workspaceState,
+      runtimeResumableWorkflow: recovery,
+      removeStorageOnDispose: false,
+      resourceBroker: secondBroker,
+      bridgeSecrets,
+    });
+    await waitFor(() => second.bridge.getStatus().connected);
+    assert.equal(secondBroker.inspectBrowserBridgeOwnership().held, true);
+    assert.deepEqual(secondBroker.listQuarantine(), []);
+    assert.deepEqual([...bridgeSecrets], credentials);
+    assert.equal(second.bridge.resetPairingCount, 0);
+    await second.manager.handleMessage({ type: "manager.ready" });
+    assert.deepEqual(second.runtimeInstances[0].state.resumableWorkflow, recovery);
+    await second.manager.handleMessage({
+      type: "conversation.runtime",
+      conversationId: conversation.id,
+      message: { type: "workflow.resume" },
+    });
+    assert.equal(second.runtimeInstances[0].resumeCalls.length, 1);
+    assert.equal(second.runtimeInstances[0].state.workflowStatus, "completed");
+    assert.equal(second.bridge.startCount, 1);
+  } finally {
+    first.subscription.dispose();
+    await first.manager.dispose().catch(() => undefined);
+    second?.subscription.dispose();
+    await second?.manager.dispose();
+    await firstBroker.dispose();
+    await secondBroker?.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Find browser and Reset pairing never repair ownership during an active run", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const runtime = harness.runtimeInstances[0];
+    const reservationCount = harness.bridge.reserveCount;
+    const startupCount = harness.bridge.startCount;
+    const discoveryCount = harness.bridge.discoverCount;
+    runtime.state.running = true;
+    await harness.manager.handleMessage({
+      type: "conversation.runtime",
+      conversationId: "default",
+      message: { type: "bridge.discover" },
+    });
+    assert.equal(harness.bridge.discoverCount, discoveryCount + 1);
+    await harness.manager.handleMessage({
+      type: "conversation.runtime",
+      conversationId: "default",
+      message: { type: "bridge.reset" },
+    });
+    assert.equal(harness.bridge.resetPairingCount, 1);
+    assert.equal(harness.bridge.reserveCount, reservationCount);
+    assert.equal(harness.bridge.startCount, startupCount);
+    assert.equal(harness.bridge.closeCount, 0);
+    assert.equal(harness.bridgeEndpoint.owner, harness.bridge);
+  } finally {
+    harness.runtimeInstances.forEach((instance) => { instance.state.running = false; });
+    harness.subscription.dispose();
+    await harness.manager.dispose();
   }
 });
 
@@ -1620,6 +1968,8 @@ test("a surviving manager can acquire Browser Bridge ownership without reloading
   const options = {
     removeStorageOnDispose: false,
     configurationValues: { browserBridgeOwnerTimeoutMs: 100 },
+    bridgeEndpoint: { owner: undefined },
+    bridgeSecrets: new Map(),
   };
   const first = loadHarness(undefined, {
     ...options,
@@ -1634,22 +1984,23 @@ test("a surviving manager can acquire Browser Bridge ownership without reloading
   let owner;
   let standby;
   try {
-    await Promise.all([
-      first.manager.handleMessage({ type: "manager.ready" }),
-      second.manager.handleMessage({ type: "manager.ready" }),
-    ]);
     await waitFor(() => first.bridge.startCount + second.bridge.startCount === 1);
     owner = first.bridge.startCount === 1 ? first : second;
     standby = owner === first ? second : first;
     assert.equal(standby.bridge.startCount, 0);
+    await standby.manager.handleMessage({ type: "manager.ready" });
+    assert.equal(standby.runtimeInstances[0].options.bridge.getStatus().connected, true);
+    assert.equal(standby.bridge.startCount, 0);
+    const database = new DatabaseSync(databasePath);
+    const ownerCount = database.prepare(
+      "SELECT COUNT(*) AS total FROM resource_lease_item WHERE resource_key = 'browser-bridge:profile'",
+    ).get();
+    database.close();
+    assert.equal(ownerCount.total, 1);
 
     owner.subscription.dispose();
     await owner.manager.dispose();
-    await standby.manager.handleMessage({
-      type: "conversation.runtime",
-      conversationId: "default",
-      message: { type: "bridge.discover" },
-    });
+    await waitFor(() => standby.bridge.startCount === 1, 8_000);
     assert.equal(standby.bridge.startCount, 1);
   } finally {
     first.subscription.dispose();
@@ -1767,8 +2118,9 @@ test("Browser Bridge close failure quarantines cross-window ownership", async ()
     harness.subscription.dispose();
     await assert.rejects(
       harness.manager.dispose(),
-      /bridge process remained alive/u,
+      /cleanup was not fully confirmed/u,
     );
+    assert.ok(harness.outputLines.some((line) => /bridge process remained alive/u.test(line)));
     assert.equal(
       broker.listQuarantine().some((item) => item.key === "browser-bridge:profile"),
       true,
@@ -7899,5 +8251,154 @@ test("finding evidence is bound locally, refuses concurrent activity and drift, 
     await harness.manager.dispose();
     rmSync(repository, { recursive: true, force: true });
     rmSync(storageRoot, { recursive: true, force: true });
+  }
+});
+
+
+test("late provider shutdown restores resume without clearing unconfirmed cleanup early", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "bachata-late-provider-cleanup-"));
+  const workingDirectory = path.join(root, "repository");
+  mkdirSync(workingDirectory);
+  const broker = createResourceBroker({ databasePath: path.join(root, "resources.sqlite"), pollIntervalMs: 10 });
+  const cleanup = deferred();
+  let blocked = true;
+  const harness = loadHarness(undefined, {
+    storageRoot: path.join(root, "manager"), removeStorageOnDispose: false, workingDirectory,
+    resourceBroker: broker, reserveResumeExecution: true,
+    beforeProviderShutdown: async () => { if (blocked) await cleanup.promise; },
+    configurationValues: { providerCleanupTimeoutMs: 1000 },
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const runtime = harness.runtimeInstances[0];
+    runtime.pipelineResults.push({ status: "interrupted", answers: {}, outputs: {}, decisions: [], roles: {} });
+    await assert.rejects(harness.manager.runConversation("default", "Continue this saved run"), /Provider cleanup exceeded/u);
+    const recovery = structuredClone(runtime.state.resumableWorkflow);
+    assert.ok(recovery);
+    assert.ok(broker.listQuarantine().some((item) => item.key === "local-agents:global"));
+    await assert.rejects(harness.manager.handleMessage({
+      type: "conversation.runtime", conversationId: "default", message: { type: "workflow.resume" },
+    }), ResourceQuarantinedError);
+    assert.deepEqual(runtime.state.resumableWorkflow, recovery);
+    blocked = false;
+    cleanup.resolve();
+    await waitFor(() => broker.listQuarantine().length === 0);
+    await harness.manager.handleMessage({
+      type: "conversation.runtime", conversationId: "default", message: { type: "workflow.resume" },
+    });
+    assert.equal(runtime.state.workflowStatus, "completed");
+    assert.equal(runtime.pipelineCalls.length, 1);
+    assert.equal(runtime.resumeCalls.at(-1).recovery.nextStepIndex, recovery.nextStepIndex);
+  } finally {
+    cleanup.resolve();
+    harness.subscription.dispose();
+    await harness.manager.dispose().catch(() => undefined);
+    await broker.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("late interruption keeps quarantine until workflow and provider shutdown are confirmed", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "bachata-late-interruption-"));
+  const workingDirectory = path.join(root, "repository");
+  mkdirSync(workingDirectory);
+  const broker = createResourceBroker({ databasePath: path.join(root, "resources.sqlite"), pollIntervalMs: 10 });
+  const interruption = deferred();
+  const releaseRun = deferred();
+  const cleanup = deferred();
+  const started = deferred();
+  let run;
+  const harness = loadHarness(undefined, {
+    storageRoot: path.join(root, "manager"), removeStorageOnDispose: false, workingDirectory,
+    resourceBroker: broker,
+    beforeRuntimeInterrupt: async () => interruption.promise,
+    beforeProviderShutdown: async () => cleanup.promise,
+    configurationValues: { managerInterruptTimeoutMs: 1000, providerCleanupTimeoutMs: 1000 },
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const runtime = harness.runtimeInstances[0];
+    runtime.beforePipelineRun = async () => { started.resolve(); await releaseRun.promise; };
+    runtime.pipelineResults.push({ status: "interrupted", answers: {}, outputs: {}, decisions: [], roles: {} });
+    run = harness.manager.runConversation("default", "Stop and continue");
+    await started.promise;
+    await assert.rejects(harness.manager.interruptConversation("default"), /Runtime interruption exceeded/u);
+    assert.ok(broker.listQuarantine().length > 0);
+    releaseRun.resolve();
+    await run;
+    interruption.resolve();
+    await waitFor(() => runtime.shutdownIdleProvidersCalls > 0);
+    assert.ok(broker.listQuarantine().length > 0);
+    cleanup.resolve();
+    await waitFor(() => broker.listQuarantine().length === 0);
+    assert.ok(runtime.state.resumableWorkflow);
+  } finally {
+    releaseRun.resolve();
+    interruption.resolve();
+    cleanup.resolve();
+    await run?.catch(() => undefined);
+    harness.subscription.dispose();
+    await harness.manager.dispose().catch(() => undefined);
+    await broker.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("localized run export confirmation saves only for the displayed action", async () => {
+  for (const accepted of [false, true]) {
+    const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-translated-export-"));
+    const saveDialogPath = path.join(storageRoot, "run.bachata-run.json");
+    const harness = loadHarness(undefined, {
+      storageRoot,
+      removeStorageOnDispose: true,
+      saveDialogPath,
+      providePipelineSnapshot: true,
+      translations: {
+        "Save export": "[localized] save export",
+        "Export run bundle?": "[localized] export run?",
+        "Applied redaction rules:": "[localized] redaction rules:",
+      },
+      showWarningMessage: () => accepted ? "[localized] save export" : "Save export",
+    });
+    try {
+      await harness.manager.handleMessage({ type: "manager.ready" });
+      const conversationId = harness.manager.getState().activeConversationId;
+      await harness.manager.handleMessage({ type: "conversation.exportBundle", conversationId });
+      const confirmation = harness.exportConfirmations.at(-1);
+      assert.equal(confirmation.message, "[localized] export run?");
+      assert.deepEqual(confirmation.actions, ["[localized] save export"]);
+      assert.match(confirmation.options.detail, /\[localized\] redaction rules:/u);
+      assert.equal(harness.savedFiles.length, accepted ? 1 : 0);
+    } finally {
+      harness.subscription.dispose();
+      await harness.manager.dispose();
+    }
+  }
+});
+
+test("localized inconclusive apply confirmation preserves its explicit override action", async () => {
+  const harness = loadHarness(undefined, {
+    translations: {
+      "Apply despite inconclusive result": "[localized] explicit override",
+      "Apply this run to your current branch?": "[localized] apply this run?",
+    },
+  });
+  const bound = retainedOrchestrator({
+    finalChecks: [{ command: "bachata:project-checks", status: "passed" }],
+    recheckQueue: [],
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    harness.manager.setTodoOrchestrator(bound.orchestrator);
+    await harness.manager.runConversation("default", "Original retained evidence {0}");
+    await harness.manager.handleMessage({ type: "orchestration.apply", runId: "retained-a", conversationId: "default" });
+    assert.deepEqual(harness.exportConfirmations.at(-1).actions, ["[localized] explicit override"]);
+    assert.equal(harness.exportConfirmations.at(-1).message, "[localized] apply this run?");
+    assert.equal(bound.state.applyCalls.length, 1);
+  } finally {
+    harness.runtimeInstances.forEach((instance) => instance.beforeRun.resolve());
+    harness.runtimeInstances.forEach((instance) => instance.run.resolve());
+    harness.subscription.dispose();
+    await harness.manager.dispose();
   }
 });

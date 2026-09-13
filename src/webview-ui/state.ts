@@ -10,7 +10,7 @@ const vscode = acquireVsCodeApi();
 const rootElement = document.getElementById("root");
 const liveStatusElement = document.getElementById("bachata-live-status");
 if (!rootElement || !liveStatusElement) {
-  throw new Error("Missing webview root elements");
+  throw new Error(localize("Missing webview root elements"));
 }
 // Narrowed once, at the declaration, so every concatenated module sees a non-null element
 // rather than re-proving it.
@@ -72,11 +72,11 @@ const liveRegionAttributes = (key: string, role: "alert" | "status", content: st
 const fieldErrorSlotId = (fieldId: string): string => `${fieldId}-error`;
 
 const workflowAnnouncement = (status: WorkflowStatus): string | undefined => {
-  if (status === "running") return "Run started.";
-  if (status === "paused") return "Run paused.";
-  if (status === "completed") return "Run completed.";
-  if (status === "interrupted") return "Run interrupted.";
-  if (status === "error") return "Run failed.";
+  if (status === "running") return localize("Run started.");
+  if (status === "paused") return localize("Run paused.");
+  if (status === "completed") return localize("Run completed.");
+  if (status === "interrupted") return localize("Run interrupted.");
+  if (status === "error") return localize("Run failed.");
   return undefined;
 };
 
@@ -90,7 +90,7 @@ const announceRunTransition = (
   const phase = bachataWebviewBehavior.runPhase(running, status);
   if (previousPhase === phase) return;
   if (phase === "running") {
-    announceStatus("Run started.");
+    announceStatus(localize("Run started."));
     return;
   }
   if (previousStatus !== status) {
@@ -117,7 +117,7 @@ const emptyPanel = (): PanelState => ({
     enabled: false,
     discovering: false,
     status: "disabled",
-    detail: "Local interpretation is off. Deterministic extraction runs on its own.",
+    detail: localize("Local interpretation is off. Deterministic extraction runs on its own."),
     explicit: false,
     availableModels: [],
   },
@@ -233,7 +233,7 @@ const state: {
         unresolvedFindings: [],
         saturation: { saturated: false, quietFreshReviews: 0, quietReviewSignal: 2, signalReached: false, reasons: [] },
         saturationDisclaimer: "",
-        nextAction: { kind: "defineInitiative", label: "State what this work is trying to achieve", detail: "" },
+        nextAction: { kind: "defineInitiative", label: localize("State what this work is trying to achieve"), detail: "" },
       },
     },
   },
@@ -312,7 +312,7 @@ const evictResultSelections = (protectedKey: string): void => {
     kept.diff = {
       files: [],
       bytes: 0,
-      truncated: "This run's diff is larger than the panel keeps in memory. Export the patch to review it, or apply the whole run.",
+      truncated: localize("This run's diff is larger than the panel keeps in memory. Export the patch to review it, or apply the whole run."),
     };
   }
 };
@@ -457,9 +457,9 @@ const announceManagerTransition = (previous: ManagerState, next: ManagerState): 
   );
   if (previousConversation && nextConversation) {
     if (!previousConversation.waitingForResources && nextConversation.waitingForResources) {
-      announceStatus("Run is waiting for shared capacity.");
+      announceStatus(localize("Run is waiting for shared capacity."));
     } else if (previousConversation.waitingForResources && !nextConversation.waitingForResources && bachataWebviewBehavior.runPhase(nextConversation.running, nextConversation.workflowStatus) === "running") {
-      announceStatus("Shared capacity is available. Run started.");
+      announceStatus(localize("Shared capacity is available. Run started."));
     } else {
       announceRunTransition(
         previousConversation.running,
@@ -479,22 +479,22 @@ const announceManagerTransition = (previous: ManagerState, next: ManagerState): 
     interaction.conversationId === next.activeConversationId &&
     !previousInteractions.has(interaction.interactionRef)
   )) {
-    announceStatus("Input is required to continue the run.");
+    announceStatus(localize("Input is required to continue the run."));
   }
 
   const previousOrchestrationStatus = previous.orchestration.status;
   const nextOrchestrationStatus = next.orchestration.status;
   if (nextOrchestrationStatus && previousOrchestrationStatus !== nextOrchestrationStatus) {
     const labels: Record<string, string> = {
-      running: "TODO execution started.",
-      stopping: "TODO execution is stopping.",
-      stopped: "TODO execution stopped.",
-      completed: "TODO execution completed.",
-      blocked: "TODO execution is blocked.",
-      failed: "TODO execution failed.",
-      abandoning: "TODO execution is being abandoned.",
-      cleanupPending: "TODO cleanup needs attention.",
-      abandoned: "TODO execution was abandoned.",
+      running: localize("TODO execution started."),
+      stopping: localize("TODO execution is stopping."),
+      stopped: localize("TODO execution stopped."),
+      completed: localize("TODO execution completed."),
+      blocked: localize("TODO execution is blocked."),
+      failed: localize("TODO execution failed."),
+      abandoning: localize("TODO execution is being abandoned."),
+      cleanupPending: localize("TODO cleanup needs attention."),
+      abandoned: localize("TODO execution was abandoned."),
     };
     const announcement = labels[nextOrchestrationStatus];
     if (announcement) announceStatus(announcement);
@@ -513,32 +513,19 @@ const submitShortcutLabel = ((): string => {
 
 const relativeTime = (value: string): string => {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const minutes = Math.round((Date.now() - date.getTime()) / 60000);
-  if (minutes < 1) {
-    return "just now";
-  }
-  if (minutes < 60) {
-    return `${String(minutes)}m ago`;
-  }
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) {
-    return `${String(hours)}h ago`;
-  }
-  const days = Math.round(hours / 24);
-  if (days < 7) {
-    return `${String(days)}d ago`;
-  }
-  return date.toLocaleDateString();
+  if (Number.isNaN(date.getTime())) return value;
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  if (Math.abs(seconds) < 60) return localize("just now");
+  const formatter = new Intl.RelativeTimeFormat(webviewLocale, { numeric: "always", style: "short" });
+  if (Math.abs(seconds) < 3600) return formatter.format(Math.round(seconds / 60), "minute");
+  if (Math.abs(seconds) < 86400) return formatter.format(Math.round(seconds / 3600), "hour");
+  if (Math.abs(seconds) < 604800) return formatter.format(Math.round(seconds / 86400), "day");
+  return date.toLocaleDateString(webviewLocale);
 };
 
 const messageTime = (value: string): string => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(webviewLocale, { hour: "2-digit", minute: "2-digit" });
 };
 
 const activeId = (): string => state.manager.activeConversationId;
@@ -550,7 +537,7 @@ const activeConversation = (): ConversationSummary | undefined => conversationBy
 const runTabLabel = (conversation: ConversationSummary): string => {
   const prefix = `[${conversation.runRef}]`;
   return conversation.title.startsWith(prefix)
-    ? conversation.title.slice(prefix.length).trim() || "New run"
+    ? conversation.title.slice(prefix.length).trim() || localize("New run")
     : conversation.title;
 };
 

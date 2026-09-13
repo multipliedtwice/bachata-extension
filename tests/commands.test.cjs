@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const test = require("node:test");
+const { createL10nStub } = require("./fixtures/vscodeL10n.cjs");
 
 const { resolveCodexExecutable } = require("../dist/providers/codexExecutable.js");
 
@@ -48,6 +49,7 @@ const loadCommands = (snapshot, options = {}) => {
     name: fsPath.split("/").pop(),
   }));
   const vscode = {
+    l10n: createL10nStub(options.translations),
     StatusBarAlignment: { Left: 1 },
     EventEmitter: class {
       constructor() {
@@ -1969,3 +1971,32 @@ for (const purpose of ["citation", "verification", "cancel", "failure", "changed
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 }
+
+
+test("localized warning actions dispatch the same native command and preserve provider details", async () => {
+  const harness = loadCommands({ active: false, retainedRuns: [] }, {
+    workspaceFolders: ["/work/first"],
+    pickCard: "review",
+    pickMode: "paired",
+    warningChoice: "Diagnose ausführen",
+    translations: {
+      "Run Doctor": "Diagnose ausführen",
+      "Bachata Setup: {0}": "Einrichtung: {0}",
+    },
+    readiness: reviewReadiness([
+      { pipelineId: "codex-review", status: "ready", findings: [] },
+      { pipelineId: "review-only", status: "needsSetup", findings: [
+        { status: "needsSetup", detail: "claude unavailable: spawn claude ENOENT" },
+      ] },
+    ]),
+  });
+
+  await harness.commands.get("bachata.setup")();
+
+  const setupWarning = harness.warnings.find((entry) => entry.message.startsWith("Einrichtung: "));
+  assert.ok(setupWarning);
+  assert.ok(setupWarning.actions.includes("Diagnose ausführen"));
+  assert.match(setupWarning.message, /claude unavailable: spawn claude ENOENT/u);
+  assert.ok(harness.executedCommands.includes("bachata.doctor"));
+  assert.deepEqual(harness.createdConversations, []);
+});

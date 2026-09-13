@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
+import { createSharedBridgeRequestHandler } from "./sharedBridgeTransport";
+
 import { createAsyncQueue } from "../process/asyncQueue";
 import { DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES } from "./limits";
 import { redactText } from "../security/redact";
@@ -33,6 +35,8 @@ export type BrowserBridgeStatus = {
   pairingToken?: string;
   pairingExpiresAt?: string;
   connected: boolean;
+  connectionState?: "connecting" | "retrying" | "connected" | "blocked" | "disconnected";
+  blockedReason?: "portUnavailable" | "localWindowRequired" | "browserUpdateRequired" | "pairingExpired" | "accessDenied";
   selectedSessionId?: string;
   sessions: BrowserSession[];
   error?: string;
@@ -112,8 +116,19 @@ export type BrowserBridgeServer = {
   close: () => Promise<void>;
 };
 
+export type BrowserBridgeReservation = {
+  endpoint: string;
+  isHeld: () => boolean;
+  release: () => Promise<void>;
+};
+
+export type OwnedBrowserBridgeServer = BrowserBridgeServer & {
+  reserve: () => Promise<BrowserBridgeReservation>;
+};
+
 export type BrowserBridgeServerOptions = {
   enabled: boolean;
+  sharedToken?: () => string | undefined;
   secretStore: BrowserBridgeSecretStore;
   log: (message: string) => void;
   onStatusChange: (status: BrowserBridgeStatus) => void;
@@ -216,7 +231,7 @@ const isLoopback = (address: string | undefined): boolean =>
 
 export const createBrowserBridgeServer = (
   options: BrowserBridgeServerOptions,
-): BrowserBridgeServer => {
+): OwnedBrowserBridgeServer => {
   const log = (message: string): void => options.log(redactText(message));
   const pairingTtlMs = options.pairingTtlMs ?? 10 * 60_000;
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES;
@@ -234,6 +249,9 @@ export const createBrowserBridgeServer = (
   const assetRevealTimeoutMs = options.assetRevealTimeoutMs ?? 10_000;
   const providerOpenTimeoutMs = options.providerOpenTimeoutMs ?? 60_000;
   let server: TextWebSocketServer | undefined;
+  let protocolStarted = false;
+  let reserveOperation: Promise<BrowserBridgeReservation> | undefined;
+  let startOperation: Promise<void> | undefined;
   let port: number | undefined;
   let pairingToken: string | undefined;
   let pairingExpiresAt = 0;
@@ -245,6 +263,7 @@ export const createBrowserBridgeServer = (
   let sessions: BrowserSession[] = [];
   let selectedSessionId: string | undefined;
   let lastError: string | undefined;
+  let blockedReason: BrowserBridgeStatus["blockedReason"];
   const pending = new Map<string, PendingConversation>();
   const pendingBySession = new Map<string, string>();
   const pendingAssetTransfers = new Map<string, PendingAssetTransfer>();
@@ -326,7 +345,7 @@ export const createBrowserBridgeServer = (
     }
     return {
       enabled: options.enabled,
-      ...(port ? { endpoint: `ws://127.0.0.1:${String(port)}${endpointPath}` } : {}),
+      ...(endpointAvailable() ? { endpoint: `ws://127.0.0.1:${String(port)}${endpointPath}` } : {}),
       ...(pairingToken === undefined ? {} : { pairingToken }),
       ...(pairingExpiresAt > 0
         ? { pairingExpiresAt: new Date(pairingExpiresAt).toISOString() }
@@ -335,6 +354,7 @@ export const createBrowserBridgeServer = (
       ...(selectedSessionId === undefined ? {} : { selectedSessionId }),
       sessions: structuredClone(sessions),
       ...(lastError === undefined ? {} : { error: lastError }),
+      ...(blockedReason === undefined ? {} : { blockedReason }),
     };
   };
 
@@ -549,7 +569,7 @@ export const createBrowserBridgeServer = (
     }
   };
 
-  const endpointAvailable = (): boolean => Boolean(server) && port !== undefined;
+  const endpointAvailable = (): boolean => protocolStarted && Boolean(server?.isListening()) && port !== undefined;
 
   const clearPairingExpirationTimer = (): void => {
     if (pairingExpirationTimer) {
@@ -1149,6 +1169,7 @@ export const createBrowserBridgeServer = (
     authenticated = true;
     socket = connection;
     lastError = undefined;
+    blockedReason = undefined;
   };
 
   const handleMessage = async (
@@ -1169,6 +1190,20 @@ export const createBrowserBridgeServer = (
 
     const parsed = parseBridgeClientMessage(value);
     if (parsed.success === false) {
+      const candidate = value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+      if (
+        !authenticated && candidate && Number.isSafeInteger(candidate.protocolVersion) &&
+        candidate.protocolVersion !== browserProtocolVersion &&
+        ((candidate.type === "bridge.authenticate" && secretMatches(candidate.connectionToken, connectionToken)) ||
+          (candidate.type === "bridge.pair" && secretMatches(candidate.token, pairingToken)))
+      ) {
+        blockedReason = "browserUpdateRequired";
+        lastError = "Update Browser Bridge to connect.";
+        sendProtocolError(connection, "UPDATE_REQUIRED", lastError);
+        emitStatus();
+        connection.close();
+        return;
+      }
       sendProtocolError(connection, "INVALID_MESSAGE", parsed.error);
       return;
     }
@@ -1364,16 +1399,20 @@ export const createBrowserBridgeServer = (
 
   const loadConnectionToken = async (): Promise<string | undefined> => {
     const current = await options.secretStore.get(connectionSecretKey);
+    if (closing) throw new Error("Browser Bridge is unavailable");
     if (current) {
       return current;
     }
     for (const legacyKey of legacyConnectionSecretKeys) {
       const legacy = await options.secretStore.get(legacyKey);
+      if (closing) throw new Error("Browser Bridge is unavailable");
       if (!legacy) {
         continue;
       }
       await options.secretStore.store(connectionSecretKey, legacy);
+      if (closing) throw new Error("Browser Bridge is unavailable");
       for (const key of legacyConnectionSecretKeys) {
+        if (closing) throw new Error("Browser Bridge is unavailable");
         await Promise.resolve(options.secretStore.delete(key)).catch((error: unknown) => {
           log(
             `Browser bridge legacy credential cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1385,31 +1424,23 @@ export const createBrowserBridgeServer = (
     return undefined;
   };
 
-  return {
-    start: async () => {
-      if (closing) {
-        throw new Error("Browser bridge server is closed");
-      }
-      if (!options.enabled || server) {
-        emitStatus();
-        return;
-      }
-      connectionToken = await loadConnectionToken();
-      connectionOrigin = await options.secretStore.get(connectionOriginSecretKey);
-      if (
-        (connectionToken && (!connectionOrigin || !extensionOriginPattern.test(connectionOrigin))) ||
-        (!connectionToken && connectionOrigin)
-      ) {
-        await Promise.all([
-          options.secretStore.delete(connectionSecretKey),
-          options.secretStore.delete(connectionOriginSecretKey),
-        ]);
-        connectionToken = undefined;
-        connectionOrigin = undefined;
-        lastError = "Browser Bridge pairing must be renewed after the security upgrade";
-      }
-      server = createTextWebSocketServer({
+  const shared = createSharedBridgeRequestHandler({
+    getToken: () => options.sharedToken?.(),
+    getBridge: () => bridge,
+    interruptConversation: async (ownerIds, requestId) => {
+      const operation = pending.get(requestId);
+      if (operation && ownerIds.includes(operation.agentId)) requestInterrupt(operation);
+    },
+  });
+  const reserve = (): Promise<BrowserBridgeReservation> => {
+    if (closing || !options.enabled) {
+      return Promise.reject(new Error("Browser Bridge is unavailable"));
+    }
+    if (reserveOperation) return reserveOperation;
+    server = createTextWebSocketServer({
         host: "127.0.0.1",
+        protocolEnabled: () => protocolStarted,
+        onRequest: shared.handle,
         port: options.port ?? 43127,
         path: endpointPath,
         maxMessageBytes,
@@ -1538,25 +1569,72 @@ export const createBrowserBridgeServer = (
           emitStatus();
         },
       });
+    const reservedServer = server;
+    reserveOperation = (async () => {
       try {
-        port = await server.listen();
-        lastError = undefined;
-        // The pairing token's lifetime starts here, not before listen: a token minted
-        // earlier spends its window on startup, and a listen that fails would leave a
-        // usable token published for an endpoint that does not exist.
-        createPairingToken();
+        port = await reservedServer.listen();
+        if (closing) throw new Error("Browser Bridge is unavailable");
+        return {
+          endpoint: `ws://127.0.0.1:${String(port)}${endpointPath}`,
+          isHeld: () => server === reservedServer && reservedServer.isListening() && !closing,
+          release: async () => { await bridge.close(); },
+        };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`Browser bridge could not listen: ${message}`);
-        lastError = message;
-        await server.close().catch(() => undefined);
+        lastError = error instanceof Error ? error.message : String(error);
+        await reservedServer.close();
         server = undefined;
         port = undefined;
-        clearPairingExpirationTimer();
-        pairingToken = undefined;
-        pairingExpiresAt = 0;
+        reserveOperation = undefined;
+        emitStatus();
+        throw error;
       }
-      emitStatus();
+    })();
+    return reserveOperation;
+  };
+  const bridge: OwnedBrowserBridgeServer = {
+    reserve,
+    start: () => {
+      if (startOperation) return startOperation;
+      startOperation = (async () => {
+        if (closing) throw new Error("Browser Bridge is unavailable");
+        if (!options.enabled || protocolStarted) return;
+        await reserve();
+        try {
+          connectionToken = await loadConnectionToken();
+          connectionOrigin = await options.secretStore.get(connectionOriginSecretKey);
+          if (closing) throw new Error("Browser Bridge is unavailable");
+          if (
+            (connectionToken && (!connectionOrigin || !extensionOriginPattern.test(connectionOrigin))) ||
+            (!connectionToken && connectionOrigin)
+          ) {
+            await Promise.all([
+              options.secretStore.delete(connectionSecretKey),
+              options.secretStore.delete(connectionOriginSecretKey),
+            ]);
+            connectionToken = undefined;
+            connectionOrigin = undefined;
+          }
+          if (closing || !server?.isListening()) throw new Error("Browser Bridge is unavailable");
+          protocolStarted = true;
+          lastError = undefined;
+          blockedReason = undefined;
+          createPairingToken();
+          emitStatus();
+        } catch (error) {
+          protocolStarted = false;
+          lastError = error instanceof Error ? error.message : String(error);
+          await server?.close();
+          server = undefined;
+          port = undefined;
+          reserveOperation = undefined;
+          clearPairingExpirationTimer();
+          pairingToken = undefined;
+          pairingExpiresAt = 0;
+          emitStatus();
+          throw error;
+        }
+      })().finally(() => { startOperation = undefined; });
+      return startOperation;
     },
     getStatus: status,
     subscribeStatus: (listener) => {
@@ -1925,6 +2003,8 @@ export const createBrowserBridgeServer = (
         return closeOperation;
       }
       closing = true;
+      protocolStarted = false;
+      shared.close();
       authenticationGeneration += 1;
       const connections = Array.from(liveConnections);
       connections.forEach((connection) => connection.close());
@@ -1943,6 +2023,8 @@ export const createBrowserBridgeServer = (
         preAuthenticationMessages.clear();
         queuedMessageCounts.clear();
         queuedMessageBytes.clear();
+        await reserveOperation?.catch(() => undefined);
+        await startOperation?.catch(() => undefined);
         await authenticationQueue;
         await server?.close();
         server = undefined;
@@ -1958,4 +2040,5 @@ export const createBrowserBridgeServer = (
       return closeOperation;
     },
   };
+  return bridge;
 };

@@ -1011,7 +1011,7 @@ test("a pairing token exists only while an endpoint exists, across every transit
     log: () => undefined,
   });
   try {
-    await blocked.start();
+    await assert.rejects(blocked.start(), /EADDRINUSE/u);
     const failed = blocked.getStatus();
     invariant(failed, "failed listen");
     assert.equal(failed.pairingToken, undefined);
@@ -1051,7 +1051,7 @@ test("Browser Bridge publishes no pairing token when it cannot listen", async ()
     log: () => undefined,
   });
   try {
-    await blocked.start();
+    await assert.rejects(blocked.start(), /EADDRINUSE/u);
     const status = blocked.getStatus();
     assert.equal(status.pairingToken, undefined, "a failed listen must expose no pairing token");
     assert.equal(status.pairingExpiresAt, undefined);
@@ -2270,4 +2270,54 @@ test("shutdown still completes when a peer stops reading", async () => {
   } finally {
     socket.destroy();
   }
+});
+
+
+test("shared targeted interruption reaches its pending browser request and preserves the other window", { timeout: 5000 }, async () => {
+  const { createSharedBrowserBridgeClient } = require("../dist/browser/sharedBridgeTransport.js");
+  const sharedToken = "shared-profile-credential";
+  const { bridge } = await createStartedBridge({ sharedToken: () => sharedToken });
+  const left = createSharedBrowserBridgeClient({ endpoint: bridge.getStatus().endpoint, token: sharedToken });
+  const right = createSharedBrowserBridgeClient({ endpoint: bridge.getStatus().endpoint, token: sharedToken });
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const { collector } = connected;
+    const first = session();
+    const second = { ...session(), id: "second", tabId: 8, conversationUrl: "https://chatgpt.com/c/second", conversationIdentity: "chatgpt:https://chatgpt.com/c/second" };
+    socket.send(JSON.stringify({ type: "provider.status", protocolVersion, sessions: [first, second], selectedSessionId: first.id }));
+    while (bridge.getStatus().sessions.length !== 2) await new Promise((resolve) => setImmediate(resolve));
+    await Promise.all([left.start(), right.start()]);
+    left.bindSession("reviewer", first.id);
+    right.bindSession("reviewer", second.id);
+    const firstEvents = collect(left.sendConversation("reviewer", "left", first.id, new AbortController().signal));
+    const secondEvents = collect(right.sendConversation("reviewer", "right", second.id, new AbortController().signal));
+    const firstSend = await collector.next((value) => value.type === "conversation.send" && value.text === "left");
+    const secondSend = await collector.next((value) => value.type === "conversation.send" && value.text === "right");
+    await left.interrupt(secondSend.requestId);
+    await left.interrupt(firstSend.requestId);
+    await collector.next((value) => value.type === "conversation.interrupt" && value.requestId === firstSend.requestId);
+    assert.equal(collector.seen().some((value) => value.type === "conversation.interrupt" && value.requestId === secondSend.requestId), false);
+    socket.send(JSON.stringify({ type: "conversation.interrupted", protocolVersion, requestId: firstSend.requestId, agentId: firstSend.agentId, sessionId: first.id }));
+    assert.equal((await firstEvents).at(-1).type, "interrupted");
+    await right.interrupt(secondSend.requestId);
+    await collector.next((value) => value.type === "conversation.interrupt" && value.requestId === secondSend.requestId);
+    socket.send(JSON.stringify({ type: "conversation.interrupted", protocolVersion, requestId: secondSend.requestId, agentId: secondSend.agentId, sessionId: second.id }));
+    assert.equal((await secondEvents).at(-1).type, "interrupted");
+  } finally { await left.close(); await right.close(); socket?.close(); await bridge.close(); }
+});
+
+test("a credential-verified outdated browser receives a safe update reason", { timeout: 5000 }, async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    socket = new WebSocket(bridge.getStatus().endpoint);
+    const collector = createCollector(socket);
+    await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
+    socket.send(JSON.stringify({ type: "bridge.pair", protocolVersion: 8, token: bridge.getStatus().pairingToken }));
+    await collector.next((value) => value.type === "bridge.error" && value.code === "UPDATE_REQUIRED");
+    assert.equal(bridge.getStatus().blockedReason, "browserUpdateRequired");
+    assert.equal(bridge.getStatus().error, "Update Browser Bridge to connect.");
+  } finally { socket?.close(); await bridge.close(); }
 });

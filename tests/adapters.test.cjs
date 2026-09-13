@@ -388,6 +388,122 @@ const processRunning = (pid) => {
   return true;
 };
 
+const controlledProviderTermination = (context) => {
+  const processScope = require("../dist/process/processScope.js");
+  const originalSpawn = processScope.spawnScopedProviderProcess;
+  const launches = [];
+  let allowTermination = false;
+  let observeSpawn;
+  const spawned = new Promise((resolve) => { observeSpawn = resolve; });
+  context.mock.method(processScope, "spawnScopedProviderProcess", (...args) => {
+    const scope = originalSpawn(...args);
+    launches.push(scope);
+    scope.child.once("spawn", observeSpawn);
+    return {
+      ...scope,
+      terminate: async (graceMs) => allowTermination ? scope.terminate(graceMs) : false,
+    };
+  });
+  return { launches, spawned, allow: () => { allowTermination = true; } };
+};
+
+test("Codex disposal retains unconfirmed process cleanup and can confirm a later stop", async (context) => {
+  const control = controlledProviderTermination(context);
+  const adapter = createCodex();
+  try {
+    await collect(adapter.send(request("hello"), new AbortController().signal));
+    const child = control.launches[0].child;
+    await assert.rejects(adapter.dispose(), /did not terminate during disposal/u);
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    control.allow();
+    await adapter.dispose();
+    assert.ok(child.exitCode !== null || child.signalCode !== null);
+  } finally {
+    control.allow();
+    await adapter.dispose();
+  }
+});
+
+test("Codex cannot replace a failed transport while its process cleanup is unconfirmed", async (context) => {
+  const control = controlledProviderTermination(context);
+  const adapter = createCodex();
+  try {
+    await collect(adapter.send(request("hello"), new AbortController().signal));
+    control.launches[0].child.emit("error", new Error("Transport failed"));
+    await assert.rejects(
+      collect(adapter.send(request("replacement"), new AbortController().signal)),
+      /previous Codex process cleanup has not been confirmed/u,
+    );
+    assert.equal(control.launches.length, 1);
+    await assert.rejects(adapter.dispose(), /did not terminate during disposal/u);
+    control.allow();
+    await adapter.dispose();
+    const child = control.launches[0].child;
+    assert.ok(child.exitCode !== null || child.signalCode !== null);
+  } finally {
+    control.allow();
+    await adapter.dispose();
+  }
+});
+
+test("Claude retains failed-interruption process evidence until disposal confirms cleanup", async (context) => {
+  const control = controlledProviderTermination(context);
+  const adapter = createClaude();
+  const controller = new AbortController();
+  const pending = collect(adapter.send(request("DELAY"), controller.signal)).then(
+    (events) => ({ events }),
+    (error) => ({ error }),
+  );
+  try {
+    await control.spawned;
+    controller.abort();
+    assert.match((await pending).error.message, /process tree did not terminate/u);
+    await assert.rejects(adapter.dispose(), /did not terminate during disposal/u);
+    const child = control.launches[0].child;
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    control.allow();
+    await adapter.dispose();
+    assert.ok(child.exitCode !== null || child.signalCode !== null);
+  } finally {
+    control.allow();
+    await adapter.dispose();
+    await pending;
+  }
+});
+
+test("Claude setup cannot launch a provider after disposal has completed", async (context) => {
+  const processScope = require("../dist/process/processScope.js");
+  const spawn = context.mock.method(processScope, "spawnScopedProviderProcess");
+  const originalWrite = fs.promises.writeFile;
+  let resumeWrite;
+  let observeWrite;
+  const delayed = new Promise((resolve) => { resumeWrite = resolve; });
+  const reached = new Promise((resolve) => { observeWrite = resolve; });
+  context.mock.method(fs.promises, "writeFile", async (...args) => {
+    observeWrite();
+    await delayed;
+    return originalWrite(...args);
+  });
+  const adapter = createClaude();
+  const pending = collect(adapter.send(request("hello"), new AbortController().signal)).then(
+    (events) => ({ events }),
+    (error) => ({ error }),
+  );
+  try {
+    await reached;
+    await adapter.dispose();
+    resumeWrite();
+    assert.match((await pending).error.message, /adapter is disposed/u);
+    assert.equal(spawn.mock.callCount(), 0);
+  } finally {
+    resumeWrite();
+    await pending;
+    await adapter.dispose();
+  }
+});
+
 test("Codex reports an interrupted turn only once its surviving process tree is gone", async (context) => {
   if (process.platform === "win32") {
     context.skip("POSIX process group test");

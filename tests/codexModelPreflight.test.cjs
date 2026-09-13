@@ -136,3 +136,18 @@ test("a Codex that cannot list models refuses nothing, so the reader's own model
     await adapter.dispose();
   }
 });
+
+
+test("refreshing the Codex catalog asks the provider again without starting a turn", async () => {
+  await withMockModels("provider-model-one,provider-model-two", async (recorded) => {
+    const adapter = createCodex();
+    try {
+      await adapter.listModels();
+      await adapter.listModels();
+      const methods = recorded().filter((entry) => entry.type === "rpc").map((entry) => entry.message.method);
+      assert.equal(methods.filter((method) => method === "model/list").length, 2);
+      assert.equal(methods.includes("thread/start"), false);
+      assert.equal(methods.includes("turn/start"), false);
+    } finally { await adapter.dispose(); }
+  });
+});

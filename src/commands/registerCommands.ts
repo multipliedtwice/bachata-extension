@@ -63,8 +63,8 @@ const setupStorageKey = "bachata.setup.v1";
 const missingExecutable = (message: string): string | undefined =>
   /spawn (\S+) ENOENT/u.exec(message)?.[1];
 
-const SHOW_OUTPUT_LABEL = "Show Output";
-const SHOW_STEPS_LABEL = "Show Steps";
+const SHOW_OUTPUT_LABEL = vscode.l10n.t("Show Output");
+const SHOW_STEPS_LABEL = vscode.l10n.t("Show Steps");
 
 // The detail is already in the Output channel, so every failure offers the way to it rather
 // than leaving the exception text as the whole of what the user is told.
@@ -80,15 +80,15 @@ export const report = async (
     const missing = missingExecutable(message);
     const choice = await vscode.window.showErrorMessage(
       missing === undefined
-        ? `Bachata: ${message}`
-        : `Bachata could not start "${missing}". Install it, or set its command in the Bachata settings.`,
-      ...(missing === undefined ? [SHOW_OUTPUT_LABEL] : [SHOW_OUTPUT_LABEL, "Run Doctor"]),
+        ? vscode.l10n.t("Bachata: {0}", message)
+        : vscode.l10n.t("Bachata could not start \"{0}\". Install it, or set its command in the Bachata settings.", missing),
+      ...(missing === undefined ? [SHOW_OUTPUT_LABEL] : [SHOW_OUTPUT_LABEL, vscode.l10n.t("Run Doctor")]),
     );
     if (choice === SHOW_OUTPUT_LABEL) {
       output.show(true);
       return;
     }
-    if (choice === "Run Doctor") await vscode.commands.executeCommand("bachata.doctor");
+    if (choice === vscode.l10n.t("Run Doctor")) await vscode.commands.executeCommand("bachata.doctor");
   }
 };
 
@@ -116,7 +116,7 @@ export const registerCommands = (
   ).size;
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 20);
   status.command = "bachata.open";
-  status.name = "Bachata TODO orchestration";
+  status.name = vscode.l10n.t("Bachata TODO orchestration");
   const updateStatus = (): void => {
     const snapshot = orchestrator.getSnapshot();
     const run = snapshot.run;
@@ -128,7 +128,7 @@ export const registerCommands = (
     const tasks = Object.values(run.tasks);
     const completed = tasks.filter((task) => task.status === "done").length;
     status.text = `${snapshot.active ? "$(sync~spin)" : "$(git-branch)"} Bachata ${String(completed)}/${String(tasks.length)}`;
-    status.tooltip = `Open Bachata · ${run.status} · ${run.integrationBranch}`;
+    status.tooltip = vscode.l10n.t("Open Bachata · {0} · {1}", run.status, run.integrationBranch);
     status.show();
   };
   updateStatus();
@@ -151,7 +151,7 @@ export const registerCommands = (
     if (!onlyFolder) return { canceled: false };
     if (folders.length === 1) return { root: onlyFolder.uri.fsPath, canceled: false };
     const picked = await vscode.window.showWorkspaceFolderPick({
-      placeHolder: "Select the repository this Bachata run targets",
+      placeHolder: vscode.l10n.t("Select the repository this Bachata run targets"),
     });
     return picked ? { root: picked.uri.fsPath, canceled: false } : { canceled: true };
   };
@@ -189,10 +189,10 @@ export const registerCommands = (
       ...(value === undefined ? {} : { value }),
       ignoreFocusOut: true,
       validateInput: (candidate) => candidate.trim().length === 0
-        ? "A Git ref is required"
+        ? vscode.l10n.t("A Git ref is required")
         : isReviewableGitRef(candidate.trim())
           ? undefined
-          : "This is not a reviewable Git ref",
+          : vscode.l10n.t("This is not a reviewable Git ref"),
     });
     return answer?.trim() || undefined;
   };
@@ -202,16 +202,16 @@ export const registerCommands = (
   ): Promise<Omit<GitReviewScope, "scope"> | undefined> => {
     if (scope === "stagedDiff" || scope === "uncommitted") return {};
     if (scope === "branchAgainstBase") {
-      const baseRef = await askRef("Base ref to compare this branch against", "main");
+      const baseRef = await askRef(vscode.l10n.t("Base ref to compare this branch against"), "main");
       return baseRef === undefined ? undefined : { baseRef, headRef: "HEAD" };
     }
     if (scope === "commit") {
-      const commit = await askRef("Commit to review", "HEAD");
+      const commit = await askRef(vscode.l10n.t("Commit to review"), "HEAD");
       return commit === undefined ? undefined : { commit };
     }
-    const baseRef = await askRef("First commit of the range");
+    const baseRef = await askRef(vscode.l10n.t("First commit of the range"));
     if (baseRef === undefined) return undefined;
-    const headRef = await askRef("Last commit of the range", "HEAD");
+    const headRef = await askRef(vscode.l10n.t("Last commit of the range"), "HEAD");
     return headRef === undefined ? undefined : { baseRef, headRef };
   };
 
@@ -268,8 +268,8 @@ export const registerCommands = (
     const picked = await vscode.window.showQuickPick(
       dirty.map((value) => ({ label: value, picked: true })),
       {
-        title: "Seal working-tree changes as this run's input?",
-        placeHolder: "Selected changes are copied into the isolated run. Your branch and index are not touched.",
+        title: vscode.l10n.t("Seal working-tree changes as this run's input?"),
+        placeHolder: vscode.l10n.t("Selected changes are copied into the isolated run. Your branch and index are not touched."),
         canPickMany: true,
         ignoreFocusOut: true,
       },
@@ -278,20 +278,20 @@ export const registerCommands = (
     const sealedInputPaths = picked.map((item) => item.label);
     if (sealedInputPaths.length === 0) return { sealedInputPaths, canceled: false };
     const sealConfirmation = await vscode.window.showWarningMessage(
-      `Seal ${String(sealedInputPaths.length)} working-tree path${sealedInputPaths.length === 1 ? "" : "s"} as this run's input?`,
+      (sealedInputPaths.length === 1 ? vscode.l10n.t("Seal {0} working-tree path as this run's input?", String(sealedInputPaths.length)) : vscode.l10n.t("Seal {0} working-tree paths as this run's input?", String(sealedInputPaths.length))),
       {
         modal: true,
         detail: [
-          "Bachata copies these changes into the run's isolated worktree and records them as the run's starting point.",
-          "Nothing is committed, your branch does not move, and your index and working tree are not modified.",
-          "The run's own diff is measured against this sealed input, so applying the result never re-applies your own changes.",
+          vscode.l10n.t("Bachata copies these changes into the run's isolated worktree and records them as the run's starting point."),
+          vscode.l10n.t("Nothing is committed, your branch does not move, and your index and working tree are not modified."),
+          vscode.l10n.t("The run's own diff is measured against this sealed input, so applying the result never re-applies your own changes."),
           "",
           ...sealedInputPaths.slice(0, 20),
         ].join("\n"),
       },
-      "Seal these changes",
+      vscode.l10n.t("Seal these changes"),
     );
-    if (sealConfirmation !== "Seal these changes") return { sealedInputPaths: [], canceled: true };
+    if (sealConfirmation !== vscode.l10n.t("Seal these changes")) return { sealedInputPaths: [], canceled: true };
     return { sealedInputPaths, canceled: false };
   };
 
@@ -302,11 +302,11 @@ export const registerCommands = (
     if (manager.hasInitiative(workspaceRoot)) return true;
     const goal = await vscode.window.showInputBox({
       title,
-      prompt: "Bachata records this work against a durable goal you state. It never invents one.",
-      placeHolder: "e.g. every retry path is bounded and cancellable",
+      prompt: vscode.l10n.t("Bachata records this work against a durable goal you state. It never invents one."),
+      placeHolder: vscode.l10n.t("e.g. every retry path is bounded and cancellable"),
       ignoreFocusOut: true,
       validateInput: (value) => value.trim().length === 0
-        ? "State the goal, or press Escape to stop."
+        ? vscode.l10n.t("State the goal, or press Escape to stop.")
         : undefined,
     });
     if (goal === undefined || goal.trim().length === 0) return false;
@@ -328,23 +328,23 @@ export const registerCommands = (
       // The workflow is not known to need one. Offer rather than block, so a run-local
       // workflow is never gated and an unselected one still gets the chance to record.
       const choice = await vscode.window.showInformationMessage(
-        "This repository has no initiative. Work that records against one refuses to start without it.",
-        { modal: true, detail: "State the goal now, or continue and choose a run-local workflow." },
-        "State the goal",
-        "Continue without one",
+        vscode.l10n.t("This repository has no initiative. Work that records against one refuses to start without it."),
+        { modal: true, detail: vscode.l10n.t("State the goal now, or continue and choose a run-local workflow.") },
+        vscode.l10n.t("State the goal"),
+        vscode.l10n.t("Continue without one"),
       );
-      if (choice === "State the goal") {
-        await collectInitiative(workspaceRoot, "Bachata: what is this initiative's goal?");
+      if (choice === vscode.l10n.t("State the goal")) {
+        await collectInitiative(workspaceRoot, vscode.l10n.t("Bachata: what is this initiative's goal?"));
       }
       return choice !== undefined;
     }
     const stated = await collectInitiative(
       workspaceRoot,
-      "Bachata: what is this initiative's goal?",
+      vscode.l10n.t("Bachata: what is this initiative's goal?"),
     );
     if (!stated) {
       await vscode.window.showWarningMessage(
-        "Bachata stopped: this workflow records its result against an initiative, and none was stated.",
+        vscode.l10n.t("Bachata stopped: this workflow records its result against an initiative, and none was stated."),
       );
     }
     return stated;
@@ -453,7 +453,7 @@ export const registerCommands = (
     }
     const terminalCwd = vscode.workspace.workspaceFolders?.[0]?.uri;
     const terminal = vscode.window.createTerminal({
-      name: "Bachata remediation",
+      name: vscode.l10n.t("Bachata remediation"),
       ...(terminalCwd === undefined ? {} : { cwd: terminalCwd }),
     });
     terminal.show(true);
@@ -477,7 +477,7 @@ export const registerCommands = (
       } catch (error) {
         return {
           ok: false,
-          detail: `${command} is still unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          detail: vscode.l10n.t("{0} is still unavailable: {1}", command, error instanceof Error ? error.message : String(error)),
         };
       }
     }
@@ -493,8 +493,8 @@ export const registerCommands = (
     try {
       const dirty = parsePorcelainDirtyPaths(await dependencies.gitStatus());
       return dirty.length === 0
-        ? { ok: true, detail: "Workspace is clean" }
-        : { ok: false, detail: `Still uncommitted: ${dirty.slice(0, 8).join(", ")}` };
+        ? { ok: true, detail: vscode.l10n.t("Workspace is clean") }
+        : { ok: false, detail: vscode.l10n.t("Still uncommitted: {0}", dirty.slice(0, 8).join(", ")) };
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) };
     }
@@ -506,14 +506,14 @@ export const registerCommands = (
     if (!result) return;
     output.appendLine(`${result.ok ? "ok" : "BLOCK"} ${label}: ${result.detail}`);
     if (result.ok) {
-      await vscode.window.showInformationMessage(`Bachata: ${result.detail}`);
+      await vscode.window.showInformationMessage(vscode.l10n.t("Bachata: {0}", result.detail));
       return;
     }
     const choice = await vscode.window.showWarningMessage(
-      `Bachata: ${result.detail}`,
-      "Run Doctor",
+      vscode.l10n.t("Bachata: {0}", result.detail),
+      vscode.l10n.t("Run Doctor"),
     );
-    if (choice === "Run Doctor") await vscode.commands.executeCommand("bachata.doctor");
+    if (choice === vscode.l10n.t("Run Doctor")) await vscode.commands.executeCommand("bachata.doctor");
   };
   const runDoctorRemediation = async (
     remediationId: string,
@@ -579,7 +579,7 @@ export const registerCommands = (
     if (action.kind === "openSettings" || action.kind === "runInTerminal" || action.kind === "openExternal") {
       if (plan.recheck.kind === "none" || plan.recheck.kind === "readiness") return;
       const follow = await vscode.window.showInformationMessage(
-        `Bachata: ${plan.recheck.label} when the change is in place.`,
+        vscode.l10n.t("Bachata: {0} when the change is in place.", plan.recheck.label),
         plan.recheck.label,
       );
       if (follow === plan.recheck.label) {
@@ -608,7 +608,7 @@ export const registerCommands = (
       ? undefined
       : {
         value: waiting,
-        tooltip: `${String(waiting)} run${waiting === 1 ? "" : "s"} waiting on you`,
+        tooltip: (waiting === 1 ? vscode.l10n.t("{0} run waiting on you", String(waiting)) : vscode.l10n.t("{0} runs waiting on you", String(waiting))),
       };
   };
   updateLauncherBadge();
@@ -645,14 +645,14 @@ export const registerCommands = (
         conversation?.workingDirectory,
       );
       if (published.located === 0 && published.unlocated === 0) {
-        void vscode.window.showInformationMessage("This run recorded no findings to publish.");
+        void vscode.window.showInformationMessage(vscode.l10n.t("This run recorded no findings to publish."));
         return;
       }
       await vscode.commands.executeCommand("workbench.actions.view.problems");
       void vscode.window.showInformationMessage(
         published.unlocated === 0
-          ? `Published ${String(published.located)} run finding(s) to Problems.`
-          : `Published ${String(published.located)} run finding(s) to Problems. ${String(published.unlocated)} finding(s) name no file inside this repository and stay in the Result Center.`,
+          ? vscode.l10n.t("Published {0} run finding(s) to Problems.", String(published.located))
+          : vscode.l10n.t("Published {0} run finding(s) to Problems. {1} finding(s) name no file inside this repository and stay in the Result Center.", String(published.located), String(published.unlocated)),
       );
     })),
     vscode.commands.registerCommand("bachata.explainPipeline", () => report(output, async () => {
@@ -664,16 +664,16 @@ export const registerCommands = (
           : [{
             label: readiness.pipelineNames[pipeline.pipelineId] ?? pipeline.pipelineId,
             description: pipeline.pipelineId,
-            detail: `${pipeline.status}${pipeline.findings.filter((finding) => finding.status !== "ready").length > 0 ? ` · ${String(pipeline.findings.filter((finding) => finding.status !== "ready").length)} unresolved` : ""}`,
+            detail: `${pipeline.status}${pipeline.findings.filter((finding) => finding.status !== "ready").length > 0 ? vscode.l10n.t(" · {0} unresolved", String(pipeline.findings.filter((finding) => finding.status !== "ready").length)) : ""}`,
             pipelineId: pipeline.pipelineId,
           }]);
       if (choices.length === 0) {
-        void vscode.window.showInformationMessage("No pipeline is available to explain.");
+        void vscode.window.showInformationMessage(vscode.l10n.t("No pipeline is available to explain."));
         return;
       }
       const picked = await vscode.window.showQuickPick(choices, {
-        title: "Explain a pipeline without running it",
-        placeHolder: "Select a pipeline",
+        title: vscode.l10n.t("Explain a pipeline without running it"),
+        placeHolder: vscode.l10n.t("Select a pipeline"),
         ignoreFocusOut: true,
       });
       if (!picked?.pipelineId) return;
@@ -705,8 +705,8 @@ export const registerCommands = (
     vscode.commands.registerCommand("bachata.replayRun", () => report(output, async () => {
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
-        openLabel: "Replay",
-        filters: { "Bachata run bundle": ["json"] },
+        openLabel: vscode.l10n.t("Replay"),
+        filters: { [vscode.l10n.t("Bachata run bundle")]: ["json"] },
       });
       const file = picked?.[0];
       if (!file) return;
@@ -717,13 +717,13 @@ export const registerCommands = (
           ? inspection.integrity.statement
           : inspection.errors.join("; ");
         void vscode.window.showErrorMessage(
-          "Bachata replays only a run bundle whose recorded digest matches the file.",
+          vscode.l10n.t("Bachata replays only a run bundle whose recorded digest matches the file."),
           {
             modal: true,
             detail: [
               statement,
               "",
-              "The digest detects accidental change after export. It is not a signature: anyone who edits a bundle can recompute it, and it says nothing about who produced the file.",
+              vscode.l10n.t("The digest detects accidental change after export. It is not a signature: anyone who edits a bundle can recompute it, and it says nothing about who produced the file."),
             ].join("\n"),
           },
         );
@@ -758,24 +758,24 @@ export const registerCommands = (
       });
       const summary = replayDriftSummary(plan);
       if (!plan.replayable) {
-        void vscode.window.showErrorMessage(`This run bundle cannot be replayed here.\n\n${summary}`);
+        void vscode.window.showErrorMessage(vscode.l10n.t("This run bundle cannot be replayed here.\n\n{0}", summary));
         return;
       }
       const confirmed = await vscode.window.showWarningMessage(
-        `Replay ${plan.source.runRef} as a new run?`,
+        vscode.l10n.t("Replay {0} as a new run?", plan.source.runRef),
         {
           modal: true,
           detail: [
-            "A replay creates a new run with the recorded input and the recorded settings. It does not reuse the recorded answers, evidence, or worktree.",
+            vscode.l10n.t("A replay creates a new run with the recorded input and the recorded settings. It does not reuse the recorded answers, evidence, or worktree."),
             "",
             summary,
           ].join("\n"),
         },
-        "Create replay run",
+        vscode.l10n.t("Create replay run"),
       );
-      if (confirmed !== "Create replay run") return;
+      if (confirmed !== vscode.l10n.t("Create replay run")) return;
       const conversation = await manager.createConversation({
-        title: `Replay of ${plan.source.title}`,
+        title: vscode.l10n.t("Replay of {0}", plan.source.title),
         preparedDraft: plan.source.prompt,
         ...(plan.source.pipelineId ? { pipelineId: plan.source.pipelineId } : {}),
         ...(plan.source.runSettings ? { runSettings: plan.source.runSettings } : {}),
@@ -786,8 +786,8 @@ export const registerCommands = (
     vscode.commands.registerCommand("bachata.inspectRunBundle", () => report(output, async () => {
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
-        openLabel: "Inspect",
-        filters: { "Bachata run bundle": ["json"] },
+        openLabel: vscode.l10n.t("Inspect"),
+        filters: { [vscode.l10n.t("Bachata run bundle")]: ["json"] },
       });
       const file = picked?.[0];
       if (!file) return;
@@ -800,7 +800,7 @@ export const registerCommands = (
       await vscode.window.showTextDocument(document, { preview: true });
       if ("integrity" in inspection && inspection.integrity.state === "mismatch") {
         void vscode.window.showWarningMessage(
-          `This run bundle's recorded digest does not match the file. ${inspection.integrity.statement}`,
+          vscode.l10n.t("This run bundle's recorded digest does not match the file. {0}", inspection.integrity.statement),
         );
       }
     })),
@@ -848,12 +848,12 @@ export const registerCommands = (
             : {}),
         });
         const icon = { ready: "$(pass)", needsSetup: "$(tools)", blocked: "$(error)", unsupported: "$(circle-slash)" } as const;
-        const statusWord = { ready: "Ready", needsSetup: "Needs setup", blocked: "Blocked", unsupported: "Unsupported" } as const;
+        const statusWord = { ready: vscode.l10n.t("Ready"), needsSetup: vscode.l10n.t("Needs setup"), blocked: vscode.l10n.t("Blocked"), unsupported: vscode.l10n.t("Unsupported") } as const;
         const safetyLabel = {
-          review: "read-only",
-          interactive: "you approve actions",
-          managed: "controller-owned scope; writes your selected workspace with no automatic rollback",
-          orchestration: "isolated retained work you apply selectively",
+          review: vscode.l10n.t("read-only"),
+          interactive: vscode.l10n.t("you approve actions"),
+          managed: vscode.l10n.t("controller-owned scope; writes your selected workspace with no automatic rollback"),
+          orchestration: vscode.l10n.t("isolated retained work you apply selectively"),
         } as const;
         const safetyFor = (card: { id: string; pipelineId?: string }): string | undefined => {
           if (card.id === "todo") return safetyLabel.orchestration;
@@ -867,42 +867,42 @@ export const registerCommands = (
           Number(vscode.workspace.getConfiguration("bachata").get("maxPipelineIterations", 10)),
         );
         const providerLabel = (adapter: string): string =>
-          adapter === "auto" ? "Any available provider" : providerDisplayName(adapter);
+          adapter === "auto" ? vscode.l10n.t("Any available provider") : providerDisplayName(adapter);
         const providerDetail = (adapter: string): string => {
-          if (readiness.disabledProviders.includes(adapter)) return "Disabled in bachata.disabledProviders";
+          if (readiness.disabledProviders.includes(adapter)) return vscode.l10n.t("Disabled in bachata.disabledProviders");
           const probe = readiness.adapters.find(
             (candidate) => candidate.agentId === undefined && candidate.type === adapter,
           );
-          if (!probe) return "Not probed on this machine";
-          return probe.available ? probe.detail ?? "Available" : probe.detail ?? "Unavailable";
+          if (!probe) return vscode.l10n.t("Not probed on this machine");
+          return probe.available ? probe.detail ?? vscode.l10n.t("Available") : probe.detail ?? vscode.l10n.t("Unavailable");
         };
         type ProviderPick = vscode.QuickPickItem & { provider?: string; manageProviders?: boolean };
         const chooseProviders = async (): Promise<void> => {
           const items: ProviderPick[] = [
             {
-              label: `${readiness.preferredProvider === "auto" ? "$(check)" : "$(blank)"} Any available provider`,
-              description: "Bachata picks the readiest workflow",
-              detail: "No provider is preferred. Readiness alone decides which workflow is offered.",
+              label: vscode.l10n.t("{0} Any available provider", readiness.preferredProvider === "auto" ? "$(check)" : "$(blank)"),
+              description: vscode.l10n.t("Bachata picks the readiest workflow"),
+              detail: vscode.l10n.t("No provider is preferred. Readiness alone decides which workflow is offered."),
               provider: "auto",
             },
             ...knownProviderAdapters.map((adapter): ProviderPick => ({
               label: `${readiness.preferredProvider === adapter ? "$(check)" : "$(blank)"} ${providerLabel(adapter)}`,
-              ...(readiness.disabledProviders.includes(adapter) ? { description: "Disabled" } : {}),
+              ...(readiness.disabledProviders.includes(adapter) ? { description: vscode.l10n.t("Disabled") } : {}),
               detail: providerDetail(adapter),
               provider: adapter,
             })),
             {
-              label: "$(circle-slash) Manage disabled providers",
+              label: `$(circle-slash) ${vscode.l10n.t("Manage disabled providers")}`,
               description: readiness.disabledProviders.length === 0
-                ? "None disabled"
+                ? vscode.l10n.t("None disabled")
                 : readiness.disabledProviders.map(providerDisplayName).join(", "),
-              detail: "A disabled provider is refused before any turn starts and is never selected by Setup.",
+              detail: vscode.l10n.t("A disabled provider is refused before any turn starts and is never selected by Setup."),
               manageProviders: true,
             },
           ];
           const picked = await vscode.window.showQuickPick(items, {
-            title: "Bachata Setup: providers",
-            placeHolder: "Which provider should run your work?",
+            title: vscode.l10n.t("Bachata Setup: providers"),
+            placeHolder: vscode.l10n.t("Which provider should run your work?"),
           });
           if (!picked) return;
           // Which provider a person can run, and which they refuse to run, is a property of
@@ -919,8 +919,8 @@ export const registerCommands = (
                 provider: adapter,
               })),
               {
-                title: "Bachata Setup: disabled providers",
-                placeHolder: "Selected providers are refused before any turn starts",
+                title: vscode.l10n.t("Bachata Setup: disabled providers"),
+                placeHolder: vscode.l10n.t("Selected providers are refused before any turn starts"),
                 canPickMany: true,
               },
             );
@@ -947,24 +947,24 @@ export const registerCommands = (
         type CardPick = vscode.QuickPickItem & { card?: WorkflowCardState; providers?: boolean };
         const cardItem = (card: WorkflowCardState): CardPick => ({
           label: `${icon[card.status]} ${card.title}`,
-          description: card.status === "ready" ? `Ready · ${card.readinessDetail}` : statusWord[card.status],
+          description: card.status === "ready" ? vscode.l10n.t("Ready · {0}", card.readinessDetail) : statusWord[card.status],
           detail: [card.status === "ready" ? card.detail : card.readinessDetail, safetyFor(card)]
             .filter(Boolean)
             .join(" · "),
           card,
         });
         const providersEntry: CardPick = {
-          label: "$(server) Providers",
+          label: `$(server) ${vscode.l10n.t("Providers")}`,
           description: providerLabel(readiness.preferredProvider),
           detail: readiness.disabledProviders.length === 0
-            ? "Choose which provider runs your work, or disable one."
-            : `Disabled: ${readiness.disabledProviders.map(providerDisplayName).join(", ")}`,
+            ? vscode.l10n.t("Choose which provider runs your work, or disable one.")
+            : vscode.l10n.t("Disabled: {0}", readiness.disabledProviders.map(providerDisplayName).join(", ")),
           providers: true,
         };
         const advancedEntry: CardPick = {
-          label: "$(gear) Advanced workflows",
-          description: "TODO orchestration, browser providers, custom pipelines",
-          detail: "Expert surfaces. A first run needs none of them.",
+          label: `$(gear) ${vscode.l10n.t("Advanced workflows")}`,
+          description: vscode.l10n.t("TODO orchestration, browser providers, custom pipelines"),
+          detail: vscode.l10n.t("Expert surfaces. A first run needs none of them."),
         };
         const journey = projected.filter((item) => item.advanced !== true);
         const advanced = projected.filter((item) => item.advanced === true);
@@ -975,12 +975,12 @@ export const registerCommands = (
         const resumed = unfinished
           ? await vscode.window.showQuickPick(
               [
-                { label: `$(debug-continue) Continue: ${unfinished.title}`, resume: true },
-                { label: "$(discard) Start over", resume: false },
+                { label: `$(debug-continue) ${vscode.l10n.t("Continue: {0}", unfinished.title)}`, resume: true },
+                { label: `$(discard) ${vscode.l10n.t("Start over")}`, resume: false },
               ],
               {
-                title: "Bachata Setup",
-                placeHolder: `You left Setup at "${unfinished.title}". Continue where you stopped?`,
+                title: vscode.l10n.t("Bachata Setup"),
+                placeHolder: vscode.l10n.t("You left Setup at \"{0}\". Continue where you stopped?", unfinished.title),
               },
             )
           : undefined;
@@ -992,7 +992,7 @@ export const registerCommands = (
           ? { label: resumedCard.title, card: resumedCard }
           : await vscode.window.showQuickPick(
               [...journey.map(cardItem), providersEntry, advancedEntry],
-              { title: "Bachata Setup", placeHolder: "What do you want to do?" },
+              { title: vscode.l10n.t("Bachata Setup"), placeHolder: vscode.l10n.t("What do you want to do?") },
             );
         if (!first) return;
         if (first.providers) {
@@ -1002,8 +1002,8 @@ export const registerCommands = (
         const selected = first.card
           ? first
           : await vscode.window.showQuickPick(advanced.map(cardItem), {
-              title: "Bachata Setup: advanced workflows",
-              placeHolder: "Expert workflows. Bachata has no hosted service; selected content goes to the providers you configure.",
+              title: vscode.l10n.t("Bachata Setup: advanced workflows"),
+              placeHolder: vscode.l10n.t("Expert workflows. Bachata has no hosted service; selected content goes to the providers you configure."),
             });
         const card = selected?.card;
         if (!card) return;
@@ -1019,17 +1019,17 @@ export const registerCommands = (
             : undefined;
           const facts = guardrails
             ? [
-                `${String(guardrails.providers.length)} provider${guardrails.providers.length === 1 ? "" : "s"}: ${guardrails.providers.join(", ")}`,
-                `Assurance: ${guardrails.assuranceLabel}`,
-                `Safety: ${safetyLabel[guardrails.safetyLevel]}`,
-                `Verification: ${guardrails.checks.length > 0 ? controllerCheckSummary(guardrails.checks) : "none declared"}`,
-                `At most ${String(maxIterations)} iteration${maxIterations === 1 ? "" : "s"} per run`,
+                (guardrails.providers.length === 1 ? vscode.l10n.t("{0} provider: {1}", String(guardrails.providers.length), guardrails.providers.join(", ")) : vscode.l10n.t("{0} providers: {1}", String(guardrails.providers.length), guardrails.providers.join(", "))),
+                vscode.l10n.t("Assurance: {0}", guardrails.assuranceLabel),
+                vscode.l10n.t("Safety: {0}", safetyLabel[guardrails.safetyLevel]),
+                vscode.l10n.t("Verification: {0}", guardrails.checks.length > 0 ? controllerCheckSummary(guardrails.checks) : vscode.l10n.t("none declared")),
+                (maxIterations === 1 ? vscode.l10n.t("At most {0} iteration per run", String(maxIterations)) : vscode.l10n.t("At most {0} iterations per run", String(maxIterations))),
               ]
             : [];
           return {
             label: `${icon[mode.status]} ${mode.label}`,
             description: mode.status === "ready"
-              ? `Ready · ${mode.readinessDetail}`
+              ? vscode.l10n.t("Ready · {0}", mode.readinessDetail)
               : statusWord[mode.status],
             detail: (mode.status === "ready" ? facts : [mode.readinessDetail, ...facts]).join(" · "),
             mode,
@@ -1089,19 +1089,19 @@ export const registerCommands = (
             const settle = await vscode.window.showQuickPick(
               [
                 {
-                  label: "$(law) Record or rule on an outside claim first",
+                  label: `$(law) ${vscode.l10n.t("Record or rule on an outside claim first")}`,
                   detail: recommendation.reasons.join("; ")
-                    || "Claims from outside this repository are unsettled.",
+                    || vscode.l10n.t("Claims from outside this repository are unsettled."),
                   settle: true,
                 },
                 {
-                  label: "$(debug-continue) Choose a workflow anyway",
-                  detail: "The outside claims stay unsettled and keep bubbling up.",
+                  label: `$(debug-continue) ${vscode.l10n.t("Choose a workflow anyway")}`,
+                  detail: vscode.l10n.t("The outside claims stay unsettled and keep bubbling up."),
                   settle: false,
                 },
               ],
               {
-                title: `Bachata Setup: ${card.title}`,
+                title: vscode.l10n.t("Bachata Setup: {0}", card.title),
                 placeHolder: workflowRecommendationStatement(recommendation),
               },
             );
@@ -1112,9 +1112,9 @@ export const registerCommands = (
             }
           }
           const chosen = await vscode.window.showQuickPick(card.modes.map(modeItem), {
-            title: `Bachata Setup: ${card.title}`,
+            title: vscode.l10n.t("Bachata Setup: {0}", card.title),
             placeHolder: runnable.length === 1
-              ? `Only ${runnable[0]?.label ?? "one mode"} is runnable here. The other states what it needs.`
+              ? vscode.l10n.t("Only {0} is runnable here. The other states what it needs.", runnable[0]?.label ?? vscode.l10n.t("one mode"))
               : workflowRecommendationStatement(recommendation),
           });
           return chosen?.mode;
@@ -1123,9 +1123,9 @@ export const registerCommands = (
         if (!mode) return;
         if (mode.status !== "ready" || !mode.pipelineId) {
           await vscode.window.showWarningMessage(
-            `Bachata Setup: ${mode.readinessDetail}`,
-            "Run Doctor",
-          ).then((choice) => choice === "Run Doctor"
+            vscode.l10n.t("Bachata Setup: {0}", mode.readinessDetail),
+            vscode.l10n.t("Run Doctor"),
+          ).then((choice) => choice === vscode.l10n.t("Run Doctor")
             ? vscode.commands.executeCommand("bachata.doctor")
             : undefined);
           return;
@@ -1138,14 +1138,14 @@ export const registerCommands = (
           && verifierState.proposalCount > 0
           && (readiness.pipelineGuardrails?.[pipelineId]?.checks ?? []).length > 0) {
           const bootstrap = await vscode.window.showInformationMessage(
-            `This repository declares ${String(verifierState.proposalCount)} check Bachata could run, and none is approved.`,
+            vscode.l10n.t("This repository declares {0} check Bachata could run, and none is approved.", String(verifierState.proposalCount)),
             {
               modal: false,
-              detail: "Bachata verification covers integrity, syntax and types. No repository test suite runs until you approve a verifier, and even then Bachata starts it only during Bachata: Improve This Project.",
+              detail: vscode.l10n.t("Bachata verification covers integrity, syntax and types. No repository test suite runs until you approve a verifier, and even then Bachata starts it only during Bachata: Improve This Project."),
             },
-            "Propose repository verifiers",
+            vscode.l10n.t("Propose repository verifiers"),
           );
-          if (bootstrap === "Propose repository verifiers") {
+          if (bootstrap === vscode.l10n.t("Propose repository verifiers")) {
             await vscode.commands.executeCommand("bachata.bootstrapConfiguration");
           }
         }
@@ -1180,9 +1180,9 @@ export const registerCommands = (
         // A review is recorded against an initiative. Setup collects the goal here rather
         // than letting the run succeed and be dropped from Direction in silence. The goal is
         // the user's words; Bachata never invents one, and refuses instead.
-        if (!await collectInitiative(resolvedRoot.root, "Bachata Setup: what is this initiative's goal?")) {
+        if (!await collectInitiative(resolvedRoot.root, vscode.l10n.t("Bachata Setup: what is this initiative's goal?"))) {
           await vscode.window.showWarningMessage(
-            "Bachata Setup stopped: a review is recorded against an initiative, and none was stated.",
+            vscode.l10n.t("Bachata Setup stopped: a review is recorded against an initiative, and none was stated."),
           );
           return;
         }
@@ -1192,26 +1192,26 @@ export const registerCommands = (
           : await vscode.window.showQuickPick(
               [
                 {
-                  label: "One pass",
-                  detail: "The pipeline runs once.",
+                  label: vscode.l10n.t("One pass"),
+                  detail: vscode.l10n.t("The pipeline runs once."),
                   iterations: 1,
                   mode: "fixed" as const,
                 },
                 {
-                  label: "Fixed iterations",
-                  detail: `Repeat with a fresh chat up to ${String(maxIterations)} times.`,
+                  label: vscode.l10n.t("Fixed iterations"),
+                  detail: vscode.l10n.t("Repeat with a fresh chat up to {0} times.", String(maxIterations)),
                   iterations: Math.min(3, maxIterations),
                   mode: "fixed" as const,
                 },
                 {
-                  label: "Until clean",
-                  detail: `Stop when two consecutive iterations change nothing, at most ${String(maxIterations)}.`,
+                  label: vscode.l10n.t("Until clean"),
+                  detail: vscode.l10n.t("Stop when two consecutive iterations change nothing, at most {0}.", String(maxIterations)),
                   iterations: maxIterations,
                   mode: "untilClean" as const,
                   requiredCleanPasses: 2,
                 },
               ],
-              { title: "Bachata Setup: completion policy", placeHolder: "When is this run done?" },
+              { title: vscode.l10n.t("Bachata Setup: completion policy"), placeHolder: vscode.l10n.t("When is this run done?") },
             );
         if (!completion) return;
         const guardrails = readiness.pipelineGuardrails?.[pipelineId];
@@ -1225,20 +1225,20 @@ export const registerCommands = (
               : { requiredCleanPasses: completion.requiredCleanPasses }),
           });
           const confirmation = await vscode.window.showInformationMessage(
-            "Start with these guardrails?",
+            vscode.l10n.t("Start with these guardrails?"),
             {
               modal: true,
               detail: [
                 ...statements,
                 "",
-                `Set in the advanced editor only: ${guardrails.advancedOnly.join("; ")}.`,
+                vscode.l10n.t("Set in the advanced editor only: {0}.", guardrails.advancedOnly.join("; ")),
                 "",
-                "Nothing runs until you enter a prompt and send it.",
+                vscode.l10n.t("Nothing runs until you enter a prompt and send it."),
               ].join("\n"),
             },
-            "Create the run",
+            vscode.l10n.t("Create the run"),
           );
-          if (confirmation !== "Create the run") return;
+          if (confirmation !== vscode.l10n.t("Create the run")) return;
         }
         const conversation = await manager.createConversation({
           title: card.title,
@@ -1264,7 +1264,7 @@ export const registerCommands = (
           const detail = blockers.map((finding) => `${finding.label}: ${finding.detail}`).join("\n");
           output.appendLine(`Bachata Improve preflight failed:\n${detail}`);
           await vscode.window.showWarningMessage(
-            "Bachata cannot improve this project yet",
+            vscode.l10n.t("Bachata cannot improve this project yet"),
             { modal: true, detail },
           );
           return;
@@ -1296,7 +1296,7 @@ export const registerCommands = (
             // A person who already approved this repository is told why they are being asked
             // again, rather than seeing the first-approval dialog a second time.
             const supersededNote = repositoryVerifiersApproved(stored, repositoryRoot)
-              ? "An earlier approval for this repository does not cover the checks it declares now, so Bachata is asking again.\n\n"
+              ? vscode.l10n.t("An earlier approval for this repository does not cover the checks it declares now, so Bachata is asking again.\n\n")
               : "";
             const approval = await vscode.window.showWarningMessage(
               REPOSITORY_VERIFIER_APPROVAL_TITLE,
@@ -1304,11 +1304,11 @@ export const registerCommands = (
                 modal: true,
                 detail: `${supersededNote}${repositoryVerifierApprovalDetail({ workspaceRoot, commands, descriptors })}`,
               },
-              "Approve these checks",
-              "Run without them",
+              vscode.l10n.t("Approve these checks"),
+              vscode.l10n.t("Run without them"),
             );
             if (approval === undefined) return;
-            if (approval === "Approve these checks") {
+            if (approval === vscode.l10n.t("Approve these checks")) {
               await context.workspaceState.update(
                 REPOSITORY_VERIFIER_APPROVAL_KEY,
                 withRepositoryVerifierApproval(
@@ -1326,14 +1326,14 @@ export const registerCommands = (
         // run that was approved.
         if (confirmed.workspaceRoot !== workspaceRoot) {
           await vscode.window.showWarningMessage(
-            "The active repository changed while Bachata was asking about this run",
+            vscode.l10n.t("The active repository changed while Bachata was asking about this run"),
             {
               modal: true,
               detail: [
-                `Approved: ${workspaceRoot ?? "unknown"}`,
-                `Active now: ${confirmed.workspaceRoot ?? "unknown"}`,
+                vscode.l10n.t("Approved: {0}", workspaceRoot ?? vscode.l10n.t("unknown")),
+                vscode.l10n.t("Active now: {0}", confirmed.workspaceRoot ?? vscode.l10n.t("unknown")),
                 "",
-                "Open a file in the repository you want to improve, then run this command again.",
+                vscode.l10n.t("Open a file in the repository you want to improve, then run this command again."),
               ].join("\n"),
             },
           );
@@ -1342,32 +1342,32 @@ export const registerCommands = (
         const contract = confirmed.contract;
         const confirmation = await vscode.window.showWarningMessage(
           confirmed.todoExecutable
-            ? "Improve this project by running its executable TODO?"
-            : "Improve this project by discovering the work first?",
+            ? vscode.l10n.t("Improve this project by running its executable TODO?")
+            : vscode.l10n.t("Improve this project by discovering the work first?"),
           {
             modal: true,
             detail: [
-              `Repository: ${workspaceRoot ?? "unknown"}`,
+              vscode.l10n.t("Repository: {0}", workspaceRoot ?? vscode.l10n.t("unknown")),
               confirmed.todoExecutable
-                ? `Tasks: ${contract?.taskIds.join(", ") ?? "declared in the TODO"}`
-                : `No executable TODO (${confirmed.todoDiagnostic ?? "unknown"}). Codex and Claude audit this repository independently, cross-check every claim against source, and converge on one plan before anything is implemented.`,
-              `Pipelines: ${confirmed.bootstrapPipelineIds.join(", ")}`,
-              `Sealed input: ${sealedInputPaths.join(", ") || "none; the run starts from HEAD"}`,
-              "Codex plans and reviews. Claude implements and performs one bounded revision when the review rejects a candidate.",
-              "Bachata runs the declared checks before its own Lead review, and again on the integration tree.",
+                ? vscode.l10n.t("Tasks: {0}", contract?.taskIds.join(", ") ?? vscode.l10n.t("declared in the TODO"))
+                : vscode.l10n.t("No executable TODO ({0}). Codex and Claude audit this repository independently, cross-check every claim against source, and converge on one plan before anything is implemented.", confirmed.todoDiagnostic ?? vscode.l10n.t("unknown")),
+              vscode.l10n.t("Pipelines: {0}", confirmed.bootstrapPipelineIds.join(", ")),
+              vscode.l10n.t("Sealed input: {0}", sealedInputPaths.join(", ") || vscode.l10n.t("none; the run starts from HEAD")),
+              vscode.l10n.t("Codex plans and reviews. Claude implements and performs one bounded revision when the review rejects a candidate."),
+              vscode.l10n.t("Bachata runs the declared checks before its own Lead review, and again on the integration tree."),
               confirmed.taskPipelinesWithOwnSteps.length > 0
-                ? `These task pipelines declare their own steps and may review inside the pipeline, before those checks: ${confirmed.taskPipelinesWithOwnSteps.join(", ")}.`
-                : "No task pipeline declares a review of its own, so each candidate is reviewed once, after its checks.",
+                ? vscode.l10n.t("These task pipelines declare their own steps and may review inside the pipeline, before those checks: {0}.", confirmed.taskPipelinesWithOwnSteps.join(", "))
+                : vscode.l10n.t("No task pipeline declares a review of its own, so each candidate is reviewed once, after its checks."),
               confirmed.repositoryVerifiers === "humanApproved"
-                ? "Repository verifiers: approved for this workspace. Approval is not proof that those executables are safe."
-                : "Repository verifiers: refused. Only bachata:workspace-integrity and bachata:project-checks run.",
-              `Commits: none. ${contract?.isolation ?? "Each task runs in its own Git worktree and results merge through a separate integration worktree."}`,
-              "The successful result is retained for one Apply action. Nothing is committed, pushed, or applied to your working tree automatically.",
+                ? vscode.l10n.t("Repository verifiers: approved for this workspace. Approval is not proof that those executables are safe.")
+                : vscode.l10n.t("Repository verifiers: refused. Only bachata:workspace-integrity and bachata:project-checks run."),
+              vscode.l10n.t("Commits: none. {0}", contract?.isolation ?? vscode.l10n.t("Each task runs in its own Git worktree and results merge through a separate integration worktree.")),
+              vscode.l10n.t("The successful result is retained for one Apply action. Nothing is committed, pushed, or applied to your working tree automatically."),
             ].join("\n"),
           },
-          "Improve this project",
+          vscode.l10n.t("Improve this project"),
         );
-        if (confirmation !== "Improve this project") return;
+        if (confirmation !== vscode.l10n.t("Improve this project")) return;
         openPipelinePanel(context, manager);
         output.appendLine("Starting Bachata self-improvement");
         const result = await orchestrator.improve({
@@ -1382,7 +1382,7 @@ export const registerCommands = (
           `Bachata Improve ${result.ledger.status} via ${result.path}: ${result.ledger.integrationBranch}`,
         );
         await vscode.window.showInformationMessage(
-          `Bachata Improve ${result.ledger.status}. Integration branch: ${result.ledger.integrationBranch}`,
+          vscode.l10n.t("Bachata Improve {0}. Integration branch: {1}", result.ledger.status, result.ledger.integrationBranch),
         );
       }),
     ),
@@ -1398,34 +1398,34 @@ export const registerCommands = (
             || "TODO orchestration preflight produced no run contract";
           output.appendLine(`TODO orchestration preflight failed:\n${detail}`);
           await vscode.window.showWarningMessage(
-            "Bachata cannot start TODO orchestration yet",
+            vscode.l10n.t("Bachata cannot start TODO orchestration yet"),
             { modal: true, detail },
           );
           return;
         }
         const contract = readiness.contract;
         const confirmation = await vscode.window.showWarningMessage(
-          "Start unattended TODO orchestration?",
+          vscode.l10n.t("Start unattended TODO orchestration?"),
           {
             modal: true,
             detail: [
-              `Repository: ${contract.workspaceRoot}`,
-              `Tasks: ${contract.taskIds.join(", ")}`,
-              `Task pipelines: ${contract.taskPipelineIds.join(", ")} · Master: ${contract.masterPipelineId}`,
-              `Writable paths: ${contract.writablePaths.join(", ") || "declared per task"}`,
-              `Sealed input: ${sealedInputPaths.join(", ") || "none; the run starts from HEAD"}`,
-              `Verification: ${contract.verification.join(", ") || "none declared"}`,
-              `Final verification: ${contract.finalVerification.join(", ") || "none declared"}`,
-              `Shared verification resources: ${contract.verificationResources.join(", ") || "none declared"}`,
-              `Limits: ${String(contract.maxConcurrency)} concurrent tasks, ${String(contract.retries)} retries per task`,
-              `Commits: none. ${contract.isolation}.`,
-              `Human decisions: ${contract.humanDecisions.join("; ")}`,
-              `Completion: ${contract.completion.join("; ")}`,
+              vscode.l10n.t("Repository: {0}", contract.workspaceRoot),
+              vscode.l10n.t("Tasks: {0}", contract.taskIds.join(", ")),
+              vscode.l10n.t("Task pipelines: {0} · Master: {1}", contract.taskPipelineIds.join(", "), contract.masterPipelineId),
+              vscode.l10n.t("Writable paths: {0}", contract.writablePaths.join(", ") || vscode.l10n.t("declared per task")),
+              vscode.l10n.t("Sealed input: {0}", sealedInputPaths.join(", ") || vscode.l10n.t("none; the run starts from HEAD")),
+              vscode.l10n.t("Verification: {0}", contract.verification.join(", ") || vscode.l10n.t("none declared")),
+              vscode.l10n.t("Final verification: {0}", contract.finalVerification.join(", ") || vscode.l10n.t("none declared")),
+              vscode.l10n.t("Shared verification resources: {0}", contract.verificationResources.join(", ") || vscode.l10n.t("none declared")),
+              vscode.l10n.t("Limits: {0} concurrent tasks, {1} retries per task", String(contract.maxConcurrency), String(contract.retries)),
+              vscode.l10n.t("Commits: none. {0}.", contract.isolation),
+              vscode.l10n.t("Human decisions: {0}", contract.humanDecisions.join("; ")),
+              vscode.l10n.t("Completion: {0}", contract.completion.join("; ")),
             ].join("\n"),
           },
-          "Start orchestration",
+          vscode.l10n.t("Start orchestration"),
         );
-        if (confirmation !== "Start orchestration") {
+        if (confirmation !== vscode.l10n.t("Start orchestration")) {
           return;
         }
         openPipelinePanel(context, manager);
@@ -1442,7 +1442,7 @@ export const registerCommands = (
         }
         output.appendLine(`TODO orchestration ${result.status}: ${result.integrationBranch}`);
         await vscode.window.showInformationMessage(
-          `Bachata TODO ${result.status}. Integration branch: ${result.integrationBranch}`,
+          vscode.l10n.t("Bachata TODO {0}. Integration branch: {1}", result.status, result.integrationBranch),
         );
       }),
     ),
@@ -1462,45 +1462,43 @@ export const registerCommands = (
         }
         output.appendLine(`TODO orchestration ${result.status}: ${result.integrationBranch}`);
         await vscode.window.showInformationMessage(
-          `Bachata TODO ${result.status}. Integration branch: ${result.integrationBranch}`,
+          vscode.l10n.t("Bachata TODO {0}. Integration branch: {1}", result.status, result.integrationBranch),
         );
       }),
     ),
     vscode.commands.registerCommand("bachata.todo.stop", () =>
       report(output, async () => {
         if (!orchestrator.getSnapshot().run) {
-          await vscode.window.showInformationMessage("Bachata has no TODO orchestration run to stop");
+          await vscode.window.showInformationMessage(vscode.l10n.t("Bachata has no TODO orchestration run to stop"));
           return;
         }
         openPipelinePanel(context, manager);
         await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: "Bachata is stopping the TODO orchestration run" },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t("Bachata is stopping the TODO orchestration run") },
           async () => {
             await orchestrator.stop();
           },
         );
         output.appendLine("TODO orchestration stopped");
-        await vscode.window.showInformationMessage("Bachata stopped the TODO orchestration run");
+        await vscode.window.showInformationMessage(vscode.l10n.t("Bachata stopped the TODO orchestration run"));
       }),
     ),
     vscode.commands.registerCommand("bachata.todo.abandon", () =>
       report(output, async () => {
         const run = orchestrator.getSnapshot().run;
         if (!run) {
-          await vscode.window.showInformationMessage("Bachata has no TODO orchestration run to abandon");
+          await vscode.window.showInformationMessage(vscode.l10n.t("Bachata has no TODO orchestration run to abandon"));
           return;
         }
         const choice = await vscode.window.showWarningMessage(
-          "Abandon this TODO orchestration run?",
+          vscode.l10n.t("Abandon this TODO orchestration run?"),
           {
             modal: true,
-            detail: `Integration branch: ${run.integrationBranch}
-Integration worktree: ${run.integrationWorktree}
-The task chat history will be retained. Extension-owned worktrees and branches will be removed.`,
+            detail: vscode.l10n.t("Integration branch: {0}\nIntegration worktree: {1}\nThe task chat history will be retained. Extension-owned worktrees and branches will be removed.", run.integrationBranch, run.integrationWorktree),
           },
-          "Abandon",
+          vscode.l10n.t("Abandon"),
         );
-        if (choice !== "Abandon") {
+        if (choice !== vscode.l10n.t("Abandon")) {
           return;
         }
         openPipelinePanel(context, manager);
@@ -1515,7 +1513,7 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         }
         const quarantined = resourceBroker.listQuarantine();
         if (quarantined.length === 0) {
-          await vscode.window.showInformationMessage("No resources are quarantined.");
+          await vscode.window.showInformationMessage(vscode.l10n.t("No resources are quarantined."));
           return;
         }
         const selected = await vscode.window.showQuickPick(
@@ -1527,19 +1525,19 @@ The task chat history will be retained. Extension-owned worktrees and branches w
           })),
           {
             canPickMany: true,
-            placeHolder: "Select resources only after confirming their processes and services are stopped",
-            title: "Bachata: Clear Resource Quarantine",
+            placeHolder: vscode.l10n.t("Select resources only after confirming their processes and services are stopped"),
+            title: vscode.l10n.t("Bachata: Clear Resource Quarantine"),
           },
         );
         if (!selected || selected.length === 0) {
           return;
         }
         const confirmation = await vscode.window.showWarningMessage(
-          `Clear quarantine for ${String(selected.length)} resource${selected.length === 1 ? "" : "s"}?`,
-          { modal: true, detail: "Clearing quarantine does not stop orphan processes or reset databases." },
-          "Clear",
+          (selected.length === 1 ? vscode.l10n.t("Clear quarantine for {0} resource?", String(selected.length)) : vscode.l10n.t("Clear quarantine for {0} resources?", String(selected.length))),
+          { modal: true, detail: vscode.l10n.t("Clearing quarantine does not stop orphan processes or reset databases.") },
+          vscode.l10n.t("Clear"),
         );
-        if (confirmation !== "Clear") {
+        if (confirmation !== vscode.l10n.t("Clear")) {
           return;
         }
         const cleared = resourceBroker.clearQuarantine(selected.map((item) => item.key));
@@ -1577,57 +1575,57 @@ The task chat history will be retained. Extension-owned worktrees and branches w
             ...(placeHolder === undefined ? {} : { placeHolder }),
             ignoreFocusOut: true,
             validateInput: (input) => input.length > maxLength
-              ? `Use at most ${String(maxLength)} characters.`
+              ? vscode.l10n.t("Use at most {0} characters.", String(maxLength))
               : input.trim().length === 0
-              ? "State a value, or press Escape to stop."
+              ? vscode.l10n.t("State a value, or press Escape to stop.")
               : undefined,
           });
           if (value !== undefined && value.length > maxLength) throw new Error(`Evidence values must fit within ${String(maxLength)} characters`);
           return value?.trim() ? value.trim() : undefined;
         };
         const uri = await ask(
-          "Record external evidence: source",
-          "The address this claim was read from. Bachata records it; it does not fetch it.",
+          vscode.l10n.t("Record external evidence: source"),
+          vscode.l10n.t("The address this claim was read from. Bachata records it; it does not fetch it."),
           "https://…",
         );
         if (!uri) return;
-        const title = await ask("Record external evidence: title", "What the source is called.");
+        const title = await ask(vscode.l10n.t("Record external evidence: title"), vscode.l10n.t("What the source is called."));
         if (!title) return;
         const claim = await ask(
-          "Record external evidence: claim",
-          "What this source states, in your words. Bachata never paraphrases a source for you.",
+          vscode.l10n.t("Record external evidence: claim"),
+          vscode.l10n.t("What this source states, in your words. Bachata never paraphrases a source for you."),
         );
         if (!claim) return;
         const relationPick = await vscode.window.showQuickPick(
           [
-            { label: "Supports", relation: "supports" as const },
-            { label: "Contradicts", relation: "contradicts" as const },
-            { label: "Qualifies", relation: "qualifies" as const },
+            { label: vscode.l10n.t("Supports"), relation: "supports" as const },
+            { label: vscode.l10n.t("Contradicts"), relation: "contradicts" as const },
+            { label: vscode.l10n.t("Qualifies"), relation: "qualifies" as const },
           ],
-          { title: "Record external evidence: relation", placeHolder: "How does this claim bear on the work?" },
+          { title: vscode.l10n.t("Record external evidence: relation"), placeHolder: vscode.l10n.t("How does this claim bear on the work?") },
         );
         if (!relationPick) return;
         const authorityPick = await vscode.window.showQuickPick(
           [
-            { label: "Standard", authority: "standard" as const },
-            { label: "Vendor documentation", authority: "vendorDocumentation" as const },
-            { label: "First-party measurement", authority: "firstPartyMeasurement" as const },
-            { label: "Third-party report", authority: "thirdPartyReport" as const },
-            { label: "Community", authority: "community" as const },
-            { label: "Unattributed", authority: "unattributed" as const },
+            { label: vscode.l10n.t("Standard"), authority: "standard" as const },
+            { label: vscode.l10n.t("Vendor documentation"), authority: "vendorDocumentation" as const },
+            { label: vscode.l10n.t("First-party measurement"), authority: "firstPartyMeasurement" as const },
+            { label: vscode.l10n.t("Third-party report"), authority: "thirdPartyReport" as const },
+            { label: vscode.l10n.t("Community"), authority: "community" as const },
+            { label: vscode.l10n.t("Unattributed"), authority: "unattributed" as const },
           ],
-          { title: "Record external evidence: authority", placeHolder: "What stands behind this claim?" },
+          { title: vscode.l10n.t("Record external evidence: authority"), placeHolder: vscode.l10n.t("What stands behind this claim?") },
         );
         if (!authorityPick) return;
         const picked = await vscode.window.showOpenDialog({
           canSelectMany: false,
-          openLabel: "Fingerprint this copy",
-          title: "Record external evidence: the copy you read",
+          openLabel: vscode.l10n.t("Fingerprint this copy"),
+          title: vscode.l10n.t("Record external evidence: the copy you read"),
         });
         const file = picked?.[0];
         if (!file) {
           await vscode.window.showWarningMessage(
-            "Bachata records the SHA-256 of the copy a claim was read from, so the copy can be identified again. Save a copy of the source and record it again.",
+            vscode.l10n.t("Bachata records the SHA-256 of the copy a claim was read from, so the copy can be identified again. Save a copy of the source and record it again."),
           );
           return;
         }
@@ -1635,23 +1633,23 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         const evidenceDigest = await sha256EvidenceCopy(file.fsPath);
         const findings = manager.getState().direction?.findings ?? [];
         const targetPick = await vscode.window.showQuickPick([
-          { label: "Initiative", identity: "", description: "Record a citation without changing a finding" },
+          { label: vscode.l10n.t("Initiative"), identity: "", description: vscode.l10n.t("Record a citation without changing a finding") },
           ...findings.filter((finding) => finding.state !== "resolved" && finding.state !== "rejected")
             .map((finding) => ({ label: finding.subject, identity: finding.identity, description: finding.message })),
-        ], { title: "Record external evidence: target" });
+        ], { title: vscode.l10n.t("Record external evidence: target") });
         if (!targetPick) return;
         let verifyFinding: { requirement: string; environment: string } | undefined;
         if (targetPick.identity && relationPick.relation === "supports") {
           const purpose = await vscode.window.showQuickPick([
-            { label: "Citation about this finding", verifies: false },
-            { label: "Evidence that this finding is fixed", verifies: true,
-              description: "Accepting it in Direction resolves this finding only for the unchanged current candidate" },
-          ], { title: "What does this evidence establish?" });
+            { label: vscode.l10n.t("Citation about this finding"), verifies: false },
+            { label: vscode.l10n.t("Evidence that this finding is fixed"), verifies: true,
+              description: vscode.l10n.t("Accepting it in Direction resolves this finding only for the unchanged current candidate") },
+          ], { title: vscode.l10n.t("What does this evidence establish?") });
           if (!purpose) return;
           if (purpose.verifies) {
-            const requirement = await ask("Fix verification: acceptance criterion", "State the specific condition this evidence proves is satisfied.");
+            const requirement = await ask(vscode.l10n.t("Fix verification: acceptance criterion"), vscode.l10n.t("State the specific condition this evidence proves is satisfied."));
             if (!requirement) return;
-            const environment = await ask("Fix verification: environment", "Where and how was the current candidate verified?", undefined, 2000);
+            const environment = await ask(vscode.l10n.t("Fix verification: environment"), vscode.l10n.t("Where and how was the current candidate verified?"), undefined, 2000);
             if (!environment) return;
             verifyFinding = { requirement, environment };
           }
@@ -1678,12 +1676,14 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         });
         if (recorded === undefined) {
           await vscode.window.showWarningMessage(
-            "Bachata recorded nothing: check the evidence fields and ensure this repository has an initiative with an open cycle.",
+            vscode.l10n.t("Bachata recorded nothing: check the evidence fields and ensure this repository has an initiative with an open cycle."),
           );
           return;
         }
         await vscode.window.showInformationMessage(
-          `Recorded ${recorded.source.title} as ${recorded.verification ? "candidate-bound fix verification" : "external evidence"}. Rule on it in Direction.`,
+          recorded.verification
+            ? vscode.l10n.t("Recorded {0} as candidate-bound fix verification. Rule on it in Direction.", recorded.source.title)
+            : vscode.l10n.t("Recorded {0} as external evidence. Rule on it in Direction.", recorded.source.title),
         );
       })),
     vscode.commands.registerCommand("bachata.localData", () =>
@@ -1724,30 +1724,32 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         const items = [
           ...entries.map((entry) => ({
             label: entry.label,
-            description: `${formatBytes(entry.bytes)} · ${String(entry.fileCount)} file${entry.fileCount === 1 ? "" : "s"}`,
+            description: (entry.fileCount === 1 ? vscode.l10n.t("{0} · {1} file", formatBytes(entry.bytes), String(entry.fileCount)) : vscode.l10n.t("{0} · {1} files", formatBytes(entry.bytes), String(entry.fileCount))),
             detail: entry.path,
             entry,
           })),
           {
             label: retentionDays > 0
-              ? `Delete archived run data older than ${String(retentionDays)} days`
-              : "Retention is off; set bachata.localDataRetentionDays to enable cleanup",
+              ? vscode.l10n.t("Delete archived run data older than {0} days", String(retentionDays))
+              : vscode.l10n.t("Retention is off; set bachata.localDataRetentionDays to enable cleanup"),
             description: retentionDays > 0
-              ? `${String(candidates.length)} run${candidates.length === 1 ? "" : "s"} · ${formatBytes(candidates.reduce((total, item) => total + item.bytes, 0))}`
-              : "No automatic deletion happens",
+              ? (candidates.length === 1 ? vscode.l10n.t("{0} run · {1}", String(candidates.length), formatBytes(candidates.reduce((total, item) => total + item.bytes, 0))) : vscode.l10n.t("{0} runs · {1}", String(candidates.length), formatBytes(candidates.reduce((total, item) => total + item.bytes, 0))))
+              : vscode.l10n.t("No automatic deletion happens"),
             detail: retentionDays > 0
-              ? "Removes transcripts and attachments of archived runs. Catalog metadata and repository files stay."
-              : "Open settings to choose a retention period",
+              ? vscode.l10n.t("Removes transcripts and attachments of archived runs. Catalog metadata and repository files stay.")
+              : vscode.l10n.t("Open settings to choose a retention period"),
             cleanup: true,
           },
         ];
         const selected = await vscode.window.showQuickPick(items, {
-          title: "Bachata: Local Data",
-          placeHolder: `Everything Bachata stores locally · ${storageRoot}`,
+          title: vscode.l10n.t("Bachata: Local Data"),
+          placeHolder: vscode.l10n.t("Everything Bachata stores locally · {0}", storageRoot),
         });
         if (!selected) return;
         if (!("cleanup" in selected)) {
-          const size = `${formatBytes(selected.entry.bytes)} in ${String(selected.entry.fileCount)} file${selected.entry.fileCount === 1 ? "" : "s"}`;
+          const size = selected.entry.fileCount === 1
+            ? vscode.l10n.t("{0} in {1} file", formatBytes(selected.entry.bytes), selected.entry.fileCount)
+            : vscode.l10n.t("{0} in {1} files", formatBytes(selected.entry.bytes), selected.entry.fileCount);
           output.appendLine([
             selected.entry.label,
             `Location: ${selected.entry.path}`,
@@ -1757,11 +1759,11 @@ The task chat history will be retained. Extension-owned worktrees and branches w
           ].join("\n"));
           const choice = await vscode.window.showInformationMessage(
             `${selected.entry.label} · ${size} · ${selected.entry.path}`,
-            "Reveal in file explorer",
-            "Show Output",
+            vscode.l10n.t("Reveal in file explorer"),
+            vscode.l10n.t("Show Output"),
           );
-          if (choice === "Show Output") output.show(true);
-          if (choice === "Reveal in file explorer" && selected.entry.category !== "worktrees") {
+          if (choice === vscode.l10n.t("Show Output")) output.show(true);
+          if (choice === vscode.l10n.t("Reveal in file explorer") && selected.entry.category !== "worktrees") {
             await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(selected.entry.path));
           }
           return;
@@ -1771,25 +1773,25 @@ The task chat history will be retained. Extension-owned worktrees and branches w
           return;
         }
         if (candidates.length === 0) {
-          await vscode.window.showInformationMessage("No archived run data is older than the retention period.");
+          await vscode.window.showInformationMessage(vscode.l10n.t("No archived run data is older than the retention period."));
           return;
         }
         const confirmation = await vscode.window.showWarningMessage(
-          `Delete stored data for ${String(candidates.length)} archived run${candidates.length === 1 ? "" : "s"}?`,
+          (candidates.length === 1 ? vscode.l10n.t("Delete stored data for {0} archived run?", String(candidates.length)) : vscode.l10n.t("Delete stored data for {0} archived runs?", String(candidates.length))),
           {
             modal: true,
             detail: [
-              "Removed: stored transcripts and attachment files of these runs.",
-              "Kept: catalog metadata, run titles, history search, repository files, worktrees.",
+              vscode.l10n.t("Removed: stored transcripts and attachment files of these runs."),
+              vscode.l10n.t("Kept: catalog metadata, run titles, history search, repository files, worktrees."),
               "",
               ...candidates.slice(0, 20).map((candidate) =>
                 `${candidate.title} · ${candidate.updatedAt.slice(0, 10)} · ${formatBytes(candidate.bytes)}`),
-              ...(candidates.length > 20 ? [`… and ${String(candidates.length - 20)} more`] : []),
+              ...(candidates.length > 20 ? [vscode.l10n.t("… and {0} more", String(candidates.length - 20))] : []),
             ].join("\n"),
           },
-          "Delete",
+          vscode.l10n.t("Delete"),
         );
-        if (confirmation !== "Delete") return;
+        if (confirmation !== vscode.l10n.t("Delete")) return;
         let removed = 0;
         for (const candidate of candidates) {
           // EX-A5-R15. A conversation's data is a set of paths, not one directory: the initial
@@ -1808,7 +1810,7 @@ The task chat history will be retained. Extension-owned worktrees and branches w
           removed += 1;
         }
         await vscode.window.showInformationMessage(
-          `Bachata deleted stored data for ${String(removed)} archived run${removed === 1 ? "" : "s"}`,
+          (removed === 1 ? vscode.l10n.t("Bachata deleted stored data for {0} archived run", String(removed)) : vscode.l10n.t("Bachata deleted stored data for {0} archived runs", String(removed))),
         );
       }),
     ),
@@ -1844,29 +1846,29 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         });
         if (failed.length === 0) {
           await vscode.window.showInformationMessage(
-            `Bachata Doctor: all ${String(checks.length)} checks passed`,
+            vscode.l10n.t("Bachata Doctor: all {0} checks passed", String(checks.length)),
           );
           return;
         }
         const choice = await vscode.window.showWarningMessage(
           blocking.length > 0
-            ? `Bachata Doctor: ${String(blocking.length)} blocking problem${blocking.length === 1 ? "" : "s"}`
-            : `Bachata Doctor: selected workflow is ready; ${String(failed.length)} optional check${failed.length === 1 ? " needs" : "s need"} attention`,
-          "Show Output",
-          "Fix a Problem",
+            ? (blocking.length === 1 ? vscode.l10n.t("Bachata Doctor: {0} blocking problem", String(blocking.length)) : vscode.l10n.t("Bachata Doctor: {0} blocking problems", String(blocking.length)))
+            : (failed.length === 1 ? vscode.l10n.t("Bachata Doctor: selected workflow is ready; {0} optional check needs attention", String(failed.length)) : vscode.l10n.t("Bachata Doctor: selected workflow is ready; {0} optional checks need attention", String(failed.length))),
+          vscode.l10n.t("Show Output"),
+          vscode.l10n.t("Fix a Problem"),
         );
-        if (choice === "Show Output") {
+        if (choice === vscode.l10n.t("Show Output")) {
           output.show(true);
-        } else if (choice === "Fix a Problem") {
+        } else if (choice === vscode.l10n.t("Fix a Problem")) {
           const remedies = Array.from(new Map(failed
             .filter((check) => check.remediationId)
             .map((check) => [check.remediationId, check])).values());
           const selected = await vscode.window.showQuickPick(remedies.map((check) => ({
             label: check.name,
-            description: check.blocking ? "Blocking" : "Optional",
+            description: check.blocking ? vscode.l10n.t("Blocking") : vscode.l10n.t("Optional"),
             detail: check.detail,
             remediationId: check.remediationId,
-          })), { title: "Bachata Doctor: choose a remediation" });
+          })), { title: vscode.l10n.t("Bachata Doctor: choose a remediation") });
           if (selected?.remediationId) {
             await runDoctorRemediation(selected.remediationId, selected.detail);
           }
@@ -1879,7 +1881,7 @@ The task chat history will be retained. Extension-owned worktrees and branches w
         const snapshot = orchestrator.getSnapshot();
         if (!snapshot.run) {
           output.appendLine("No TODO orchestration run is loaded");
-          await vscode.window.showInformationMessage("Bachata has no TODO orchestration run loaded");
+          await vscode.window.showInformationMessage(vscode.l10n.t("Bachata has no TODO orchestration run loaded"));
           return;
         }
         const run = snapshot.run;

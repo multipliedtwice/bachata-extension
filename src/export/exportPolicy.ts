@@ -1,3 +1,4 @@
+import { formatMessage, type Localize } from "../localization/message";
 import * as path from "node:path";
 import { readFile } from "node:fs/promises";
 
@@ -135,24 +136,27 @@ export const excludedByPolicy = (
 export const exportRedactionRules = (
   policy: ExportPolicy | undefined,
   policyErrors: string[],
+  localize: Localize = formatMessage,
 ): string[] => [
-  "Sensitive JSON keys (authorization, api key, token, secret, password, cookie, credentials) are replaced with [REDACTED].",
-  "Assignment-shaped secrets in free text, command lines, environment values, and URLs are replaced with [REDACTED].",
-  "Provider conversation URL paths, queries, and fragments are removed; only the origin remains.",
-  "Provider session identifiers, conversation identities, and document tokens are removed.",
+  localize("Sensitive JSON keys (authorization, api key, token, secret, password, cookie, credentials) are replaced with [REDACTED]."),
+  localize("Assignment-shaped secrets in free text, command lines, environment values, and URLs are replaced with [REDACTED]."),
+  localize("Provider conversation URL paths, queries, and fragments are removed; only the origin remains."),
+  localize("Provider session identifiers, conversation identities, and document tokens are removed."),
   ...(policy && policy.redactLiterals.length > 0
-    ? [`${String(policy.redactLiterals.length)} repository-owned literal patterns from ${EXPORT_POLICY_PATH}.`]
+    ? [localize("{0} repository-owned literal patterns from {1}.", policy.redactLiterals.length, EXPORT_POLICY_PATH)]
     : []),
   ...(policy && policy.excludePathPrefixes.length > 0
-    ? [`${String(policy.excludePathPrefixes.length)} repository-owned excluded path prefixes from ${EXPORT_POLICY_PATH}.`]
+    ? [localize("{0} repository-owned excluded path prefixes from {1}.", policy.excludePathPrefixes.length, EXPORT_POLICY_PATH)]
     : []),
   ...(policyErrors.length > 0
-    ? [`${EXPORT_POLICY_PATH} was ignored because it failed validation: ${policyErrors.join("; ")}`]
+    ? [localize("{0} was ignored because it failed validation: {1}", EXPORT_POLICY_PATH, policyErrors.join("; "))]
     : []),
 ];
 
-export const EXPORT_REVIEW_WARNING =
-  "Redaction is heuristic. It cannot guarantee that every secret or sensitive value was removed. Read the preview before sharing this file.";
+export const exportReviewWarning = (localize: Localize = formatMessage): string =>
+  localize("Redaction is heuristic. It cannot guarantee that every secret or sensitive value was removed. Read the preview before sharing this file.");
+
+export const EXPORT_REVIEW_WARNING = exportReviewWarning();
 
 const pathBearingKeys = new Set([
   "path", "file", "filePath", "relativePath", "uri", "fsPath", "target", "changedFile",

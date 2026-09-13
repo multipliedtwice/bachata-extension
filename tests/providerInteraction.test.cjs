@@ -800,3 +800,19 @@ test("network approval context is bounded, and an unusable port is dropped rathe
   });
   assert.deepEqual(partial.networkApprovalContext, {});
 });
+
+
+test("localized provider controls preserve boolean values and Other answer routing", () => {
+  const messages = { True: "Wahr", False: "Falsch", "Other…": "Andere…", "Enter another answer": "Andere Antwort eingeben", "A value is required": "Ein Wert ist erforderlich", "Enter a valid number": "Eine gültige Zahl eingeben", "Enter a whole number": "Eine ganze Zahl eingeben" };
+  const localize = (message) => messages[message] ?? message;
+  const widget = mcpFieldWidget(mcpField({ type: "boolean" }), "Provider prompt", localize);
+  assert.deepEqual(widget.items, [{ label: "Wahr", value: true }, { label: "Falsch", value: false }]);
+  assert.equal(widget.placeHolder, "Provider prompt");
+  const question = codexQuestionWidget(codexWidgetQuestion({ isOther: true, options: [{ label: "Provider choice", description: "Provider explanation" }] }), localize);
+  assert.equal(question.items[0].label, "Provider choice");
+  assert.equal(question.items.at(-1).label, "Andere…");
+  assert.deepEqual(codexPickOutcome({ value: question.items.at(-1), timedOut: false }), { kind: "askOther" });
+  assert.equal(mcpFieldValidation(formField({ required: true }), "", localize), messages["A value is required"]);
+  assert.equal(mcpFieldValidation(formField({ type: "number" }), "invalid", localize), messages["Enter a valid number"]);
+  assert.equal(mcpFieldValidation(formField({ type: "integer" }), "1.5", localize), messages["Enter a whole number"]);
+});

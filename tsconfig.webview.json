@@ -25,6 +25,7 @@
     "allowSyntheticDefaultImports": true
   },
   "include": [
+    "src/webview-ui/localization.ts",
     "src/webview-ui/types.ts",
     "src/webview-ui/optionalProperty.ts",
     "src/webview-ui/boundedAgentOutput.ts",

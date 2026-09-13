@@ -64,7 +64,16 @@ const runActionRefusal = (conversation: ConversationSummary, action: string): st
   });
   if (!busy) return undefined;
   const paused = state.panels.get(busy.id)?.pendingGate !== undefined;
-  return `${paused ? "Resolve or leave the decision in" : "Stop"} “${runTabLabel(busy)}” before ${action === "run-duplicate" ? "duplicating it" : action === "run-delete" ? "deleting this run" : "changing its archive status"}.`;
+  const title = runTabLabel(busy);
+  if (action === "run-duplicate") return paused
+    ? localize("Resolve or leave the decision in “{0}” before duplicating it.", title)
+    : localize("Stop “{0}” before duplicating it.", title);
+  if (action === "run-delete") return paused
+    ? localize("Resolve or leave the decision in “{0}” before deleting this run.", title)
+    : localize("Stop “{0}” before deleting this run.", title);
+  return paused
+    ? localize("Resolve or leave the decision in “{0}” before changing its archive status.", title)
+    : localize("Stop “{0}” before changing its archive status.", title);
 };
 
 const runActionAttributes = (conversation: ConversationSummary, action: string): string => {
@@ -126,18 +135,15 @@ const declineDisabledControl = (target: HTMLElement): boolean => {
   const describedIds = (target.getAttribute("aria-describedby") ?? "")
     .split(" ")
     .filter((token) => token.length > 0);
-  if (describedIds.includes("composer-blockers")) {
-    const disclosure = document.getElementById("composer-blockers");
-    if (disclosure instanceof HTMLDetailsElement) {
-      disclosure.open = true;
-      if (disclosure.dataset.disclosureKey) recordDisclosure(disclosure.dataset.disclosureKey, true);
-    }
+  if (target.dataset.action === "submit-message") {
+    explainSendRequirements(activeId(), sendBlockers(activeId(), activePanel(), activeDraft()));
+    return true;
   }
   const described = describedIds
     .map(describedText)
     .find((text) => text.trim().length > 0);
-  const reason = (described ?? target.getAttribute("title") ?? "").trim();
-  announceStatus(reason.length > 0 ? reason : "This control is not available yet.");
+  const reason = (target.getAttribute("aria-description") ?? described ?? target.getAttribute("title") ?? "").trim();
+  announceStatus(reason.length > 0 ? reason : localize("This control is not available yet."));
   return true;
 };
 
@@ -212,8 +218,19 @@ root.addEventListener("click", (event) => {
   const action = target.dataset.action;
   if (action === "noop" || action === "history-filter") return;
   if (declineDisabledControl(target)) return;
-  if (["availability-check", "working-directory", "task-reset", "session-reset", "browser-session", "bridge-discover", "bridge-reset"].includes(action ?? "") && runConfigurationLocked(activePanel())) {
-    announceStatus("Finish the active operation before changing run configuration.");
+  if (target.dataset.runRequirementRemedy && state.dialog?.kind === "runRequirements") {
+    if (state.dialog.conversationId !== activeId()) {
+      announceStatus(localize("Open this run before resolving its requirements."));
+      return;
+    }
+    closeDialog();
+  }
+  if (action === "run-requirements") {
+    openRunRequirements(target.dataset.conversation ?? activeId());
+    return;
+  }
+  if (["availability-check", "working-directory", "task-reset", "session-reset", "browser-session", "bridge-reset"].includes(action ?? "") && runConfigurationLocked(activePanel())) {
+    announceStatus(localize("Finish the active operation before changing run configuration."));
     return;
   }
   if (
@@ -252,8 +269,8 @@ root.addEventListener("click", (event) => {
     vscode.postMessage({ type: "workspace.ownership" });
   } else if (action === "error-dismiss") {
     const message = target.dataset.errorMessage;
-    if (state.managerError === message) delete state.managerError;
-    if (state.errors.get(activeId()) === message) state.errors.delete(activeId());
+    if (productErrorMessage(state.managerError) === message) delete state.managerError;
+    if (productErrorMessage(state.errors.get(activeId())) === message) state.errors.delete(activeId());
     scheduleRender();
     // The control that was pressed is gone with the banner it dismissed. Focus stays on the
     // failures if another remains, and otherwise on the run this room is about.
@@ -269,7 +286,7 @@ root.addEventListener("click", (event) => {
     Array.from(state.pendingRuns.entries())
       .filter(([, request]) => request.conversationId === activeId() && !request.accepted)
       .forEach(([id]) => state.pendingRuns.delete(id));
-    announceStatus("The pending submit was discarded. The run input is available again.");
+    announceStatus(localize("The pending submit was discarded. The run input is available again."));
     scheduleRender();
   } else if (action === "create-conversation") {
     vscode.postMessage({ type: "conversation.create" });
@@ -302,12 +319,15 @@ root.addEventListener("click", (event) => {
     const conversation = conversationFromTarget(target);
     if (conversation) {
       const descendants = state.manager.conversations.filter((candidate) => candidate.id !== conversation.id && rootConversationFor(candidate).id === conversation.id).length;
-      const suffix = descendants > 0 ? ` and ${String(descendants)} task run${descendants === 1 ? "" : "s"}` : "";
       openDialog({
         kind: "archiveRun",
-        title: "Archive run?",
-        message: `Archive “${runTabLabel(conversation)}”${suffix}? The complete history can be restored from All runs.`,
-        confirmLabel: "Archive",
+        title: localize("Archive run?"),
+        message: descendants === 0
+          ? localize("Archive “{0}”? The complete history can be restored from All runs.", runTabLabel(conversation))
+          : descendants === 1
+            ? localize("Archive “{0}” and {1} task run? The complete history can be restored from All runs.", runTabLabel(conversation), descendants)
+            : localize("Archive “{0}” and {1} task runs? The complete history can be restored from All runs.", runTabLabel(conversation), descendants),
+        confirmLabel: localize("Archive"),
         conversationId: conversation.id,
       });
     }
@@ -318,12 +338,15 @@ root.addEventListener("click", (event) => {
     const conversation = conversationFromTarget(target);
     if (conversation) {
       const descendants = state.manager.conversations.filter((candidate) => candidate.id !== conversation.id && rootConversationFor(candidate).id === conversation.id).length;
-      const suffix = descendants > 0 ? ` and ${String(descendants)} task run${descendants === 1 ? "" : "s"}` : "";
       openDialog({
         kind: "deleteRun",
-        title: "Delete run permanently?",
-        message: `Permanently delete “${runTabLabel(conversation)}”${suffix} and ${suffix ? "their" : "its"} local run metadata? This cannot be undone.`,
-        confirmLabel: "Delete permanently",
+        title: localize("Delete run permanently?"),
+        message: descendants === 0
+          ? localize("Permanently delete “{0}” and its local run metadata? This cannot be undone.", runTabLabel(conversation))
+          : descendants === 1
+            ? localize("Permanently delete “{0}” and {1} task run and their local run metadata? This cannot be undone.", runTabLabel(conversation), descendants)
+            : localize("Permanently delete “{0}” and {1} task runs and their local run metadata? This cannot be undone.", runTabLabel(conversation), descendants),
+        confirmLabel: localize("Delete permanently"),
         conversationId: conversation.id,
         danger: true,
       });
@@ -334,7 +357,7 @@ root.addEventListener("click", (event) => {
   } else if (action === "orchestration-start") {
     if (orchestrationStartPending) return;
     orchestrationStartPending = true;
-    announceStatus("Starting TODO.md…");
+    announceStatus(localize("Starting TODO.md…"));
     scheduleRender();
     vscode.postMessage({ type: "orchestration.start" });
   } else if (action === "orchestration-resume") {
@@ -342,18 +365,20 @@ root.addEventListener("click", (event) => {
   } else if (action === "orchestration-stop") {
     openDialog({
       kind: "stopOrchestration",
-      title: "Stop TODO run?",
-      message: "Active pairs and checks will be interrupted. Completed task histories and Git resources are retained for resume.",
-      confirmLabel: "Stop run",
+      title: localize("Stop TODO run?"),
+      message: localize("Active pairs and checks will be interrupted. Completed task histories and Git resources are retained for resume."),
+      confirmLabel: localize("Stop run"),
     });
   } else if (action === "orchestration-abandon") {
     const orchestration = state.manager.orchestration;
     const details = [orchestration.integrationBranch, orchestration.integrationWorktree].filter(Boolean).join("\n");
     openDialog({
       kind: "abandonOrchestration",
-      title: "Abandon TODO resources?",
-      message: `Remove the extension-owned TODO branches and worktrees${details ? `:\n${details}` : ""}? Conversation histories are retained.`,
-      confirmLabel: "Remove resources",
+      title: localize("Abandon TODO resources?"),
+      message: details
+        ? localize("Remove the extension-owned TODO branches and worktrees:\n{0}? Conversation histories are retained.", details)
+        : localize("Remove the extension-owned TODO branches and worktrees? Conversation histories are retained."),
+      confirmLabel: localize("Remove resources"),
       danger: true,
     });
   } else if (action === "readiness-remediate" && target.dataset.remediation) {
@@ -439,9 +464,11 @@ root.addEventListener("click", (event) => {
     const retry = target.dataset.cleanupPending === "true";
     openDialog({
       kind: "cleanupRetainedRun",
-      title: `${retry ? "Retry cleanup for" : "Clean up"} ${title}?`,
-      message: `Remove the retained worktree${branch ? ` and integration branch ${branch}` : ""}? Conversation history remains available.`,
-      confirmLabel: retry ? "Retry cleanup" : "Clean up Git resources",
+      title: retry ? localize("Retry cleanup for {0}?", title) : localize("Clean up {0}?", title),
+      message: branch
+        ? localize("Remove the retained worktree and integration branch {0}? Conversation history remains available.", branch)
+        : localize("Remove the retained worktree? Conversation history remains available."),
+      confirmLabel: retry ? localize("Retry cleanup") : localize("Clean up Git resources"),
       runId: target.dataset.runId,
       danger: true,
     });
@@ -454,8 +481,8 @@ root.addEventListener("click", (event) => {
     const title = (document.getElementById("initiative-title") as HTMLInputElement | null)?.value.trim() ?? "";
     const goal = (document.getElementById("initiative-goal") as HTMLTextAreaElement | null)?.value.trim() ?? "";
     if (reportFieldErrors([
-      { id: "initiative-title", value: title, message: "Give this initiative a title." },
-      { id: "initiative-goal", value: goal, message: "State the goal this initiative is working towards." },
+      { id: "initiative-title", value: title, message: localize("Give this initiative a title.") },
+      { id: "initiative-goal", value: goal, message: localize("State the goal this initiative is working towards.") },
     ])) {
       return;
     }
@@ -471,7 +498,7 @@ root.addEventListener("click", (event) => {
   } else if (action === "initiative-direction-save") {
     const direction = (document.getElementById("initiative-direction") as HTMLTextAreaElement | null)?.value.trim() ?? "";
     if (reportFieldErrors([
-      { id: "initiative-direction", value: direction, message: "Write the direction you are accepting before recording it." },
+      { id: "initiative-direction", value: direction, message: localize("Write the direction you are accepting before recording it.") },
     ])) {
       return;
     }
@@ -509,7 +536,7 @@ root.addEventListener("click", (event) => {
   } else if (action === "cycle-rebaseline") {
     vscode.postMessage({ type: "cycle.rebaseline" });
   } else if (action === "notification-settings") {
-    openDialog({ kind: "notificationSettings", title: "Notifications", message: "", confirmLabel: "Close" });
+    openDialog({ kind: "notificationSettings", title: localize("Notifications"), message: "", confirmLabel: localize("Close") });
   } else if (action === "notification-open") {
     const id = target.dataset.record;
     if (!id) return;
@@ -523,9 +550,9 @@ root.addEventListener("click", (event) => {
     if (!absorbedIdentity) return;
     openDialog({
       kind: "mergeFinding",
-      title: "Merge this finding into another",
-      message: "Bachata folds later rounds of both findings into one history. Name the finding this one is the same defect as, and why.",
-      confirmLabel: "Merge",
+      title: localize("Merge this finding into another"),
+      message: localize("Bachata folds later rounds of both findings into one history. Name the finding this one is the same defect as, and why."),
+      confirmLabel: localize("Merge"),
       absorbedIdentity,
       inputValue: target.dataset.candidate ?? "",
     });
@@ -541,9 +568,9 @@ root.addEventListener("click", (event) => {
   } else if (action === "initiative-new") {
     openDialog({
       kind: "createInitiative",
-      title: "Start a separate initiative",
-      message: "A new initiative keeps its own cycles, findings, decisions, and artifacts. The current one stays recorded.",
-      confirmLabel: "Create",
+      title: localize("Start a separate initiative"),
+      message: localize("A new initiative keeps its own cycles, findings, decisions, and artifacts. The current one stays recorded."),
+      confirmLabel: localize("Create"),
       inputValue: "",
     });
   } else if (action === "initiative-export") {
@@ -573,11 +600,11 @@ root.addEventListener("click", (event) => {
     if (resolution === "reopen" || resolution === "supersede") {
       openDialog({
         kind: "resolveRecord",
-        title: resolution === "reopen" ? "Reopen with new evidence" : "Supersede with a replacement",
+        title: resolution === "reopen" ? localize("Reopen with new evidence") : localize("Supersede with a replacement"),
         message: resolution === "reopen"
-          ? "Bachata records why this was reopened and which material evidence changed. Both are required."
-          : "Bachata records the replacement this record is superseded by. The replacement must already exist in this initiative.",
-        confirmLabel: resolution === "reopen" ? "Reopen" : "Supersede",
+          ? localize("Bachata records why this was reopened and which material evidence changed. Both are required.")
+          : localize("Bachata records the replacement this record is superseded by. The replacement must already exist in this initiative."),
+        confirmLabel: resolution === "reopen" ? localize("Reopen") : localize("Supersede"),
         target: recordTarget === "decision"
           ? "decision"
           : recordTarget === "artifact"
@@ -600,6 +627,7 @@ root.addEventListener("click", (event) => {
     state.disclosureStates.set(key, !(state.disclosureStates.get(key) ?? false));
     scheduleRender();
   } else if (action === "room-view") {
+    state.runDrawerOpen = false;
     state.roomView = target.dataset.view === "execution"
       ? "execution"
       : target.dataset.view === "direction"
@@ -666,14 +694,14 @@ root.addEventListener("click", (event) => {
       .slice().reverse()
       .find((entry) => entry.kind === "prompt" && entry.agentId === agentId && (!step || entry.step === step));
     if (answer || agentId) {
-      const agentName = agentId ? panel.agents[agentId]?.name ?? "Participant" : "Participant";
+      const agentName = agentId ? panel.agents[agentId]?.name ?? localize("Participant") : localize("Participant");
       openDialog({
         kind: "turnDetails",
-        title: `${agentName} · prompt`,
-        message: prompt ? "Exact prompt used for this response." : "No exact prompt was recorded for this response.",
+        title: localize("{0} · prompt", agentName),
+        message: prompt ? localize("Exact prompt used for this response.") : localize("No exact prompt was recorded for this response."),
         prompt: prompt?.text ?? "",
         ...(step ? { context: step } : {}),
-        confirmLabel: "Close",
+        confirmLabel: localize("Close"),
       });
     }
   } else if (action === "inspector-toggle") {
@@ -718,7 +746,7 @@ root.addEventListener("click", (event) => {
       delete state.agentsBrowserFor;
     } else {
       state.agentsBrowserFor = agentId;
-      announceStatus("Starting Browser Bridge discovery. Complete pairing in your browser if needed.");
+      announceStatus(localize("Starting Browser Bridge discovery. Complete pairing in your browser if needed."));
       postRuntime({ type: "bridge.discover" });
     }
     scheduleRender();
@@ -753,7 +781,7 @@ root.addEventListener("click", (event) => {
     });
   } else if (action === "availability-check") {
     if (!agentsAssignable(activePanel())) {
-      announceStatus("Select a pipeline with participants to check providers.");
+      announceStatus(localize("Select a pipeline with participants to check providers."));
       return;
     }
     state.roomView = "chat";
@@ -761,7 +789,7 @@ root.addEventListener("click", (event) => {
     state.composerSettingsOpen = false;
     state.pipelinePickerOpen = false;
     state.agentsPickerOpen = true;
-    announceStatus("Checking providers…");
+    announceStatus(localize("Checking providers…"));
     postRuntime({ type: "availability.check" });
     scheduleRender();
     focusAfterRender(() => document.getElementById("agents-picker-button")?.focus());
@@ -769,9 +797,9 @@ root.addEventListener("click", (event) => {
   else if (action === "working-directory") postRuntime({ type: "workingDirectory.pick" });
   else if (action === "task-reset") openDialog({
     kind: "resetTask",
-    title: "Reset run state?",
-    message: "Reset this run’s local-agent sessions, attachments, queue, and recoverable pipeline? Bound browser conversations remain connected.",
-    confirmLabel: "Reset run",
+    title: localize("Reset run state?"),
+    message: localize("Reset this run’s local-agent sessions, attachments, queue, and recoverable pipeline? Bound browser conversations remain connected."),
+    confirmLabel: localize("Reset run"),
     danger: true,
   });
   else if (action === "transcript-export") postRuntime({ type: "transcript.export" });
@@ -783,19 +811,19 @@ root.addEventListener("click", (event) => {
     const token = activePanel().browserBridge.pairingToken;
     if (token !== undefined) {
       void navigator.clipboard.writeText(token).then(() => {
-        target.textContent = "Copied";
-        announceStatus("Pairing token copied. Use Paste & Pair in the Bridge popup.");
-        setTimeout(() => { target.textContent = "Copy token"; }, 1200);
+        target.textContent = localize("Copied");
+        announceStatus(localize("Pairing token copied. Use Paste & Pair in the Bridge popup."));
+        setTimeout(() => { target.textContent = localize("Copy token"); }, 1200);
       }, () => {
-        announceStatus("Copying the pairing token failed.");
+        announceStatus(localize("Copying the pairing token failed."));
       });
     }
   } else if (action === "bridge-discover") postRuntime({ type: "bridge.discover" });
   else if (action === "bridge-reset") openDialog({
     kind: "resetBridge",
-    title: "Reset Browser Bridge?",
-    message: "Reset pairing and disconnect the current browser extension? A new pairing token will be required.",
-    confirmLabel: "Reset bridge",
+    title: localize("Reset pairing?"),
+    message: localize("Replace the pairing token and disconnect the paired browser? Pair your browser again with the new token."),
+    confirmLabel: localize("Reset pairing"),
     danger: true,
   });
   else if (action === "session-reset") postRuntime({ type: "session.reset", agentId: target.dataset.agent });
@@ -810,7 +838,7 @@ root.addEventListener("click", (event) => {
     if (pendingInterrupts.has(activeId())) return;
     pendingInterrupts.add(activeId());
     target.setAttribute("disabled", "");
-    announceStatus("Stopping…");
+    announceStatus(localize("Stopping…"));
     postRuntime({ type: "run.interrupt" });
     scheduleRender();
   }
@@ -835,7 +863,7 @@ root.addEventListener("click", (event) => {
     vscode.postMessage({ type: "interaction.submit", interactionRef, selected, freeText: text });
     // The button that was pressed is disabled by the redraw; the card it belongs to keeps focus
     // where the reader is, and the status region says what happened.
-    announceStatus("Answer submitted. The run continues when the runtime accepts it.");
+    announceStatus(localize("Answer submitted. The run continues when the runtime accepts it."));
     requestAnimationFrame(() => document.getElementById(`interaction-${interactionRef}`)?.focus());
   } else if (action === "gate") {
     const gateAction = target.dataset.gateAction as HumanGateAction;
@@ -862,24 +890,29 @@ root.addEventListener("click", (event) => {
       postRuntime({ type: "approval.respond", agentId, requestId: requestIdValue, choiceId });
       // The pressed button is redrawn disabled, so focus would fall to the body. The card is
       // what the reader is reading; the interaction cards already land there after a submit.
-      announceStatus("Approval submitted. The run continues when the runtime accepts it.");
+      announceStatus(localize("Approval submitted. The run continues when the runtime accepts it."));
       requestAnimationFrame(() => document.getElementById(`approval-${key}`)?.focus());
     }
   } else if (action === "focus-agent-output" && target.dataset.agent) {
     const agentId = target.dataset.agent;
+    const messageId = target.dataset.messageId;
     state.roomView = "chat";
     scheduleRender();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const outputs = Array.from(root.querySelectorAll<HTMLElement>("[data-agent-id]"))
           .filter((element) => element.dataset.agentId === agentId);
-        const output = outputs.at(-1);
+        const output = messageId ? root.querySelector<HTMLElement>(`[data-entry="${CSS.escape(messageId)}"]`) : outputs.at(-1);
         if (output) {
-          output.tabIndex = -1;
-          output.scrollIntoView({ block: "center" });
-          output.focus();
+          const content = root.querySelector<HTMLElement>(".conversation-scroll");
+          content?.setAttribute("data-restoring", "");
+          output.scrollIntoView({ block: "center", behavior: "auto" });
+          content?.removeAttribute("data-restoring");
+          focusTransientControl(output);
+          if (content) rememberConversationScroll(content);
+          refreshConversationNavigation();
         } else {
-          announceStatus("No transcript output is available for that participant.");
+          announceStatus(localize("No transcript output is available for that participant."));
         }
       });
     });
@@ -889,20 +922,20 @@ root.addEventListener("click", (event) => {
   else if (action === "workflow-restart") postRuntime({ type: "workflow.restart" });
   else if (action === "workflow-discard") openDialog({
     kind: "discardWorkflow",
-    title: "Discard the recovery checkpoint?",
-    message: "The recoverable pipeline and its checkpoint will be removed. The run's transcript is kept, but the pipeline cannot be resumed from where it stopped.",
-    confirmLabel: "Discard checkpoint",
+    title: localize("Discard the recovery checkpoint?"),
+    message: localize("The recoverable pipeline and its checkpoint will be removed. The run's transcript is kept, but the pipeline cannot be resumed from where it stopped."),
+    confirmLabel: localize("Discard checkpoint"),
     danger: true,
   });
   else if (action === "copy-code" && target.dataset.codeId) {
     const code = codeBlocks.get(target.dataset.codeId);
     if (code !== undefined) {
       void navigator.clipboard.writeText(code).then(() => {
-        target.textContent = "Copied";
-        announceStatus("Code copied to the clipboard.");
-        setTimeout(() => { target.textContent = "Copy"; }, 1200);
+        target.textContent = localize("Copied");
+        announceStatus(localize("Code copied to the clipboard."));
+        setTimeout(() => { target.textContent = localize("Copy"); }, 1200);
       }, () => {
-        announceStatus("Copying to the clipboard failed.");
+        announceStatus(localize("Copying to the clipboard failed."));
       });
     }
   } else if (action === "pipeline-view") {
@@ -914,7 +947,7 @@ root.addEventListener("click", (event) => {
       prompt: pipeline.steps.filter((step) => step.enabled).map((step, index) =>
         `## ${String(index + 1)}. ${step.name}${"promptTemplate" in step ? `\n\n${step.promptTemplate}` : ""}`,
       ).join("\n\n"),
-      confirmLabel: "Close",
+      confirmLabel: localize("Close"),
     });
   } else if (action === "pipeline-edit") openPipelineEditor(false);
   else if (action === "pipeline-new") openPipelineEditor(true);
@@ -1050,9 +1083,9 @@ root.addEventListener("click", (event) => {
     if (editorIsDirty()) {
       openDialog({
         kind: "replaceEditorImport",
-        title: "Replace unsaved pipeline?",
-        message: "Replace the current draft with an imported pipeline? The imported pipeline is not saved until you choose Save and select.",
-        confirmLabel: "Replace draft",
+        title: localize("Replace unsaved pipeline?"),
+        message: localize("Replace the current draft with an imported pipeline? The imported pipeline is not saved until you choose Save and select."),
+        confirmLabel: localize("Replace draft"),
         danger: true,
       });
     } else {
@@ -1074,14 +1107,14 @@ root.addEventListener("click", (event) => {
     const scopeKey = state.editorPipelineScopeKey;
     if (!scopeKey) {
       delete state.pendingEditorOperation;
-      state.editorErrors = ["The pipeline storage scope is unavailable. Reopen the editor before saving."];
+      state.editorErrors = [localize("The pipeline storage scope is unavailable. Reopen the editor before saving.")];
       scheduleRender();
       return;
     }
     if (sourcePipelineId) {
       if (!expectedHash) {
         delete state.pendingEditorOperation;
-        state.editorErrors = ["The pipeline revision is unavailable. Reopen the editor before saving."];
+        state.editorErrors = [localize("The pipeline revision is unavailable. Reopen the editor before saving.")];
         scheduleRender();
         return;
       }
@@ -1106,7 +1139,7 @@ root.addEventListener("click", (event) => {
     // The Save button is disabled by the busy redraw, and disabling the focused control drops
     // focus to the document. The editor's own heading keeps the reader inside the dialog that is
     // still open, and the status region says the save is in flight.
-    announceStatus("Saving the pipeline. The editor closes when the save is accepted.");
+    announceStatus(localize("Saving the pipeline. The editor closes when the save is accepted."));
     requestAnimationFrame(() => document.getElementById("pipeline-editor-title")?.focus());
   } else if (action === "pipeline-delete") {
     const pipelineId = state.editorSourcePipelineId;
@@ -1116,9 +1149,9 @@ root.addEventListener("click", (event) => {
     if (pipelineId && expectedHash && scopeKey) {
       openDialog({
         kind: "deletePipeline",
-        title: `Delete ${pipelineName}?`,
-        message: `Remove the custom pipeline “${pipelineName}” (${pipelineId})? Existing run histories are retained.`,
-        confirmLabel: `Delete ${pipelineName}`,
+        title: localize("Delete {0}?", pipelineName ?? pipelineId),
+        message: localize("Remove the custom pipeline “{0}” ({1})? Existing run histories are retained.", pipelineName ?? pipelineId, pipelineId),
+        confirmLabel: localize("Delete {0}", pipelineName ?? pipelineId),
         pipelineId,
         scopeKey,
         expectedHash,
@@ -1250,6 +1283,7 @@ root.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
   if (declineDisabledControl(target)) return;
+  if (handleAgentSelectionChange(target)) return;
   if (
     state.pendingEditorOperation &&
     (target.id === "pipeline-raw" ||
@@ -1316,7 +1350,7 @@ root.addEventListener("change", (event) => {
     else activeDraft().selectedAttachmentIds.delete(target.dataset.attachmentId);
   } else if (target.dataset.action === "browser-session" && target.dataset.agent) {
     if (runConfigurationLocked(activePanel())) {
-      announceStatus("Finish the active operation before changing run configuration.");
+      announceStatus(localize("Finish the active operation before changing run configuration."));
       scheduleRender();
       return;
     }

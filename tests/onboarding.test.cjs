@@ -373,8 +373,18 @@ test("walkthrough copy never demands human acceptance before a fix can start", (
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
   );
+  const manifestMessages = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"),
+  );
+  const resolveMessage = (reference) => {
+    const match = /^%([^%]+)%$/u.exec(reference);
+    assert.ok(match, "walkthrough copy must reference its localization catalog");
+    const message = manifestMessages[match[1]];
+    assert.equal(typeof message, "string", `missing English walkthrough copy: ${match[1]}`);
+    return message;
+  };
   const steps = packageJson.contributes.walkthroughs[0].steps;
-  const manifestCopy = steps.map((step) => `${step.title}\n${step.description}`).join("\n");
+  const manifestCopy = steps.map((step) => `${resolveMessage(step.title)}\n${resolveMessage(step.description)}`).join("\n");
   const markdownCopy = steps
     .map((step) => fs.readFileSync(path.join(__dirname, "..", step.media.markdown), "utf8"))
     .join("\n");

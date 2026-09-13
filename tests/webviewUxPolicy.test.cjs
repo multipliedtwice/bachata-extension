@@ -56,12 +56,12 @@ test("webview labels remaining controls and announces concise dynamic status", a
   assert.match(style, /\.sr-only\s*\{/u);
   // The rollback select is labelled in the words the gate's own action uses — "Return to step" —
   // so the visible label, the action button and the DOM test say the same thing.
-  assert.match(execution, /for="rollback-target">Return to step<\/label>/u);
-  assert.match(source, /rollback: "Return to step"/u);
-  assert.match(source, /for="run-search">Search runs<\/label>/u);
-  assert.match(source, />Secret response<\/label>/u);
+  assert.match(execution, /for="rollback-target">\$\{escapeHtml\(localize\("Return to step"\)\)\}<\/label>/u);
+  assert.match(source, /rollback: localize\("Return to step"\)/u);
+  assert.match(source, /for="run-search">\$\{escapeHtml\(localize\("Search runs"\)\)\}<\/label>/u);
+  assert.match(source, />\$\{escapeHtml\(localize\("Secret response"\)\)\}<\/label>/u);
   assert.match(source, /\$\{escapeHtml\(textPresentation\.label\)\}<\/label>/u);
-  assert.match(source, /label: "Additional instructions"/u);
+  assert.match(source, /label: localize\("Additional instructions"\)/u);
   assert.match(source, /announceManagerTransition/u);
   assert.match(source, /Run is waiting for shared capacity\./u);
   assert.match(source, /Approval is required to continue the run\./u);

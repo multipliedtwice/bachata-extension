@@ -1,3 +1,4 @@
+import { formatMessage, type Localize } from "../localization/message";
 import { basename } from "node:path";
 
 /*
@@ -106,8 +107,11 @@ export const browserAssetDestinationRefusal = (
  * canonical. A path, a query or a full asset URL is never shown, and an origin that is not
  * canonical is not shown at all rather than shown partly.
  */
-export const browserAssetSaveTitle = (canonicalOrigin: string | undefined): string | undefined =>
-  canonicalOrigin === undefined ? undefined : `Save browser asset linked from ${canonicalOrigin}`;
+export const browserAssetSaveTitle = (
+  canonicalOrigin: string | undefined,
+  localize: Localize = formatMessage,
+): string | undefined =>
+  canonicalOrigin === undefined ? undefined : localize("Save browser asset linked from {0}", canonicalOrigin);
 
 /**
  * The ceiling on a saved asset. A configured value below the floor would refuse ordinary captures,

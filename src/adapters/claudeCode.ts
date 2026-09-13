@@ -43,6 +43,7 @@ type ActiveRun = {
   closed: Promise<void>;
   terminate: (graceMs: number) => Promise<boolean>;
   stopping?: Promise<boolean>;
+  terminated?: boolean;
 };
 
 export type ClaudeAdapterOptions = {
@@ -187,7 +188,13 @@ const stopRun = (
   run: ActiveRun,
   graceMs: number,
 ): Promise<boolean> => {
-  run.stopping ??= run.terminate(graceMs);
+  if (run.terminated) return Promise.resolve(true);
+  run.stopping ??= run.terminate(graceMs).then((terminated) => {
+    run.terminated = terminated;
+    return terminated;
+  }).finally(() => {
+    delete run.stopping;
+  });
   return run.stopping;
 };
 
@@ -596,6 +603,14 @@ export const createClaudeCodeAdapter = (
 
       let child: ChildProcessWithoutNullStreams;
       let terminateChild: (graceMs: number) => Promise<boolean>;
+      if (disposed || signal.aborted) {
+        await closeHookServer().catch(() => undefined);
+        if (activeOperation === operation) activeOperation = undefined;
+        queue.fail(new Error(disposed
+          ? "Claude Code adapter is disposed"
+          : "Claude request was interrupted before starting"));
+        return;
+      }
       try {
         const invocation = commandInvocation(options.command, args);
         const scope = spawnScopedProviderProcess(invocation.command, invocation.args, {
@@ -705,7 +720,7 @@ export const createClaudeCodeAdapter = (
           clearTimeout(reapTimer);
         }
         closeLines();
-        if (activeRun?.child === child) {
+        if (activeRun?.child === child && run.terminated) {
           activeRun = undefined;
         }
         if (activeOperation === operation) {
@@ -1063,7 +1078,7 @@ export const createClaudeCodeAdapter = (
         return;
       }
       if (!(await stopRun(run, interruptGraceMs))) {
-        log("Claude process did not terminate during disposal");
+        throw new Error("Claude process did not terminate during disposal");
       }
       if (activeRun === run) {
         activeRun = undefined;

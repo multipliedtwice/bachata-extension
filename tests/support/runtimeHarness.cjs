@@ -343,6 +343,9 @@ const installHostDoubles = (options = {}) => {
   const workspaceFolderListeners = new Set();
 
   const vscode = {
+    l10n: { t: (message, ...args) =>
+      (options.translations?.[message] ?? message).replace(/\{(\d+)\}/gu, (placeholder, index) =>
+        args[Number(index)] === undefined ? placeholder : String(args[Number(index)])) },
     Disposable,
     Uri: {
       file: (fsPath) => ({ fsPath }),
@@ -376,7 +379,7 @@ const installHostDoubles = (options = {}) => {
     window: {
       showWarningMessage: async (...args) =>
         options.showWarningMessage?.(...args),
-      showInformationMessage: async () => undefined,
+      showInformationMessage: async (...args) => options.showInformationMessage?.(...args),
       showOpenDialog: async (dialogOptions) =>
         options.showOpenDialog?.({ dialogOptions, workspaceDirectory }),
       showSaveDialog: async (dialogOptions) =>

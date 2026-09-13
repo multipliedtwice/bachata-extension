@@ -19,6 +19,9 @@ const {
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
 );
+const manifestMessages = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"),
+);
 const contributed = Object.fromEntries(
   [packageJson.contributes.configuration].flat()
     .flatMap((group) => Object.entries(group.properties))
@@ -296,7 +299,14 @@ test("the three browser action policies offer the same choices in the same order
       ["ask", "auto", "disabled"],
       `${key} lists the same choices in a different order, so the dropdowns disagree`,
     );
-    const { enum: values, enumDescriptions } = contributed[key];
+    const { enum: values, enumDescriptions: descriptions } = contributed[key];
+    const enumDescriptions = descriptions.map((reference) => {
+      const match = /^%([^%]+)%$/u.exec(reference);
+      assert.ok(match, `${key} has an unlocalized choice description`);
+      const message = manifestMessages[match[1]];
+      assert.equal(typeof message, "string", `${key} has a missing English choice description`);
+      return message;
+    });
     assert.equal(enumDescriptions.length, values.length, `${key} labels a different number of choices`);
     assert.match(enumDescriptions[values.indexOf("ask")], /^Ask you before/u);
     assert.match(enumDescriptions[values.indexOf("auto")], /without asking/u);

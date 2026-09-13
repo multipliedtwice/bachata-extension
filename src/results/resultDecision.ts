@@ -3,7 +3,7 @@ import { boundedResultDecision } from "../conversations/eventDetail";
 
 export type ResultDecision = {
   stepId: string;
-  status: "accepted" | "ruled" | "resolved";
+  status: "pending" | "accepted" | "ruled" | "resolved";
   candidate?: JsonValue;
   participants: JsonValue[];
   objections: JsonValue[];
@@ -34,7 +34,7 @@ const copyJson = (value: unknown): JsonValue | undefined => {
 export const parseResultDecision = (value: unknown): ResultDecision | undefined => {
   const record = recordOf(boundedResultDecision(value));
   if (!record || typeof record.stepId !== "string" ||
-      (record.status !== "accepted" && record.status !== "ruled" && record.status !== "resolved")) return undefined;
+      (record.status !== "pending" && record.status !== "accepted" && record.status !== "ruled" && record.status !== "resolved")) return undefined;
   const candidate = copyJson(record.candidate);
   const participants = copyJson(record.participants);
   const objections = copyJson(record.objections);

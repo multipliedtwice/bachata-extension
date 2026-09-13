@@ -255,6 +255,8 @@ type BrowserBridgeStatus = {
   pairingToken?: string;
   pairingExpiresAt?: string;
   connected: boolean;
+  connectionState?: "connecting" | "retrying" | "connected" | "blocked" | "disconnected";
+  blockedReason?: "portUnavailable" | "localWindowRequired" | "browserUpdateRequired" | "pairingExpired" | "accessDenied";
   selectedSessionId?: string;
   sessions: BrowserSession[];
   error?: string;
@@ -1101,6 +1103,7 @@ type PendingEditorOperation = {
   returnFocusSelector?: string;
 };
 type AppDialog =
+  | { kind: "runRequirements"; title: string; message: string; confirmLabel: string; conversationId: string }
   | { kind: "turnDetails"; title: string; message: string; confirmLabel: string; prompt: string; context?: string }
   | { kind: "notificationSettings"; title: string; message: string; confirmLabel: string }
   | { kind: "renameRun"; title: string; message: string; confirmLabel: string; conversationId: string; inputValue: string }

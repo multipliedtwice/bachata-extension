@@ -112,17 +112,48 @@ const renderInline = (value: string): string => {
   return output;
 };
 
-const codeBlockHtml = (code: string, language: string): string => {
-  const normalized = normalizeLanguage(language);
+const formattedJsonText = (value: string): string | undefined => {
+  if (!/^\s*[\[{]/u.test(value)) return undefined;
+  try {
+    JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+  const tokens = value.match(/"(?:\\.|[^"\\])*"|[{}\[\],:]|[^\s{}\[\],:]+/gu) ?? [];
+  const output: string[] = [];
+  let depth = 0;
+  const newline = (): string => `\n${"  ".repeat(Math.min(depth, 32))}`;
+  for (const [index, token] of tokens.entries()) {
+    if (token === "{" || token === "[") {
+      output.push(token);
+      depth += 1;
+      if (tokens[index + 1] !== (token === "{" ? "}" : "]")) output.push(newline());
+    } else if (token === "}" || token === "]") {
+      depth -= 1;
+      if (tokens[index - 1] !== (token === "}" ? "{" : "[")) output.push(newline());
+      output.push(token);
+    } else if (token === ",") {
+      output.push(token, newline());
+    } else {
+      output.push(token === ":" ? ": " : token);
+    }
+  }
+  return output.join("");
+};
+
+const codeBlockHtml = (code: string, language: string, formatted?: string): string => {
+  const requested = normalizeLanguage(language);
+  const json = formatted ?? (requested === "json" || requested === "plain" ? formattedJsonText(code) : undefined);
+  const normalized = json === undefined ? requested : "json";
   const id = `code-${String(++codeBlockSequence)}`;
   // A transcript holds many of both, so neither the copy control nor the scrollable block can be
   // named "Copy" and "pre": a control list of identical entries names nothing.
-  const label = `${normalized === "plain" ? "text" : normalized} code block`;
+  const label = localize("{0} code block", normalized === "plain" ? localize("text") : normalized);
   codeBlocks.set(id, code);
   // The block becomes a focusable region only once it is known to scroll; see settleCodeBlockFocus.
   return `<section class="code-block">
-    <div class="code-toolbar"><span>${escapeHtml(normalized === "plain" ? "text" : normalized)}</span><button data-action="copy-code" data-code-id="${id}" aria-label="Copy ${escapeAttribute(label)}">Copy</button></div>
-    <pre class="language-${escapeAttribute(normalized)}" data-code-region="${escapeAttribute(label)}"><code class="language-${escapeAttribute(normalized)}">${highlightedCode(code, normalized)}</code></pre>
+    <div class="code-toolbar"><span>${escapeHtml(normalized === "plain" ? localize("text") : normalized)}</span><button data-action="copy-code" data-code-id="${id}" aria-label="${escapeAttribute(localize("Copy {0}", label))}">${escapeHtml(localize("Copy"))}</button></div>
+    <pre class="language-${escapeAttribute(normalized)}" data-code-region="${escapeAttribute(label)}"><code class="language-${escapeAttribute(normalized)}">${highlightedCode(json ?? code, normalized)}</code></pre>
   </section>`;
 };
 
@@ -168,12 +199,47 @@ const isBlockStart = (line: string): boolean =>
   /^(```+|~~~+)/u.test(line) ||
   /^\s*([-*_])(?:\s*\1){2,}\s*$/u.test(line);
 
+const jsonMarkdownBlock = (lines: string[], start: number): { end: number; content: string } | undefined => {
+  const first = lines[start]?.trimStart() ?? "";
+  if (!/^[\[{]\s*(?:["{\[}\]]|true\b|false\b|null\b|-?\d|$)/u.test(first)) return undefined;
+  const source: string[] = [];
+  const stack: string[] = [];
+  let quoted = false;
+  let escaped = false;
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    source.push(line);
+    for (let column = 0; column < line.length; column += 1) {
+      const token = line[column];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (token === "\\") escaped = true;
+        else if (token === '"') quoted = false;
+      } else if (token === '"') quoted = true;
+      else if (token === "{" || token === "[") stack.push(token === "{" ? "}" : "]");
+      else if (token === "}" || token === "]") {
+        if (stack.pop() !== token) return undefined;
+        if (stack.length === 0) {
+          const content = source.join("\n");
+          return line.slice(column + 1).trim() === "" && formattedJsonText(content) !== undefined
+            ? { end: index + 1, content } : undefined;
+        }
+      }
+    }
+  }
+  const content = source.join("\n");
+  return /^[\[{]\s*(?:["{\[]|true\b|false\b|null\b|-?\d)/u.test(content.trimStart())
+    ? { end: lines.length, content } : undefined;
+};
+
 // Each blockquote level strips one `>` and recurses, so a long run of leading `>` in agent
 // output recurses once per character and overflows the stack, dropping the whole panel into
 // its render-failure banner. Past the cap the remaining quote is rendered as inline text.
 const maximumQuoteDepth = 16;
 
 const renderMarkdown = (value: string, quoteDepth = 0): string => {
+  const json = formattedJsonText(value);
+  if (json !== undefined) return codeBlockHtml(value, "json", json);
   const lines = value.replaceAll("\r\n", "\n").split("\n");
   const blocks: string[] = [];
   let index = 0;
@@ -206,6 +272,12 @@ const renderMarkdown = (value: string, quoteDepth = 0): string => {
         index += 1;
       }
       blocks.push(codeBlockHtml(content.join("\n"), language));
+      continue;
+    }
+    const jsonBlock = jsonMarkdownBlock(lines, index);
+    if (jsonBlock) {
+      blocks.push(codeBlockHtml(jsonBlock.content, "json"));
+      index = jsonBlock.end;
       continue;
     }
     const heading = line.match(/^(#{1,6})\s+(.+)$/u);
@@ -269,7 +341,7 @@ const renderMarkdown = (value: string, quoteDepth = 0): string => {
     index += 1;
     while (index < lines.length) {
       const next = lines[index];
-      if (next === undefined || !next.trim() || isBlockStart(next)) break;
+      if (next === undefined || !next.trim() || isBlockStart(next) || jsonMarkdownBlock(lines, index)) break;
       paragraph.push(next);
       index += 1;
     }

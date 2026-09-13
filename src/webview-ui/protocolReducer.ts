@@ -70,13 +70,13 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
         message.workflowStatus,
       );
       if (!hadPendingGate && message.pendingGate) {
-        announceStatus("A decision is required to continue the run.");
+        announceStatus(localize("A decision is required to continue the run."));
       }
     }
   } else if (message.type === "approval.add") {
     panel.approvals = panel.approvals.filter((item) => item.requestId !== message.approval.requestId || item.agentId !== message.approval.agentId);
     panel.approvals.push(message.approval);
-    if (conversationId === activeId()) announceStatus("Approval is required to continue the run.");
+    if (conversationId === activeId()) announceStatus(localize("Approval is required to continue the run."));
   } else if (message.type === "approval.remove") {
     panel.approvals = panel.approvals.filter((item) => item.requestId !== message.requestId || item.agentId !== message.agentId);
     state.pendingApprovals.delete(approvalKey(message.agentId, message.requestId));
@@ -127,7 +127,7 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
       const pendingEditorOperation = state.pendingEditorOperation;
       delete state.pendingEditorOperation;
       if (message.status === "failed") {
-        state.editorErrors = (message.message ?? "Pipeline operation failed").split(/\r?\n/).filter(Boolean);
+        state.editorErrors = (message.message ?? localize("Pipeline operation failed")).split(/\r?\n/).filter(Boolean);
         scheduleRender();
         restoreDialogFocus(pendingEditorOperation.returnFocusSelector);
       } else if (message.status === "cancelled") {

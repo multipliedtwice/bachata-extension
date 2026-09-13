@@ -1,4 +1,5 @@
-import { EXPORT_POLICY_PATH, EXPORT_REVIEW_WARNING, exportRedactionRules } from "./exportPolicy";
+import { formatMessage, type Localize } from "../localization/message";
+import { EXPORT_POLICY_PATH, exportReviewWarning, exportRedactionRules } from "./exportPolicy";
 import type { ExportPolicy } from "./exportPolicy";
 
 /**
@@ -42,12 +43,6 @@ export type ExportPlanVerdict =
   | { refusal: string }
   | { refusal?: undefined; plan: ExportPlan };
 
-const FORMAT_NAMES: Record<ExportFormat, string> = {
-  bundle: "run bundle",
-  markdown: "evidence as Markdown",
-  sarif: "evidence as SARIF",
-};
-
 const SUFFIXES: Record<ExportFormat, string> = {
   bundle: "bachata-run",
   markdown: "bachata-evidence",
@@ -65,10 +60,10 @@ export const runExportPlan = (input: {
   format?: ExportFormat | undefined;
   hasEvidence: boolean;
   runRef: string;
-}): ExportPlanVerdict => {
+}, localize: Localize = formatMessage): ExportPlanVerdict => {
   const format = input.format ?? "bundle";
   if (format !== "bundle" && !input.hasEvidence) {
-    return { refusal: "This run has no recorded result to export as evidence" };
+    return { refusal: localize("This run has no recorded result to export as evidence") };
   }
   const extension = format === "markdown" ? "md" : "json";
   const suffix = SUFFIXES[format];
@@ -82,10 +77,14 @@ export const runExportPlan = (input: {
       suffix,
       fileName: `${input.runRef}.${suffix}.${extension}`,
       saveFilter: format === "markdown"
-        ? { "Bachata evidence report": ["md"] }
-        : { "Bachata export": ["json"] },
-      saveLabel: "Export",
-      prompt: `Export ${FORMAT_NAMES[format]}?`,
+        ? { [localize("Bachata evidence report")]: ["md"] }
+        : { [localize("Bachata export")]: ["json"] },
+      saveLabel: localize("Export"),
+      prompt: format === "markdown"
+        ? localize("Export evidence as Markdown?")
+        : format === "sarif"
+          ? localize("Export evidence as SARIF?")
+          : localize("Export run bundle?"),
     },
   };
 };
@@ -105,13 +104,15 @@ export const exportDisclosureRules = (input: {
   excluded: number;
   excludedNote?: string | undefined;
   literals: ReadonlyArray<{ occurrences: number }>;
-}): string[] => [
-  ...exportRedactionRules(input.policy, input.policyErrors),
+}, localize: Localize = formatMessage): string[] => [
+  ...exportRedactionRules(input.policy, input.policyErrors, localize),
   ...(input.excluded > 0
-    ? [input.excludedNote ?? `${String(input.excluded)} paths were excluded by ${EXPORT_POLICY_PATH}.`]
+    ? [input.excludedNote ?? localize("{0} paths were excluded by {1}.", input.excluded, EXPORT_POLICY_PATH)]
     : []),
   ...input.literals.map((entry) =>
-    `Repository literal redacted ${String(entry.occurrences)} time${entry.occurrences === 1 ? "" : "s"}.`),
+    entry.occurrences === 1
+      ? localize("Repository literal redacted {0} time.", entry.occurrences)
+      : localize("Repository literal redacted {0} times.", entry.occurrences)),
 ];
 
 /**
@@ -122,13 +123,13 @@ export const exportConfirmationDetail = (input: {
   content: string;
   rules: string[];
   contents?: string | undefined;
-}): string =>
+}, localize: Localize = formatMessage): string =>
   [
-    `Size: ${String(Buffer.byteLength(input.content, "utf8"))} bytes.`,
+    localize("Size: {0} bytes.", Buffer.byteLength(input.content, "utf8")), 
     ...(input.contents === undefined ? [] : [input.contents]),
     "",
-    "Applied redaction rules:",
+    localize("Applied redaction rules:"),
     ...input.rules.map((rule) => `- ${rule}`),
     "",
-    EXPORT_REVIEW_WARNING,
+    exportReviewWarning(localize),
   ].join("\n");

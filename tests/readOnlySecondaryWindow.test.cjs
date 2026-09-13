@@ -4,6 +4,7 @@ const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { createL10nStub } = require("./fixtures/vscodeL10n.cjs");
 
 const { createStateCatalog } = require("../dist/state/catalog.js");
 const { createLongitudinalService } = require("../dist/longitudinal/service.js");
@@ -175,6 +176,7 @@ const createVscodeStub = (context) => {
   }
 
   const vscode = {
+    l10n: createL10nStub(),
     Disposable,
     ViewColumn: { One: 1 },
     ExtensionMode: { Development: 2, Production: 1, Test: 3 },

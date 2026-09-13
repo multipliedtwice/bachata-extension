@@ -805,3 +805,103 @@ test("a schema migration that fails leaves no half-applied database behind", asy
 
   await rm(temporary.root, { recursive: true, force: true });
 });
+
+
+test("confirmed cleanup clears only its quarantined lease and never revives its ownership", async () => {
+  const temporary = await tempDatabase();
+  const first = broker(temporary.databasePath, "cleanup-owner");
+  const second = broker(temporary.databasePath, "cleanup-observer");
+  try {
+    const request = { resources: [{ key: "working-directory:cleanup", kind: "physical" }], deadlineAt: Date.now() + 1000 };
+    const lease = await first.acquire(request);
+    await assert.rejects(lease.confirmCleanup(), /Release or quarantine/u);
+    await lease.quarantine("Provider cleanup timed out");
+    await lease.release();
+    assert.equal(first.listQuarantine().length, 1);
+    await lease.confirmCleanup();
+    assert.deepEqual(first.listQuarantine(), []);
+    assert.equal(lease.isValid(), false);
+    assert.throws(() => lease.assertValid(), ResourceLeaseLostError);
+    const resumed = await second.acquire({ ...request, deadlineAt: Date.now() + 1000 });
+    await resumed.release();
+  } finally {
+    await Promise.all([first.dispose(), second.dispose()]);
+    await rm(temporary.root, { recursive: true, force: true });
+  }
+});
+
+for (const sameOwner of [false, true]) {
+  test(`cleanup confirmation preserves overlapping quarantine from ${sameOwner ? "the same" : "another"} owner`, async () => {
+    const temporary = await tempDatabase();
+    const first = broker(temporary.databasePath, "first-owner");
+    const second = sameOwner ? first : broker(temporary.databasePath, "second-owner");
+    try {
+      const request = { resources: [{ key: "local-agents:global", kind: "physical", capacity: 2 }], deadlineAt: Date.now() + 1000 };
+      const firstLease = await first.acquire(request);
+      const secondLease = await second.acquire(request);
+      await firstLease.quarantine("First cleanup timed out");
+      await secondLease.quarantine("Second cleanup timed out");
+      await firstLease.confirmCleanup();
+      await secondLease.confirmCleanup();
+      assert.equal(first.listQuarantine().length, 1);
+      await assert.rejects(first.acquire(request), ResourceQuarantinedError);
+    } finally {
+      await first.dispose();
+      if (!sameOwner) await second.dispose();
+      await rm(temporary.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("late cleanup confirmation cannot clear a replacement quarantine", async () => {
+  const temporary = await tempDatabase();
+  const first = broker(temporary.databasePath, "first-owner");
+  const second = broker(temporary.databasePath, "second-owner");
+  try {
+    const request = { resources: [{ key: "working-directory:replacement", kind: "physical" }], deadlineAt: Date.now() + 1000 };
+    const oldLease = await first.acquire(request);
+    await oldLease.quarantine("Old cleanup timed out");
+    first.clearQuarantine();
+    const replacement = await second.acquire(request);
+    await replacement.quarantine("New cleanup timed out");
+    await oldLease.confirmCleanup();
+    assert.equal(first.listQuarantine()[0].reason, "New cleanup timed out");
+    await replacement.confirmCleanup();
+    assert.deepEqual(first.listQuarantine(), []);
+  } finally {
+    await Promise.all([first.dispose(), second.dispose()]);
+    await rm(temporary.root, { recursive: true, force: true });
+  }
+});
+
+test("quarantine errors provide a recovery action without exposing resource keys", () => {
+  const error = new ResourceQuarantinedError(["local-agents:global", "working-directory:private-token"]);
+  assert.match(error.message, /previous agents are stopped/u);
+  assert.match(error.message, /Bachata: Clear Resource Quarantine/u);
+  assert.doesNotMatch(error.message, /working-directory|private-token|local-agents/u);
+  assert.deepEqual(error.keys, ["local-agents:global", "working-directory:private-token"]);
+});
+
+test("broker migration retains quarantine recorded without cleanup ownership", async () => {
+  const temporary = await tempDatabase();
+  const previous = new DatabaseSync(temporary.databasePath);
+  previous.exec("CREATE TABLE resource_quarantine (resource_key TEXT PRIMARY KEY, reason TEXT NOT NULL, quarantined_at INTEGER NOT NULL, owner_id TEXT)");
+  previous.prepare("INSERT INTO resource_quarantine VALUES (?, ?, ?, ?)")
+    .run("working-directory:older-run", "Cleanup was not confirmed", Date.now(), "older-owner");
+  previous.close();
+  const current = broker(temporary.databasePath, "current-owner");
+  try {
+    const lease = await current.acquire({
+      resources: [{ key: "working-directory:current-run", kind: "physical" }], deadlineAt: Date.now() + 1000,
+    });
+    await lease.quarantine("Current cleanup timed out");
+    await lease.confirmCleanup();
+    assert.deepEqual(current.listQuarantine().map((item) => item.key), ["working-directory:older-run"]);
+    await assert.rejects(current.acquire({
+      resources: [{ key: "working-directory:older-run", kind: "physical" }], deadlineAt: Date.now() + 1000,
+    }), ResourceQuarantinedError);
+  } finally {
+    await current.dispose();
+    await rm(temporary.root, { recursive: true, force: true });
+  }
+});

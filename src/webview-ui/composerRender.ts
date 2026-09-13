@@ -9,79 +9,89 @@ const runContractHtml = (panel: PanelState, draft: ConversationDraft): string =>
   if (!contract) return "";
   const limits = [
     draft.iterationMode === "untilClean"
-      ? `Iterations: until clean ×${String(draft.requiredCleanPasses)}, at most ${String(draft.iterationCount)}`
-      : `Iterations: ${String(draft.iterationCount)} (maximum ${String(contract.limits.maxIterations)})`,
+      ? localize("Iterations: until clean ×{0}, at most {1}", String(draft.requiredCleanPasses), String(draft.iterationCount))
+      : localize("Iterations: {0} (maximum {1})", String(draft.iterationCount), String(contract.limits.maxIterations)),
     ...(contract.limits.agentTurnTimeoutMs === undefined
       ? []
-      : [`Provider turn limit: ${durationLabel(contract.limits.agentTurnTimeoutMs)}`]),
+      : [localize("Provider turn limit: {0}", durationLabel(contract.limits.agentTurnTimeoutMs))]),
     ...(contract.limits.managedTaskTimeoutMs === undefined
       ? []
-      : [`Managed task limit: ${durationLabel(contract.limits.managedTaskTimeoutMs)}`]),
+      : [localize("Managed task limit: {0}", durationLabel(contract.limits.managedTaskTimeoutMs))]),
     ...(contract.limits.browserOperationTimeoutMs === undefined
       ? []
-      : [`Browser operation limit: ${durationLabel(contract.limits.browserOperationTimeoutMs)}`]),
+      : [localize("Browser operation limit: {0}", durationLabel(contract.limits.browserOperationTimeoutMs))]),
     ...(contract.limits.maxRevisionCycles === undefined
       ? []
-      : [`Revision cycles: ${String(contract.limits.maxRevisionCycles)}`]),
+      : [localize("Revision cycles: {0}", String(contract.limits.maxRevisionCycles))]),
     ...(contract.limits.checklistRetries === undefined
       ? []
-      : [`Task retries: ${String(contract.limits.checklistRetries)}`]),
+      : [localize("Task retries: {0}", String(contract.limits.checklistRetries))]),
     ...(contract.limits.checklistConcurrency === undefined
       ? []
-      : [`Task concurrency: ${String(contract.limits.checklistConcurrency)}`]),
-    ...(contract.limits.consensusSteps ?? []).map((step) =>
-      `Consensus rounds, ${step.stepName}: at most ${String(step.maxRounds)} before a human decision. Each requested review adds ${String(step.retryRounds ?? 1)} round${(step.retryRounds ?? 1) === 1 ? "" : "s"}${step.roundLimitRetryable ? ", including at the round limit" : "; at the round limit this step does not offer a retry"}`),
+      : [localize("Task concurrency: {0}", String(contract.limits.checklistConcurrency))]),
+    ...(contract.limits.consensusSteps ?? []).map((step) => [
+      localize("Consensus rounds, {0}: at most {1} before a human decision.", step.stepName, step.maxRounds),
+      step.roundLimitRetryable
+        ? (step.retryRounds ?? 1) === 1
+          ? localize("Each requested review adds {0} round, including at the round limit", step.retryRounds ?? 1)
+          : localize("Each requested review adds {0} rounds, including at the round limit", step.retryRounds ?? 1)
+        : (step.retryRounds ?? 1) === 1
+          ? localize("Each requested review adds {0} round; at the round limit this step does not offer a retry", step.retryRounds ?? 1)
+          : localize("Each requested review adds {0} rounds; at the round limit this step does not offer a retry", step.retryRounds ?? 1),
+    ].join(" ")),
     ...(contract.limits.maxParticipantTurns === undefined
       ? []
       : [contract.limits.participantTurnsBounded === false
-          ? `Participant turns: at most ${String(contract.limits.maxParticipantTurns)} without a further human decision${contract.limits.executesChecklist ? "; each checklist task adds one bounded sub-run" : ""}`
-          : `Participant turns: at most ${String(contract.limits.maxParticipantTurns)} for the whole run`]),
+          ? contract.limits.executesChecklist
+            ? localize("Participant turns: at most {0} without a further human decision; each checklist task adds one bounded sub-run", contract.limits.maxParticipantTurns)
+            : localize("Participant turns: at most {0} without a further human decision", contract.limits.maxParticipantTurns)
+          : localize("Participant turns: at most {0} for the whole run", String(contract.limits.maxParticipantTurns))]),
   ];
   const provenance = [
     ...(contract.provenance === undefined
       ? []
       : [
-          `Extension version: ${contract.provenance.extensionVersion}`,
-          `Pipeline hash: ${contract.provenance.pipelineHash.slice(0, 12)}…`,
+          localize("Extension version: {0}", contract.provenance.extensionVersion),
+          localize("Pipeline hash: {0}…", contract.provenance.pipelineHash.slice(0, 12)),
         ]),
     ...contract.providers.map((provider) =>
-      `${provider.name}: ${provider.model ? `model ${provider.model}` : "model not reported"}, ${provider.runtimeVersion ? `runtime ${provider.runtimeVersion}` : "runtime not detected"}`),
+      `${provider.name}: ${provider.model ? localize("model {0}", provider.model) : localize("model not reported")}, ${provider.runtimeVersion ? localize("runtime {0}", provider.runtimeVersion) : localize("runtime not detected")}`),
   ];
   const scope = [
-    `Working directory: ${contract.scope.workingDirectory ?? "not selected"}`,
-    `Writes: ${writeScopeLabels[contract.scope.writeScope]}`,
+    localize("Working directory: {0}", contract.scope.workingDirectory ?? localize("not selected")),
+    localize("Writes: {0}", writeScopeLabels[contract.scope.writeScope]),
     ...(contract.scope.writablePaths.length > 0
-      ? [`Writable paths: ${contract.scope.writablePaths.join(", ")}`]
+      ? [localize("Writable paths: {0}", contract.scope.writablePaths.join(", "))]
       : []),
     ...(contract.scope.readablePaths.length > 0
-      ? [`Readable paths: ${contract.scope.readablePaths.join(", ")}`]
+      ? [localize("Readable paths: {0}", contract.scope.readablePaths.join(", "))]
       : []),
     ...(contract.scope.protectedPaths.length > 0
-      ? [`Protected paths: ${contract.scope.protectedPaths.join(", ")}`]
+      ? [localize("Protected paths: {0}", contract.scope.protectedPaths.join(", "))]
       : []),
-    `Commits: ${contract.commitPolicy === "allow" ? "the controller may create commits" : "no commits are created"}`,
+    localize("Commits: {0}", contract.commitPolicy === "allow" ? localize("the controller may create commits") : localize("no commits are created")),
   ];
   const providers = contract.providers.map((provider) => {
     const roles = provider.roles.length > 0 ? ` · ${provider.roles.join(", ")}` : "";
-    const model = provider.model === undefined ? " · model not reported" : ` · model ${provider.model}`;
+    const model = ` · ${provider.model === undefined ? localize("model not reported") : localize("model {0}", provider.model)}`;
     return `${provider.name} · ${provider.adapterLabel ?? provider.adapter}${model}${roles} · ${contractStatusLabels[provider.status]}`;
   });
   const gates = contract.humanGates.map((gate) => `${gate.stepName} · ${contractGateLabels[gate.gate] ?? gate.gate}`);
   const roles = (contract.roles ?? []).map((role) => [
-    `${role.name}${role.managed ? " · managed" : ""}${role.optional ? " · optional" : ""}`,
-    role.readOnly ? "read-only" : `writes ${writeScopeLabels[role.writeScope]}`,
-    ...(role.writablePaths.length > 0 ? [`paths ${role.writablePaths.join(", ")}`] : []),
-    role.commitPolicy === "allow" ? "commits allowed" : "no commits",
-    ...(role.verification.length > 0 ? [`checks ${role.verification.join(", ")}`] : []),
+    [role.name, ...(role.managed ? [localize("managed")] : []), ...(role.optional ? [localize("optional")] : [])].join(" · "),
+    role.readOnly ? localize("read-only") : localize("writes {0}", writeScopeLabels[role.writeScope]),
+    ...(role.writablePaths.length > 0 ? [localize("paths {0}", role.writablePaths.join(", "))] : []),
+    role.commitPolicy === "allow" ? localize("commits allowed") : localize("no commits"),
+    ...(role.verification.length > 0 ? [localize("checks {0}", role.verification.join(", "))] : []),
   ].join(" · "));
   const outbound = (contract.outboundContext ?? []).length === 0
     ? ""
-    : `<section class="contract-outbound"><h3>What each provider receives</h3>${(contract.outboundContext ?? []).map((manifest) => `<details ${disclosureAttributes(`composer:outbound:${manifest.agentId}`)}>
+    : `<section class="contract-outbound"><h3>${escapeHtml(localize("What each provider receives"))}</h3>${(contract.outboundContext ?? []).map((manifest) => `<details ${disclosureAttributes(`composer:outbound:${manifest.agentId}`)}>
       <summary>${escapeHtml(manifest.name)} · ${escapeHtml(manifest.adapterLabel)}</summary>
       <p class="muted">${escapeHtml(manifest.transport)}</p>
-      <ul class="contract-list">${manifest.entries.map((entry) => `<li><strong>${escapeHtml(entry.label)}</strong> · ${escapeHtml(entry.detail)}${entry.exact ? "" : ` <span class="contract-inexact">selected at run time</span>`}</li>`).join("")}</ul>
-      <h4>Never sent</h4>${contractList(manifest.exclusions, "")}
-      <h4>Redaction</h4>${contractList(manifest.redactions, "")}
+      <ul class="contract-list">${manifest.entries.map((entry) => `<li><strong>${escapeHtml(entry.label)}</strong> · ${escapeHtml(entry.detail)}${entry.exact ? "" : ` <span class="contract-inexact">${escapeHtml(localize("selected at run time"))}</span>`}</li>`).join("")}</ul>
+      <h4>${escapeHtml(localize("Never sent"))}</h4>${contractList(manifest.exclusions, "")}
+      <h4>${escapeHtml(localize("Redaction"))}</h4>${contractList(manifest.redactions, "")}
     </details>`).join("")}</section>`;
   // A policy refusal is already stated under its own heading; the blockers list repeats it only
   // because the host folds refusals into blockers, so it is filtered back out here.
@@ -91,21 +101,21 @@ const runContractHtml = (panel: PanelState, draft: ConversationDraft): string =>
   // empty room shows. Run details describe what the run may do; reading them is never a gate.
   const openByDefault = false;
   return `<details class="run-contract" ${disclosureAttributes("composer:contract", openByDefault)}>
-    <summary><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i><h2 class="contract-kicker">Run details</h2><span class="contract-badge">${escapeHtml(safetyLevelLabels[contract.safetyLevel])}</span>${contract.assuranceLabel ? `<span class="contract-assurance">${escapeHtml(contract.assuranceLabel)}</span>` : ""}<span class="contract-pipeline" title="${escapeAttribute(contract.pipelineName)}">${escapeHtml(contract.pipelineName)}</span>${contract.blockers.length > 0 ? `<span class="contract-blockers">${String(contract.blockers.length)} unresolved</span>` : ""}</summary>
+    <summary><i class="codicon codicon-chevron-right disclosure-chevron" aria-hidden="true"></i><h2 class="contract-kicker">${escapeHtml(localize("Run details"))}</h2><span class="contract-badge">${escapeHtml(safetyLevelLabels[contract.safetyLevel])}</span>${contract.assuranceLabel ? `<span class="contract-assurance">${escapeHtml(contract.assuranceLabel)}</span>` : ""}<span class="contract-pipeline" title="${escapeAttribute(contract.pipelineName)}">${escapeHtml(contract.pipelineName)}</span>${contract.blockers.length > 0 ? `<span class="contract-blockers">${escapeHtml(localize("{0} unresolved", contract.blockers.length))}</span>` : ""}</summary>
     <div class="contract-grid">
-      ${contract.assuranceStatement ? `<section class="contract-assurance-statement"><h3>Assurance</h3><p>${escapeHtml(contract.assuranceStatement)}</p></section>` : ""}
-      <section><h3>Providers</h3>${contractList(providers, "No providers are declared.")}</section>
-      <section><h3>Scope and commits</h3>${contractList(scope, "No scope was resolved.")}</section>
-      <section><h3>Role authority</h3>${contractList(roles, "This pipeline declares no roles; every provider runs with the scope above.")}</section>
-      <section><h3>Verification</h3>${contractList(contract.verification, "No controller verification runs.")}${contract.verificationResources.length > 0 ? `<p class="muted">Shared resources: ${escapeHtml(contract.verificationResources.join(", "))}</p>` : ""}</section>
-      <section><h3>Run limits</h3>${contractList(limits, "No limits were resolved.")}</section>
-      <section><h3>Human decisions</h3>${contractList(gates, "No human gate interrupts this run.")}</section>
-      <section><h3>Fallback</h3>${contractList(contract.fallbacks, "No provider fallback is declared.")}</section>
-      <section><h3>Completion</h3>${contractList(contract.completion, "No completion criteria were resolved.")}</section>
-      <section><h3>Provenance</h3>${contractList(provenance, "No provenance was resolved.")}</section>
+      ${contract.assuranceStatement ? `<section class="contract-assurance-statement"><h3>${escapeHtml(localize("Assurance"))}</h3><p>${escapeHtml(contract.assuranceStatement)}</p></section>` : ""}
+      <section><h3>${escapeHtml(localize("Providers"))}</h3>${contractList(providers, localize("No providers are declared."))}</section>
+      <section><h3>${escapeHtml(localize("Scope and commits"))}</h3>${contractList(scope, localize("No scope was resolved."))}</section>
+      <section><h3>${escapeHtml(localize("Role authority"))}</h3>${contractList(roles, localize("This pipeline declares no roles; every provider runs with the scope above."))}</section>
+      <section><h3>${escapeHtml(localize("Verification"))}</h3>${contractList(contract.verification, localize("No controller verification runs."))}${contract.verificationResources.length > 0 ? `<p class="muted">${escapeHtml(localize("Shared resources: {0}", contract.verificationResources.join(", ")))}</p>` : ""}</section>
+      <section><h3>${escapeHtml(localize("Run limits"))}</h3>${contractList(limits, localize("No limits were resolved."))}</section>
+      <section><h3>${escapeHtml(localize("Human decisions"))}</h3>${contractList(gates, localize("No human gate interrupts this run."))}</section>
+      <section><h3>${escapeHtml(localize("Fallback"))}</h3>${contractList(contract.fallbacks, localize("No provider fallback is declared."))}</section>
+      <section><h3>${escapeHtml(localize("Completion"))}</h3>${contractList(contract.completion, localize("No completion criteria were resolved."))}</section>
+      <section><h3>${escapeHtml(localize("Provenance"))}</h3>${contractList(provenance, localize("No provenance was resolved."))}</section>
       ${outbound}
-      ${refusals.size > 0 ? `<section class="contract-policy-refusals"><h3>Repository policy refuses this run</h3>${contractList(contract.policyRefusals ?? [], "")}<p class="muted">Change the pipeline, or edit the repository policy file, before this run can start.</p></section>` : ""}
-      ${unresolved.length > 0 ? `<section><h3>Unresolved before running</h3>${contractList(unresolved, "")}</section>` : ""}
+      ${refusals.size > 0 ? `<section class="contract-policy-refusals"><h3>${escapeHtml(localize("Repository policy refuses this run"))}</h3>${contractList(contract.policyRefusals ?? [], "")}<p class="muted">${escapeHtml(localize("Change the pipeline, or edit the repository policy file, before this run can start."))}</p></section>` : ""}
+      ${unresolved.length > 0 ? `<section><h3>${escapeHtml(localize("Unresolved before running"))}</h3>${contractList(unresolved, "")}</section>` : ""}
     </div>
   </details>`;
 };
@@ -250,18 +260,18 @@ const pipelinePickerHtml = (panel: PanelState): string => {
   const selectedId = selection?.pipelineId ?? panel.selectedPipelineId;
   const selected = panel.pipelines.find((pipeline) => pipeline.id === selectedId);
   const label = selected?.name ?? (state.panels.has(conversationId)
-    ? "No pipeline available"
+    ? localize("No pipeline available")
     : state.manager.readOnly
-      ? "Pipeline unavailable"
-      : "Loading pipelines…");
+      ? localize("Pipeline unavailable")
+      : localize("Loading pipelines…"));
   const title = selection
-    ? `Switching to ${selection.pipelineId}…`
-    : panel.pipelineMutationReason ?? "Choose the pipeline this run uses";
+    ? localize("Switching to {0}…", selected?.name ?? localize("selected pipeline"))
+    : panel.pipelineMutationReason ?? localize("Choose the pipeline this run uses");
   const open = pipelinePickerOpenState(panel, conversationId);
   const activeOptionId = state.pipelinePickerActiveId ?? selectedId;
-  const button = `<button id="pipeline-picker-button" data-action="pipeline-picker-toggle" class="pipeline-picker-button" role="combobox" aria-haspopup="listbox" aria-label="Pipeline" ${expandedControlAttributes(open, PIPELINE_PICKER_LIST_ID)}${open && activeOptionId ? ` aria-activedescendant="${escapeAttribute(pipelineOptionDomId(activeOptionId))}"` : ""} ${disabled ? "disabled" : ""} title="${escapeAttribute(title)}"><span class="pipeline-picker-name">${escapeHtml(label)}</span><i class="codicon codicon-chevron-down pipeline-picker-caret" aria-hidden="true"></i></button>`;
+  const button = `<button id="pipeline-picker-button" data-action="pipeline-picker-toggle" class="pipeline-picker-button" role="combobox" aria-haspopup="listbox" aria-label="${escapeAttribute(localize("Pipeline"))}" ${expandedControlAttributes(open, PIPELINE_PICKER_LIST_ID)}${open && activeOptionId ? ` aria-activedescendant="${escapeAttribute(pipelineOptionDomId(activeOptionId))}"` : ""} ${disabled ? "disabled" : ""}${selection ? ' aria-busy="true"' : ""} title="${escapeAttribute(title)}"><span class="pipeline-picker-name">${escapeHtml(label)}</span><i class="codicon ${selection ? "codicon-loading codicon-modifier-spin" : "codicon-chevron-down"} pipeline-picker-caret" aria-hidden="true"></i></button>`;
   const list = open
-    ? `<div class="pipeline-picker-popover"><p class="pipeline-picker-guidance">Choose the work here. Choose providers in Agents.</p><div id="${PIPELINE_PICKER_LIST_ID}" role="listbox" aria-label="Pipeline" tabindex="-1">${pipelinePickerEntries(panel).map((pipeline) => {
+    ? `<div class="pipeline-picker-popover"><p class="pipeline-picker-guidance">${escapeHtml(localize("Choose the work here. Choose providers in Agents."))}</p><div id="${PIPELINE_PICKER_LIST_ID}" role="listbox" aria-label="${escapeAttribute(localize("Pipeline"))}" tabindex="-1">${pipelinePickerEntries(panel).map((pipeline) => {
         const steps = pipelineStepCount(pipeline, panel);
         const count = pipelineParticipantCount(pipeline, panel);
         const shape = [
@@ -271,7 +281,7 @@ const pipelinePickerHtml = (panel: PanelState): string => {
         const isSelected = pipeline.id === selectedId;
         const isActive = pipeline.id === activeOptionId;
         return `<div id="${escapeAttribute(pipelineOptionDomId(pipeline.id))}" role="option" class="pipeline-picker-option${isActive ? " active" : ""}${isSelected ? " selected" : ""}" data-action="pipeline-picker-select" data-pipeline-id="${escapeAttribute(pipeline.id)}" aria-selected="${isSelected ? "true" : "false"}"><span class="pipeline-picker-option-head"><span class="pipeline-picker-option-name">${escapeHtml(pipeline.name)}</span>${isSelected ? `<i class="codicon codicon-check" aria-hidden="true"></i>` : ""}</span>${shape ? `<span class="pipeline-picker-option-meta">${escapeHtml(shape)}</span>` : ""}${pipeline.description ? `<span class="pipeline-picker-option-desc">${escapeHtml(pipeline.description)}</span>` : ""}</div>`;
-      }).join("")}</div>${panel.pipelines.some((pipeline) => !pipeline.editable && pipeline.prominentOrder === undefined) ? `<button id="pipeline-picker-more" data-action="pipeline-picker-more" class="pipeline-picker-more">${pipelinePickerShowAll ? "Show common workflows" : "More workflows and compatibility presets"}</button>` : ""}</div>`
+      }).join("")}</div>${panel.pipelines.some((pipeline) => !pipeline.editable && pipeline.prominentOrder === undefined) ? `<button id="pipeline-picker-more" data-action="pipeline-picker-more" class="pipeline-picker-more">${escapeHtml(pipelinePickerShowAll ? localize("Show common workflows") : localize("More workflows and compatibility presets"))}</button>` : ""}</div>`
     : "";
   return `<div class="pipeline-picker" data-pipeline-picker>${button}${list}</div>`;
 };
@@ -285,7 +295,9 @@ const pipelinePickerHtml = (panel: PanelState): string => {
 const AGENTS_POPOVER_ID = "agents-popover";
 
 const agentsAssignmentLockReason = (panel: PanelState): string | undefined =>
-  panel.agentAssignments.lockReason;
+  conversationById(activeId())?.archived
+    ? localize("Archived runs keep their original providers and models.")
+    : panel.agentAssignments.lockReason;
 
 const agentsAssignable = (panel: PanelState): boolean =>
   panel.agentAssignments.slots.length > 0;
@@ -296,6 +308,7 @@ const openAgentsPicker = (): void => {
     return;
   }
   state.agentsPickerOpen = true;
+  discoverVisibleAgentModels(panel);
   scheduleRender();
   focusAfterRender(() => document.getElementById("agents-picker-button")?.focus());
 };
@@ -331,110 +344,111 @@ const assignedAdapterLabel = (adapter: string): string =>
 
 const isBrowserAssignment = (adapter: string): boolean => adapter.endsWith("-browser");
 
-// A radio inside a slot's group. Exactly one carries tabindex 0, so the group is one tab stop and
-// the arrow keys move within it; moving focus does not assign, because assigning restarts a
-// provider and that is not what an arrow key should cost.
-// Each choice carries a stable id so the render's own focus-return path finds it again: an
-// assignment replaces this whole popover, and without an id the reader's focus lands on the body
-// after every change they make.
-const agentsChoiceHtml = (input: {
-  id: string;
-  checked: boolean;
-  label: string;
-  attributes: string;
-  disabled: boolean;
-  title?: string;
-}): string =>
-  `<button type="button" id="${escapeAttribute(input.id)}" role="radio" aria-checked="${input.checked ? "true" : "false"}" tabindex="${input.checked ? "0" : "-1"}" class="agents-choice${input.checked ? " selected" : ""}" ${input.attributes}${input.disabled ? " disabled" : ""}${input.title ? ` title="${escapeAttribute(input.title)}"` : ""}>${escapeHtml(input.label)}</button>`;
+const requestedAgentModelCatalogs = new Set<string>();
+const customAgentModelFields = new Set<string>();
+const CUSTOM_AGENT_MODEL_OPTION = "__bachata_custom_model__";
+
+const discoverVisibleAgentModels = (panel: PanelState = activePanel()): void => {
+  if (!state.agentsPickerOpen || conversationById(activeId())?.archived) return;
+  for (const slot of panel.agentAssignments.slots) {
+    if (isBrowserAssignment(slot.assignedAdapter)) continue;
+    const catalog = panel.agentAssignments.adapterModels?.[slot.assignedAdapter];
+    if (catalog && catalog.status !== "unknown") continue;
+    const key = `${activeId()}:${slot.assignedAdapter}`;
+    if (requestedAgentModelCatalogs.has(key)) continue;
+    requestedAgentModelCatalogs.add(key);
+    postRuntime({ type: "agents.model.discover", agentId: slot.agentId });
+  }
+};
+
+const handleAgentSelectionChange = (target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): boolean => {
+  const providerAgentId = target.dataset.agentsProviderFor;
+  const modelAgentId = target.dataset.agentsModelSelectFor;
+  if (!providerAgentId && !modelAgentId) return false;
+  if (agentsAssignmentLockReason(activePanel()) !== undefined || target.disabled) return true;
+  if (providerAgentId) {
+    delete state.agentsModelDrafts[providerAgentId];
+    if (target.value === "browser") {
+      state.agentsBrowserFor = providerAgentId;
+      postRuntime({ type: "bridge.discover" });
+      scheduleRender();
+    } else {
+      delete state.agentsBrowserFor;
+      postRuntime({ type: "agents.assign", agentId: providerAgentId, ...(target.value ? { adapter: target.value } : {}) });
+    }
+  } else if (modelAgentId) {
+    const key = `${activeId()}:${modelAgentId}`;
+    if (target.value === CUSTOM_AGENT_MODEL_OPTION) {
+      customAgentModelFields.add(key);
+      scheduleRender();
+      focusAfterRender(() => document.getElementById(`agents-model-input-${modelAgentId}`)?.focus());
+    } else {
+      customAgentModelFields.delete(key);
+      postRuntime({ type: "agents.model.select", agentId: modelAgentId, ...(target.value ? { model: target.value } : {}) });
+    }
+  }
+  return true;
+};
 
 const agentSlotSessionsHtml = (slot: AgentAssignmentSlot, panel: PanelState): string => {
   const sessions = panel.browserBridge.sessions;
   if (sessions.length === 0) {
     const bridge = panel.browserBridge;
-    return `<section class="agents-bridge-setup" aria-label="Connect Browser Bridge"><h3>${bridge.connected ? "Connect a browser conversation" : "Connect Browser Bridge"}</h3>${bridge.error ? `<p class="agents-slot-error">${escapeHtml(bridge.error)}</p>` : ""}${!bridge.enabled ? `<p>Browser Bridge requires a local VS Code window. Reopen this repository locally, then connect the browser extension here. Remote workspaces cannot connect to your local browser.</p>` : `<ol><li>Open the Bachata Browser Bridge extension in your local browser.</li><li>${bridge.pairingToken ? `Copy the pairing token, then use Paste &amp; Pair in the browser extension. <button data-action="bridge-copy-token">Copy pairing token</button>` : bridge.connected ? "The bridge is paired." : "Use the browser extension’s saved pairing, or open the Inspector to reset an expired pairing."}</li><li>Open and sign in to the provider conversation you want to use, then refresh conversations here.</li></ol>${bridge.endpoint ? `<p class="agents-model-detail">Local endpoint: ${escapeHtml(bridge.endpoint)}</p>` : `<p class="agents-model-detail">Waiting for the local bridge endpoint. If it remains unavailable, check the error above and use a local VS Code window.</p>`}<button data-action="bridge-discover">Refresh conversations</button>`}</section>`;
+    const presentation = browserBridgePresentation(bridge, `agents:bridge:${slot.agentId}`);
+    const pairing = bridge.pairingToken && !bridge.connected;
+    const instruction = pairing ? localize("Pair the Bachata Browser Bridge extension using this token.") : bridge.connected ? localize("Open a provider conversation in your browser.") : "";
+    return `<section class="agents-bridge-setup" aria-label="${escapeAttribute(localize("Connect Browser Bridge"))}"><h3>${escapeHtml(bridge.connected ? localize("Connect a browser conversation") : localize("Connect Browser Bridge"))}</h3><p class="muted">${presentation.statusHtml}</p>${presentation.reasonHtml}${bridge.enabled ? `${instruction ? `<p>${escapeHtml(instruction)}</p>` : ""}<div class="compact-actions">${pairing ? `<button data-action="bridge-copy-token">${escapeHtml(localize("Copy pairing token"))}</button>` : ""}<button data-action="bridge-discover">${escapeHtml(localize("Find browser"))}</button></div>` : ""}</section>`;
   }
+
   const options = sessions.map((session) => {
     const adapter = browserAdapterForProvider(session.provider);
     const selected = slot.browserSessionId === session.id && slot.assignedAdapter === adapter;
     const disabled = session.status !== "ready";
     return `<button type="button" role="option" id="agents-session-${escapeAttribute(slot.agentId)}-${escapeAttribute(session.id)}" class="agents-session-option${selected ? " selected" : ""}" data-action="agents-session" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}" data-session="${escapeAttribute(session.id)}" aria-selected="${selected ? "true" : "false"}"${disabled ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(browserProviderName(session.provider))} · ${escapeHtml(session.title ?? session.conversationUrl)}</span><span class="agents-session-meta">${escapeHtml(browserSessionCapabilityLabel(session))}</span></button>`;
   });
-  return `<div class="agents-session-list" role="listbox" aria-label="Browser conversation for ${escapeAttribute(slot.responsibility)}">${options.join("")}</div>`;
+  return `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("Browser conversation for {0}", slot.responsibility))}">${options.join("")}</div>`;
 };
 
-// The model a slot runs on, offered only after its provider is settled, because a model name
-// belongs to one provider's catalog and means nothing before that provider is known.
-//
-// Three honest states, never collapsed into one another. A provider that reported a catalog offers
-// exactly what it reported. A provider that cannot be asked keeps an explicit field, so the
-// reader's own knowledge of their provider stays usable. A browser conversation says the website
-// owns the choice: the Bridge reports no model, and printing one would be an invention.
 const agentSlotModelHtml = (
   slot: AgentAssignmentSlot,
   panel: PanelState,
   locked: boolean,
 ): string => {
   if (isBrowserAssignment(slot.assignedAdapter)) {
-    return `<p class="agents-model-note">Model: selected in the browser · unreported</p>`;
+    return `<p class="agents-model-note">${escapeHtml(localize("Choose the model in the connected browser conversation."))}</p>`;
   }
   const catalog = panel.agentAssignments.adapterModels?.[slot.assignedAdapter];
   const status = catalog?.status ?? "unknown";
   const listed = catalog?.models ?? [];
-  const defaultLabel = slot.assignedAdapter === slot.defaultAdapter && slot.defaultModel !== undefined ? `Pipeline default · ${slot.defaultModel}` : "Automatic";
-  const choices = [
-    agentsChoiceHtml({
-      id: `agents-model-${slot.agentId}-default`,
-      checked: slot.assignedModel === undefined,
-      label: defaultLabel,
-      attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}"`,
-      disabled: locked,
-      title: slot.assignedAdapter === slot.defaultAdapter && slot.defaultModel !== undefined
-        ? `Use the pipeline’s default model: ${slot.defaultModel}`
-        : "Use this provider’s current default model. Choose a named model to keep an explicit selection.",
-    }),
-    ...listed.map((model) => agentsChoiceHtml({
-      id: `agents-model-${slot.agentId}-${model.id}`,
-      checked: slot.assignedModel === model.id,
-      label: model.label,
-      attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}" data-model="${escapeAttribute(model.id)}"`,
-      disabled: locked,
-      ...(model.label === model.id ? {} : { title: model.id }),
-    })),
-    // A model the reader chose that the provider no longer lists stays visible and selected. It is
-    // their choice, and silently dropping it is exactly the substitution this must never make.
-    ...(slot.assignedModel !== undefined && !listed.some((model) => model.id === slot.assignedModel)
-      ? [agentsChoiceHtml({
-          id: `agents-model-${slot.agentId}-chosen`,
-          checked: true,
-          label: slot.assignedModel,
-          attributes: `data-action="agents-model" data-agent="${escapeAttribute(slot.agentId)}" data-model="${escapeAttribute(slot.assignedModel)}"`,
-          disabled: locked,
-          title: status === "listed"
-            ? "This provider did not list this model"
-            : "Chosen by name; this provider does not report a model list",
-        })]
-      : []),
+  const defaultModel = slot.assignedAdapter === slot.defaultAdapter ? slot.defaultModel : undefined;
+  const reportedDefault = listed.find((model) => model.isDefault);
+  const defaultLabel = defaultModel ? localize("Pipeline default · {0}", defaultModel) : reportedDefault ? localize("Provider default · {0}", reportedDefault.label) : localize("Provider default");
+  const chosenMissing = slot.assignedModel !== undefined && !listed.some((model) => model.id === slot.assignedModel);
+  const options = [
+    `<option value=""${slot.assignedModel === undefined ? " selected" : ""}>${escapeHtml(defaultLabel)}</option>`,
+    ...listed.map((model) => `<option value="${escapeAttribute(model.id)}"${slot.assignedModel === model.id ? " selected" : ""}>${escapeHtml(model.label)}</option>`),
+    ...(chosenMissing ? [`<option value="${escapeAttribute(slot.assignedModel ?? "")}" selected>${escapeHtml(status === "listed" ? localize("{0} · not listed", slot.assignedModel ?? "") : slot.assignedModel ?? "")}</option>`] : []),
+    ...(listed.length > 0 && !locked ? [`<option value="${CUSTOM_AGENT_MODEL_OPTION}">${escapeHtml(localize("Enter model ID…"))}</option>`] : []),
   ].join("");
+  const showExplicit = listed.length === 0 || chosenMissing || customAgentModelFields.has(`${activeId()}:${slot.agentId}`);
   const draft = state.agentsModelDrafts[slot.agentId] ?? "";
-  const explicit = locked
-    ? ""
-    : `<details class="agents-model-advanced" ${disclosureAttributes(`agents:model-override:${slot.agentId}`)}><summary>Other model (advanced)</summary><p>Enter an exact model ID only if your provider accepts a model that is not listed. This selects it for this participant’s next turn; it does not install a model.</p><div class="agents-model-explicit"><label for="agents-model-input-${escapeAttribute(slot.agentId)}">Model ID</label><input type="text" id="agents-model-input-${escapeAttribute(slot.agentId)}" class="agents-model-input" data-agents-model-for="${escapeAttribute(slot.agentId)}" value="${escapeAttribute(draft)}" placeholder="Exact provider model ID" spellcheck="false" autocomplete="off"><button type="button" data-action="agents-model-apply" data-agent="${escapeAttribute(slot.agentId)}"${draft.trim() ? "" : " disabled"}>Apply model override</button></div></details>`;
+  const explicit = locked || !showExplicit ? "" : `<div class="agents-model-explicit"><label for="agents-model-input-${escapeAttribute(slot.agentId)}">${escapeHtml(localize("Model ID"))}</label><input type="text" id="agents-model-input-${escapeAttribute(slot.agentId)}" class="agents-model-input" data-agents-model-for="${escapeAttribute(slot.agentId)}" value="${escapeAttribute(draft)}" placeholder="${escapeAttribute(localize("Provider model ID or alias"))}" title="${escapeAttribute(localize("Use a model ID accepted by your installed provider"))}" spellcheck="false" autocomplete="off"><button type="button" data-action="agents-model-apply" data-agent="${escapeAttribute(slot.agentId)}"${draft.trim() ? "" : " disabled"}>${escapeHtml(localize("Use model"))}</button></div>`;
   const detail = status === "discovering"
-    ? "Asking this provider which models it accepts…"
+    ? localize("Loading models…")
     : status === "unknown"
-      ? "This provider has not been asked which models it accepts."
+      ? localize("Models have not been loaded.")
       : status === "unsupported"
-        ? catalog?.detail ?? "This provider does not report a model list, so a name is taken as written."
+        ? locked ? localize("Model list unavailable.") : localize("Model list unavailable. Enter a model ID accepted by this provider.")
         : listed.length === 0
-          ? "This provider reported no models, so a name is taken as written."
-          : "";
-  const check = locked || status === "discovering"
-    ? ""
-    : `<button type="button" class="agents-model-check" data-action="agents-model-discover" data-agent="${escapeAttribute(slot.agentId)}">${status === "listed" ? "Recheck models" : "Check models"}</button>`;
+          ? locked ? localize("No models reported.") : localize("No models reported. Enter a model ID accepted by this provider.")
+          : chosenMissing ? localize("The selected model is not in this provider’s current list.") : "";
+  const archived = conversationById(activeId())?.archived === true;
+  const detailId = `agents-model-detail-${slot.agentId}`;
+  const check = `<button type="button" class="icon-button agents-model-check" data-action="agents-model-discover" data-agent="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Refresh models for {0}", slot.responsibility))}" title="${escapeAttribute(localize("Refresh provider models"))}"${status === "discovering" || archived ? " disabled" : ""}${status === "discovering" ? ' aria-busy="true"' : ""}><i class="codicon codicon-refresh" aria-hidden="true"></i></button>`;
   return `<div class="agents-model">
-    <div class="agents-model-head"><span class="agents-model-title">Model</span>${check}</div>
-    <div class="agents-choices" role="radiogroup" aria-label="Model for ${escapeAttribute(slot.responsibility)}">${choices}</div>
-    ${detail ? `<p class="agents-model-detail"${status === "discovering" ? ` ${liveRegionAttributes(`agents:model:${slot.agentId}`, "status", detail)}` : ""}>${escapeHtml(detail)}</p>` : ""}
+    <label class="agents-model-title" for="agents-model-select-${escapeAttribute(slot.agentId)}">${escapeHtml(localize("Model"))}</label>
+    <div class="agents-model-select-row"><select id="agents-model-select-${escapeAttribute(slot.agentId)}" class="agents-model-select" data-agents-model-select-for="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Model for {0}", slot.responsibility))}"${detail ? ` aria-describedby="${escapeAttribute(detailId)}"` : ""}${locked ? " disabled" : ""}>${options}</select>${check}</div>
+    ${detail ? `<p id="${escapeAttribute(detailId)}" class="agents-model-detail"${catalog?.detail ? ` title="${escapeAttribute(catalog.detail)}"` : ""}${status === "discovering" ? ` ${liveRegionAttributes(`agents:model:${slot.agentId}`, "status", detail)}` : ""}>${escapeHtml(detail)}</p>` : ""}
     ${explicit}
   </div>`;
 };
@@ -442,61 +456,29 @@ const agentSlotModelHtml = (
 const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boolean): string => {
   const isBrowser = isBrowserAssignment(slot.assignedAdapter);
   const showSessions = isBrowser || state.agentsBrowserFor === slot.agentId;
-  const cliChoices = panel.agentAssignments.assignableAdapters
-    .filter((adapter) => !isBrowserAssignment(adapter) && adapter !== slot.defaultAdapter)
-    .map((adapter) => {
-      const discovered = panel.agentAssignments.availableAdapters.includes(adapter);
-      const pending = !discovered && panel.agentAssignments.discovering;
-      return agentsChoiceHtml({
-        id: `agents-choice-${slot.agentId}-${adapter}`,
-        checked: slot.overridden && slot.assignedAdapter === adapter,
-        label: pending
-          ? `${assignedAdapterLabel(adapter)} · checking…`
-          : assignedAdapterLabel(adapter),
-        attributes: `data-action="agents-assign" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}"`,
-        disabled: locked,
-        ...(discovered || pending
-          ? {}
-          : { title: `${assignedAdapterLabel(adapter)} was not found on this machine` }),
-      });
-    })
-    .join("");
-  const defaultChoice = agentsChoiceHtml({
-    id: `agents-choice-${slot.agentId}-default`,
-    checked: !slot.overridden,
-    label: `Default · ${assignedAdapterLabel(slot.defaultAdapter)}`,
-    attributes: `data-action="agents-assign" data-agent="${escapeAttribute(slot.agentId)}"`,
-    disabled: locked,
-    title: "Use the provider this pipeline ships with",
-  });
-  const browserChoice = panel.agentAssignments.assignableAdapters.some(isBrowserAssignment)
-    ? agentsChoiceHtml({
-        id: `agents-choice-${slot.agentId}-browser`,
-        checked: isBrowser && slot.overridden,
-        label: "Browser Bridge",
-        attributes: `data-action="agents-browser-toggle" data-agent="${escapeAttribute(slot.agentId)}" aria-expanded="${showSessions ? "true" : "false"}"`,
-        disabled: locked,
-        title: "Bind a conversation from any supported website",
-      })
-    : "";
-  const actual = isBrowser && slot.browserSessionId === undefined
-    ? `${assignedAdapterLabel(slot.assignedAdapter)} · no conversation bound`
-    : slot.assignedModel === undefined
-      ? assignedAdapterLabel(slot.assignedAdapter)
-      : `${assignedAdapterLabel(slot.assignedAdapter)} · ${slot.assignedModel}`;
+  const selectedValue = state.agentsBrowserFor === slot.agentId || (isBrowser && slot.overridden) ? "browser" : slot.overridden ? slot.assignedAdapter : "";
+  const providerOptions = [
+    `<option value=""${selectedValue === "" ? " selected" : ""}>${escapeHtml(localize("Default · {0}", assignedAdapterLabel(slot.defaultAdapter)))}</option>`,
+    ...panel.agentAssignments.assignableAdapters
+      .filter((adapter) => !isBrowserAssignment(adapter) && adapter !== slot.defaultAdapter)
+      .map((adapter) => {
+        const discovered = panel.agentAssignments.availableAdapters.includes(adapter);
+        const pending = !discovered && panel.agentAssignments.discovering;
+        const label = pending ? localize("{0} · checking…", assignedAdapterLabel(adapter)) : discovered ? assignedAdapterLabel(adapter) : localize("{0} · not found", assignedAdapterLabel(adapter));
+        const unavailable = discovered || pending ? "" : ` title="${escapeAttribute(localize("{0} was not found on this machine", assignedAdapterLabel(adapter)))}"`;
+        return `<option value="${escapeAttribute(adapter)}"${selectedValue === adapter ? " selected" : ""}${unavailable}>${escapeHtml(label)}</option>`;
+      }),
+    ...(panel.agentAssignments.assignableAdapters.some(isBrowserAssignment) ? [`<option value="browser"${selectedValue === "browser" ? " selected" : ""}>Browser Bridge</option>`] : []),
+  ].join("");
   const agentState = panel.agents[slot.agentId];
-  const statusError = agentState?.error
-    ? `<p class="agents-slot-error">${escapeHtml(agentState.error)}</p>`
-    : "";
+  const statusError = agentState?.error ? `<p class="agents-slot-error">${escapeHtml(agentState.error)}</p>` : "";
   return `<article class="agents-slot" data-agent-slot="${escapeAttribute(slot.agentId)}">
-    <div class="agents-slot-head">
-      <div class="agents-slot-title"><strong>${escapeHtml(slot.responsibility)}</strong><small>${escapeHtml(slot.overridden ? "reassigned" : "pipeline default")}</small></div>
-      <span class="agents-slot-actual">${escapeHtml(actual)}</span>
-    </div>
-    <details class="agents-slot-settings" ${disclosureAttributes(`agents:settings:${slot.agentId}`)}><summary>Change provider or model</summary><div class="agents-choices" role="radiogroup" aria-label="Provider for ${escapeAttribute(slot.responsibility)}">${defaultChoice}${cliChoices}${browserChoice}</div>
-    ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
-    ${showSessions && !isBrowser ? "" : agentSlotModelHtml(slot, panel, locked)}
-    </details>${statusError}
+    <div class="agents-slot-head"><strong>${escapeHtml(slot.responsibility)}</strong></div>
+    <div class="agents-slot-settings">
+      <label class="agents-provider-field" for="agents-provider-${escapeAttribute(slot.agentId)}"><span>${escapeHtml(localize("Provider"))}</span><select id="agents-provider-${escapeAttribute(slot.agentId)}" class="agents-provider-select" data-agents-provider-for="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Provider for {0}", slot.responsibility))}"${locked ? " disabled" : ""}>${providerOptions}</select></label>
+      ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
+      ${showSessions && !isBrowser ? "" : agentSlotModelHtml(slot, panel, locked)}
+    </div>${statusError}
   </article>`;
 };
 
@@ -519,14 +501,14 @@ const localInterpreterHtml = (panel: PanelState, locked: boolean): string => {
     const selected = model.id === chosen;
     return `<button type="button" role="option" class="agents-session-option${selected ? " selected" : ""}" data-action="local-model-select" data-model="${escapeAttribute(model.id)}" aria-selected="${selected ? "true" : "false"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(model.id)}</span><span class="agents-session-meta">${escapeHtml(model.backend)} · ${escapeHtml(model.availability)}</span></button>`;
   });
-  const automatic = `<button type="button" role="option" class="agents-session-option${local.explicit ? "" : " selected"}" data-action="local-model-select" aria-selected="${local.explicit ? "false" : "true"}"${locked ? " disabled" : ""}><span class="agents-session-name">Choose automatically</span><span class="agents-session-meta">checked against the interpreter contract</span></button>`;
+  const automatic = `<button type="button" role="option" class="agents-session-option${local.explicit ? "" : " selected"}" data-action="local-model-select" aria-selected="${local.explicit ? "false" : "true"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(localize("Choose automatically"))}</span><span class="agents-session-meta">${escapeHtml(localize("checked against the interpreter contract"))}</span></button>`;
   const list = options.length > 0
-    ? `<div class="agents-session-list" role="listbox" aria-label="Local interpreter model">${automatic}${options.join("")}</div>`
+    ? `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("Local interpreter model"))}">${automatic}${options.join("")}</div>`
     : "";
   return `<section class="agents-local${stateClass}">
     <div class="agents-slot-head">
-      <div class="agents-slot-title"><strong>Local interpreter</strong><small>${escapeHtml(local.status === "serverUnavailable" || local.status === "noSuitableModel" || local.status === "configuredModelUnavailable" ? "unavailable" : local.explicit ? "your choice" : "automatic")}</small></div>
-      <span class="agents-slot-actual">${escapeHtml(local.backendLabel ?? (local.discovering ? "checking…" : "not available"))}</span>
+      <div class="agents-slot-title"><strong>${escapeHtml(localize("Local interpreter"))}</strong><small>${escapeHtml(local.status === "serverUnavailable" || local.status === "noSuitableModel" || local.status === "configuredModelUnavailable" ? localize("unavailable") : local.explicit ? localize("your choice") : localize("automatic"))}</small></div>
+      <span class="agents-slot-actual">${escapeHtml(local.backendLabel ?? (local.discovering ? localize("checking…") : localize("not available")))}</span>
     </div>
     <p class="agents-constraint"${local.discovering ? ` ${liveRegionAttributes("agents:local", "status", local.detail)}` : ""}>${escapeHtml(local.detail)}</p>
     ${list}
@@ -540,25 +522,27 @@ const agentsPickerHtml = (panel: PanelState): string => {
   const overrides = assignments.slots.filter((slot) => slot.overridden).length;
   const open = state.agentsPickerOpen && hasPipeline;
   const disabled = !hasPipeline;
-  const title = lockReason ?? (hasPipeline ? "Assign a provider to each role" : "Select a pipeline to assign providers");
+  const title = lockReason ?? (hasPipeline ? localize("Assign a provider to each role") : localize("Select a pipeline to assign providers"));
   const label = assignments.discovering
-    ? "Discovering agents…"
+    ? localize("Discovering agents…")
     : overrides > 0
-      ? `Agents · ${String(overrides)} reassigned`
-      : "Agents";
+      ? localize("Agents · {0} reassigned", String(overrides))
+      : localize("Agents");
   const button = `<button id="agents-picker-button" data-action="agents-picker-toggle" class="agents-picker-button${overrides > 0 ? " has-overrides" : ""}" aria-haspopup="dialog" aria-label="${escapeAttribute(label)}" ${expandedControlAttributes(open, AGENTS_POPOVER_ID)}${disabled ? " disabled" : ""} title="${escapeAttribute(title)}"><i class="codicon codicon-organization" aria-hidden="true"></i><span class="agents-picker-label">${escapeHtml(label)}</span></button>`;
   if (!open) {
     return `<div class="agents-picker" data-agents-picker>${button}</div>`;
   }
   const locked = lockReason !== undefined;
+  const historicalLock = locked && (panel.resumableWorkflow !== undefined || /reset this run/iu.test(lockReason ?? ""));
+  const lockText = historicalLock ? localize("This run keeps its original providers and models.") : lockReason ?? "";
   const interpreter = localInterpreterHtml(panel, locked);
-  const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="Agent assignments">
-    <div class="agents-popover-head"><div><h2>Agents</h2><p>Assignments for the next run.</p></div><button type="button" class="icon-button" data-action="agents-picker-toggle" aria-label="Close agent assignments">×</button>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">Reset to defaults</button>` : ""}</div>
-    ${locked ? `<p class="agents-locked">${escapeHtml(lockReason)}</p>` : ""}
-    ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>Discovering agents on this machine…</p>` : ""}
+  const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="${escapeAttribute(localize("Agent assignments"))}">
+    <div class="agents-popover-head"><div><h2>${escapeHtml(localize("Agents"))}</h2></div><button type="button" class="icon-button" data-action="agents-picker-toggle" aria-label="${escapeAttribute(localize("Close agent assignments"))}">×</button>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">${escapeHtml(localize("Reset to defaults"))}</button>` : ""}</div>
+    ${locked ? `<div class="agents-locked"><span>${escapeHtml(lockText)}</span>${historicalLock ? `<button type="button" data-action="create-conversation">${escapeHtml(localize("New run"))}</button>` : ""}</div>` : ""}
+    ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>${escapeHtml(localize("Discovering agents on this machine…"))}</p>` : ""}
     ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
     <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, locked)).join("")}</div>
-    ${interpreter ? `<details class="agents-slot-settings" ${disclosureAttributes("agents:local-settings")}><summary>Local interpreter settings</summary>${interpreter}</details>` : ""}
+    ${interpreter ? `<details class="agents-slot-settings" ${disclosureAttributes("agents:local-settings")}><summary>${escapeHtml(localize("Local interpreter settings"))}</summary>${interpreter}</details>` : ""}
   </div>`;
   return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;
 };
@@ -571,27 +555,28 @@ const composerSettingsPanelHtml = (panel: PanelState, draft: ConversationDraft):
     return "";
   }
   const selection = pendingPipelineSelection(activeId());
+  const selected = panel.pipelines.find((pipeline) => pipeline.id === selection?.pipelineId);
   const pipelineControlsDisabled = !panel.pipelineMutable || selection !== undefined;
   const editTitle = selection
-    ? `Switching to ${selection.pipelineId}…`
-    : panel.pipelineMutationReason ?? "Edit the selected pipeline";
+    ? localize("Switching to {0}…", selected?.name ?? localize("selected pipeline"))
+    : panel.pipelineMutationReason ?? localize("Edit the selected pipeline");
   const running = runPhaseOf(panel) === "running" && draft.delivery === "immediate";
-  const advancedControls = `<div class="composer-advanced" id="composer-advanced"><label class="iteration-control"><span>Max iterations</span><input id="pipeline-iterations" type="number" min="1" max="${String(state.manager.maxPipelineIterations)}" value="${String(draft.iterationCount)}" ${running ? "disabled" : ""}></label>
-        <label class="iteration-control"><span>Mode</span><select id="pipeline-iteration-mode" ${running ? "disabled" : ""}><option value="fixed" ${draft.iterationMode === "fixed" ? "selected" : ""}>Fixed</option><option value="untilClean" ${draft.iterationMode === "untilClean" ? "selected" : ""}>Until clean</option></select></label>
-        ${draft.iterationMode === "untilClean" ? `<label class="iteration-control"><span>Clean passes</span><input id="pipeline-clean-passes" type="number" min="1" max="10" value="${String(draft.requiredCleanPasses)}" ${running ? "disabled" : ""}></label>` : ""}
-        <label class="delivery-control"><span>Delivery</span><select id="message-delivery"><option value="immediate" ${draft.delivery === "immediate" ? "selected" : ""}>Run now</option><option value="queue" ${draft.delivery === "queue" ? "selected" : ""}>Queue</option><option value="interrupt" ${draft.delivery === "interrupt" ? "selected" : ""}>Interrupt current run</option></select></label></div>`;
-  return `<div class="composer-settings" id="composer-settings" role="dialog" aria-label="Pipeline settings and run options"><div class="composer-settings-head"><h2>Run settings</h2><button class="icon-button" data-action="composer-settings-toggle" aria-label="Close run settings">×</button></div>
+  const advancedControls = `<div class="composer-advanced" id="composer-advanced"><label class="iteration-control"><span>${escapeHtml(localize("Max iterations"))}</span><input id="pipeline-iterations" type="number" min="1" max="${String(state.manager.maxPipelineIterations)}" value="${String(draft.iterationCount)}" ${running ? "disabled" : ""}></label>
+        <label class="iteration-control"><span>${escapeHtml(localize("Mode"))}</span><select id="pipeline-iteration-mode" ${running ? "disabled" : ""}><option value="fixed" ${draft.iterationMode === "fixed" ? "selected" : ""}>${escapeHtml(localize("Fixed"))}</option><option value="untilClean" ${draft.iterationMode === "untilClean" ? "selected" : ""}>${escapeHtml(localize("Until clean"))}</option></select></label>
+        ${draft.iterationMode === "untilClean" ? `<label class="iteration-control"><span>${escapeHtml(localize("Clean passes"))}</span><input id="pipeline-clean-passes" type="number" min="1" max="10" value="${String(draft.requiredCleanPasses)}" ${running ? "disabled" : ""}></label>` : ""}
+        <label class="delivery-control"><span>${escapeHtml(localize("Delivery"))}</span><select id="message-delivery"><option value="immediate" ${draft.delivery === "immediate" ? "selected" : ""}>${escapeHtml(localize("Run now"))}</option><option value="queue" ${draft.delivery === "queue" ? "selected" : ""}>${escapeHtml(localize("Queue"))}</option><option value="interrupt" ${draft.delivery === "interrupt" ? "selected" : ""}>${escapeHtml(localize("Interrupt current run"))}</option></select></label></div>`;
+  return `<div class="composer-settings" id="composer-settings" role="dialog" aria-label="${escapeAttribute(localize("Pipeline settings and run options"))}"><div class="composer-settings-head"><h2>${escapeHtml(localize("Run settings"))}</h2><button class="icon-button" data-action="composer-settings-toggle" aria-label="${escapeAttribute(localize("Close run settings"))}">×</button></div>
     <section class="composer-settings-section">
-      <h3>Pipeline</h3>
+      <h3>${escapeHtml(localize("Pipeline"))}</h3>
       <div class="compact-actions">
-        <button data-action="pipeline-edit" ${pipelineControlsDisabled ? "disabled" : ""} title="${escapeAttribute(editTitle)}">Edit pipeline</button>
-        <button data-action="pipeline-new" ${pipelineControlsDisabled ? "disabled" : ""} title="${escapeAttribute(selection ? editTitle : panel.pipelineMutationReason ?? "Create a pipeline")}">New pipeline</button>
-        <button data-action="pipeline-fork" ${panel.selectedPipelineDefinition && !pipelineControlsDisabled ? "" : "disabled"} title="Duplicate the selected pipeline to edit a copy">Fork selected</button>
+        <button data-action="pipeline-edit" ${pipelineControlsDisabled ? "disabled" : ""} title="${escapeAttribute(editTitle)}">${escapeHtml(localize("Edit pipeline"))}</button>
+        <button data-action="pipeline-new" ${pipelineControlsDisabled ? "disabled" : ""} title="${escapeAttribute(selection ? editTitle : panel.pipelineMutationReason ?? localize("Create a pipeline"))}">${escapeHtml(localize("New pipeline"))}</button>
+        <button data-action="pipeline-fork" ${panel.selectedPipelineDefinition && !pipelineControlsDisabled ? "" : "disabled"} title="${escapeAttribute(localize("Duplicate the selected pipeline to edit a copy"))}">${escapeHtml(localize("Fork selected"))}</button>
       </div>
     </section>
     <section class="composer-settings-section">
-      <h3>Run options</h3>
-      <p class="composer-settings-hint">These apply to this run only. They do not change the saved pipeline.</p>
+      <h3>${escapeHtml(localize("Run options"))}</h3>
+      <p class="composer-settings-hint">${escapeHtml(localize("These apply to this run only. They do not change the saved pipeline."))}</p>
       ${advancedControls}
     </section>
     ${runContractHtml(panel, draft)}
@@ -602,42 +587,38 @@ const composerPrimaryActionHtml = (panel: PanelState, draft: ConversationDraft):
   const waiting = conversationById(activeId())?.waitingForResources === true;
   const pending = pendingInterrupts.has(activeId());
   if ((runPhaseOf(panel) === "running" || waiting) && draft.prompt.trim().length === 0 && draft.selectedAttachmentIds.size === 0 && draft.pendingAttachments.size === 0) {
-    const label = waiting ? "Cancel wait" : "Stop";
-    return `<button data-action="interrupt-run" class="send-button icon-send composer-stop" aria-label="${label}" title="${label}"${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>${pending ? '<span class="sr-only" role="status">Stopping…</span>' : ""}`;
+    const label = waiting ? localize("Cancel wait") : localize("Stop");
+    return `<button data-action="interrupt-run" class="send-button icon-send composer-stop" aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}"${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>${pending ? `<span class="sr-only" role="status">${escapeHtml(localize("Stopping…"))}</span>` : ""}`;
   }
   const blockers = sendBlockers(activeId(), panel, draft);
-  const label = draft.delivery === "queue" ? "Queue" : draft.delivery === "interrupt" ? "Interrupt and send" : "Send";
-  return `<button class="send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(`${label} · ${submitShortcutLabel}`)}" aria-label="${escapeAttribute(label)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(blockers.length === 0 && !pending, blockers)}${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>`;
+  const label = draft.delivery === "queue" ? localize("Queue") : draft.delivery === "interrupt" ? localize("Interrupt and send") : localize("Send");
+  const title = blockers.length > 0 ? localize("{0} unavailable · {1}", label, sendRequirementsDescription(blockers)) : `${label} · ${submitShortcutLabel}`;
+  return `<button class="send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(title)}" aria-label="${escapeAttribute(label)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(blockers.length === 0 && !pending, blockers)}${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>`;
 };
 
 const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
-  const conversationId = activeId();
-  const blockers = sendBlockers(conversationId, panel, draft);
-  const canSubmit = blockers.length === 0;
-  const selection = pendingPipelineSelection(conversationId);
-  const waitingForResources = conversationById(conversationId)?.waitingForResources === true;
-  const deliveryLabel = draft.delivery === "queue" ? "queued" : draft.delivery === "interrupt" ? "interrupt" : "";
+  const deliveryLabel = draft.delivery === "queue" ? localize("queued") : draft.delivery === "interrupt" ? localize("interrupt") : "";
   const optionChips: string[] = [];
   if (draft.iterationCount !== 1) {
     optionChips.push(`${String(draft.iterationCount)}×`);
   }
   if (draft.iterationMode !== "fixed") {
-    optionChips.push(draft.requiredCleanPasses > 1 ? `until clean ×${String(draft.requiredCleanPasses)}` : "until clean");
+    optionChips.push(draft.requiredCleanPasses > 1 ? localize("until clean ×{0}", String(draft.requiredCleanPasses)) : localize("until clean"));
   }
   if (deliveryLabel) {
     optionChips.push(deliveryLabel);
   }
   const settingsLabel = optionChips.length > 0
-    ? `Pipeline settings and run options · ${optionChips.join(" · ")}`
-    : "Pipeline settings and run options";
+    ? localize("Pipeline settings and run options · {0}", optionChips.join(" · "))
+    : localize("Pipeline settings and run options");
   // One rounded surface holds the attachments, the borderless prompt and the compact toolbar; the
   // send control is an arrow icon carrying its Send/Queue/Interrupt name for assistive tech.
   return `<footer class="composer">
     <div class="composer-surface">
       ${attachmentStripHtml(panel, draft)}
-      <textarea id="composer-prompt" aria-label="Run input" placeholder="Describe the job for the selected pipeline…">${escapeHtml(draft.prompt)}</textarea>
+      <textarea id="composer-prompt" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(localize("Describe the job for the selected pipeline…"))}">${escapeHtml(draft.prompt)}</textarea>
       <div class="composer-toolbar">
-        <button data-action="attachment-pick" class="icon-button" aria-label="Attach image, text, log, or specification" title="Attach image, text, log, or specification"><i class="codicon codicon-add" aria-hidden="true"></i></button>
+        <button data-action="attachment-pick" class="icon-button" aria-label="${escapeAttribute(localize("Attach image, text, log, or specification"))}" title="${escapeAttribute(localize("Attach image, text, log, or specification"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>
         ${pipelinePickerHtml(panel)}
         ${agentsPickerHtml(panel)}
@@ -648,7 +629,5 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
       </div>
     </div>
     ${composerSettingsPanelHtml(panel, draft)}
-    ${canSubmit ? "" : sendBlockersHtml(blockers)}
-    ${waitingForResources && canSubmit ? `<small class="composer-note">Waiting for shared capacity. No provider or verification command has started.</small>` : selection ? `<small class="composer-note">Switching pipeline. Editing and creating pipelines are locked until the selected pipeline is ready.</small>` : panel.pipelineMutationReason ? `<small class="composer-note">${escapeHtml(panel.pipelineMutationReason)}</small>` : ""}
   </footer>`;
 };

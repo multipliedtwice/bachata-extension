@@ -39,6 +39,33 @@ test("custom pipeline definitions are source; Bachata run state is excluded", as
   }
 });
 
+test("source collection includes English and regional localization catalogs", async () => {
+  const source = await mkdtemp(path.join(os.tmpdir(), "bachata-localized-source-"));
+  const { collectMaintainedSourceFiles } = await import(`file://${exporter}`);
+  const catalogs = [
+    "l10n/bundle.l10n.json",
+    "l10n/bundle.l10n.pt-br.json",
+    "l10n/bundle.l10n.th.json",
+    "package.nls.json",
+    "package.nls.pt-br.json",
+    "package.nls.th.json",
+  ];
+  try {
+    await mkdir(path.join(source, "l10n"));
+    await writeFile(path.join(source, "package.json"), JSON.stringify({ name: "bachata-vscode" }));
+    for (const file of catalogs) {
+      await writeFile(path.join(source, file), "{}\n");
+    }
+    assert.deepEqual(await collectMaintainedSourceFiles(source), [...catalogs, "package.json"].sort());
+    await writeFile(path.join(source, "package.nls.th.json.bak"), "{}\n");
+    assert.deepEqual(await collectMaintainedSourceFiles(source), [...catalogs, "package.json"].sort());
+    await writeFile(path.join(source, "unrelated.json"), "{}\n");
+    await assert.rejects(collectMaintainedSourceFiles(source), /Unknown top-level file/u);
+  } finally {
+    await rm(source, { recursive: true, force: true });
+  }
+});
+
 test("source exporter emits maintained source only and validator rejects artifacts", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-vscode-source-"));
   const output = path.join(parent, "export");
@@ -58,6 +85,8 @@ test("source exporter emits maintained source only and validator rejects artifac
     await access(path.join(output, "media", "icon.png"));
     await access(path.join(output, "media", "readme-header.png"));
     await access(path.join(output, "media", "walkthrough-setup.md"));
+    await access(path.join(output, "package.nls.json"));
+    await access(path.join(output, "l10n", "bundle.l10n.json"));
     // The exported tree is installed with `npm ci` by continuous integration and by any
     // reader who builds it, so its lockfile is part of the distribution.
     await access(path.join(output, "package-lock.json"));
@@ -99,6 +128,24 @@ test("source verification rejects packages missing required build inputs", async
   const output = path.join(parent, "export");
   try {
     await execFileAsync(process.execPath, [exporter, "export", output], { cwd: root, timeout: 60_000 });
+    const bundlePath = path.join(output, "l10n", "bundle.l10n.json");
+    const bundle = await readFile(bundlePath);
+    await rm(bundlePath);
+    await assert.rejects(
+      execFileAsync(process.execPath, [exporter, "verify", output], { cwd: root, timeout: 60_000 }),
+      /bundle\.l10n\.json: required build input is missing/u,
+    );
+    await writeFile(bundlePath, bundle);
+
+    const manifestCatalogPath = path.join(output, "package.nls.json");
+    const manifestCatalog = await readFile(manifestCatalogPath);
+    await rm(manifestCatalogPath);
+    await assert.rejects(
+      execFileAsync(process.execPath, [exporter, "verify", output], { cwd: root, timeout: 60_000 }),
+      /package\.nls\.json: required maintained source entry is missing/u,
+    );
+    await writeFile(manifestCatalogPath, manifestCatalog);
+
     await rm(path.join(output, "protocol", "browser-protocol-v9.contract.json"));
     await assert.rejects(
       execFileAsync(process.execPath, [exporter, "verify", output], { cwd: root, timeout: 60_000 }),
