@@ -9,6 +9,7 @@ const { projectRunResult } = require("../dist/results/projectResult.js");
 const {
   boundRecheck,
   contractChecksFrom,
+  currentResultStatus,
   decisionRisks,
   executionEventCutoff,
   humanResolutionSummary,
@@ -24,6 +25,41 @@ const {
 // whole run through a real catalog.
 
 const event = (id, type, payload) => ({ id, type, payload, createdAt: "2026-01-01T00:00:00.000Z" });
+
+for (const status of ["completed", "interrupted", "error"]) {
+  test(`a restored idle runtime retains its matching ${status} terminal result`, () => {
+    const persistedResult = { status, executionRef: "E17" };
+    const original = structuredClone(persistedResult);
+    assert.equal(currentResultStatus({ workflowStatus: "idle", persistedResult, executionRef: "E17" }), status);
+    assert.equal(currentResultStatus({ workflowStatus: status, executionRef: "E17" }), status);
+    assert.deepEqual(persistedResult, original);
+  });
+}
+
+test("idle restoration never rebinds an earlier result to a new execution", () => {
+  const persistedResult = { status: "completed", executionRef: "E17" };
+  assert.equal(currentResultStatus({ workflowStatus: "idle", persistedResult, executionRef: "E24" }), undefined);
+  assert.equal(currentResultStatus({ workflowStatus: "idle", persistedResult }), undefined);
+  assert.deepEqual(persistedResult, { status: "completed", executionRef: "E17" });
+});
+
+test("legacy idle results require no newer recorded execution", () => {
+  const persistedResult = { status: "completed" };
+  assert.equal(currentResultStatus({ workflowStatus: "idle", persistedResult }), "completed");
+  assert.equal(currentResultStatus({ workflowStatus: "idle", persistedResult, executionRef: "E24" }), undefined);
+  assert.equal(currentResultStatus({ workflowStatus: "idle" }), undefined);
+  assert.deepEqual(persistedResult, { status: "completed" });
+});
+
+for (const workflowStatus of ["running", "paused"]) {
+  test(`${workflowStatus} runtime never borrows a terminal status from its recorded result`, () => {
+    assert.equal(currentResultStatus({
+      workflowStatus,
+      persistedResult: { status: "completed", executionRef: "E17" },
+      executionRef: "E17",
+    }), undefined);
+  });
+}
 
 test("a run with no execution yet has no cut-off, and E0 reads as zero", () => {
   assert.equal(executionEventCutoff(undefined), 0);

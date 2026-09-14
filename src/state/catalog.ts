@@ -909,7 +909,12 @@ export const createStateCatalog = (
         AND id NOT IN (
           SELECT id FROM events WHERE run_ref = ? ORDER BY id DESC LIMIT ?
         )
-    `).run(runRef, runRef, retention.eventsPerRun);
+        AND id NOT IN (
+          SELECT id FROM events
+          WHERE run_ref = ? AND type IN ('run.started', 'run.restarted')
+          ORDER BY id DESC LIMIT 1
+        )
+    `).run(runRef, runRef, retention.eventsPerRun, runRef);
     database.prepare(`
       DELETE FROM structured_outputs
       WHERE run_ref = ?
@@ -1675,7 +1680,7 @@ export const createStateCatalog = (
     appendEvent,
     latestExecutionRef: (runRef) => {
       const row = database.prepare(`
-        SELECT id FROM events WHERE run_ref = ? AND type = 'run.started' ORDER BY id DESC LIMIT 1
+        SELECT id FROM events WHERE run_ref = ? AND type IN ('run.started', 'run.restarted') ORDER BY id DESC LIMIT 1
       `).get(runRef) as Record<string, unknown> | undefined;
       return row === undefined ? undefined : `E${String(row.id)}`;
     },

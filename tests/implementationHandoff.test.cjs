@@ -440,3 +440,89 @@ test("catalog omission retains failure identity and visible failure meaning in a
   assert.match(draft, /Work stopped before a final ruling/u);
   assert.deepEqual(source, before);
 });
+
+
+test("selected findings alone become requested work while the lead assessment remains context", () => {
+  const source = resultHandoffFixture();
+  const first = { ...source.findings[0], id: "chosen", subject: "SELECTED_GUARD", disposition: "accepted" };
+  const omitted = { ...source.findings[0], id: "omitted", subject: "UNSELECTED_FINDING", message: "UNSELECTED_DETAIL" };
+  source.findings = [first, omitted];
+  source.finalAssessment.summary = JSON.stringify({ summary: "LEAD_ASSESSMENT", findings: [omitted] });
+  source.finalRuling = JSON.stringify({ summary: "LEAD_RULING", findings: [first, omitted] });
+  source.finalDecision = {
+    stepId: "review", status: "accepted", candidate: { summary: "LEAD_RULING", findings: [first, omitted] },
+    participants: [{ agentId: "lead", candidate: { summary: "UNSELECTED_PARTICIPANT", findings: [omitted] } }],
+    objections: [{ text: JSON.stringify({ findings: [omitted] }) }], unresolvedRisks: [],
+  };
+  source.unresolvedRisks.push(JSON.stringify({ summary: "Risk context remains", findings: [omitted] }));
+  source.evidenceGaps.push(`Details: ${JSON.stringify({ findings: [omitted] })}`);
+  const before = structuredClone(source);
+  const draft = implementationDraftFromResult(source, ["chosen"]);
+  assert.match(draft, /Only the selected findings listed below are requested/u);
+  assert.match(draft, /LEAD_ASSESSMENT/u);
+  assert.match(draft, /LEAD_RULING/u);
+  assert.match(draft, /SELECTED_GUARD/u);
+  assert.match(draft, /Recorded disposition: accepted/u);
+  assert.match(draft, /src\/worker\.ts:12/u);
+  assert.match(draft, /Evidence:/u);
+  assert.match(draft, /Challenges:/u);
+  assert.match(draft, /Risk context remains/u);
+  assert.match(draft, /node scripts\/verify\.cjs — Failed/u);
+  assert.match(draft, /Unresolved findings require confirmation before edits/u);
+  assert.match(draft, /Unselected finding details were omitted/u);
+  assert.doesNotMatch(draft, /UNSELECTED_FINDING|UNSELECTED_DETAIL|UNSELECTED_PARTICIPANT/u);
+  assert.equal(implementationDraftFromResult(source, ["chosen"]), draft);
+  assert.deepEqual(source, before);
+});
+
+test("selected handoff ordering follows the recorded result and keeps unresolved findings unconfirmed", () => {
+  const source = resultHandoffFixture();
+  source.findings.push({ ...source.findings[0], id: "next", subject: "SECOND_SELECTED" });
+  const draft = implementationDraftFromResult(source, ["next", "review"]);
+  assert.ok(draft.indexOf("Confirm the review guard") < draft.indexOf("SECOND_SELECTED"));
+  assert.equal((draft.match(/Recorded disposition: unresolved/gu) ?? []).length, 2);
+  assert.match(draft, /Selection does not confirm a finding or change its recorded disposition/u);
+  assert.ok(draft.length <= RESULT_TEXT_LIMITS.preparedDraftUnits);
+});
+
+for (const selection of [[], ["unknown"], ["review", "review"], [" "], Array(65).fill("review"), ["a".repeat(16_385)]]) {
+  test(`selected handoff refuses invalid finding selection ${JSON.stringify(selection).slice(0, 80)}`, () => {
+    const source = resultHandoffFixture();
+    const before = structuredClone(source);
+    assert.throws(() => implementationDraftFromResult(source, selection), /Select at least one finding|selected findings changed/u);
+    assert.deepEqual(source, before);
+  });
+}
+
+test("selected handoff refuses rejected and ambiguously identified findings", () => {
+  const source = resultHandoffFixture();
+  source.findings[0].disposition = "rejected";
+  assert.throws(() => implementationDraftFromResult(source, ["review"]), /Rejected findings cannot/u);
+  source.findings[0].disposition = "unresolved";
+  source.findings.push({ ...source.findings[0], subject: "Duplicate identity" });
+  assert.throws(() => implementationDraftFromResult(source, ["review"]), /selected findings changed/u);
+});
+
+test("selected drafts preserve the complete browser exclusion and bounded output contracts", () => {
+  const source = resultHandoffFixture();
+  const hidden = "a7".repeat(32);
+  source.finalDecision = {
+    stepId: "review", status: "accepted", candidate: {
+      summary: "Keep the lead review ordinary.",
+      findings: [{ subject: "UNSELECTED", message: "EXCLUDED_CONTENT", location: { file: "dist/output.js" } }],
+    }, participants: [], objections: [], unresolvedRisks: [],
+  };
+  source.changedFiles.push("package-lock.json", "extension.vsix");
+  source.findings[0].message += ` ${hidden}`;
+  source.evidenceGaps = Array.from({ length: 3_000 }, (_, index) => `No evidence for concern ${index}`);
+  const before = structuredClone(source);
+  const draft = implementationDraftFromResult(source, ["review"]);
+  assert.ok(draft.length <= RESULT_TEXT_LIMITS.preparedDraftUnits);
+  assert.ok(draft.includes(RESULT_OMISSION_NOTICE));
+  assert.match(draft, /Confirm the review guard/u);
+  assert.match(draft, /Recorded disposition: unresolved/u);
+  assert.doesNotMatch(draft, /UNSELECTED|EXCLUDED_CONTENT|dist\/output|package-lock|extension\.vsix/u);
+  assert.ok(!draft.includes(hidden));
+  assert.equal(implementationDraftFromResult(source, ["review"]), draft);
+  assert.deepEqual(source, before);
+});

@@ -213,7 +213,7 @@ class FakeRoot extends FakeHTMLElement {
     document.elements = new Map([["root", this]]);
     // Open and close tags both, so an element knows what contains it. `closest` walks that chain,
     // and a popover is identified by the container it sits in rather than by its own class.
-    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span)>/g;
+    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span|strong)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span|strong)>/g;
     const open = [];
     for (const match of value.matchAll(expression)) {
       if (match[3] !== undefined) {
@@ -6862,6 +6862,7 @@ test("a completed result can be copied or continued in a prepared implementation
       type: "conversation.continueFromResult",
       conversationId: "run-1",
       resultVersion: "result-version-1",
+      findingIds: ["finding-1"],
     });
   } finally {
     harness.restore();
@@ -8288,7 +8289,12 @@ test("workspace shell uses the existing logo and keeps Direction inside Runs", (
     harness.document.root.querySelector('[data-action="run-drawer-toggle"]').click();
     const direction = harness.document.root.querySelector(".run-drawer-direction");
     assert.ok(direction);
-    assert.equal(direction.getAttribute("aria-pressed"), "false");
+    assert.equal(harness.document.root.querySelectorAll(".run-drawer-direction").length, 1);
+    assert.equal(harness.document.root.querySelector(".run-drawer-footer .run-drawer-direction"), direction);
+    assert.equal(direction.getAttribute("aria-pressed"), null);
+    assert.equal(direction.getAttribute("aria-current"), null);
+    assert.equal(direction.className.split(/\s+/u).includes("workspace-direction"), false);
+    assert.equal(direction.getAttribute("title"), "Project goals and decisions");
     direction.focus();
     direction.click();
     assert.equal(harness.document.getElementById("run-drawer"), null);
@@ -8297,8 +8303,32 @@ test("workspace shell uses the existing logo and keeps Direction inside Runs", (
     assert.equal(harness.document.root.querySelector(".run-tab-select").getAttribute("aria-current"), null);
     assert.equal(harness.document.root.querySelector(".run-tab-all").getAttribute("aria-current"), "page");
     harness.document.root.querySelector('[data-action="run-drawer-toggle"]').click();
-    assert.equal(harness.document.root.querySelector(".run-drawer-direction").getAttribute("aria-pressed"), "true");
+    assert.equal(harness.document.root.querySelector(".run-drawer-direction").getAttribute("aria-pressed"), null);
+    assert.equal(harness.document.root.querySelector(".run-drawer-footer .run-drawer-direction").getAttribute("aria-current"), "page");
     assert.deepEqual(harness.messages.slice(before), []);
+  } finally { harness.restore(); }
+});
+
+test("user messages keep a local avatar and visible author through snapshots", () => {
+  const panel = panelState({
+    transcript: [{ id: "user-avatar-message", kind: "prompt", eventType: "user.message", text: "Review the interface", createdAt: timestamp }],
+  });
+  const harness = bootWebview(managerState(), panel);
+  try {
+    const root = harness.document.root;
+    const avatar = () => root.innerHTML.match(/<article class="message-row user-row" data-entry="user-avatar-message">\s*(<svg class="agent-avatar user-avatar"[^]*?<\/svg>)/u)?.[1];
+    const original = avatar();
+    assert.ok(original);
+    assert.match(original, /aria-hidden="true" focusable="false"/u);
+    assert.match(original, />Y<\/text>/u);
+    assert.doesNotMatch(original, /(?:src|href)=/u);
+    assert.equal(root.querySelectorAll(".user-row").length, 1);
+    assert.equal(root.querySelector(".user-row .message-author").textContent, "You");
+    assert.equal(root.querySelector(".user-row .message-text").textContent, "Review the interface");
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
+    assert.equal(avatar(), original);
+    assert.equal(root.querySelectorAll(".user-row").length, 1);
+    assert.equal(root.querySelector(".user-row .message-author").textContent, "You");
   } finally { harness.restore(); }
 });
 
@@ -9182,11 +9212,13 @@ for (const [label, status, outcome] of [
       assert.equal(copy.getAttribute("aria-disabled"), null);
       assert.equal(continuation.getAttribute("aria-disabled"), null);
       assert.equal(continuation.disabled, false);
+      assert.equal(harness.document.root.querySelectorAll(".execution-result-footer").length, 1);
+      assert.equal(continuation.closest(".execution-result-footer").tagName, "FOOTER");
       continuation.focus();
       assert.equal(harness.document.activeElement, continuation);
       harness.messages.length = 0;
       continuation.click();
-      assert.deepEqual(harness.messages, [{ type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "result-version-1" }]);
+      assert.deepEqual(harness.messages, [{ type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "result-version-1", findingIds: ["hidden-finding-id"] }]);
       assert.equal(harness.messages.some((message) => message.message?.type === "user.message" || message.message?.type === "workflow.restart" || message.message?.type === "workflow.resume"), false);
     } finally { harness.restore(); }
   });
@@ -9211,10 +9243,20 @@ for (const [label, managerOverrides, panelOverrides, resultOverrides, reason] of
     const harness = openResultActions(managerOverrides, panelOverrides, readableContinuationResult(resultOverrides));
     try {
       const continuation = harness.document.root.querySelector('[data-action="result-continue"]');
+      if (label === "empty readable result") {
+        assert.equal(continuation, null);
+        assert.equal(harness.document.root.querySelector(".execution-result-footer"), null);
+        harness.messages.length = 0;
+        dispatchResultAction(harness, "result-continue");
+        assert.match(harness.document.liveStatus.textContent, reason);
+        assert.deepEqual(harness.messages, []);
+        return;
+      }
       assert.ok(continuation);
+      assert.equal(continuation.closest(".execution-result-footer").tagName, "FOOTER");
       assert.equal(continuation.getAttribute("aria-disabled"), "true");
       assert.equal(continuation.disabled, false);
-      const explanation = harness.document.getElementById(continuation.getAttribute("aria-describedby"));
+      const explanation = harness.document.getElementById(continuation.getAttribute("aria-describedby").split(/\s+/u)[0]);
       assert.ok(explanation);
       assert.match(explanation.textContent, reason);
       assert.match(continuation.getAttribute("title"), reason);
@@ -9530,7 +9572,14 @@ test("continuation rejects a delayed result button after a newer result replaces
     dispatchResultAction(harness, "result-continue", "run-1", "");
     assert.equal(harness.messages.length, 0);
     harness.document.root.querySelector('[data-action="result-continue"]').click();
-    assert.deepEqual(harness.messages, [{ type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "result-version-2" }]);
+    assert.equal(harness.messages.length, 0);
+    assert.match(harness.document.liveStatus.textContent, /Review and select the findings again/u);
+    const finding = harness.document.root.querySelector('[data-action="result-finding-select"]');
+    assert.equal(finding.checked, false);
+    finding.checked = true;
+    harness.document.root.dispatch("change", { target: finding });
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    assert.deepEqual(harness.messages, [{ type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "result-version-2", findingIds: ["hidden-finding-id"] }]);
   } finally { harness.restore(); }
 });
 
@@ -9758,5 +9807,425 @@ test("webview draft persistence never silently slices an oversized value or spli
     assert.match(harness.document.liveStatus.textContent, /draft exceeds.*character limit/u);
     assert.equal(harness.webviewState.value.drafts["run-1"], boundary);
     assert.equal(harness.messages.some((message) => message.type === "conversation.saveDraft"), false);
+  } finally { harness.restore(); }
+});
+
+const selectableReviewResult = (overrides = {}) => readableContinuationResult({
+  findings: ["accepted", "unresolved", "proposed", "rejected"].map((disposition, index) => ({
+    ...readableContinuationResult().findings[0],
+    id: `select-finding-${index}`,
+    subject: `Review issue ${index + 1}`,
+    message: `Recorded review detail ${index + 1}.`,
+    disposition,
+  })),
+  continuation: {
+    available: true,
+    resultVersion: "selection-version",
+    pipelineId: "fix-source",
+    pipelines: [{ id: "fix-source", name: "Fix source" }, { id: "implement-ui", name: "Implement UI" }],
+  },
+  ...overrides,
+});
+
+const setReviewFinding = (harness, id, checked) => {
+  const input = harness.document.root.querySelector(`[data-action="result-finding-select"][data-finding-id="${id}"]`);
+  assert.ok(input);
+  input.checked = checked;
+  harness.document.root.dispatch("change", { target: input });
+};
+
+test("review report shows converged and unconfirmed findings with participant reports collapsed", () => {
+  const result = selectableReviewResult();
+  result.finalDecision = {
+    stepId: "review", status: "ruled", ruledBy: "lead",
+    candidate: { summary: "The lead reconciled the review and kept uncertainty explicit.", findings: result.findings },
+    participants: [{ agentId: "lead", valid: true, accepted: true, candidate: { summary: "The participant reasoning is retained." }, objections: [], unresolvedRisks: [] }],
+    objections: [], unresolvedRisks: [],
+  };
+  const harness = openResultActions({}, {}, result);
+  try {
+    const root = harness.document.root;
+    assert.equal(root.querySelectorAll(".result-findings-converged .result-finding-list > li").length, 1);
+    assert.equal(root.querySelectorAll(".result-findings-unresolved .result-finding-list > li").length, 2);
+    assert.equal(root.querySelectorAll(".result-findings .finding-rejected").length, 1);
+    assert.equal(root.querySelectorAll('[data-action="result-finding-select"]').length, 3);
+    assert.equal(root.querySelectorAll(".result-findings-unresolved").length, 1);
+    assert.equal(root.querySelector(".result-findings-converged").className.includes("result-findings-unresolved"), false);
+    const comparison = root.querySelector(".ruling-compare");
+    assert.equal(comparison.open, false);
+    assert.ok(comparison.textContent.includes("The participant reasoning is retained."));
+    assert.ok(root.innerHTML.indexOf("The lead reconciled the review") < root.innerHTML.indexOf('class="result-findings"'));
+    assert.equal(root.querySelectorAll(".result-finding-list > li").length, 4);
+    assert.equal(root.querySelectorAll(".result-finding").length, 0);
+    assert.ok(root.querySelector(".result-finding-selection-summary").textContent.includes("Selection does not confirm unresolved findings"));
+    assert.equal(root.querySelector('[data-action="result-continue"]').textContent, "Start new pipeline");
+  } finally { harness.restore(); }
+});
+
+test("finding exclusions and chosen pipeline survive a snapshot and dispatch only selected work", () => {
+  const result = selectableReviewResult();
+  const harness = openResultActions({}, {}, result);
+  try {
+    setReviewFinding(harness, "select-finding-1", false);
+    const pipeline = harness.document.root.querySelector('[data-action="result-pipeline-select"]');
+    pipeline.value = "implement-ui";
+    harness.document.root.dispatch("change", { target: pipeline });
+    const focused = harness.document.root.querySelector('[data-finding-id="select-finding-2"]');
+    focused.focus();
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": structuredClone(result) } }) });
+    assert.equal(harness.document.activeElement.dataset.findingId, "select-finding-2");
+    assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-1"]').checked, false);
+    assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-0"]').checked, true);
+    assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-2"]').checked, true);
+    assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "2 of 3 issues selected");
+    assert.equal(harness.document.root.querySelector(".result-selection-detail").textContent, "1 needs confirmation");
+    assert.match(harness.document.root.innerHTML, /value="implement-ui" selected/u);
+    harness.messages.length = 0;
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    assert.deepEqual(harness.messages, [{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "selection-version",
+      findingIds: ["select-finding-0", "select-finding-2"], pipelineId: "implement-ui",
+    }]);
+    assert.equal(harness.messages.some((message) => ["user.message", "pipeline.run", "workflow.restart", "workflow.resume"].includes(message.message?.type ?? message.type)), false);
+  } finally { harness.restore(); }
+});
+
+test("excluding every finding refuses a new pipeline until a finding is selected", () => {
+  const harness = openResultActions({}, {}, selectableReviewResult());
+  try {
+    for (const id of ["select-finding-0", "select-finding-1", "select-finding-2"]) setReviewFinding(harness, id, false);
+    const action = harness.document.root.querySelector('[data-action="result-continue"]');
+    assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "0 of 3 issues selected");
+    assert.equal(harness.document.root.querySelector(".result-selection-detail").textContent, "No unresolved issues selected.");
+    assert.equal(action.closest(".execution-result-footer").tagName, "FOOTER");
+    assert.equal(action.getAttribute("aria-disabled"), "true");
+    assert.match(harness.document.root.querySelector(".result-continuation-reason").textContent, /Select at least one finding/u);
+    harness.messages.length = 0;
+    action.click();
+    assert.deepEqual(harness.messages, []);
+    setReviewFinding(harness, "select-finding-1", true);
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    assert.deepEqual(harness.messages, [{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "selection-version",
+      findingIds: ["select-finding-1"], pipelineId: "fix-source",
+    }]);
+  } finally { harness.restore(); }
+});
+
+test("a removed destination pipeline requires another explicit choice", () => {
+  const result = selectableReviewResult();
+  const harness = openResultActions({}, {}, result);
+  try {
+    const next = structuredClone(result);
+    next.continuation.pipelines = [{ id: "implement-ui", name: "Implement UI" }];
+    next.continuation.pipelineId = "implement-ui";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": next } }) });
+    const action = harness.document.root.querySelector('[data-action="result-continue"]');
+    assert.equal(action.getAttribute("aria-disabled"), "true");
+    harness.messages.length = 0;
+    action.click();
+    assert.deepEqual(harness.messages, []);
+    assert.match(harness.document.liveStatus.textContent, /Choose an available write-capable pipeline/u);
+    const pipeline = harness.document.root.querySelector('[data-action="result-pipeline-select"]');
+    pipeline.value = "implement-ui";
+    harness.document.root.dispatch("change", { target: pipeline });
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    assert.equal(harness.messages.length, 1);
+    assert.equal(harness.messages[0].pipelineId, "implement-ui");
+    assert.deepEqual(harness.messages[0].findingIds, ["select-finding-0", "select-finding-1", "select-finding-2"]);
+  } finally { harness.restore(); }
+});
+
+test("read-only review windows keep findings readable and disable finding and pipeline controls", () => {
+  const readOnly = { owned: false, reason: "Another window owns the workspace", retryCommand: "Bachata: Workspace Ownership" };
+  const harness = openResultActions({ readOnly }, {}, selectableReviewResult());
+  try {
+    const inputs = harness.document.root.querySelectorAll('[data-action="result-finding-select"]');
+    assert.equal(inputs.length, 3);
+    assert.equal(inputs.every((input) => input.disabled), true);
+    assert.equal(harness.document.root.querySelector('[data-action="result-pipeline-select"]').disabled, true);
+    assert.equal(harness.document.root.querySelectorAll(".result-finding-list > li").length, 4);
+    harness.messages.length = 0;
+    dispatchResultAction(harness, "result-continue", "run-1", "selection-version");
+    assert.deepEqual(harness.messages, []);
+    assert.match(harness.document.liveStatus.textContent, /can only read/u);
+  } finally { harness.restore(); }
+});
+
+for (const [label, reason, pipelines] of [
+  ["capacity", "The open-run limit has been reached. Close a run before starting implementation.", [{ id: "fix-source", name: "Fix source" }]],
+  ["missing write pipeline", "No write-capable pipeline is available.", []],
+  ["checking pipelines", "Checking available write-capable pipelines.", undefined],
+]) {
+  test(`current report finding selections remain editable during ${label} refusal`, () => {
+    const result = selectableReviewResult({ continuation: {
+      available: false, reason, resultVersion: "selection-version", pipelines,
+    } });
+    const original = JSON.stringify(result);
+    const harness = openResultActions({}, {}, result);
+    try {
+      const inputs = harness.document.root.querySelectorAll('[data-action="result-finding-select"]');
+      assert.equal(inputs.length, 3);
+      assert.equal(inputs.every((input) => !input.disabled), true);
+      const blockedPipeline = harness.document.root.querySelector('[data-action="result-pipeline-select"]');
+      if (pipelines === undefined) assert.equal(blockedPipeline, null);
+      else {
+        assert.equal(blockedPipeline.disabled, pipelines.length === 0);
+        if (pipelines.length === 0) assert.equal(blockedPipeline.getAttribute("title"), reason);
+      }
+      setReviewFinding(harness, "select-finding-1", false);
+      assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-1"]').checked, false);
+      assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-0"]').checked, true);
+      assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-2"]').checked, true);
+      assert.equal(harness.document.root.querySelector(".result-continuation-reason").textContent, reason);
+      harness.messages.length = 0;
+      harness.document.root.querySelector('[data-action="result-continue"]').click();
+      assert.equal(harness.document.liveStatus.textContent, reason);
+      assert.deepEqual(harness.messages, []);
+      harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": structuredClone(result) } }) });
+      assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-1"]').checked, false);
+      const available = structuredClone(result);
+      available.continuation = { available: true, resultVersion: "selection-version", pipelineId: "fix-source", pipelines: [{ id: "fix-source", name: "Fix source" }] };
+      harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": available } }) });
+      const pipeline = harness.document.root.querySelector('[data-action="result-pipeline-select"]');
+      assert.equal(pipeline.disabled, false);
+      pipeline.value = "fix-source";
+      harness.document.root.dispatch("change", { target: pipeline });
+      assert.deepEqual(harness.messages, []);
+      harness.document.root.querySelector('[data-action="result-continue"]').click();
+      assert.deepEqual(harness.messages, [{
+        type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "selection-version",
+        findingIds: ["select-finding-0", "select-finding-2"], pipelineId: "fix-source",
+      }]);
+      assert.equal(JSON.stringify(result), original);
+    } finally { harness.restore(); }
+  });
+}
+
+for (const [label, managerOverrides, panelOverrides, continuation, reason] of [
+  ["archived", { conversations: [{ ...conversationSummary(), archived: true }] }, {}, undefined, /Unarchive this run/u],
+  ["running", { conversations: [{ ...conversationSummary(), running: true, workflowStatus: "running" }] }, {}, undefined, /Finish or stop this run/u],
+  ["restarting", {}, { operationActive: true }, undefined, /active run operation/u],
+  ["queued", {}, { queuedMessages: [{ id: "queued", kind: "pipeline", prompt: "New attempt", mode: "implementation", recipients: [], attachmentIds: [], createdAt: timestamp }] }, undefined, /queued messages/u],
+  ["unverified earlier attempt", {}, {}, { available: false, reason: "The recorded result belongs to an earlier attempt." }, /earlier attempt/u],
+]) {
+  test(`${label} report refuses local finding changes without altering selected findings`, () => {
+    const result = selectableReviewResult(continuation ? { continuation } : {});
+    const original = JSON.stringify(result);
+    const harness = openResultActions(managerOverrides, panelOverrides, result);
+    try {
+      const inputs = harness.document.root.querySelectorAll('[data-action="result-finding-select"]');
+      assert.equal(inputs.length, 3);
+      assert.equal(inputs.every((input) => input.disabled && input.checked), true);
+      harness.messages.length = 0;
+      setReviewFinding(harness, "select-finding-1", false);
+      assert.match(harness.document.liveStatus.textContent, reason);
+      assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-1"]').checked, true);
+      assert.deepEqual(harness.messages, []);
+      assert.equal(JSON.stringify(result), original);
+    } finally { harness.restore(); }
+  });
+}
+
+test("a delayed finding change cannot select a replacement report while pipeline availability is blocked", () => {
+  const result = selectableReviewResult();
+  const harness = openResultActions({}, {}, result);
+  try {
+    const previous = harness.document.root.querySelector('[data-finding-id="select-finding-1"]');
+    const next = structuredClone(result);
+    next.continuation = { available: false, reason: "Checking available write-capable pipelines.", resultVersion: "new-selection-version" };
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": next } }) });
+    const inputs = harness.document.root.querySelectorAll('[data-action="result-finding-select"]');
+    assert.equal(inputs.length, 3);
+    assert.equal(inputs.every((input) => !input.disabled && !input.checked), true);
+    previous.checked = true;
+    harness.messages.length = 0;
+    harness.document.root.dispatch("change", { target: previous });
+    assert.match(harness.document.liveStatus.textContent, /result has changed since the action was displayed/u);
+    assert.equal(harness.document.root.querySelectorAll('[data-action="result-finding-select"]').every((input) => !input.checked), true);
+    assert.deepEqual(harness.messages, []);
+  } finally { harness.restore(); }
+});
+
+test("a current terminal review remains selectable after its runtime restores idle", () => {
+  const result = selectableReviewResult({ finalAssessment: { outcome: "inconclusive", method: "none", summary: "Review completed without an agreed ruling.", producedBy: [] } });
+  const harness = openResultActions({ conversations: [{ ...conversationSummary(), workflowStatus: "idle", running: false }] }, { workflowStatus: "idle", running: false }, result);
+  try {
+    const inputs = harness.document.root.querySelectorAll('[data-action="result-finding-select"]');
+    assert.equal(inputs.length, 3);
+    assert.equal(inputs.every((input) => !input.disabled), true);
+    setReviewFinding(harness, "select-finding-1", false);
+    assert.equal(harness.document.root.querySelector('[data-action="result-continue"]').getAttribute("aria-disabled"), null);
+    harness.messages.length = 0;
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    assert.deepEqual(harness.messages, [{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "selection-version",
+      findingIds: ["select-finding-0", "select-finding-2"], pipelineId: "fix-source",
+    }]);
+  } finally { harness.restore(); }
+});
+
+
+test("Execution places exactly one continuation footer outside the report scroll with Copy in the report header", () => {
+  const harness = openResultActions({}, {}, selectableReviewResult());
+  try {
+    const root = harness.document.root;
+    const column = root.querySelector(".conversation-column");
+    const viewport = column.querySelector(":scope > .conversation-viewport");
+    const footer = column.querySelector(":scope > .execution-result-footer");
+    const scroll = root.querySelector("#conversation-scroll");
+    assert.ok(viewport);
+    assert.ok(footer);
+    assert.equal(footer.tagName, "FOOTER");
+    assert.equal(footer.parentElement, viewport.parentElement);
+    assert.equal(scroll.closest(".conversation-viewport"), viewport);
+    assert.equal(footer.closest("#conversation-scroll"), null);
+    assert.equal(root.querySelectorAll(".execution-result-footer").length, 1);
+    assert.equal(root.querySelectorAll('[data-action="result-continue"]').length, 1);
+    assert.equal(footer.querySelectorAll('[data-action="result-continue"]').length, 1);
+    assert.equal(scroll.querySelectorAll('[data-action="result-continue"]').length, 0);
+    assert.equal(scroll.querySelectorAll('[data-action="result-copy"]').length, 1);
+    assert.equal(footer.querySelectorAll('[data-action="result-copy"]').length, 0);
+    assert.equal(footer.querySelectorAll('[data-action="result-pipeline-select"]').length, 1);
+    assert.equal(footer.querySelector(".result-continuation-guidance").textContent, "Opens an editable draft. Execution starts only after you submit it.");
+    const viewportIndex = root.innerHTML.indexOf('class="conversation-viewport');
+    const footerIndex = root.innerHTML.indexOf('class="execution-result-footer"');
+    assert.ok(viewportIndex >= 0);
+    assert.ok(footerIndex > viewportIndex);
+  } finally { harness.restore(); }
+});
+
+test("the continuation footer counts exactly the selected canonical issues and their unresolved dispositions", () => {
+  const result = selectableReviewResult();
+  const original = JSON.stringify(result);
+  const harness = openResultActions({}, {}, result);
+  try {
+    const root = harness.document.root;
+    const count = () => root.querySelector(".result-selection-count").textContent;
+    const detail = () => root.querySelector(".result-selection-detail").textContent;
+    assert.equal(count(), "3 of 3 issues selected");
+    assert.equal(detail(), "2 need confirmation");
+    assert.equal(root.querySelectorAll(".execution-result-footer .result-continuation-summary").length, 1);
+    const summary = root.querySelector(".result-continuation-summary");
+    assert.equal(summary.getAttribute("role"), "status");
+    assert.equal(summary.getAttribute("aria-live"), null);
+    assert.equal(summary.getAttribute("aria-atomic"), "true");
+    assert.equal(root.querySelector(".result-selection-count").tagName, "STRONG");
+    setReviewFinding(harness, "select-finding-1", false);
+    assert.equal(count(), "2 of 3 issues selected");
+    assert.equal(detail(), "1 needs confirmation");
+    assert.equal(root.querySelector(".result-continuation-summary").getAttribute("aria-live"), null);
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": structuredClone(result) } }) });
+    assert.equal(root.querySelector(".result-continuation-summary").getAttribute("aria-live"), "off");
+    setReviewFinding(harness, "select-finding-2", false);
+    assert.equal(count(), "1 of 3 issues selected");
+    assert.equal(detail(), "No unresolved issues selected.");
+    assert.equal(root.querySelector('[data-finding-id="select-finding-3"]'), null);
+    harness.messages.length = 0;
+    root.querySelector('.execution-result-footer [data-action="result-continue"]').click();
+    assert.deepEqual(harness.messages, [{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "selection-version",
+      findingIds: ["select-finding-0"], pipelineId: "fix-source",
+    }]);
+    assert.equal(JSON.stringify(result), original);
+  } finally { harness.restore(); }
+});
+
+test("one eligible issue uses singular footer grammar and excludes rejected findings from the total", () => {
+  const result = selectableReviewResult();
+  result.findings = [result.findings[0], result.findings[3]];
+  const harness = openResultActions({}, {}, result);
+  try {
+    assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "1 of 1 issue selected");
+    assert.equal(harness.document.root.querySelector(".result-selection-detail").textContent, "No unresolved issues selected.");
+    assert.equal(harness.document.root.querySelectorAll('[data-action="result-finding-select"]').length, 1);
+  } finally { harness.restore(); }
+});
+
+test("a report without findings offers its assessment in an editable draft without inventing selected issues", () => {
+  const harness = openResultActions({}, {}, selectableReviewResult({ findings: [] }));
+  try {
+    const footer = harness.document.root.querySelector(".execution-result-footer");
+    assert.equal(footer.querySelector(".result-selection-count").textContent, "0 issues selected");
+    assert.match(footer.textContent, /assessment/u);
+    assert.equal(harness.document.root.querySelectorAll('[data-action="result-finding-select"]').length, 0);
+    const action = footer.querySelector('[data-action="result-continue"]');
+    assert.equal(action.getAttribute("aria-disabled"), null);
+    harness.messages.length = 0;
+    action.click();
+    assert.deepEqual(harness.messages, [{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "selection-version",
+      pipelineId: "fix-source",
+    }]);
+  } finally { harness.restore(); }
+});
+
+for (const [label, panelOverrides, result] of [
+  ["empty result", { workflowStatus: "completed" }, undefined],
+  ["running attempt", { workflowStatus: "running", running: true }, selectableReviewResult()],
+  ["waiting attempt", { workflowStatus: "paused", pendingGate: pendingGate({ stepId: "review", stepName: "Review" }) }, selectableReviewResult()],
+]) {
+  test(`${label} never adds a continuation footer to Execution`, () => {
+    const harness = bootWebview(managerState({ resultsByConversation: result ? { "run-1": result } : {} }), panelState(panelOverrides));
+    try {
+      harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+      assert.equal(harness.document.root.querySelectorAll(".execution-result-footer").length, 0);
+      assert.equal(harness.document.root.querySelectorAll('[data-action="result-continue"]').length, 0);
+    } finally { harness.restore(); }
+  });
+}
+
+test("the continuation footer disappears in Chat and Direction and restores the same selection in Execution", () => {
+  const harness = openResultActions({}, {}, selectableReviewResult());
+  try {
+    setReviewFinding(harness, "select-finding-1", false);
+    harness.document.root.querySelector('[data-action="room-view"][data-view="chat"]').click();
+    assert.equal(harness.document.root.querySelectorAll(".execution-result-footer").length, 0);
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "2 of 3 issues selected");
+    openWorkspaceDirection(harness);
+    assert.ok(harness.document.root.querySelector(".direction-center"));
+    assert.equal(harness.document.root.querySelectorAll(".execution-result-footer").length, 0);
+  } finally { harness.restore(); }
+});
+
+test("footer pipeline focus and selected issue count survive snapshots without resetting nested code scroll", () => {
+  const result = selectableReviewResult();
+  const panel = {
+    workflowStatus: "completed", selectedPipelineDefinition: threeStepPipelineDefinition(),
+    transcript: [{ id: "footer-scroll-answer", kind: "answer", agentId: "lead", stepId: "plan", text: '```json\n{"evidence":[1,2,3]}\n```', createdAt: timestamp }],
+  };
+  const eventsByConversation = { "run-1": [stepEvent(1, "plan", "Plan", timestamp)] };
+  const harness = openResultActions({ eventsByConversation }, panel, result);
+  try {
+    const root = harness.document.root;
+    const disclosure = root.querySelector('[data-disclosure-key="run-1:pipeline-step:plan"]');
+    disclosure.open = true;
+    root.dispatch("toggle", { target: disclosure });
+    setReviewFinding(harness, "select-finding-1", false);
+    const surface = '[data-code-scroll-surface="pipeline:plan:footer-scroll-answer"]';
+    const body = root.querySelector(`${surface} [data-output-scroll]`);
+    const code = root.querySelector(`${surface} pre[data-code-region]`);
+    body.scrollTop = 240;
+    body.scrollLeft = 35;
+    code.scrollTop = 180;
+    code.scrollLeft = 90;
+    const pipeline = root.querySelector('.execution-result-footer [data-action="result-pipeline-select"]');
+    pipeline.value = "implement-ui";
+    root.dispatch("change", { target: pipeline });
+    root.querySelector('.execution-result-footer [data-action="result-pipeline-select"]').focus();
+    const footer = root.querySelector(".execution-result-footer");
+    footer.scrollTop = 85;
+    footer.scrollLeft = 12;
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ eventsByConversation, resultsByConversation: { "run-1": structuredClone(result) } }) });
+    assert.equal(harness.document.activeElement.dataset.action, "result-pipeline-select");
+    assert.equal(harness.document.activeElement.closest(".execution-result-footer").tagName, "FOOTER");
+    assert.deepEqual([root.querySelector(".execution-result-footer").scrollTop, root.querySelector(".execution-result-footer").scrollLeft], [85, 12]);
+    assert.match(root.innerHTML, /value="implement-ui" selected/u);
+    assert.equal(root.querySelector(".result-selection-count").textContent, "2 of 3 issues selected");
+    assert.equal(root.querySelector(".result-selection-detail").textContent, "1 needs confirmation");
+    assert.equal(root.querySelector('[data-disclosure-key="run-1:pipeline-step:plan"]').open, true);
+    assert.deepEqual([root.querySelector(`${surface} [data-output-scroll]`).scrollTop, root.querySelector(`${surface} [data-output-scroll]`).scrollLeft], [240, 35]);
+    assert.deepEqual([root.querySelector(`${surface} pre[data-code-region]`).scrollTop, root.querySelector(`${surface} pre[data-code-region]`).scrollLeft], [180, 90]);
   } finally { harness.restore(); }
 });

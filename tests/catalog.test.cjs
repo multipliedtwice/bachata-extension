@@ -585,3 +585,68 @@ test("execution identity rotates on every run.started and survives reopen", asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a restarted attempt rotates execution identity while resumption retains it after reload", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "bachata-catalog-restart-identity-"));
+  let catalog;
+  try {
+    catalog = createStateCatalog(root);
+    const run = catalog.createRun({ title: "Review interface" });
+    catalog.appendEvent({ runRef: run.runRef, type: "run.started", status: "running" });
+    const first = catalog.latestExecutionRef(run.runRef);
+    catalog.appendEvent({ runRef: run.runRef, type: "decision.published", status: "completed", payload: { candidate: "Earlier conclusion" } });
+    catalog.appendEvent({ runRef: run.runRef, type: "run.restarted", status: "running" });
+    const restart = catalog.listEvents(run.runRef).find((event) => event.type === "run.restarted");
+    const second = catalog.latestExecutionRef(run.runRef);
+    assert.equal(second, `E${restart.id}`);
+    assert.notEqual(second, first);
+    catalog.appendEvent({ runRef: run.runRef, type: "run.resumed", status: "running" });
+    assert.equal(catalog.latestExecutionRef(run.runRef), second);
+    catalog.close();
+    catalog = createStateCatalog(root);
+    assert.equal(catalog.latestExecutionRef(run.runRef), second);
+    assert.equal(catalog.listEvents(run.runRef).filter((event) => event.type === "decision.published").length, 1);
+    catalog.appendEvent({ runRef: run.runRef, type: "run.restarted", status: "running" });
+    const third = catalog.latestExecutionRef(run.runRef);
+    assert.notEqual(third, second);
+    assert.match(third, /^E\d+$/u);
+  } finally {
+    catalog?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bounded event retention preserves only the latest attempt boundary and its identity after reload", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "bachata-catalog-retained-attempt-"));
+  let catalog;
+  try {
+    catalog = createStateCatalog(root, { retention: { eventsPerRun: 2 } });
+    const run = catalog.createRun({ title: "Long review" });
+    let previous;
+    for (const type of ["run.started", "run.restarted"]) {
+      catalog.appendEvent({ runRef: run.runRef, type, status: "running", payload: { attempt: type } });
+      const current = catalog.latestExecutionRef(run.runRef);
+      assert.match(current, /^E\d+$/u);
+      assert.notEqual(current, previous);
+      for (let index = 0; index < 6; index += 1) {
+        catalog.appendEvent({ runRef: run.runRef, type: "step.answer", title: `${type} answer ${index}` });
+      }
+      const events = catalog.listEvents(run.runRef);
+      assert.equal(events.length, 3);
+      assert.equal(events[0].type, type);
+      assert.equal(`E${events[0].id}`, current);
+      assert.deepEqual(events[0].payload, { attempt: type });
+      assert.deepEqual(events.slice(1).map((event) => event.title), [`${type} answer 4`, `${type} answer 5`]);
+      assert.equal(events.filter((event) => event.type === "run.started" || event.type === "run.restarted").length, 1);
+      assert.equal(catalog.latestExecutionRef(run.runRef), current);
+      catalog.close();
+      catalog = createStateCatalog(root, { retention: { eventsPerRun: 2 } });
+      assert.equal(catalog.latestExecutionRef(run.runRef), current);
+      assert.deepEqual(catalog.listEvents(run.runRef), events);
+      previous = current;
+    }
+  } finally {
+    catalog?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

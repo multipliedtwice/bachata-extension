@@ -22,6 +22,11 @@ const pressEnter = () => cy.then(async () => {
   await debuggerCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
 });
 
+const pressTab = () => cy.then(async () => {
+  await debuggerCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+  await debuggerCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+});
+
 const boot = (outcome = "inconclusive", theme = "light", font = 13) => {
   cy.visit(fixture);
   cy.window().its("__bootExecution").should("be.a", "function");
@@ -112,7 +117,7 @@ const boot = (outcome = "inconclusive", theme = "light", font = 13) => {
       evidence: [{ kind: "verification", label: "Verification", state: needsConfirmation ? "missing" : "recorded", detail: "The verification state is explicit." }],
       recoveredErrors: [],
       readableMarkdown: copyMarkdown,
-      continuation: needsConfirmation ? { available: false, reason: "No write-capable pipeline is available. Configure a pipeline with writable paths before starting implementation." } : { available: true, resultVersion: "displayed-result" },
+      continuation: needsConfirmation ? { available: false, reason: "No write-capable pipeline is available. Configure a pipeline with writable paths before starting implementation.", resultVersion: "displayed-result", pipelines: [] } : { available: true, resultVersion: "displayed-result", pipelineId: "fix-source", pipelines: [{ id: "fix-source", name: "Fix source" }, { id: "implement-ui", name: "Implement UI" }] },
     };
     win.__bootExecution();
   });
@@ -132,18 +137,48 @@ const expectNoRail = (element) => {
   expect(parseFloat(style.borderInlineEndWidth)).to.equal(0);
 };
 
+const expectFooterLayout = (column) => {
+  const footer = column.querySelector(":scope > .execution-result-footer");
+  const viewport = column.querySelector(":scope > .conversation-viewport");
+  const scroll = column.querySelector("#conversation-scroll");
+  const footerBounds = footer.getBoundingClientRect();
+  const columnBounds = column.getBoundingClientRect();
+  const viewportBounds = viewport.getBoundingClientRect();
+  expect(column.querySelectorAll('[data-action="result-continue"]')).to.have.length(1);
+  expect(footer.querySelectorAll('[data-action="result-continue"]')).to.have.length(1);
+  expect(scroll.querySelectorAll('[data-action="result-continue"]')).to.have.length(0);
+  expect(footer.closest("#conversation-scroll")).to.equal(null);
+  expect(Math.abs(footerBounds.bottom - columnBounds.bottom)).to.be.lessThan(1);
+  expect(viewportBounds.bottom).to.be.at.most(footerBounds.top + 1);
+  expect(viewportBounds.height).to.be.greaterThan(0);
+  expect(footer.scrollWidth).to.be.at.most(footer.clientWidth + 1);
+  expectContained(footer, column);
+  const actions = footer.querySelector(".result-continuation-action");
+  const result = column.querySelector(".result-center");
+  expect(Math.abs(actions.getBoundingClientRect().left - result.getBoundingClientRect().left)).to.be.lessThan(1);
+  expect(Math.abs(actions.getBoundingClientRect().right - result.getBoundingClientRect().right)).to.be.lessThan(1);
+  for (const control of footer.querySelectorAll("button, select")) {
+    expectContained(control, actions);
+    expect(control.scrollWidth).to.be.at.most(control.clientWidth + 1);
+    expect(control.getBoundingClientRect().height).to.be.at.least(40);
+  }
+  expectNoRail(footer);
+};
+
 const openStep = (id) => cy.get(`[data-disclosure-key="run-1:pipeline-step:${id}"]`).then(($details) => {
   if (!$details[0].open) cy.wrap($details).find("summary").click();
 });
 
 describe("Execution result document hierarchy", { browser: "chrome" }, () => {
   for (const theme of ["light", "dark", "high-contrast"]) {
-    for (const width of [320, 400, 480, 1280]) {
+    for (const width of [320, 400, 480, 700, 1280]) {
       it(`keeps the complete expanded hierarchy readable in ${theme} at ${width}px`, () => {
         cy.viewport(width, 900);
         boot("inconclusive", theme, width === 480 ? 18 : 13);
         openStep("plan");
         openStep("implement");
+        cy.get(".ruling-compare").should("have.prop", "open", false).find("summary").click();
+        cy.get(".ruling-compare").should("have.prop", "open", true);
         cy.get('[data-disclosure-key="run-1:result-evidence:run-1"] > summary').click();
         cy.get(".execution-content").should(($execution) => {
           const execution = $execution[0];
@@ -178,6 +213,24 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
         });
         cy.get('[data-action="result-continue"]').should("have.attr", "aria-disabled", "true").and("have.attr", "aria-describedby");
         cy.get(".result-continuation-reason").should("be.visible").and("contain.text", "No write-capable pipeline is available");
+        cy.get(".execution-result-footer .result-selection-count").should("have.text", "3 of 3 issues selected");
+        cy.get(".execution-result-footer .result-selection-detail").should("have.text", "1 needs confirmation");
+        let footerPosition;
+        cy.get(".conversation-column").should(($column) => {
+          expectFooterLayout($column[0]);
+          const bounds = $column[0].querySelector(".execution-result-footer").getBoundingClientRect();
+          footerPosition = [bounds.top, bounds.bottom];
+        });
+        cy.get("#conversation-scroll").scrollTo("bottom");
+        cy.get(".conversation-column").should(($column) => {
+          expectFooterLayout($column[0]);
+          const footer = $column[0].querySelector(".execution-result-footer").getBoundingClientRect();
+          expect([footer.top, footer.bottom]).to.deep.equal(footerPosition);
+          const lastSection = $column[0].querySelector(".pipeline-summary").getBoundingClientRect();
+          expect(lastSection.bottom).to.be.at.most(footer.top + 1);
+          const scroll = $column[0].querySelector("#conversation-scroll");
+          expect(scroll.scrollTop).to.be.greaterThan(0);
+        });
         cy.document().then((doc) => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth + 1));
       });
     }
@@ -245,9 +298,147 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
         type: "conversation.continueFromResult",
         conversationId: "run-1",
         resultVersion: "displayed-result",
+        findingIds: ["finding-0", "finding-1"],
+        pipelineId: "fix-source",
       }]);
       expect(win.__posted.some((message) => ["user.message", "workflow.start", "workflow.restart", "workflow.resume", "orchestration.start"].includes(message.message?.type ?? message.type))).to.equal(false);
     });
+  });
+
+  it("keeps finding exclusions and the selected pipeline through snapshots before creating a draft", () => {
+    cy.viewport(400, 900);
+    boot("completed");
+    cy.get(".ruling-compare").should("have.prop", "open", false);
+    cy.get('[data-action="result-finding-select"]').should("have.length", 2);
+    cy.get(".execution-result-footer .result-selection-count").should("have.text", "2 of 2 issues selected");
+    cy.get('[data-finding-id="finding-1"]').uncheck();
+    cy.get(".execution-result-footer .result-selection-count").should("have.text", "1 of 2 issues selected");
+    cy.get(".execution-result-footer .result-selection-detail").should("have.text", "No unresolved issues selected.");
+    cy.get('[data-action="result-pipeline-select"]').select("implement-ui");
+    cy.get('[data-finding-id="finding-0"]').focus();
+    cy.window().then((win) => {
+      win.__send({ type: "manager.snapshot", state: structuredClone(win.__executionManagerState) });
+      win.__posted.length = 0;
+    });
+    cy.get('[data-finding-id="finding-0"]').should("be.checked").and("be.focused");
+    cy.get('[data-finding-id="finding-1"]').should("not.be.checked");
+    cy.get('[data-action="result-pipeline-select"]').should("have.value", "implement-ui");
+    cy.get(".execution-result-footer .result-selection-count").should("have.text", "1 of 2 issues selected");
+    cy.get('.execution-result-footer [data-action="result-continue"]').should("have.text", "Start new pipeline").click();
+    cy.window().should((win) => expect(win.__posted).to.deep.equal([{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "displayed-result",
+      findingIds: ["finding-0"], pipelineId: "implement-ui",
+    }]));
+  });
+
+  it("allows current inconclusive finding choices while the destination pipeline is unavailable", () => {
+    cy.viewport(320, 900);
+    boot("inconclusive");
+    cy.get('[data-action="result-finding-select"]').should("have.length", 3).each(($input) => cy.wrap($input).should("not.be.disabled"));
+    cy.get('[data-finding-id="finding-1"]').uncheck();
+    cy.get('[data-action="result-continue"]').should("have.attr", "aria-disabled", "true").click();
+    cy.get(".result-continuation-reason").should("contain.text", "No write-capable pipeline is available");
+    cy.get("#bachata-live-status").should("contain.text", "No write-capable pipeline is available");
+    cy.window().then((win) => {
+      expect(win.__posted.some((message) => message.type === "conversation.continueFromResult")).to.equal(false);
+      const manager = win.__executionManagerState;
+      manager.resultsByConversation["run-1"].continuation = {
+        available: true, resultVersion: "displayed-result", pipelineId: "fix-source",
+        pipelines: [{ id: "fix-source", name: "Fix source" }],
+      };
+      win.__send({ type: "manager.snapshot", state: structuredClone(manager) });
+      win.__posted.length = 0;
+    });
+    cy.get('[data-finding-id="finding-1"]').should("not.be.checked");
+    cy.get('[data-action="result-pipeline-select"]').select("fix-source");
+    cy.get('[data-action="result-continue"]').should("not.have.attr", "aria-disabled").click();
+    cy.window().should((win) => expect(win.__posted).to.deep.equal([{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "displayed-result",
+      findingIds: ["finding-0", "finding-2"], pipelineId: "fix-source",
+    }]));
+  });
+
+  it("keeps a current completed report usable when its restored runtime is idle", () => {
+    cy.viewport(400, 900);
+    boot("completed");
+    cy.window().then((win) => {
+      const manager = win.__executionManagerState;
+      manager.conversations[0].workflowStatus = "idle";
+      manager.conversations[0].running = false;
+      win.__send({ type: "manager.snapshot", state: structuredClone(manager) });
+      const panel = win.__executionPanelState;
+      panel.workflowStatus = "idle";
+      panel.running = false;
+      win.__send({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: structuredClone(panel) } });
+      win.__posted.length = 0;
+    });
+    cy.get('[data-action="result-finding-select"]').should("have.length", 2).each(($input) => cy.wrap($input).should("not.be.disabled"));
+    cy.get('[data-finding-id="finding-1"]').uncheck();
+    cy.get('[data-action="result-continue"]').should("not.have.attr", "aria-disabled").focus();
+    pressEnter();
+    cy.window().should((win) => expect(win.__posted).to.deep.equal([{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "displayed-result",
+      findingIds: ["finding-0"], pipelineId: "fix-source",
+    }]));
+  });
+
+  it("keeps the selected issue count and pipeline controls reachable at the bottom while reading a long report", () => {
+    cy.viewport(320, 900);
+    boot("completed", "dark");
+    openStep("plan");
+    cy.get('[data-finding-id="finding-1"]').uncheck();
+    cy.get("#conversation-scroll").scrollTo("bottom");
+    cy.get(".execution-result-footer").should("be.visible").within(() => {
+      cy.get(".result-selection-count").should("have.text", "1 of 2 issues selected");
+      cy.get(".result-continuation-guidance").should("have.text", "Opens an editable draft. Execution starts only after you submit it.");
+      cy.get('[data-action="result-pipeline-select"]').select("implement-ui").focus();
+    });
+    pressTab();
+    cy.get('.execution-result-footer [data-action="result-continue"]').should("be.focused").should(($button) => {
+      const style = $button[0].ownerDocument.defaultView.getComputedStyle($button[0]);
+      expect(parseFloat(style.outlineWidth)).to.equal(2);
+      expect(style.outlineStyle).to.equal("solid");
+    });
+    let scrollTop;
+    cy.get("#conversation-scroll").then(($scroll) => { scrollTop = $scroll[0].scrollTop; });
+    cy.window().then((win) => {
+      win.__send({ type: "manager.snapshot", state: structuredClone(win.__executionManagerState) });
+      win.__posted.length = 0;
+    });
+    cy.get(".execution-result-footer .result-selection-count").should("have.text", "1 of 2 issues selected");
+    cy.get('.execution-result-footer [data-action="result-pipeline-select"]').should("have.value", "implement-ui");
+    cy.get('.execution-result-footer [data-action="result-continue"]').should("be.focused");
+    cy.get("#conversation-scroll").should(($scroll) => expect($scroll[0].scrollTop).to.equal(scrollTop));
+    pressEnter();
+    cy.window().should((win) => expect(win.__posted).to.deep.equal([{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "displayed-result",
+      findingIds: ["finding-0"], pipelineId: "implement-ui",
+    }]));
+  });
+
+  it("keeps an empty issue selection explicit and permits an assessment-only report without claiming issues were selected", () => {
+    cy.viewport(400, 900);
+    boot("completed");
+    cy.get('[data-finding-id="finding-0"]').uncheck();
+    cy.get('[data-finding-id="finding-1"]').uncheck();
+    cy.get(".execution-result-footer .result-selection-count").should("have.text", "0 of 2 issues selected");
+    cy.get('.execution-result-footer [data-action="result-continue"]').should("have.attr", "aria-disabled", "true");
+    cy.get(".execution-result-footer .result-continuation-reason").should("have.text", "Select at least one finding to include in the new pipeline.");
+    cy.window().then((win) => { win.__posted.length = 0; });
+    cy.get('.execution-result-footer [data-action="result-continue"]').click();
+    cy.window().then((win) => {
+      expect(win.__posted).to.deep.equal([]);
+      win.__executionManagerState.resultsByConversation["run-1"].findings = [];
+      win.__executionManagerState.resultsByConversation["run-1"].finalDecision.candidate = { summary: "Assessment recorded without findings." };
+      win.__send({ type: "manager.snapshot", state: structuredClone(win.__executionManagerState) });
+    });
+    cy.get(".execution-result-footer .result-selection-count").should("have.text", "0 issues selected");
+    cy.get(".execution-result-footer .result-selection-detail").should("have.text", "The report assessment and evidence will be carried forward.");
+    cy.get('.execution-result-footer [data-action="result-continue"]').should("not.have.attr", "aria-disabled").click();
+    cy.window().should((win) => expect(win.__posted).to.deep.equal([{
+      type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "displayed-result",
+      pipelineId: "fix-source",
+    }]));
   });
 
   it("retains disclosure, keyboard focus, and both inner code scroll axes across snapshots", () => {

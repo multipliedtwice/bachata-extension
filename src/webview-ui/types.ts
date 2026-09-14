@@ -613,7 +613,7 @@ type TodoTaskSummary = {
 };
 type RunResultCenter = {
   readableMarkdown?: string;
-  continuation?: { available: boolean; reason?: string; resultVersion?: string };
+  continuation?: { available: boolean; reason?: string; resultVersion?: string; pipelineId?: string; pipelines?: Array<{ id: string; name: string }> };
   status: Exclude<WorkflowStatus, "running" | "paused">;
   changedFiles: string[];
   diffSummary?: string;

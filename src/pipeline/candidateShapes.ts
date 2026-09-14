@@ -1,4 +1,5 @@
 import { JsonOutputSchema } from "./types";
+import { RESULT_TEXT_LIMITS } from "../results/textLimits";
 
 const LOCATION_SCHEMA: JsonOutputSchema = {
   type: "object",
@@ -32,11 +33,14 @@ const findingSchema = (dispositions: string[]): JsonOutputSchema => ({
   },
 });
 
-const findingSetSchema = (dispositions: string[]): JsonOutputSchema => ({
+const findingSetSchema = (dispositions: string[], summary = false): JsonOutputSchema => ({
   type: "object",
   required: ["findings"],
   additionalProperties: false,
   properties: {
+    ...(summary ? {
+      summary: { type: "string" as const, minLength: 1, maxLength: RESULT_TEXT_LIMITS.maximumEntryTextUnits },
+    } : {}),
     findings: { type: "array", items: findingSchema(dispositions) },
   },
 });
@@ -47,7 +51,7 @@ export const RULED_FINDING_SET_SCHEMA = findingSetSchema([
   "accepted",
   "rejected",
   "unresolved",
-]);
+], true);
 
 const DECISION_OPTION_SCHEMA: JsonOutputSchema = {
   type: "object",

@@ -63,6 +63,8 @@ const bachataWebviewBehavior: BachataWebviewBehaviorApi = {
       ["data-run-id", element.dataset.runId],
       ["data-format", element.dataset.format],
       ["data-message-id", element.dataset.messageId],
+      ["data-finding-id", element.dataset.findingId],
+      ["data-result-version", element.dataset.resultVersion],
       ["data-entry", element.dataset.entry],
       ["data-attachment-id", element.dataset.attachmentId],
       ["data-code-id", element.dataset.codeId],

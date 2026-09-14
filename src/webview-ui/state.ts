@@ -279,6 +279,7 @@ type ResultSelectionState = {
   files: Set<string>;
   hunks: Map<string, Set<number>>;
   diff?: RunDiffState;
+  continuation?: { resultVersion: string; findingIds: Set<string>; pipelineId?: string; stale: boolean };
 };
 
 const RESULT_SELECTION_LIMIT = 8;
@@ -336,6 +337,27 @@ const resultSelection = (
 
 const knownResultPaths = (conversationId: string): Set<string> =>
   new Set(state.manager.resultsByConversation?.[conversationId]?.changedFiles ?? []);
+
+const resultContinuationSelection = (conversationId: string, result: RunResultCenter): NonNullable<ResultSelectionState["continuation"]> => {
+  const entry = resultSelection(conversationId, result.retainedRunId);
+  const resultVersion = result.continuation?.resultVersion ?? "";
+  const findings = (result.findings ?? []).filter((finding) => finding.disposition !== "rejected");
+  const known = new Set(findings.map((finding) => finding.id));
+  if (!entry.continuation || entry.continuation.resultVersion !== resultVersion) {
+    const previous = entry.continuation;
+    const pipelineId = previous?.pipelineId ?? result.continuation?.pipelineId ?? result.continuation?.pipelines?.[0]?.id;
+    entry.continuation = {
+      resultVersion,
+      findingIds: new Set(previous ? [] : known),
+      ...(pipelineId === undefined ? {} : { pipelineId }),
+      stale: previous !== undefined,
+    };
+  }
+  for (const id of entry.continuation.findingIds) {
+    if (!known.has(id)) entry.continuation.findingIds.delete(id);
+  }
+  return entry.continuation;
+};
 
 const selectedResultPaths = (
   conversationId: string,

@@ -502,7 +502,7 @@ export type ConversationManagerToExtensionMessage =
   | { type: "manager.ready" }
   | { type: "workspace.ownership" }
   | { type: "conversation.create" }
-  | { type: "conversation.continueFromResult"; conversationId: string; resultVersion: string }
+  | { type: "conversation.continueFromResult"; conversationId: string; resultVersion: string; findingIds?: string[]; pipelineId?: string }
   | { type: "conversation.duplicate"; conversationId: string }
   | { type: "conversation.archive"; conversationId: string; archived: boolean }
   | { type: "conversation.select"; conversationId: string }

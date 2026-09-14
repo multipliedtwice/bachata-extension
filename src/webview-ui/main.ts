@@ -384,6 +384,7 @@ const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOn
   }
   if (entry.eventType === "user.message") {
     return `<article class="message-row user-row" data-entry="${escapeAttribute(entry.id)}">
+      ${avatarHtml("user", localize("You"), "agent-avatar user-avatar")}
       <div class="message user-message" title="${escapeAttribute(formatDateTime(entry.createdAt))}"><div class="message-author">${escapeHtml(localize("You"))}</div><div class="message-text markdown">${renderMarkdown(entry.text)}</div><time datetime="${escapeAttribute(entry.createdAt)}">${escapeHtml(messageTime(entry.createdAt))}</time></div>
     </article>`;
   }
@@ -645,7 +646,7 @@ const runDrawerHtml = (): string => {
       ? runs.length === 1 ? localize("{0} run matches the search.", runs.length) : localize("{0} runs match the search.", runs.length)
       : runs.length === 1 ? localize("{0} run.", runs.length) : localize("{0} runs.", runs.length);
   return `<div class="run-drawer-backdrop" data-action="run-drawer-backdrop"><aside class="run-drawer" id="run-drawer" role="dialog" aria-modal="true" aria-label="${escapeAttribute(localize("All runs"))}">
-    <header><h2>${escapeHtml(localize("Runs"))}</h2><div class="run-drawer-tools"><button class="workspace-direction run-drawer-direction" data-action="room-view" data-view="direction" aria-pressed="${state.roomView === "direction" ? "true" : "false"}" title="${escapeAttribute(localize("Project goals and decisions"))}"><i class="codicon codicon-compass" aria-hidden="true"></i>${escapeHtml(localize("Direction"))}</button><button data-action="run-drawer-toggle" aria-label="${escapeAttribute(localize("Close all runs"))}">×</button></div></header>
+    <header><h2>${escapeHtml(localize("Runs"))}</h2><button data-action="run-drawer-toggle" aria-label="${escapeAttribute(localize("Close all runs"))}">×</button></header>
     <label class="sr-only" for="run-search">${escapeHtml(localize("Search runs"))}</label>
     <input id="run-search" class="room-search" value="${escapeAttribute(state.roomSearch)}" placeholder="${escapeAttribute(localize("Search runs and prompts…"))}" autofocus>
     <label class="archive-toggle"><input id="show-archived" type="checkbox" ${state.showArchived ? "checked" : ""}> ${escapeHtml(localize("Show archived runs"))}</label>
@@ -664,6 +665,7 @@ const runDrawerHtml = (): string => {
         ${runActionsMenuHtml(conversation, "drawer")}
       </article>`;
     }).join("")}</div>
+    <footer class="run-drawer-footer"><nav aria-label="${escapeAttribute(localize("Project goals and decisions"))}"><button class="run-drawer-direction" data-action="room-view" data-view="direction" ${state.roomView === "direction" ? 'aria-current="page"' : ""} title="${escapeAttribute(localize("Project goals and decisions"))}"><i class="codicon codicon-compass" aria-hidden="true"></i>${escapeHtml(localize("Direction"))}</button></nav></footer>
   </aside></div>`;
 };
 
@@ -1082,6 +1084,10 @@ const render = (): void => {
   const scroll = document.getElementById("conversation-scroll");
   const inspectorScroll = root.querySelector<HTMLElement>(".inspector-scroll");
   const inspectorScrollTop = inspectorScroll?.scrollTop ?? 0;
+  const resultFooter = root.querySelector<HTMLElement>(".execution-result-footer");
+  const resultFooterScroll = resultFooter === null ? undefined : {
+    key: resultFooter.dataset.scrollKey, top: resultFooter.scrollTop, left: resultFooter.scrollLeft,
+  };
   const distanceFromBottom = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight : 0;
   const scrollTopBefore = scroll ? scroll.scrollTop : 0;
   const previousScrollKey = scroll?.dataset.scrollKey;
@@ -1153,6 +1159,11 @@ const render = (): void => {
   settleCodeBlockFocus();
   restoreCodeBlockScroll(codeBlockScroll);
   restoreControl(control, openPopoverSelector());
+  const nextResultFooter = root.querySelector<HTMLElement>(".execution-result-footer");
+  if (nextResultFooter && resultFooterScroll && resultFooterScroll.key === nextResultFooter.dataset.scrollKey) {
+    nextResultFooter.scrollTop = resultFooterScroll.top;
+    nextResultFooter.scrollLeft = resultFooterScroll.left;
+  }
   restoreDialogScroll(dialogScroll);
   rememberEditorLocally();
   focusEmptyComposer(control !== undefined);

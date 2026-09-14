@@ -16,7 +16,9 @@ const navigationHarness = () => {
       this.attributes = new Map();
       this.clientWidth = 600;
       this.clientHeight = 400;
+      this.clientTop = 0;
       this.scrollHeight = 1000;
+      this.scrollLeft = 0;
       this.position = 0;
       this.tabIndex = -1;
       this.offsetTop = 0;
@@ -56,8 +58,9 @@ const navigationHarness = () => {
     disconnect() { observed = undefined; disconnected += 1; }
   }
   const window = { matchMedia: () => ({ matches: false }) };
-  const api = vm.runInNewContext(`${script}\n;({ rememberConversationScroll, refreshConversationNavigation, conversationScrollBehavior });`, {
+  const api = vm.runInNewContext(`${script}\n;({ rememberConversationScroll, refreshConversationNavigation, conversationScrollBehavior, revealConversationMessage });`, {
     root, state, document, window, ResizeObserver: Observer, HTMLElement: Element, HTMLButtonElement: Element,
+    focusTransientControl: (element) => element.focus({ preventScroll: true }),
   });
   const addTurn = (id, top, bottom) => {
     const row = new Element();
@@ -68,6 +71,7 @@ const navigationHarness = () => {
     button.dataset.messageId = id;
     button.parent = rail;
     button.offsetTop = rail.buttons.length * 28;
+    button.row = row;
     rail.buttons.push(button);
     return button;
   };
@@ -139,4 +143,105 @@ test("message jumps honor the reduced motion preference", () => {
   assert.equal(nav.conversationScrollBehavior(), "smooth");
   nav.window.matchMedia = () => ({ matches: true });
   assert.equal(nav.conversationScrollBehavior(), "auto");
+});
+
+test("minimap jumps align the beginning of a long message within the actual scroller", () => {
+  const nav = navigationHarness();
+  nav.content.scrollHeight = 6000;
+  nav.content.scrollTop = 80;
+  nav.content.scrollLeft = 19;
+  nav.content.clientTop = 3;
+  nav.content.rect = { top: 220, height: 406, bottom: 626 };
+  nav.addTurn("request", 0, 50);
+  const selected = nav.addTurn("long-answer", 0, 0);
+  nav.addTurn("last-answer", 5000, 5200);
+  selected.row.getBoundingClientRect = () => ({
+    top: 220 + 3 + 1400 - nav.content.scrollTop,
+    bottom: 220 + 3 + 3900 - nav.content.scrollTop,
+    height: 2500,
+  });
+  selected.row.scrollIntoView = () => assert.fail("A message jump must not scroll ancestor containers");
+  const nestedCode = { scrollTop: 880, scrollLeft: 340 };
+  selected.row.nestedCode = nestedCode;
+  nav.revealConversationMessage(selected.row);
+  assert.equal(nav.content.scrollTop, 1400);
+  assert.equal(nav.content.scrollLeft, 19);
+  assert.equal(nav.document.activeElement, selected.row);
+  assert.equal(nav.content.attributes.has("data-restoring"), false);
+  assert.equal(nav.state.scrollPositions.get("run-1:chat").top, 1400);
+  assert.equal(nav.state.scrollPositions.get("run-1:chat").following, false);
+  assert.deepEqual(nestedCode, { scrollTop: 880, scrollLeft: 340 });
+  assert.equal(selected.attributes.get("aria-current"), "true");
+});
+
+test("message jumps remeasure variable heights and scroller offsets after a redraw", () => {
+  const nav = navigationHarness();
+  nav.content.scrollHeight = 6000;
+  const selected = nav.addTurn("stable-message", 1500, 1700);
+  nav.revealConversationMessage(selected.row);
+  assert.equal(nav.content.scrollTop, 1500);
+  const replacement = nav.addTurn("stable-message", 0, 0).row;
+  nav.content.rows = [replacement];
+  nav.content.rect = { top: 120, bottom: 520, height: 400 };
+  replacement.getBoundingClientRect = () => ({
+    top: 120 + 2180 - nav.content.scrollTop,
+    bottom: 120 + 2380 - nav.content.scrollTop,
+    height: 200,
+  });
+  nav.revealConversationMessage(replacement);
+  assert.equal(nav.content.scrollTop, 2180);
+  assert.equal(nav.document.activeElement, replacement);
+  assert.equal(nav.state.scrollPositions.get("run-1:chat").top, 2180);
+});
+
+test("message jumps clamp both ends to the available scroll range", () => {
+  const nav = navigationHarness();
+  const first = nav.addTurn("first", -20, 70);
+  const last = nav.addTurn("last", 960, 990);
+  nav.revealConversationMessage(first.row);
+  assert.equal(nav.content.scrollTop, 0);
+  nav.revealConversationMessage(last.row);
+  assert.equal(nav.content.scrollTop, 600);
+  assert.equal(nav.state.scrollPositions.get("run-1:chat").following, true);
+  assert.equal(last.attributes.get("aria-current"), "true");
+  assert.equal(first.attributes.has("aria-current"), false);
+});
+
+test("the active minimap marker follows the message beginning rather than the viewport midpoint", () => {
+  const nav = navigationHarness();
+  const first = nav.addTurn("short-request", 0, 70);
+  const second = nav.addTurn("long-answer", 90, 1200);
+  const third = nav.addTurn("later-answer", 1220, 1450);
+  nav.refreshConversationNavigation();
+  assert.equal(first.attributes.get("aria-current"), "true");
+  assert.deepEqual([first, second, third].map((button) => button.attributes.has("data-current")), [true, false, false]);
+  assert.deepEqual([first.tabIndex, second.tabIndex, third.tabIndex], [0, -1, -1]);
+});
+
+test("unmapped transcript rows cannot displace the current minimap target", () => {
+  const nav = navigationHarness();
+  const first = nav.addTurn("first", -10, 40);
+  const second = nav.addTurn("second", 400, 800);
+  const unrelated = nav.addTurn("bookkeeping", 0, 390);
+  nav.rail.buttons.pop();
+  nav.content.rows.unshift(nav.content.rows.pop());
+  nav.refreshConversationNavigation();
+  assert.equal(first.attributes.get("aria-current"), "true");
+  assert.equal(second.attributes.has("aria-current"), false);
+  assert.equal(unrelated.attributes.has("aria-current"), false);
+});
+
+test("scrolling inside nested code does not move or reclassify the conversation", () => {
+  const nav = navigationHarness();
+  nav.content.scrollTop = 130;
+  nav.rememberConversationScroll(nav.content);
+  const recorded = nav.state.scrollPositions.get("run-1:chat");
+  const code = nav.addTurn("code", 20, 200).row;
+  code.scrollTop = 90;
+  code.scrollLeft = 200;
+  nav.dispatch("scroll", { target: code });
+  assert.equal(nav.content.scrollTop, 130);
+  assert.equal(nav.state.scrollPositions.get("run-1:chat"), recorded);
+  assert.equal(code.scrollTop, 90);
+  assert.equal(code.scrollLeft, 200);
 });

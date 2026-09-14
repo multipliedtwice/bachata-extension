@@ -1,8 +1,12 @@
 import {
+  resultStatusOf,
+  type ResultStatus,
+  type RunResultCenter,
   RunRecheckRecord,
   VerificationProvenance,
   VerificationResult,
 } from "../results/projectResult";
+import type { WorkflowStatus } from "../webview/protocol";
 
 /**
  * A catalog event, reduced to what a projection reads from it. Events arrive in id order and ids
@@ -17,6 +21,17 @@ export type ProjectionEvent = {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+export const currentResultStatus = (input: {
+  workflowStatus: WorkflowStatus;
+  persistedResult?: Pick<RunResultCenter, "status" | "executionRef"> | undefined;
+  executionRef?: string | undefined;
+}): ResultStatus | undefined =>
+  resultStatusOf(input.workflowStatus) ?? (
+    input.workflowStatus === "idle" && input.persistedResult?.executionRef === input.executionRef
+      ? input.persistedResult?.status
+      : undefined
+  );
 
 /**
  * The event id the current execution began at. Everything at or before it belongs to a previous

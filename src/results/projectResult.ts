@@ -114,7 +114,7 @@ export const resultStatusOf = (status: WorkflowStatus): ResultStatus | undefined
 export type RunResultCenter = {
   persistence?: { version: 1; omitted: boolean };
   readableMarkdown?: string;
-  continuation?: { available: boolean; reason?: string; resultVersion?: string };
+  continuation?: { available: boolean; reason?: string; resultVersion?: string; pipelines?: Array<{ id: string; name: string }>; pipelineId?: string };
   status: ResultStatus;
   changedFiles: string[];
   diffSummary?: string;

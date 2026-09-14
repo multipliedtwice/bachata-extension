@@ -20,6 +20,19 @@ const rememberConversationScroll = (content: HTMLElement): void => {
   state.scrollPositions.set(key, { top: content.scrollTop, distanceFromBottom, following: distanceFromBottom < 90 });
 };
 
+const revealConversationMessage = (message: HTMLElement): void => {
+  const content = root.querySelector<HTMLElement>(".conversation-scroll");
+  if (!content) return;
+  const top = content.scrollTop + message.getBoundingClientRect().top
+    - content.getBoundingClientRect().top - (content.clientTop || 0);
+  content.setAttribute("data-restoring", "");
+  content.scrollTop = Math.max(0, Math.min(top, content.scrollHeight - content.clientHeight));
+  content.removeAttribute("data-restoring");
+  focusTransientControl(message);
+  rememberConversationScroll(content);
+  refreshConversationNavigation();
+};
+
 let observedConversation: HTMLElement | undefined;
 const conversationSizes = new WeakMap<HTMLElement, { width: number; height: number }>();
 const followConversationResize = (content: HTMLElement): void => {
@@ -58,15 +71,19 @@ const refreshConversationNavigation = (): void => {
   const rail = root.querySelector<HTMLElement>(".chat-minimap");
   if (!rail) return;
   const bounds = content.getBoundingClientRect();
-  const center = bounds.top + bounds.height / 2;
-  const entries = Array.from(content.querySelectorAll<HTMLElement>(".message-row[data-entry]"));
+  const readingTop = bounds.top + (content.clientTop || 0);
+  const buttons = Array.from(rail.querySelectorAll<HTMLButtonElement>("button"));
+  const targets = new Set(buttons.map((button) => button.dataset.messageId));
+  const entries = Array.from(content.querySelectorAll<HTMLElement>(".message-row[data-entry]"))
+    .filter((entry) => targets.has(entry.dataset.entry));
   const distance = (entry: HTMLElement): number => {
     const rect = entry.getBoundingClientRect();
-    return center < rect.top ? rect.top - center : center > rect.bottom ? center - rect.bottom : 0;
+    return readingTop < rect.top ? rect.top - readingTop : readingTop >= rect.bottom ? readingTop - rect.bottom + 1 : 0;
   };
-  const closest = entries.reduce<HTMLElement | undefined>((best, entry) => !best || distance(entry) < distance(best) ? entry : best, undefined);
+  const closest = distanceFromBottom <= 1 ? entries.at(-1)
+    : entries.reduce<HTMLElement | undefined>((best, entry) => !best || distance(entry) < distance(best) ? entry : best, undefined);
   const ownsFocus = document.activeElement instanceof HTMLElement && document.activeElement.closest(".chat-minimap") === rail;
-  rail.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
+  buttons.forEach((button) => {
     const current = button.dataset.messageId === closest?.dataset.entry;
     if (current) {
       button.setAttribute("data-current", "");

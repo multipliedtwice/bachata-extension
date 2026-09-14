@@ -467,10 +467,18 @@ root.addEventListener("click", (event) => {
       announceStatus(refusal);
       return;
     }
+    const result = state.manager.resultsByConversation[target.dataset.conversation];
+    if (!result) {
+      announceStatus(localize("This run has no result content to carry into implementation."));
+      return;
+    }
+    const selected = resultContinuationSelection(target.dataset.conversation, result);
     vscode.postMessage({
       type: "conversation.continueFromResult",
       conversationId: target.dataset.conversation,
       resultVersion,
+      ...((result.findings?.length ?? 0) > 0 ? { findingIds: Array.from(selected.findingIds) } : {}),
+      ...(selected.pipelineId ? { pipelineId: selected.pipelineId } : {}),
     });
   } else if (action === "result-hunks-clear" && target.dataset.conversation) {
     resultSelection(target.dataset.conversation, target.dataset.runId).hunks.clear();
@@ -694,16 +702,9 @@ root.addEventListener("click", (event) => {
     }
   } else if (action === "jump-message") {
     const messageId = target.dataset.messageId;
-    const message = messageId ? root.querySelector<HTMLElement>(`[data-entry="${CSS.escape(messageId)}"]`) : null;
-    if (message) {
-      const content = root.querySelector<HTMLElement>(".conversation-scroll");
-      content?.setAttribute("data-restoring", "");
-      message.scrollIntoView({ block: "center", behavior: "auto" });
-      content?.removeAttribute("data-restoring");
-      focusTransientControl(message);
-      if (content) rememberConversationScroll(content);
-      refreshConversationNavigation();
-    }
+    const content = root.querySelector<HTMLElement>(".conversation-scroll");
+    const message = messageId ? content?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(messageId)}"]`) : null;
+    if (message) revealConversationMessage(message);
   } else if (action === "jump-latest") {
     const content = root.querySelector<HTMLElement>(".conversation-scroll");
     if (content) {
@@ -933,17 +934,12 @@ root.addEventListener("click", (event) => {
     scheduleRender();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const outputs = Array.from(root.querySelectorAll<HTMLElement>("[data-agent-id]"))
+        const content = root.querySelector<HTMLElement>(".conversation-scroll");
+        const outputs = Array.from(content?.querySelectorAll<HTMLElement>(".message-row[data-agent-id]") ?? [])
           .filter((element) => element.dataset.agentId === agentId);
-        const output = messageId ? root.querySelector<HTMLElement>(`[data-entry="${CSS.escape(messageId)}"]`) : outputs.at(-1);
+        const output = messageId ? content?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(messageId)}"]`) : outputs.at(-1);
         if (output) {
-          const content = root.querySelector<HTMLElement>(".conversation-scroll");
-          content?.setAttribute("data-restoring", "");
-          output.scrollIntoView({ block: "center", behavior: "auto" });
-          content?.removeAttribute("data-restoring");
-          focusTransientControl(output);
-          if (content) rememberConversationScroll(content);
-          refreshConversationNavigation();
+          revealConversationMessage(output);
         } else {
           announceStatus(localize("No transcript output is available for that participant."));
         }
@@ -1330,6 +1326,39 @@ root.addEventListener("change", (event) => {
   }
   if (target.id === "notification-mode" && target instanceof HTMLSelectElement) {
     vscode.postMessage({ type: "notifications.setMode", mode: target.value });
+    return;
+  }
+  if ((target.dataset.action === "result-finding-select" || target.dataset.action === "result-pipeline-select") && target.dataset.conversation) {
+    const conversationId = target.dataset.conversation;
+    const refusal = resultSelectionRefusal(conversationId, target.dataset.resultVersion ?? "");
+    if (refusal) {
+      announceStatus(refusal);
+      scheduleRender();
+      return;
+    }
+    const result = state.manager.resultsByConversation[conversationId];
+    if (!result) {
+      announceStatus(localize("This run has no result content to carry into implementation."));
+      return;
+    }
+    const selected = resultContinuationSelection(conversationId, result);
+    if (target.dataset.action === "result-finding-select" && target instanceof HTMLInputElement) {
+      const finding = result.findings?.find((entry) => entry.id === target.dataset.findingId);
+      if (!finding || finding.disposition === "rejected") {
+        announceStatus(localize("This finding is not available for implementation."));
+        return;
+      }
+      if (target.checked) selected.findingIds.add(finding.id);
+      else selected.findingIds.delete(finding.id);
+      selected.stale = false;
+    } else if (target.dataset.action === "result-pipeline-select" && target instanceof HTMLSelectElement) {
+      if (!result.continuation?.pipelines?.some((pipeline) => pipeline.id === target.value)) {
+        announceStatus(localize("Choose an available write-capable pipeline for these findings."));
+        return;
+      }
+      selected.pipelineId = target.value;
+    }
+    scheduleRender();
     return;
   }
   if (target.id === "app-dialog-input" && state.dialog && "inputValue" in state.dialog) {

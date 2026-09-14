@@ -18,6 +18,7 @@ const {
   CANDIDATE_SHAPE_NAMES,
   resolveCandidateShape,
 } = require("../dist/pipeline/candidateShapes.js");
+const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
 
 const decisionFields = {
   candidateField: "candidate",
@@ -96,6 +97,65 @@ test("a valid empty finding set is still an acceptable candidate", () => {
   assert.equal(record.valid, true);
   assert.equal(record.accepted, true);
   assert.deepEqual(record.validationErrors, []);
+});
+
+test("a ruled finding report permits an optional summary within the shared entry limit", () => {
+  const source = {
+    summary: "Reviewers confirmed the cancellation defect; keyboard behavior remains unresolved because direct evidence is missing.",
+    findings: [ruledFinding(), ruledFinding({ id: "keyboard", disposition: "unresolved" })],
+  };
+  const original = JSON.stringify(source);
+  const record = parseDecisionParticipant("codex", answer(source), decisionFields);
+  assert.equal(record.valid, true);
+  assert.equal(record.accepted, true);
+  assert.deepEqual(record.candidate, source);
+  assert.deepEqual(record.validationErrors, []);
+  assert.equal(JSON.stringify(source), original);
+  assert.deepEqual(
+    decisionCandidateErrors({ findings: [], summary: "x".repeat(RESULT_TEXT_LIMITS.maximumEntryTextUnits) }, "candidate", "ruledModelFindingSet"),
+    [],
+  );
+  assert.deepEqual(
+    decisionCandidateErrors({ findings: [], summary: "x".repeat(RESULT_TEXT_LIMITS.maximumEntryTextUnits + 1) }, "candidate", "ruledModelFindingSet"),
+    [`$.candidate.summary must contain at most ${RESULT_TEXT_LIMITS.maximumEntryTextUnits} characters`],
+  );
+  assert.deepEqual(
+    decisionCandidateErrors({ findings: [], summary: "" }, "candidate", "ruledModelFindingSet"),
+    ["$.candidate.summary must contain at least 1 characters"],
+  );
+  assert.deepEqual(
+    decisionCandidateErrors({ findings: [], summary: {} }, "candidate", "ruledModelFindingSet"),
+    ["$.candidate.summary must be string"],
+  );
+  assert.deepEqual(
+    decisionCandidateErrors({ findings: [], summary: "Unreviewed proposal" }, "candidate", "proposedModelFindingSet"),
+    ["$.candidate.summary is not allowed"],
+  );
+  assert.deepEqual(
+    decisionCandidateErrors({ findings: [], summary: "Review report", hidden: "bookkeeping" }, "candidate", "ruledModelFindingSet"),
+    ["$.candidate.hidden is not allowed"],
+  );
+});
+
+test("a review summary requires exact consensus and cannot change unresolved dispositions", () => {
+  const candidate = {
+    summary: "The cancellation defect is confirmed. Keyboard behavior remains unresolved pending direct observation.",
+    findings: [ruledFinding(), ruledFinding({ id: "keyboard", disposition: "unresolved" })],
+  };
+  const participants = ["codex", "claude"].map((agentId) =>
+    parseDecisionParticipant(agentId, answer(candidate), decisionFields));
+  const accepted = buildDecisionArtifact({ stepId: "review-consensus", round: 1, policy: "unanimous", participants });
+  assert.equal(accepted.status, "accepted");
+  assert.equal(accepted.rulingProvenance.kind, "unanimousConsensus");
+  assert.equal(accepted.candidate.summary, candidate.summary);
+  assert.deepEqual(modelFindingsFromDecisionArtifact(accepted).map((finding) => finding.disposition), ["accepted", "unresolved"]);
+  const different = parseDecisionParticipant("claude", answer({ ...candidate, summary: "A different report has not been reconciled." }), decisionFields);
+  assert.equal(different.valid, true);
+  const pending = buildDecisionArtifact({ stepId: "review-consensus", round: 2, policy: "unanimous", participants: [participants[0], different] });
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.candidate, undefined);
+  assert.equal(pending.rulingProvenance, undefined);
+  assert.deepEqual(modelFindingsFromDecisionArtifact(pending), []);
 });
 
 test("a malformed candidate cannot produce a completed decision with zero findings", () => {

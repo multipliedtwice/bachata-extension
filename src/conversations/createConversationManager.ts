@@ -11,7 +11,7 @@ import {
 import { normalizeConversationTree } from "./conversationTree";
 import { pipelineImplementationRefusal } from "./resultContinuation";
 import { readableResultMarkdown } from "../results/readableResult";
-import { implementationDraftFromResult } from "../results/implementationHandoff";
+import { implementationDraftFromResult, isResultFindingSelection, selectedResultFindings } from "../results/implementationHandoff";
 import { boundedTerminalResult } from "../results/persistedResult";
 import { assertPreparedDraftSize, RESULT_TEXT_LIMITS } from "../results/textLimits";
 import { randomUUID } from "node:crypto";
@@ -30,6 +30,7 @@ import { pathInsideRelative } from "../process/pathBoundary";
 import {
   boundRecheck as recheckBoundTo,
   contractChecksFrom,
+  currentResultStatus,
   decisionRisks as risksFromDecision,
   executionEventCutoff,
   humanResolutionSummary,
@@ -66,7 +67,6 @@ import {
   mergeRecheckedChecks,
   mergeRunResults,
   projectRunResult,
-  resultStatusOf,
   runHandoffRefusal,
   runResultHasEvidence,
   type RunRecheckRecord,
@@ -921,9 +921,15 @@ const parseManagerMessage = (
     value.conversationId.trim().length > 0 &&
     typeof value.resultVersion === "string" &&
     value.resultVersion.trim().length > 0 &&
-    Object.keys(value).every((key) => key === "type" || key === "conversationId" || key === "resultVersion")
+    (value.findingIds === undefined || isResultFindingSelection(value.findingIds)) &&
+    (value.pipelineId === undefined || (typeof value.pipelineId === "string" && value.pipelineId.trim().length > 0 && value.pipelineId.length <= 256)) &&
+    Object.keys(value).every((key) => key === "type" || key === "conversationId" || key === "resultVersion" || key === "findingIds" || key === "pipelineId")
   ) {
-    return { type: value.type, conversationId: value.conversationId, resultVersion: value.resultVersion };
+    return {
+      type: value.type, conversationId: value.conversationId, resultVersion: value.resultVersion,
+      ...(value.findingIds === undefined ? {} : { findingIds: [...value.findingIds] }),
+      ...(value.pipelineId === undefined ? {} : { pipelineId: value.pipelineId }),
+    };
   }
   if (
     (value.type === "conversation.select" ||
@@ -1830,7 +1836,7 @@ export const createConversationManager = (
   let continuationPipelineGeneration = 0;
   const continuationPipelines = new Map<string, {
     key: string;
-    availability: { available: boolean; reason?: string };
+    availability: NonNullable<RunResultCenter["continuation"]>;
   }>();
   const continuationResultVersions = new Map<string, { key: string; version: string }>();
   let disposeOperation: Promise<void> | undefined;
@@ -2754,6 +2760,17 @@ export const createConversationManager = (
     }
   };
 
+  const presentRunResult = (conversation: ConversationSummary, result: RunResultCenter): RunResultCenter => {
+    const readableMarkdown = readableResultText(result);
+    const presented = {
+      ...result,
+      readableMarkdown,
+      continuation: continuationAvailability(conversation, result),
+    };
+    readableResults.set(presented, readableMarkdown);
+    return presented;
+  };
+
   const refreshCatalogViews = (): void => {
     const conversationByRun = new Map(
       state.conversations.map((conversation) => [conversation.runRef, conversation.id]),
@@ -2785,10 +2802,18 @@ export const createConversationManager = (
     state.resultsByConversation = Object.fromEntries(state.conversations.flatMap((conversation) => {
       // A run that has not ended has no result, and neither does a room that never ran. Projecting
       // one presented a live run as a finished run whose outcome was "running".
-      const resultStatus = resultStatusOf(conversation.workflowStatus)
-        ?? (conversation.workflowStatus === "idle" ? terminalResults.get(conversation.runRef)?.status : undefined);
-      if (resultStatus === undefined) return [];
+      const persisted = terminalResults.get(conversation.runRef);
       const executionRef = catalog.latestExecutionRef(conversation.runRef);
+      const resultStatus = currentResultStatus({
+        workflowStatus: conversation.workflowStatus,
+        persistedResult: persisted,
+        executionRef,
+      });
+      if (resultStatus === undefined) {
+        return conversation.workflowStatus === "idle" && persisted !== undefined
+          ? [[conversation.id, presentRunResult(conversation, persisted)] as const]
+          : [];
+      }
       const currentExecutionEventId = executionEventCutoff(executionRef);
       const events = eventsCoveringExecution(conversation.runRef, currentExecutionEventId);
       const decision = latestCurrentEvent(events, "decision.published", currentExecutionEventId);
@@ -2901,7 +2926,6 @@ export const createConversationManager = (
           return provenance === undefined ? {} : { verificationProvenance: provenance };
         })(),
       });
-      const persisted = terminalResults.get(conversation.runRef);
       const complete = persisted ? mergeRunResults(persisted, live) : live;
       const projected = boundedTerminalResult(complete);
       const ran = runWasExecuted({
@@ -2929,14 +2953,7 @@ export const createConversationManager = (
         recordCycleVerification(conversation, complete);
       }
       if (!ran) return [];
-      const readableMarkdown = readableResultText(projected);
-      const presented = {
-        ...projected,
-        readableMarkdown,
-        continuation: continuationAvailability(conversation, projected),
-      };
-      readableResults.set(presented, readableMarkdown);
-      return [[conversation.id, presented] as const];
+      return [[conversation.id, presentRunResult(conversation, projected)] as const];
     }));
   };
 
@@ -5673,47 +5690,68 @@ export const createConversationManager = (
     "The Lead/Worker pipeline accepted this challenged finding as scoped fix input. Convergence is not correctness. Implement the fix inside the declared write scope and report what you changed.",
   ].join("\n");
 
+  const implementationSnapshot = async (conversationId: string, pipelineId: string): Promise<PipelineSnapshot> => {
+    const snapshot = await resolveConversationPipelineSnapshot(conversationId, pipelineId, {
+      requireCurrentCatalog: true,
+      rejectChecklist: true,
+    });
+    if (snapshot.definition.id !== pipelineId) {
+      throw new Error("The selected pipeline changed. Choose a current implementation pipeline.");
+    }
+    const refusal = pipelineImplementationRefusal(snapshot.definition);
+    if (refusal !== undefined) throw new Error(refusal);
+    return snapshot;
+  };
+
+  const implementationCandidates = async (conversationId: string, candidateId?: string): Promise<string[]> => {
+    await ensureInitialized();
+    const slot = await ensureRuntime(conversationId);
+    return [...new Set([
+      configuration.get<string>("fixPipelineId", "").trim(),
+      candidateId,
+      "managed-fix",
+      ...slot.runtime.getState().pipelines.map((pipeline) => pipeline.id),
+    ].filter((id): id is string => typeof id === "string" && id.trim().length > 0).map((id) => id.trim()))];
+  };
+
   const scopedFixSnapshot = async (
     conversationId: string,
     candidateId: string | undefined,
   ): Promise<PipelineSnapshot> => {
-    const configured = configuration.get<string>("fixPipelineId", "").trim();
-    const validate = async (
-      pipelineId: string,
-    ): Promise<{ snapshot?: PipelineSnapshot; refusal: string }> => {
-      let snapshot: PipelineSnapshot;
+    for (const pipelineId of await implementationCandidates(conversationId, candidateId)) {
       try {
-        snapshot = await resolveConversationPipelineSnapshot(conversationId, pipelineId, {
-          requireCurrentCatalog: true,
-          rejectChecklist: true,
-        });
-      } catch (error) {
-        return {
-          refusal: `${pipelineId} could not be resolved: ${error instanceof Error ? error.message : String(error)}`,
-        };
+        return await implementationSnapshot(conversationId, pipelineId);
+      } catch {
+        continue;
       }
-      const refusal = pipelineImplementationRefusal(snapshot.definition);
-      if (refusal !== undefined) return { refusal };
-      return { snapshot, refusal: "" };
-    };
-    await ensureInitialized();
-    const slot = await ensureRuntime(conversationId);
-    const catalogIds = slot.runtime.getState().pipelines.map((pipeline) => pipeline.id);
-    for (const pipelineId of new Set([configured, candidateId, "managed-fix", ...catalogIds])) {
-      if (pipelineId === undefined || pipelineId.trim().length === 0) continue;
-      const attempt = await validate(pipelineId.trim());
-      if (attempt.snapshot !== undefined) return attempt.snapshot;
     }
     throw new Error(
       "No available workflow has an enabled participant with effective write authority. Read-only workflows cannot implement changes. Configure an implementation workflow before starting implementation.",
     );
   };
 
-  const continuationRefusal = (
+  const implementationChoices = async (source: ConversationSummary): Promise<NonNullable<RunResultCenter["continuation"]>> => {
+    const pipelines: Array<{ id: string; name: string }> = [];
+    for (const pipelineId of await implementationCandidates(source.id, source.selectedPipelineId)) {
+      try {
+        const snapshot = await implementationSnapshot(source.id, pipelineId);
+        pipelines.push({ id: snapshot.definition.id, name: snapshot.definition.name });
+      } catch {
+        continue;
+      }
+    }
+    const first = pipelines[0];
+    return first === undefined ? {
+      available: false,
+      pipelines,
+      reason: "No available workflow has an enabled participant with effective write authority. Read-only workflows cannot implement changes. Configure an implementation workflow before starting implementation.",
+    } : { available: true, pipelines, pipelineId: first.id };
+  };
+
+  const continuationSourceRefusal = (
     source: ConversationSummary | undefined,
     result: RunResultCenter | undefined,
     activeConversationId = source?.id,
-    createdConversationId?: string,
   ): string | undefined => {
     if (state.readOnly !== undefined) return "This window is read-only. Use the window that owns this workspace to start implementation.";
     try {
@@ -5736,10 +5774,17 @@ export const createConversationManager = (
       return "This run has no meaningful result to implement.";
     }
     const executionRef = catalog.latestExecutionRef(source.runRef);
-    if (!isTerminalWorkflowStatus(source.workflowStatus) ||
-      (executionRef !== undefined && result.executionRef !== executionRef)) {
+    if (currentResultStatus({
+      workflowStatus: source.workflowStatus,
+      persistedResult: terminalResults.get(source.runRef),
+      executionRef,
+    }) === undefined || result.executionRef !== executionRef) {
       return "This result is from an earlier attempt. Wait for the current attempt's result before starting implementation.";
     }
+    return undefined;
+  };
+
+  const continuationCapacityRefusal = (createdConversationId?: string): string | undefined => {
     const activeCount = state.conversations.filter((conversation) =>
       conversation.id !== createdConversationId && !conversation.archived && !conversation.parentConversationId).length;
     if (activeCount >= maximumActiveConversations) {
@@ -5747,6 +5792,14 @@ export const createConversationManager = (
     }
     return undefined;
   };
+
+  const continuationRefusal = (
+    source: ConversationSummary | undefined,
+    result: RunResultCenter | undefined,
+    activeConversationId = source?.id,
+    createdConversationId?: string,
+  ): string | undefined => continuationSourceRefusal(source, result, activeConversationId)
+    ?? continuationCapacityRefusal(createdConversationId);
 
   const continuationPipelineKey = (source: ConversationSummary): string => JSON.stringify([
     source.selectedPipelineId,
@@ -5761,31 +5814,31 @@ export const createConversationManager = (
   const continuationAvailability = (
     source: ConversationSummary,
     result: RunResultCenter,
-  ): { available: boolean; reason?: string; resultVersion?: string } => {
-    const refusal = continuationRefusal(source, result);
+  ): NonNullable<RunResultCenter["continuation"]> => {
+    const refusal = continuationSourceRefusal(source, result);
     if (refusal !== undefined) return { available: false, reason: refusal };
     const key = continuationPipelineKey(source);
-    const resultKey = JSON.stringify([source.runRef, result.executionRef, result.finalDecisionEventId, readableResultText(result), key]);
+    const resultKey = JSON.stringify([source.runRef, result.executionRef, result.finalDecisionEventId, readableResultText(result), result.findings, key]);
     let version = continuationResultVersions.get(source.id);
     if (version?.key !== resultKey) {
       version = { key: resultKey, version: randomUUID() };
       continuationResultVersions.set(source.id, version);
     }
     const resultVersion = version.version;
+    const capacityRefusal = continuationCapacityRefusal();
+    if (capacityRefusal !== undefined) return { available: false, reason: capacityRefusal, resultVersion };
     const cached = continuationPipelines.get(source.id);
     if (cached?.key === key) return { ...cached.availability, resultVersion };
     const pending = {
       key,
-      availability: { available: false, reason: "Checking for a workflow with effective write authority." },
+      availability: { available: false, reason: "Checking for a workflow with effective write authority.", pipelines: [] },
     };
     continuationPipelines.set(source.id, pending);
-    void scopedFixSnapshot(source.id, source.selectedPipelineId).then(
-      () => ({ available: true }),
-      () => ({
-        available: false,
-        reason: "No available workflow has an enabled participant with effective write authority. Read-only workflows cannot implement changes. Configure an implementation workflow before starting implementation.",
-      }),
-    ).then((availability) => {
+    void implementationChoices(source).catch(() => ({
+      available: false,
+      pipelines: [],
+      reason: "The available pipelines could not be checked. Refresh this run before starting a new pipeline.",
+    })).then((availability) => {
       if (disposed || continuationPipelines.get(source.id) !== pending) return;
       const current = state.conversations.find((conversation) => conversation.id === source.id);
       if (current === undefined || continuationPipelineKey(current) !== key) {
@@ -5870,7 +5923,7 @@ export const createConversationManager = (
     }
   };
 
-  const continueFromResult = async (conversationId: string, expectedResultVersion: string): Promise<void> => {
+  const continueFromResult = async (conversationId: string, expectedResultVersion: string, findingIds?: string[], pipelineId?: string): Promise<void> => {
     refreshCatalogViews();
     const source = state.conversations.find((conversation) => conversation.id === conversationId);
     const result = state.resultsByConversation[conversationId];
@@ -5880,11 +5933,16 @@ export const createConversationManager = (
     if (result.continuation?.resultVersion !== expectedResultVersion) {
       throw new Error("The displayed result changed. Review the current result before starting implementation.");
     }
+    const selectionKey = findingIds === undefined ? undefined : JSON.stringify(selectedResultFindings(result, findingIds));
+    if (pipelineId !== undefined && !result.continuation?.pipelines?.some((pipeline) => pipeline.id === pipelineId)) {
+      throw new Error("The selected implementation pipeline is unavailable or no longer has write authority. Choose a current pipeline.");
+    }
     const sourceKey = continuationPipelineKey(source);
     const resultMarkdown = readableResultText(result);
     const resultExecutionRef = result.executionRef;
     const resultDecisionEventId = result.finalDecisionEventId;
     const assertSourceCurrent = (createdConversationId?: string): void => {
+      refreshCatalogViews();
       const current = state.conversations.find((conversation) => conversation.id === conversationId);
       const currentResult = state.resultsByConversation[conversationId];
       const currentRefusal = continuationRefusal(current, currentResult, createdConversationId ?? conversationId, createdConversationId);
@@ -5892,13 +5950,16 @@ export const createConversationManager = (
       if (current === undefined || current !== source || continuationPipelineKey(current) !== sourceKey ||
         currentResult?.executionRef !== resultExecutionRef ||
         currentResult?.finalDecisionEventId !== resultDecisionEventId ||
-        currentResult === undefined || readableResultText(currentResult) !== resultMarkdown) {
+        currentResult === undefined || readableResultText(currentResult) !== resultMarkdown ||
+        (findingIds !== undefined && JSON.stringify(selectedResultFindings(currentResult, findingIds)) !== selectionKey)) {
         throw new Error("The selected run, workflow, or result changed. Review the current result before starting implementation.");
       }
     };
-    const snapshot = await scopedFixSnapshot(source.id, source.selectedPipelineId);
+    const snapshot = pipelineId === undefined
+      ? await scopedFixSnapshot(source.id, source.selectedPipelineId)
+      : await implementationSnapshot(source.id, pipelineId);
     assertSourceCurrent();
-    const prompt = implementationDraftFromResult(result);
+    const prompt = implementationDraftFromResult(result, findingIds);
     await createConversation({
       title: "Implementation draft",
       preparedDraft: prompt,
@@ -6602,7 +6663,7 @@ export const createConversationManager = (
       return;
     }
     if (message.type === "conversation.continueFromResult") {
-      await continueFromResult(message.conversationId, message.resultVersion);
+      await continueFromResult(message.conversationId, message.resultVersion, message.findingIds, message.pipelineId);
       return;
     }
     if (message.type === "notifications.markAllRead") {
