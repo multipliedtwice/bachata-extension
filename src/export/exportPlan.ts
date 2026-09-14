@@ -125,7 +125,7 @@ export const exportConfirmationDetail = (input: {
   contents?: string | undefined;
 }, localize: Localize = formatMessage): string =>
   [
-    localize("Size: {0} bytes.", Buffer.byteLength(input.content, "utf8")), 
+    localize("Size: {0} bytes.", Buffer.byteLength(input.content, "utf8")),
     ...(input.contents === undefined ? [] : [input.contents]),
     "",
     localize("Applied redaction rules:"),

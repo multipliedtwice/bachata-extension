@@ -19,6 +19,7 @@ import {
 } from "./rulingProvenance";
 import type { RulingProvenance } from "./rulingProvenance";
 import { parseResultDecision, type ResultDecision } from "./resultDecision";
+import { boundedTerminalResult, TERMINAL_RESULT_OMISSION_NOTICE } from "./persistedResult";
 
 export type { EvidenceExpectations };
 export type {
@@ -111,6 +112,9 @@ export const resultStatusOf = (status: WorkflowStatus): ResultStatus | undefined
   isResultStatus(status) ? status : undefined;
 
 export type RunResultCenter = {
+  persistence?: { version: 1; omitted: boolean };
+  readableMarkdown?: string;
+  continuation?: { available: boolean; reason?: string; resultVersion?: string };
   status: ResultStatus;
   changedFiles: string[];
   diffSummary?: string;
@@ -318,6 +322,10 @@ export const parseRunResult = (value: unknown): RunResultCenter | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
   if (!isStatus(candidate.status)) return undefined;
+  if (candidate.persistence && typeof candidate.persistence === "object" &&
+      (candidate.persistence as Record<string, unknown>).version === 1) {
+    return boundedTerminalResult(candidate as RunResultCenter);
+  }
   const checks = parseChecks(candidate.checks);
   const providers = Array.isArray(candidate.providers)
     ? candidate.providers.flatMap((item) => {
@@ -797,6 +805,37 @@ export const mergeRunResults = (
   ) {
     return live;
   }
+  if (persisted.persistence?.version === 1 && live.status === persisted.status &&
+      (live.finalDecisionEventId === undefined || live.finalDecisionEventId === persisted.finalDecisionEventId)) {
+    const bounded = boundedTerminalResult(live);
+    const same = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+    const subset = (values: readonly unknown[], recorded: readonly unknown[]): boolean => {
+      const known = new Set(recorded.map((value) => JSON.stringify(value)));
+      return values.every((value) => known.has(JSON.stringify(value)));
+    };
+    const decision = bounded.finalDecision;
+    const recordedDecision = persisted.finalDecision;
+    const liveLedgerGaps = new Set(evidenceGapsFrom(bounded.evidence));
+    const sameDecision = decision === undefined || (recordedDecision !== undefined &&
+      decision.stepId === recordedDecision.stepId && decision.status === recordedDecision.status &&
+      (decision.candidate === undefined || same(decision.candidate, recordedDecision.candidate)) &&
+      (decision.humanResolution === undefined || same(decision.humanResolution, recordedDecision.humanResolution)) &&
+      (decision.ruledBy === undefined || decision.ruledBy === recordedDecision.ruledBy) &&
+      subset(decision.participants, recordedDecision.participants) &&
+      subset(decision.objections, recordedDecision.objections) &&
+      subset(decision.unresolvedRisks, recordedDecision.unresolvedRisks));
+    if (sameDecision &&
+        (bounded.finalRuling === undefined || bounded.finalRuling === persisted.finalRuling) &&
+        (bounded.failure === undefined || same(bounded.failure, persisted.failure)) &&
+        (bounded.verificationProvenance === undefined || same(bounded.verificationProvenance, persisted.verificationProvenance)) &&
+        same(bounded.expectations, persisted.expectations) &&
+        subset(bounded.checks, persisted.checks) &&
+        subset(bounded.changedFiles, persisted.changedFiles) &&
+        subset(bounded.findings, persisted.findings) &&
+        subset(bounded.unresolvedRisks, persisted.unresolvedRisks) &&
+        subset(bounded.evidenceGaps.filter((gap) => !liveLedgerGaps.has(gap)), persisted.evidenceGaps) &&
+        subset(bounded.recoveredErrors, persisted.recoveredErrors)) return persisted;
+  }
   const changedFiles = live.changedFiles.length > 0 ? live.changedFiles : persisted.changedFiles;
   const liveOwnsChecks = live.checks.length > 0;
   const checks = liveOwnsChecks ? live.checks : persisted.checks;
@@ -835,7 +874,13 @@ export const mergeRunResults = (
     changedFilesRecorded,
     expectations,
   });
-  const evidenceGaps = evidenceGapsFrom(evidence);
+  const previousLedgerGaps = new Set(evidenceGapsFrom(persisted.evidence));
+  const evidenceGaps = unique([
+    ...evidenceGapsFrom(evidence),
+    ...(persisted.persistence ? persisted.evidenceGaps.filter((gap) => !previousLedgerGaps.has(gap)) : []),
+    ...(persisted.persistence || live.persistence ? live.evidenceGaps : []),
+    ...(persisted.persistence?.omitted || live.persistence?.omitted ? [TERMINAL_RESULT_OMISSION_NOTICE] : []),
+  ]);
   const consensusRuling = consensusRulingFor(
     rulingProvenance,
     live.consensusRuling === true || persisted.consensusRuling === true,
@@ -857,6 +902,9 @@ export const mergeRunResults = (
   const mergedDiffSummary = live.diffSummary ?? persisted.diffSummary;
   return {
     status,
+    ...(persisted.persistence || live.persistence ? {
+      persistence: { version: 1, omitted: persisted.persistence?.omitted === true || live.persistence?.omitted === true } as const,
+    } : {}),
     ...(consensusRuling ? { consensusRuling: true } : {}),
     changedFiles,
     ...(mergedDiffSummary === undefined ? {} : { diffSummary: mergedDiffSummary }),

@@ -165,10 +165,10 @@ const participantColumnHtml = (
     : [];
   const candidate = record.candidate;
   const stepId = jsonString(decision.stepId);
-  const stepName = panel?.selectedPipelineDefinition?.steps.find((step) => step.id === stepId)?.name;
-  const answer = panel?.transcript?.slice().reverse().find((entry) => entry.agentId === agentId &&
-    (entry.kind === "answer" || entry.kind === "interrupted") &&
-    (entry.step === stepId || (stepName !== undefined && entry.step === stepName)));
+  const stepRow = pipelineStepRows(panel?.selectedPipelineDefinition?.steps ?? [], state.manager.eventsByConversation[activeId()] ?? [])
+    .find((step) => step.id === stepId);
+  const answer = stepRow === undefined ? undefined : pipelineStepMessages(stepRow, panel).slice().reverse()
+    .find((entry) => entry.agentId === agentId);
   const incomplete = candidate === undefined || candidate === null || /\[[^\]]*not shown\]/u.test(JSON.stringify(candidate));
   const messageLink = answer && incomplete ? `<button class="text-button" data-action="focus-agent-output" data-agent="${escapeAttribute(agentId)}" data-message-id="${escapeAttribute(answer.id)}">${escapeHtml(localize("Open participant message"))}</button>` : "";
   const output = candidate === undefined || candidate === null
@@ -176,7 +176,7 @@ const participantColumnHtml = (
     : typeof candidate === "string"
       ? `<div class="markdown">${renderMarkdown(candidate)}</div>`
       : readableResultHtml(candidate, 0, findings);
-  return `<section class="compare-column ${status.accepted ? "accepted" : ""}">
+  return `<section class="compare-column ${status.accepted ? "accepted" : ""}" data-code-scroll-surface="${escapeAttribute(`comparison:${stepId ?? "unassigned"}:${agentId}`)}">
     <header><strong>${escapeHtml(agentName)}</strong><small>${escapeHtml(status.label)}</small></header>
     ${output}
     ${messageLink}
@@ -231,7 +231,7 @@ const finalRulingHtml = (
   const comparison = participants.length > 0
     ? `<div class="compare-grid">${participants.map((participant) => participantColumnHtml(participant, panel, payload, decisionStatus === "resolved" ? unresolvedParticipantFindings(participant, findings) : undefined)).join("")}</div>`
     : "";
-  return `<article class="final-ruling-card"${event.createdAt ? ` title="${escapeAttribute(formatDateTime(event.createdAt))}"` : ""}>
+  return `<article class="final-ruling-card${unresolved ? " final-ruling-unresolved" : ""}" data-code-scroll-surface="${escapeAttribute(`ruling:${event.id}`)}"${event.createdAt ? ` title="${escapeAttribute(formatDateTime(event.createdAt))}"` : ""}>
     <div class="ruling-heading"><div><span class="decision-label">${escapeHtml(decisionLabel)}</span><h3>${escapeHtml(decisionStatus === "pending" ? localize("Participant conclusions") : decisionStatus === "resolved" ? localize("Finished with unresolved findings") : selectedParticipantName ? localize("Accepted {0}’s conclusion", selectedParticipantName) : localize("Final decision"))}</h3></div></div>
     ${leadName && !resolvedByHuman ? `<dl class="ruling-meta"><dt>${escapeHtml(localize("Lead"))}</dt><dd>${escapeHtml(leadName)}</dd></dl>` : ""}
     ${rationale ? `<section class="human-resolution"><h4>${escapeHtml(localize("Rationale"))}</h4><div class="markdown">${renderMarkdown(rationale)}</div></section>` : ""}
@@ -312,9 +312,43 @@ type PipelineStepRow = {
   position: number;
   state: PipelineStepState;
   events: WorkflowEventSummary[];
+  stepIdentities: readonly { id: string; name: string }[];
+  attemptStartedAt?: string;
   startedAt?: string;
   lastEventAt?: string;
 };
+
+const pipelineStepMessages = (
+  row: PipelineStepRow,
+  panel: PanelState | undefined,
+): TranscriptEntry[] => panel?.transcript.filter((entry) => {
+  if (entry.agentId === undefined || !["answer", "interrupted", "error"].includes(entry.kind)) return false;
+  if (row.attemptStartedAt !== undefined) {
+    const boundary = Date.parse(row.attemptStartedAt);
+    const recorded = Date.parse(entry.createdAt);
+    if (Number.isFinite(boundary) && (!Number.isFinite(recorded) || recorded < boundary)) return false;
+  }
+  if (entry.stepId !== undefined) return entry.stepId === row.id;
+  if (entry.step === undefined) return false;
+  if (row.stepIdentities.some((step) => step.id === entry.step)) return entry.step === row.id;
+  return entry.step === row.name && row.stepIdentities.filter((step) => step.name === entry.step).length === 1;
+}) ?? [];
+
+const pipelineStepActivityHtml = (
+  row: PipelineStepRow,
+  panel: PanelState | undefined,
+): string => pipelineStepMessages(row, panel).map((entry) => {
+  const agentId = entry.agentId ?? "";
+  const fallback = entry.kind === "interrupted" ? localize("Interrupted") : localize("No response text was recorded.");
+  const stateLabel = entry.kind === "answer" ? localize("Response")
+    : entry.kind === "interrupted" ? localize("Interrupted")
+    : localize("Error");
+  return `<li class="pipeline-step-message pipeline-step-message-${escapeAttribute(entry.kind)}" data-code-scroll-surface="${escapeAttribute(`pipeline:${row.id}:${entry.id}`)}">
+    <div class="pipeline-step-message-heading"><strong>${escapeHtml(participantName(panel, agentId))}</strong><small>${escapeHtml(stateLabel)} · ${escapeHtml(formatDateTime(entry.createdAt))}</small></div>
+    <div class="markdown pipeline-step-message-body" data-output-scroll tabindex="0" role="region" aria-label="${escapeAttribute(localize("{0}: {1}", participantName(panel, agentId), stateLabel))}">${renderMarkdown(entry.text || fallback)}</div>
+    <button class="text-button" data-action="focus-agent-output" data-agent="${escapeAttribute(agentId)}" data-message-id="${escapeAttribute(entry.id)}">${escapeHtml(localize("Open in Chat"))}</button>
+  </li>`;
+}).join("");
 
 // The step an event belongs to. The panel does not receive payloads, so the identifier travels as
 // its own field; reading it out of a payload that was stripped before the message was sent is why
@@ -325,7 +359,7 @@ const eventStepId = (event: WorkflowEventSummary): string | undefined =>
 /** The events belonging to the newest attempt, and the revision that attempt executed. */
 const currentAttempt = (
   events: readonly WorkflowEventSummary[],
-): { events: readonly WorkflowEventSummary[]; steps?: readonly { id: string; name: string }[] } => {
+): { events: readonly WorkflowEventSummary[]; steps?: readonly { id: string; name: string }[]; startedAt?: string } => {
   // A restart opens a new attempt; a resume continues the one it interrupted, and keeps the steps
   // that attempt had already completed.
   const boundary = events.reduce<number>(
@@ -337,6 +371,7 @@ const currentAttempt = (
   const opening = events[boundary];
   return {
     events: events.slice(boundary),
+    ...(opening === undefined ? {} : { startedAt: opening.createdAt }),
     ...(opening?.attempt === undefined ? {} : { steps: opening.attempt.steps }),
   };
 };
@@ -369,6 +404,8 @@ const pipelineStepRows = (
       position: index + 1,
       state: "waiting" as PipelineStepState,
       events: [],
+      stepIdentities: enabled,
+      ...(attempt.startedAt === undefined ? {} : { attemptStartedAt: attempt.startedAt }),
     }]),
   );
   let active: PipelineStepRow | undefined;
@@ -443,17 +480,19 @@ const findingContentKey = (finding: { subject?: unknown; message?: unknown; evid
 
 const pipelineStepRowHtml = (
   row: PipelineStepRow,
+  panel: PanelState | undefined,
 ): string => {
   const timing = row.startedAt === undefined ? "" : ` title="${escapeAttribute(localize("Started {0}", formatDateTime(row.startedAt)))}"`;
-  // The row's own heading is the step name. An activity entry that repeats it says nothing the
-  // reader has not just read, so the step's own start event contributes its timestamp and its
-  // technical detail through the rows below rather than a line restating the name.
-  return `<li class="pipeline-step pipeline-step-${escapeAttribute(row.state)}">
-    <div class="pipeline-step-summary"${timing}>
-        <span class="pipeline-step-position" aria-hidden="true">${String(row.position)}</span>
+  const activity = pipelineStepActivityHtml(row, panel);
+  const activityCount = pipelineStepMessages(row, panel).length;
+  const summary = `<span class="pipeline-step-position" aria-hidden="true">${String(row.position)}</span>
         <span class="pipeline-step-name">${escapeHtml(row.name)}</span>
-        <span class="pipeline-step-state"><i class="codicon codicon-${escapeAttribute(pipelineStepStateIcon[row.state])}" aria-hidden="true"></i> ${escapeHtml(pipelineStepStateLabel[row.state])}</span>
-    </div>
+        ${activityCount > 0 ? `<span class="pipeline-step-count">${escapeHtml(activityCount === 1 ? localize("1 participant result") : localize("{0} participant results", activityCount))}</span>` : ""}
+        <span class="pipeline-step-state"><i class="codicon codicon-${escapeAttribute(pipelineStepStateIcon[row.state])}" aria-hidden="true"></i> ${escapeHtml(pipelineStepStateLabel[row.state])}</span>`;
+  return `<li class="pipeline-step pipeline-step-${escapeAttribute(row.state)}">
+    ${activityCount === 0
+      ? `<div class="pipeline-step-summary"${timing}>${summary}</div>`
+      : `<details ${disclosureAttributes(`pipeline-step:${row.id}`, row.state === "running" || row.state === "failed" || row.state === "interrupted")}><summary class="pipeline-step-summary"${timing}>${summary}</summary><div class="pipeline-step-body"><ol class="pipeline-step-activity">${activity}</ol></div></details>`}
   </li>`;
 };
 
@@ -461,12 +500,56 @@ const pipelineSummaryHtml = (conversationId: string): string => {
   const events = state.manager.eventsByConversation[conversationId] ?? [];
   const panel = state.panels.get(conversationId);
   const steps = panel?.selectedPipelineDefinition?.steps ?? [];
-  if (steps.length === 0) return "";
   const rows = pipelineStepRows(steps, events);
+  if (rows.length === 0) return "";
   return `<section class="pipeline-summary">
     <header><h2>${escapeHtml(localize("Pipeline"))}</h2></header>
-    <ol class="pipeline-step-list">${rows.map((row) => pipelineStepRowHtml(row)).join("")}</ol>
+    ${panel?.transcriptHasMore ? `<p class="muted">${escapeHtml(localize("Earlier participant work is not loaded yet. Load earlier messages to inspect completed steps."))}</p><button class="load-older" data-action="load-older">${escapeHtml(localize("Load earlier participant messages"))}</button>` : ""}
+    <ol class="pipeline-step-list">${rows.map((row) => pipelineStepRowHtml(row, panel)).join("")}</ol>
   </section>`;
+};
+
+const copyableResultText = (result: RunResultCenter | undefined): string | undefined => {
+  const markdown = result?.readableMarkdown?.trim();
+  return markdown ? markdown : undefined;
+};
+
+const resultContinuationRefusal = (conversationId: string, displayedVersion?: string): string | undefined => {
+  const conversation = conversationById(conversationId);
+  if (conversationId !== activeId() || !conversation) return localize("This result is no longer selected. Open its run again.");
+  if (state.manager.readOnly) return readOnlyReason(state.manager.readOnly);
+  if (conversation.archived) return localize("Unarchive this run before starting implementation.");
+  const panel = state.panels.get(conversationId);
+  if (!panel) return localize("Wait for this run to finish loading before starting implementation.");
+  if (conversation.waitingForResources) return localize("This run is waiting for resources. Cancel its wait before starting implementation.");
+  if (panel.queuedMessages.length > 0) return localize("Resolve or cancel queued messages before starting implementation.");
+  if (panel.pendingGate || panel.approvals.length > 0 || runPhaseOf(panel) === "waiting" ||
+    state.manager.interactions.some((interaction) => interaction.conversationId === conversationId && interactionIsOpen(interaction))) {
+    return localize("Resolve the pending run decisions before starting implementation.");
+  }
+  if (panel.operationActive) return localize("Wait for the active run operation to finish before starting implementation.");
+  if (conversation.running || conversation.workflowStatus === "running" || runConfigurationLocked(panel, conversationId)) {
+    return localize("Finish or stop this run before starting implementation.");
+  }
+  const result = state.manager.resultsByConversation?.[conversationId];
+  if (!copyableResultText(result)) return localize("This run has no result content to carry into implementation.");
+  if (result?.continuation?.available !== true) {
+    return result?.continuation?.reason?.trim() || localize("Implementation availability has not been confirmed. Wait for an updated run snapshot.");
+  }
+  const resultVersion = result.continuation.resultVersion;
+  if (!resultVersion?.trim()) return localize("This result is not ready to continue. Wait for an updated run snapshot.");
+  if (displayedVersion !== undefined && displayedVersion !== resultVersion) {
+    return localize("This result has changed since the action was displayed. Review the latest result before starting implementation.");
+  }
+  return undefined;
+};
+
+const resultActionsHtml = (conversationId: string, result: RunResultCenter): string => {
+  const copy = copyableResultText(result)
+    ? `<button data-action="result-copy" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Copy result"))}</button>` : "";
+  const refusal = resultContinuationRefusal(conversationId);
+  const reasonId = `result-continuation-reason-${conversationId}`;
+  return `${copy}<div class="result-continuation-action"><button class="primary" data-action="result-continue" data-conversation="${escapeAttribute(conversationId)}" data-result-version="${escapeAttribute(result.continuation?.resultVersion ?? "")}"${refusal ? ` aria-disabled="true" aria-describedby="${escapeAttribute(reasonId)}" title="${escapeAttribute(refusal)}"` : ""}>${escapeHtml(localize("Start implementation"))}</button>${refusal ? `<p class="result-continuation-reason" id="${escapeAttribute(reasonId)}">${escapeHtml(refusal)}</p>` : ""}</div>`;
 };
 
 const workflowHtml = (conversationId: string): string => {
@@ -1002,8 +1085,7 @@ const resultDecisionSummaryHtml = (result: RunResultCenter, panel: PanelState, c
          rather than at the bottom of a collapsed disclosure of assessment detail. -->
     <p class="result-next-action">${escapeHtml(recommendedNextAction(result))}</p>
     ${runFailureHtml(result, panel)}
-    ${actionable + unresolved > 0 ? `<p class="result-finding-summary"><strong>${escapeHtml(localize("Findings · {0} actionable · {1} need human", actionable, unresolved))}</strong></p>` : ""}
-    ${findingDetails === "" ? "" : actionable + unresolved > 0 ? findingDetails : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> ${escapeHtml(localize("Finding details"))}</summary>${findingDetails}</details>`}
+    ${actionable + unresolved > 0 ? `<section class="result-findings${unresolved > 0 ? " result-findings-unresolved" : ""}" aria-label="${escapeAttribute(localize("Findings"))}"><p class="result-finding-summary"><strong>${escapeHtml(localize("Findings · {0} actionable · {1} need human", actionable, unresolved))}</strong></p>${findingDetails}</section>` : findingDetails === "" ? "" : `<details class="info-disclosure result-finding-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> ${escapeHtml(localize("Finding details"))}</summary>${findingDetails}</details>`}
     <details class="info-disclosure result-assessment-details"><summary><i class="codicon codicon-info" aria-hidden="true"></i> ${escapeHtml(localize("Assessment details"))}</summary>
     <dl class="result-decision-grid">
       <dt>${escapeHtml(localize("Summary"))}</dt><dd>${escapeHtml(resultSummaryText(result.finalAssessment?.summary) ?? localize("No final assessment was recorded"))}</dd>
@@ -1176,7 +1258,7 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
     : "";
   const evidenceEntries = result.evidence ?? [];
   const gaps = evidenceEntries.length > 0
-    ? `<div class="result-gaps evidence-ledger"><strong>${escapeHtml(localize("Evidence"))}</strong><ul>${evidenceEntries.map((item) => `<li class="evidence-${escapeAttribute(item.state)}"><span class="evidence-state"><i class="codicon codicon-${escapeAttribute(evidenceStateIcon[item.state] ?? "circle-outline")}" aria-hidden="true"></i> ${escapeHtml(evidenceStateLabel[item.state] ?? item.state)}</span><span><strong>${escapeHtml(item.label)}</strong> — ${escapeHtml(item.detail)}</span></li>`).join("")}</ul></div>`
+    ? `<div class="result-gaps evidence-ledger${evidenceEntries.some((item) => item.state === "missing") ? " result-evidence-missing" : ""}"><strong>${escapeHtml(localize("Evidence"))}</strong><ul>${evidenceEntries.map((item) => `<li class="evidence-${escapeAttribute(item.state)}"><span class="evidence-state"><i class="codicon codicon-${escapeAttribute(evidenceStateIcon[item.state] ?? "circle-outline")}" aria-hidden="true"></i> ${escapeHtml(evidenceStateLabel[item.state] ?? item.state)}</span><span><strong>${escapeHtml(item.label)}</strong> — ${escapeHtml(item.detail)}</span></li>`).join("")}</ul></div>`
     : result.evidenceGaps.length > 0
       ? `<div class="result-gaps"><strong>${escapeHtml(localize("Evidence gaps"))}</strong><ul>${result.evidenceGaps.map((gap) => `<li>${escapeHtml(gap)}</li>`).join("")}</ul></div>`
       : "";
@@ -1201,7 +1283,7 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
     </section>`
     : "";
   const fileSection = result.changedFiles.length > 0 || result.diffSummary || result.expectations?.changedFiles === true
-    ? `<section><h3>${escapeHtml(localize("Changed files"))}</h3>${files}${result.diffSummary ? `<pre>${escapeHtml(result.diffSummary)}</pre>` : ""}</section>` : "";
+    ? `<section><h3>${escapeHtml(localize("Changed files"))}</h3>${files}${result.diffSummary ? `<pre data-code-region="${escapeAttribute(localize("Diff summary"))}">${escapeHtml(result.diffSummary)}</pre>` : ""}</section>` : "";
   const checkSection = result.checks.length > 0 || result.expectations?.verification === true
     ? `<section><h3>${escapeHtml(localize("Verification"))}</h3>${checks}${verificationCurrencyLine(result)}</section>` : "";
   const rulingSection = decisionEvent
@@ -1209,8 +1291,8 @@ const resultCenterHtml = (conversationId: string, panel: PanelState): string => 
     : result.finalRuling ? `<section><h3>${escapeHtml(localize("Final ruling"))}</h3>${resultRulingHtml(result.finalRuling, result.findings)}${rulingProvenanceLabel(result) ? `<p class="muted">${escapeHtml(rulingProvenanceLabel(result) ?? "")}</p>` : ""}</section>`
       : result.expectations?.finalRuling === true && !result.finalAssessment?.failure ? `<section><h3>${escapeHtml(localize("Final ruling"))}</h3><p class="muted">${escapeHtml(localize("No final ruling was recorded."))}</p></section>` : "";
   const evidenceSectionsHtml = `${rulingSection}${fileSection || checkSection ? `<div class="result-grid">${fileSection}${checkSection}</div>` : ""}${visibleRisks.length > 0 ? `<section><h3>${escapeHtml(localize("Unresolved risks"))}</h3>${risks}</section>` : ""}`;
-  return `<section class="result-center">
-    <header><div><span class="decision-label">${escapeHtml(localize("Run result"))}</span><h2>${escapeHtml(resultHeadlineLabel(result, panel.resumableWorkflow?.outcome))}</h2>${recovery ? `<p class="result-recovery-position">${escapeHtml(recoveryPositionText(panel, recovery))}</p>` : ""}</div><div class="compact-actions">${recoveryActionsHtml(panel, recovery)}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Reveal worktree"))}</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="${escapeAttribute(localize("Run result actions"))}" title="${escapeAttribute(localize("Run result actions"))}">${escapeHtml(localize("More"))}</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}<button data-action="result-publish-findings">${escapeHtml(localize("Publish findings to Problems"))}</button><button data-action="result-source-control">${escapeHtml(localize("Open Source Control"))}</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Run bundle (JSON)"))}</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Evidence report (Markdown)"))}</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Evidence findings (SARIF)"))}</button></div></details></div></header>
+  return `<section class="result-center" data-code-scroll-surface="${escapeAttribute(`result:${conversationId}`)}">
+    <header><div><span class="decision-label">${escapeHtml(localize("Run result"))}</span><h2>${escapeHtml(resultHeadlineLabel(result, panel.resumableWorkflow?.outcome))}</h2>${recovery ? `<p class="result-recovery-position">${escapeHtml(recoveryPositionText(panel, recovery))}</p>` : ""}</div><div class="compact-actions result-primary-actions">${recoveryActionsHtml(panel, recovery)}${resultActionsHtml(conversationId, result)}${result.retainedWorktree && orchestrationRunId ? `<button data-action="orchestration-reveal" data-run-id="${escapeAttribute(orchestrationRunId)}" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Reveal worktree"))}</button>` : ""}<details class="header-action-menu wide-trigger" ${disclosureAttributes(`result-export:${conversationId}`)}><summary aria-label="${escapeAttribute(localize("Run result actions"))}" title="${escapeAttribute(localize("Run result actions"))}">${escapeHtml(localize("More"))}</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}<button data-action="result-publish-findings">${escapeHtml(localize("Publish findings to Problems"))}</button><button data-action="result-source-control">${escapeHtml(localize("Open Source Control"))}</button><button data-action="run-bundle-export" data-format="bundle" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Run bundle (JSON)"))}</button><button data-action="run-bundle-export" data-format="markdown" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Evidence report (Markdown)"))}</button><button data-action="run-bundle-export" data-format="sarif" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Evidence findings (SARIF)"))}</button></div></details></div></header>
     ${resultDecisionSummaryHtml(result, panel, coveredFindings)}
     ${evidenceSectionsHtml}
     ${recovered}

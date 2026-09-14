@@ -1391,12 +1391,14 @@ const createEntry = (
   step?: string,
   eventType?: string,
   data?: JsonValue,
+  stepId?: string,
 ): TranscriptEntry => ({
   id: randomUUID(),
   kind,
   text,
   agentId,
   step,
+  ...(stepId === undefined ? {} : { stepId }),
   createdAt: new Date().toISOString(),
   eventType,
   data,
@@ -1408,8 +1410,9 @@ const createEventEntry = (
   data?: JsonValue,
   agentId?: AgentId,
   step?: string,
+  stepId?: string,
 ): TranscriptEntry =>
-  createEntry("event", text, agentId, step, eventType, data);
+  createEntry("event", text, agentId, step, eventType, data, stepId);
 
 const isInside = isPathInsideRoot;
 
@@ -4421,6 +4424,7 @@ export const createRuntime = (
     attachments: string[] = [],
     expectedTaskId?: string,
     operationOwnerId?: string,
+    stepId?: string,
   ): Promise<AgentRunResult> => {
     // A disabled provider is refused before the turn starts rather than at activation, so
     // disabling one provider never prevents the extension from starting or from running a
@@ -4942,6 +4946,8 @@ export const createRuntime = (
             agentId,
             step,
             promptEventType,
+            undefined,
+            stepId,
           ),
         );
         if (resultIsStale({ operationTaskId, currentTaskId: state.taskId, aborted: controller.signal.aborted })) {
@@ -5033,6 +5039,7 @@ export const createRuntime = (
             step,
             outcome.entry.eventType,
             outcome.entry.payload,
+            stepId,
           ),
         );
         return {
@@ -6014,7 +6021,10 @@ export const createRuntime = (
       flushDelta(agentId);
       if (stoppedByUser(controller.signal)) {
         patchAgent(agentId, { status: "interrupted", error: undefined }, true);
-        await appendTranscriptAfterCommit(createEntry("interrupted", "Stopped by you", agentId, step), "This user stop");
+        await appendTranscriptAfterCommit(
+          createEntry("interrupted", "Stopped by you", agentId, step, undefined, undefined, stepId),
+          "This user stop",
+        );
         return { status: "interrupted", answer: agentStateFor(agentId).output };
       }
       if (managedPairCheckpoint && isProviderFailureError(error)) {
@@ -6053,7 +6063,7 @@ export const createRuntime = (
                 detail: choice.detail,
                 ...(choice.setting === undefined ? {} : { setting: choice.setting }),
               })),
-            })
+            }, stepId)
           : (() => {
               const detail = providerFailureDetailOf(error);
               return createEntry(
@@ -6063,6 +6073,7 @@ export const createRuntime = (
                 step,
                 detail === undefined ? undefined : "provider.failure",
                 detail,
+                stepId,
               );
             })(),
         "This agent failure",
@@ -6125,7 +6136,7 @@ export const createRuntime = (
       const result = await consume(
         leadAgentId,
         prompt,
-        "Lead fallback",
+        undefined,
         {
           permissionMode: "readOnly",
           approvalPolicy: definitions[leadAgentId]?.approvalPolicy,
@@ -6286,6 +6297,9 @@ export const createRuntime = (
       return Promise.reject(error);
     }
     const taskId = state.taskId;
+    const gateStep = state.pendingGate
+      ? { id: state.pendingGate.stepId, name: state.pendingGate.stepName }
+      : undefined;
     const controllers = new Map(
       reserved.map((agentId) => [agentId, new AbortController()]),
     );
@@ -6324,9 +6338,10 @@ export const createRuntime = (
               "prompt",
               prompt,
               undefined,
-              state.pendingGate?.stepName,
+              gateStep?.name,
               "user.message",
               toJsonValue({ recipients: reserved, mode, attachmentIds }),
+              gateStep?.id,
             ),
           );
           if (resultIsStale({ operationTaskId: taskId, currentTaskId: state.taskId })) {
@@ -6350,11 +6365,12 @@ export const createRuntime = (
                   result: await consume(
                     agentId,
                     prompt,
-                    state.pendingGate?.stepName,
+                    gateStep?.name,
                     directOptions(agentId, mode),
                     attachmentPaths,
                     taskId,
                     ownerId,
+                    gateStep?.id,
                   ),
                 };
               } finally {
@@ -6362,7 +6378,7 @@ export const createRuntime = (
               }
             }),
           );
-          if (state.pendingGate) {
+          if (gateStep && state.pendingGate?.stepId === gateStep.id) {
             for (const item of results) {
               if (!item || item.result.status !== "completed") {
                 continue;
@@ -6381,7 +6397,8 @@ export const createRuntime = (
                   `Intervention response from ${item.agentId}.`,
                   toJsonValue(intervention),
                   item.agentId,
-                  state.pendingGate.stepName,
+                  gateStep.name,
+                  gateStep.id,
                 ),
               );
             }
@@ -7336,6 +7353,8 @@ export const createRuntime = (
               agentOptions,
               stepAttachments,
               taskId,
+              undefined,
+              step.id,
             );
           },
           {

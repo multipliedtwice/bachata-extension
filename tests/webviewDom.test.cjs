@@ -213,14 +213,20 @@ class FakeRoot extends FakeHTMLElement {
     document.elements = new Map([["root", this]]);
     // Open and close tags both, so an element knows what contains it. `closest` walks that chain,
     // and a popover is identified by the container it sits in rather than by its own class.
-    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|h1|h2|h3)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|h1|h2|h3)>/g;
+    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span)>/g;
     const open = [];
     for (const match of value.matchAll(expression)) {
       if (match[3] !== undefined) {
-        if (open.at(-1)?.tagName === match[3].toUpperCase()) open.pop();
+        const closing = open.at(-1);
+        if (closing?.tagName === match[3].toUpperCase()) {
+          closing.contentEnd = match.index;
+          closing.textContent = value.slice(closing.contentStart, closing.contentEnd).replace(/<[^>]*>/gu, "").replace(/&amp;/gu, "&").replace(/&quot;/gu, '"').replace(/&#39;/gu, "'").replace(/&lt;/gu, "<").replace(/&gt;/gu, ">");
+          open.pop();
+        }
         continue;
       }
       const element = elementForTag(match[1]);
+      element.contentStart = match.index + match[0].length;
       element.parentElement = open.at(-1) ?? this;
       // `input` closes itself, so it never becomes the parent of what follows it.
       if (match[1] !== "input") open.push(element);
@@ -6782,7 +6788,7 @@ test("the pipeline summary states one row per enabled step, with the state the e
   }
 });
 
-test("step rows show execution state without redundant activity or empty detail copy", () => {
+test("step rows keep empty bookkeeping out and place participant work under its step", () => {
   const harness = bootWebview(
     managerState({
       eventsByConversation: {
@@ -6792,15 +6798,71 @@ test("step rows show execution state without redundant activity or empty detail 
         ],
       },
     }),
-    panelState({ selectedPipelineDefinition: threeStepPipelineDefinition() }),
+    panelState({
+      selectedPipelineDefinition: threeStepPipelineDefinition(),
+      transcript: [{
+        id: "plan-answer",
+        kind: "answer",
+        agentId: "lead",
+        step: "Plan",
+        text: "The implementation should preserve the existing state boundary.",
+        createdAt: timestamp,
+      }],
+      transcriptTotal: 1,
+    }),
   );
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
     const html = harness.document.root.innerHTML;
     assert.doesNotMatch(html, /plan-output|No activity was recorded|Technical detail/u);
+    assert.match(html, /1 participant result/u);
+    assert.match(html, /The implementation should preserve the existing state boundary\./u);
+    assert.match(html, /data-action="focus-agent-output"[^>]*data-message-id="plan-answer"/u);
     assert.equal(rowStateIn(html, "Plan"), "running");
     assert.equal(rowStateIn(html, "Review"), "waiting");
     assert.ok(!/Elapsed|Duration/u.test(html), "no duration is stated where none was recorded");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a completed result can be copied or continued in a prepared implementation run", async () => {
+  const result = completedResult({
+    readableMarkdown: "# Run result: Completed\n\nOne defect confirmed.\n\n## Final ruling\n\nFix the confirmed layout regression.\n\n## Findings\n\n- [accepted] Result actions are missing: The completed run cannot feed an implementation run.",
+    continuation: { available: true, resultVersion: "result-version-1" },
+    finalRuling: "Fix the confirmed layout regression.",
+    finalAssessment: { outcome: "completed", method: "singleProvider", summary: "One defect confirmed.", producedBy: [] },
+    findings: [{
+      id: "finding-1",
+      subject: "Result actions are missing",
+      message: "The completed run cannot feed an implementation run.",
+      disposition: "accepted",
+      evidence: ["The result header exposes exports only."],
+      challenges: [],
+      provenance: { source: "stepOutput", stepId: "review", participantIds: ["lead"] },
+    }],
+  });
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": result } }),
+    panelState({ workflowStatus: "completed" }),
+  );
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const copy = harness.document.root.querySelector('[data-action="result-copy"]');
+    const start = harness.document.root.querySelector('[data-action="result-continue"]');
+    assert.ok(copy, "the completed result has no copy action");
+    assert.ok(start, "the completed result has no implementation action");
+    copy.click();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.match(harness.clipboard.writes.at(-1), /^# Run result:/u);
+    assert.match(harness.clipboard.writes.at(-1), /Result actions are missing/u);
+    harness.messages.length = 0;
+    start.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.continueFromResult",
+      conversationId: "run-1",
+      resultVersion: "result-version-1",
+    });
   } finally {
     harness.restore();
   }
@@ -8468,6 +8530,37 @@ test("Latest keeps following when a complete snapshot replaces the focused conve
   } finally { harness.restore(); }
 });
 
+test("nested code panes retain their scroll positions across live redraws", () => {
+  const panel = panelState({
+    running: true,
+    agents: { lead: { id: "lead", name: "Reviewer", adapterType: "codex-app-server", status: "running", output: JSON.stringify({ live: true }) } },
+    transcript: [{ id: "answer", kind: "answer", agentId: "lead", text: JSON.stringify({ candidate: { findings: [1, 2, 3] } }), createdAt: timestamp }],
+  });
+  const harness = bootWebview(managerState(), panel);
+  try {
+    const before = harness.document.root.querySelectorAll("pre[data-code-region]");
+    assert.equal(before.length, 2);
+    before[0].scrollTop = 320;
+    before[0].scrollLeft = 24;
+    before[1].scrollTop = 180;
+    before[1].scrollLeft = 12;
+    harness.document.activeElement = harness.document.getElementById("conversation-scroll");
+
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: {
+      type: "state.snapshot",
+      state: { ...panel, agents: { ...panel.agents, lead: { ...panel.agents.lead, output: `${panel.agents.lead.output} ` } } },
+    } });
+
+    const after = harness.document.root.querySelectorAll("pre[data-code-region]");
+    assert.equal(after.length, 2);
+    assert.notEqual(after[0], before[0]);
+    assert.equal(after[0].scrollTop, 320);
+    assert.equal(after[0].scrollLeft, 24);
+    assert.equal(after[1].scrollTop, 180);
+    assert.equal(after[1].scrollLeft, 12);
+  } finally { harness.restore(); }
+});
+
 test("All runs retains its position on updates and separates search positions", () => {
   const manager = managerState();
   const harness = bootWebview(manager, panelState());
@@ -8970,4 +9063,700 @@ test("non-Bridge quarantine failures remain visible and dismissible without clea
       assert.equal(harness.document.root.innerHTML.includes(visible), false);
     } finally { harness.restore(); }
   }
+});
+
+const readableContinuationResult = (overrides = {}) => completedResult({
+  finalAssessment: { outcome: "completed", method: "singleProvider", summary: "The result needs an implementation follow-up.", producedBy: [] },
+  finalRuling: JSON.stringify({ summary: "Confirm the remaining finding before changing code.", internalId: "hidden-ruling-id", providerSessionId: "hidden-provider-session" }),
+  finalDecisionEventId: 991234,
+  executionRef: "hidden-execution-id",
+  retainedRunId: "hidden-retained-run",
+  changedFiles: ["src/view.ts"],
+  checks: [{ command: "npm run check-types", status: "passed", candidateTree: "f".repeat(64), outputReference: "hidden-output-reference" }],
+  findings: [{
+    id: "hidden-finding-id",
+    subject: "The action is missing",
+    message: "Readers cannot continue the result.",
+    disposition: "unresolved",
+    location: { file: "src/view.ts", startLine: 42 },
+    evidence: ["The result header has no implementation action."],
+    challenges: ["Ownership behavior still needs confirmation."],
+    provenance: { source: "stepOutput", stepId: "hidden-step-id", participantIds: ["hidden-participant-id"] },
+  }],
+  unresolvedRisks: ["The source may be read-only."],
+  evidenceGaps: ["Runtime behavior has not been checked."],
+  readableMarkdown: [
+    "# Run result: Completed",
+    "",
+    "## Final assessment",
+    "The result needs an implementation follow-up.",
+    "",
+    "## Final ruling",
+    "Confirm the remaining finding before changing code.",
+    "",
+    "## Findings",
+    "- [unresolved] The action is missing — src/view.ts:42",
+    "  Readers cannot continue the result.",
+    "  Evidence: The result header has no implementation action.",
+    "  Challenge: Ownership behavior still needs confirmation.",
+    "",
+    "## Changed files",
+    "- src/view.ts",
+    "",
+    "## Verification",
+    "- npm run check-types: passed",
+    "",
+    "## Unresolved risks",
+    "- The source may be read-only.",
+    "",
+    "## Evidence gaps",
+    "- Runtime behavior has not been checked.",
+  ].join("\n"),
+  continuation: { available: true, resultVersion: "result-version-1" },
+  ...overrides,
+});
+
+const openResultActions = (managerOverrides = {}, panelOverrides = {}, result = readableContinuationResult()) => {
+  const harness = bootWebview(
+    managerState({ resultsByConversation: { "run-1": result }, ...managerOverrides }),
+    panelState({ workflowStatus: "completed", ...panelOverrides }),
+  );
+  harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+  return harness;
+};
+
+const dispatchResultAction = (harness, action, conversationId = "run-1", resultVersion = "result-version-1") => {
+  const button = new FakeHTMLButtonElement("button");
+  button.setAttribute("data-action", action);
+  button.setAttribute("data-conversation", conversationId);
+  if (resultVersion) button.setAttribute("data-result-version", resultVersion);
+  harness.document.root.dispatch("click", { target: button, preventDefault() {}, stopPropagation() {} });
+};
+
+test("result copy uses the complete readable projection and excludes internal fields", async () => {
+  const result = readableContinuationResult();
+  const harness = openResultActions({}, {}, result);
+  try {
+    harness.document.root.querySelector('[data-action="result-copy"]').click();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(harness.clipboard.writes, [result.readableMarkdown]);
+    const copied = harness.clipboard.writes[0];
+    for (const section of ["Final assessment", "Final ruling", "Findings", "Changed files", "Verification", "Unresolved risks", "Evidence gaps"]) {
+      assert.ok(copied.includes(section), section);
+    }
+    assert.match(copied, /\[unresolved\][^]*src\/view\.ts:42[^]*Evidence:[^]*Challenge:/u);
+    assert.doesNotMatch(copied, /hidden-|991234|f{64}|providerSessionId|provenance|candidateTree|outputReference/u);
+    assert.match(harness.document.liveStatus.textContent, /copied to the clipboard/u);
+  } finally { harness.restore(); }
+});
+
+for (const failure of ["rejected", "unavailable", "synchronous"]) {
+  test(`result copy announces ${failure} clipboard failure without claiming success`, async () => {
+    const harness = openResultActions();
+    try {
+      if (failure === "rejected") harness.clipboard.refuse = true;
+      if (failure === "unavailable") navigator.clipboard = undefined;
+      if (failure === "synchronous") navigator.clipboard.writeText = () => { throw new Error("Clipboard refused synchronously"); };
+      harness.document.root.querySelector('[data-action="result-copy"]').click();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.match(harness.document.liveStatus.textContent, /Copying the run result failed\./u);
+      assert.notEqual(harness.document.root.querySelector('[data-action="result-copy"]').textContent, "Copied");
+      assert.equal(harness.messages.some((message) => message.type === "conversation.continueFromResult"), false);
+    } finally { harness.restore(); }
+  });
+}
+
+for (const [label, status, outcome] of [
+  ["completed", "completed", "completed"],
+  ["inconclusive", "completed", "inconclusive"],
+  ["interrupted", "interrupted", "inconclusive"],
+  ["failed", "error", "failedBeforeRuling"],
+]) {
+  test(`${label} results expose readable copy and a host-approved continuation without executing`, () => {
+    const result = readableContinuationResult({ status, finalAssessment: { outcome, method: "none", summary: `${label} assessment`, producedBy: [] } });
+    const harness = openResultActions({}, { workflowStatus: status }, result);
+    try {
+      const copy = harness.document.root.querySelector('[data-action="result-copy"]');
+      const continuation = harness.document.root.querySelector('[data-action="result-continue"]');
+      assert.ok(copy);
+      assert.equal(copy.getAttribute("aria-disabled"), null);
+      assert.equal(continuation.getAttribute("aria-disabled"), null);
+      assert.equal(continuation.disabled, false);
+      continuation.focus();
+      assert.equal(harness.document.activeElement, continuation);
+      harness.messages.length = 0;
+      continuation.click();
+      assert.deepEqual(harness.messages, [{ type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "result-version-1" }]);
+      assert.equal(harness.messages.some((message) => message.message?.type === "user.message" || message.message?.type === "workflow.restart" || message.message?.type === "workflow.resume"), false);
+    } finally { harness.restore(); }
+  });
+}
+
+for (const [label, managerOverrides, panelOverrides, resultOverrides, reason] of [
+  ["read-only pipeline", {}, {}, { continuation: { available: false, reason: "No available pipeline can write changes; the available pipelines have read-only write scope." } }, /read-only write scope/u],
+  ["missing pipeline", {}, {}, { continuation: { available: false, reason: "No write-capable pipeline is available." } }, /No write-capable pipeline/u],
+  ["capacity", {}, {}, { continuation: { available: false, reason: "The open-run limit has been reached. Close a run before starting implementation." } }, /open-run limit/u],
+  ["stale result", {}, {}, { continuation: { available: false, reason: "The recorded result belongs to an earlier attempt." } }, /earlier attempt/u],
+  ["archived", { conversations: [{ ...conversationSummary(), archived: true }] }, {}, {}, /Unarchive this run/u],
+  ["restarting", {}, { operationActive: true }, {}, /active run operation/u],
+  ["resuming", {}, { operationActive: true, workflowStatus: "interrupted" }, {}, /active run operation/u],
+  ["manager running before panel update", { conversations: [{ ...conversationSummary(), running: true, workflowStatus: "running" }] }, {}, {}, /Finish or stop this run/u],
+  ["waiting for resources", { conversations: [{ ...conversationSummary(), waitingForResources: true }] }, {}, {}, /waiting for resources/u],
+  ["queued messages", {}, { queuedMessages: [{ id: "queued", kind: "pipeline", prompt: "Another request", mode: "implementation", recipients: [], attachmentIds: [], createdAt: timestamp }] }, {}, /queued messages/u],
+  ["unconfirmed availability", {}, {}, { continuation: undefined }, /availability has not been confirmed/u],
+  ["unissued result version", {}, {}, { continuation: { available: true } }, /result is not ready to continue/u],
+  ["empty readable result", {}, {}, { readableMarkdown: " \n " }, /no result content/u],
+]) {
+  test(`${label} makes result continuation unavailable with an accessible exact reason`, () => {
+    const harness = openResultActions(managerOverrides, panelOverrides, readableContinuationResult(resultOverrides));
+    try {
+      const continuation = harness.document.root.querySelector('[data-action="result-continue"]');
+      assert.ok(continuation);
+      assert.equal(continuation.getAttribute("aria-disabled"), "true");
+      assert.equal(continuation.disabled, false);
+      const explanation = harness.document.getElementById(continuation.getAttribute("aria-describedby"));
+      assert.ok(explanation);
+      assert.match(explanation.textContent, reason);
+      assert.match(continuation.getAttribute("title"), reason);
+      continuation.focus();
+      assert.equal(harness.document.activeElement, continuation);
+      harness.messages.length = 0;
+      continuation.click();
+      assert.match(harness.document.liveStatus.textContent, reason);
+      dispatchResultAction(harness, "result-continue");
+      assert.equal(harness.messages.some((message) => message.type === "conversation.continueFromResult"), false);
+    } finally { harness.restore(); }
+  });
+}
+
+test("read-only ownership permits result copy and refuses continuation even from stale controls", async () => {
+  const harness = openResultActions({ readOnly: { owned: false, reason: "Another window owns the workspace", retryCommand: "Bachata: Workspace Ownership" } });
+  try {
+    const copy = harness.document.root.querySelector('[data-action="result-copy"]');
+    assert.equal(copy.getAttribute("aria-disabled"), null);
+    copy.click();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.clipboard.writes.length, 1);
+    const continuation = harness.document.root.querySelector('[data-action="result-continue"]');
+    assert.equal(continuation.getAttribute("aria-disabled"), "true");
+    assert.match(harness.document.root.querySelector(".result-continuation-reason").textContent, /can only read/u);
+    harness.messages.length = 0;
+    continuation.click();
+    dispatchResultAction(harness, "result-continue");
+    assert.equal(harness.messages.length, 0);
+    assert.match(harness.document.liveStatus.textContent, /can only read/u);
+  } finally { harness.restore(); }
+});
+
+test("an active newer attempt hides stale result actions and rejects delayed continuation dispatch", () => {
+  const harness = openResultActions({}, { running: true, workflowStatus: "running" });
+  try {
+    assert.equal(harness.document.root.querySelector('[data-action="result-copy"]'), null);
+    assert.equal(harness.document.root.querySelector('[data-action="result-continue"]'), null);
+    harness.messages.length = 0;
+    dispatchResultAction(harness, "result-continue");
+    assert.equal(harness.messages.length, 0);
+    assert.match(harness.document.liveStatus.textContent, /Finish or stop this run/u);
+  } finally { harness.restore(); }
+});
+
+test("missing result content never falls back to raw objects for copying or continuation", async () => {
+  for (const result of [readableContinuationResult({ readableMarkdown: undefined }), readableContinuationResult({ readableMarkdown: " \n " })]) {
+    const harness = openResultActions({}, {}, result);
+    try {
+      assert.equal(harness.document.root.querySelector('[data-action="result-copy"]'), null);
+      harness.messages.length = 0;
+      dispatchResultAction(harness, "result-copy");
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(harness.clipboard.writes, []);
+      assert.match(harness.document.liveStatus.textContent, /no readable result/u);
+      dispatchResultAction(harness, "result-continue");
+      assert.equal(harness.messages.length, 0);
+      assert.match(harness.document.liveStatus.textContent, /no result content/u);
+    } finally { harness.restore(); }
+  }
+});
+
+test("missing and stale source selections refuse delayed result actions", async () => {
+  const harness = openResultActions();
+  try {
+    harness.messages.length = 0;
+    for (const action of ["result-copy", "result-continue"]) {
+      dispatchResultAction(harness, action, "different-run");
+      assert.match(harness.document.liveStatus.textContent, /no longer selected/u);
+    }
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState() });
+    assert.equal(harness.document.root.querySelector('[data-action="result-copy"]'), null);
+    assert.equal(harness.document.root.querySelector('[data-action="result-continue"]'), null);
+    dispatchResultAction(harness, "result-continue");
+    assert.match(harness.document.liveStatus.textContent, /no result content/u);
+    dispatchResultAction(harness, "result-copy");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(harness.clipboard.writes, []);
+    assert.equal(harness.messages.some((message) => message.type === "conversation.continueFromResult"), false);
+  } finally { harness.restore(); }
+});
+
+test("pipeline participant output uses step IDs before unique recorded names and excludes unrelated entries", () => {
+  const entry = (id, overrides = {}) => ({ id, kind: "answer", agentId: "lead", text: id, createdAt: timestamp, ...overrides });
+  const panel = panelState({
+    selectedPipelineDefinition: threeStepPipelineDefinition(),
+    activeStep: "Review",
+    transcript: [
+      entry("id-wins", { stepId: "plan", step: "Review" }),
+      entry("legacy-id", { step: "implement" }),
+      entry("legacy-name", { step: "Review" }),
+      entry("unknown-authoritative-id", { stepId: "removed-step", step: "Plan" }),
+      entry("unrelated-output"),
+      entry("unknown-step", { step: "Other pipeline" }),
+      entry("internal-prompt", { kind: "prompt", stepId: "plan", eventType: "agent.prompt" }),
+      entry("bookkeeping", { kind: "event", stepId: "plan", eventType: "output.validated" }),
+    ],
+  });
+  const harness = bootWebview(managerState({ eventsByConversation: { "run-1": [stepEvent(1, "plan", "Plan", timestamp)] } }), panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const row = (id) => harness.document.root.querySelector(`[data-disclosure-key="run-1:pipeline-step:${id}"]`);
+    assert.match(row("plan").textContent, /id-wins/u);
+    assert.doesNotMatch(row("plan").textContent, /unknown-authoritative-id|legacy-name/u);
+    assert.match(row("implement").textContent, /legacy-id/u);
+    assert.match(row("review").textContent, /legacy-name/u);
+    assert.doesNotMatch(row("review").textContent, /id-wins/u);
+    assert.doesNotMatch(harness.document.root.querySelector(".pipeline-summary").textContent, /unrelated-output|unknown-step|internal-prompt|bookkeeping|unknown-authoritative-id/u);
+    row("plan").open = true;
+    harness.document.root.querySelector('[data-message-id="id-wins"]').click();
+    const sameMessage = harness.document.root.querySelector('[data-entry="id-wins"]');
+    assert.ok(sameMessage);
+    assert.equal(harness.document.activeElement, sameMessage);
+  } finally { harness.restore(); }
+});
+
+test("pipeline name fallback rejects ambiguous names while recorded IDs still identify output", () => {
+  const definition = threeStepPipelineDefinition();
+  definition.steps[0].name = "Shared name";
+  definition.steps[1].name = "Shared name";
+  const panel = panelState({ selectedPipelineDefinition: definition, transcript: [
+    { id: "ambiguous-name", kind: "answer", agentId: "lead", step: "Shared name", text: "Ambiguous output", createdAt: timestamp },
+    { id: "exact-step", kind: "answer", agentId: "lead", stepId: "implement", step: "Shared name", text: "Exact output", createdAt: timestamp },
+  ] });
+  const harness = bootWebview(managerState({ eventsByConversation: { "run-1": [stepEvent(1, "implement", "Shared name", timestamp)] } }), panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const summary = harness.document.root.querySelector(".pipeline-summary");
+    assert.doesNotMatch(summary.textContent, /Ambiguous output/u);
+    assert.match(summary.textContent, /Exact output/u);
+    assert.equal(summary.querySelectorAll(".pipeline-step-message").length, 1);
+  } finally { harness.restore(); }
+});
+
+test("pipeline output belongs to the recorded attempt revision and excludes earlier attempt responses", () => {
+  const newTime = "2026-09-14T10:00:00Z";
+  const recordedSteps = [{ id: "recorded-step", name: "Recorded step" }];
+  const panel = panelState({ selectedPipelineDefinition: undefined, transcript: [
+    { id: "previous-output", kind: "answer", agentId: "lead", stepId: "recorded-step", text: "Earlier attempt output", createdAt: "2026-09-14T09:00:00Z" },
+    { id: "new-output", kind: "answer", agentId: "lead", step: "Recorded step", text: "Current attempt output", createdAt: "2026-09-14T10:01:00Z" },
+  ] });
+  const harness = bootWebview(managerState({ eventsByConversation: { "run-1": [attemptStart(2, "run.restarted", newTime, recordedSteps)] } }), panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const summary = harness.document.root.querySelector(".pipeline-summary");
+    assert.ok(summary);
+    assert.match(summary.textContent, /Recorded step|Current attempt output/u);
+    assert.doesNotMatch(summary.textContent, /Earlier attempt output/u);
+  } finally { harness.restore(); }
+});
+
+test("pipeline steps render answers, interruptions and errors with exact Chat navigation", () => {
+  const transcript = [
+    { id: "step-answer", kind: "answer", text: "The participant answer" },
+    { id: "step-interruption", kind: "interrupted", text: "" },
+    { id: "step-error", kind: "error", text: "The provider refused the request" },
+  ].map((entry) => ({ ...entry, agentId: "lead", stepId: "plan", createdAt: timestamp }));
+  const panel = panelState({ selectedPipelineDefinition: threeStepPipelineDefinition(), transcript });
+  const manager = managerState({ eventsByConversation: { "run-1": [stepEvent(1, "plan", "Plan", timestamp)] } });
+  const harness = bootWebview(manager, panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const messages = harness.document.root.querySelectorAll(".pipeline-step-message");
+    assert.equal(messages.length, 3);
+    assert.match(messages[0].textContent, /Response[^]*The participant answer/u);
+    assert.match(messages[1].textContent, /Interrupted/u);
+    assert.match(messages[2].textContent, /Error[^]*The provider refused the request/u);
+    for (const entry of transcript) {
+      const button = harness.document.root.querySelector(`[data-message-id="${entry.id}"]`);
+      assert.ok(button);
+      const body = button.closest(".pipeline-step-message").querySelector(".pipeline-step-message-body");
+      assert.equal(body.getAttribute("tabindex"), "0");
+      assert.equal(body.getAttribute("role"), "region");
+      assert.match(body.getAttribute("aria-label"), /Lead:/u);
+    }
+    harness.document.root.querySelector('[data-message-id="step-error"]').click();
+    assert.equal(harness.document.activeElement.dataset.entry, "step-error");
+  } finally { harness.restore(); }
+});
+
+test("pipeline disclosure choices survive live redraws when default step states change", () => {
+  const panel = panelState({ selectedPipelineDefinition: threeStepPipelineDefinition(), transcript: [
+    { id: "plan-work", kind: "answer", agentId: "lead", stepId: "plan", text: "Plan output", createdAt: timestamp },
+    { id: "implementation-work", kind: "answer", agentId: "worker", stepId: "implement", text: "Implementation output", createdAt: timestamp },
+  ] });
+  const manager = managerState({ eventsByConversation: { "run-1": [stepEvent(1, "plan", "Plan", timestamp)] } });
+  const harness = bootWebview(manager, panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const setOpen = (step, open) => {
+      const details = harness.document.root.querySelector(`[data-disclosure-key="run-1:pipeline-step:${step}"]`);
+      details.open = open;
+      harness.document.root.dispatch("toggle", { target: details });
+    };
+    setOpen("plan", false);
+    setOpen("implement", true);
+    harness.sendWindowMessage({ type: "manager.snapshot", state: { ...manager, eventsByConversation: { "run-1": [...manager.eventsByConversation["run-1"], stepEvent(2, "implement", "Implement", timestamp)] } } });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
+    assert.equal(harness.document.root.querySelector('[data-disclosure-key="run-1:pipeline-step:plan"]').open, false);
+    assert.equal(harness.document.root.querySelector('[data-disclosure-key="run-1:pipeline-step:implement"]').open, true);
+  } finally { harness.restore(); }
+});
+
+test("pipeline output and nested result code retain both scroll axes after snapshot replacement", () => {
+  const panel = panelState({ workflowStatus: "completed", selectedPipelineDefinition: threeStepPipelineDefinition(), transcript: [
+    { id: "scroll-answer", kind: "answer", agentId: "lead", stepId: "plan", text: '```json\n{"first":[1,2,3]}\n```\n\n```typescript\nconst second = 2;\n```', createdAt: timestamp },
+  ] });
+  const result = readableContinuationResult({ finalRuling: 'Ruling details:\n\n```json\n{"ruling":"confirm first"}\n```' });
+  const manager = managerState({ resultsByConversation: { "run-1": result }, eventsByConversation: { "run-1": [stepEvent(1, "plan", "Plan", timestamp)] } });
+  const harness = bootWebview(manager, panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const outputSelector = '[data-code-scroll-surface="pipeline:plan:scroll-answer"]';
+    const body = harness.document.root.querySelector(`${outputSelector} [data-output-scroll]`);
+    const code = harness.document.root.querySelectorAll(`${outputSelector} pre[data-code-region]`);
+    const ruling = harness.document.root.querySelector('[data-code-scroll-surface="result:run-1"] pre[data-code-region]');
+    assert.equal(code.length, 2);
+    assert.ok(ruling);
+    body.scrollTop = 480;
+    body.scrollLeft = 32;
+    code[0].scrollTop = 360;
+    code[0].scrollLeft = 72;
+    code[1].scrollTop = 180;
+    code[1].scrollLeft = 24;
+    ruling.scrollTop = 240;
+    ruling.scrollLeft = 48;
+    body.focus();
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: { ...panel, transcript: [
+      { id: "new-before", kind: "answer", agentId: "worker", stepId: "plan", text: '```json\n{"inserted":true}\n```', createdAt: timestamp },
+      ...panel.transcript,
+    ] } } });
+    const nextBody = harness.document.root.querySelector(`${outputSelector} [data-output-scroll]`);
+    const nextCode = harness.document.root.querySelectorAll(`${outputSelector} pre[data-code-region]`);
+    const nextRuling = harness.document.root.querySelector('[data-code-scroll-surface="result:run-1"] pre[data-code-region]');
+    assert.notEqual(nextBody, body);
+    assert.deepEqual([nextBody.scrollTop, nextBody.scrollLeft], [480, 32]);
+    assert.deepEqual(nextCode.map((item) => [item.scrollTop, item.scrollLeft]), [[360, 72], [180, 24]]);
+    assert.deepEqual([nextRuling.scrollTop, nextRuling.scrollLeft], [240, 48]);
+    assert.equal(harness.document.activeElement, nextBody);
+  } finally { harness.restore(); }
+});
+
+test("live participant code keeps its inner scroll during incremental output replacement", () => {
+  const panel = panelState({ running: true, workflowStatus: "running", agents: { lead: { id: "lead", name: "Lead", adapterType: "codex-app-server", status: "running", output: '```json\n{"stream":"first"}\n```' } } });
+  const harness = bootWebview(managerState(), panel);
+  try {
+    const before = harness.document.root.querySelector('[data-live-agent-output="lead"] pre[data-code-region]');
+    assert.ok(before);
+    before.scrollTop = 275;
+    before.scrollLeft = 55;
+    const output = harness.document.root.querySelector('[data-live-agent-output="lead"]');
+    Object.defineProperty(output, "innerHTML", {
+      configurable: true,
+      set(value) {
+        const root = harness.document.root;
+        root.innerHTML = root.innerHTML.slice(0, output.contentStart) + value + root.innerHTML.slice(output.contentEnd);
+      },
+    });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "agent.delta", agentId: "lead", text: "\nMore output" } });
+    const after = harness.document.root.querySelector('[data-live-agent-output="lead"] pre[data-code-region]');
+    assert.ok(after);
+    assert.notEqual(after, before);
+    assert.deepEqual([after.scrollTop, after.scrollLeft], [275, 55]);
+  } finally { harness.restore(); }
+});
+
+test("Pipeline exposes missing participant history and loads it without leaving Execution", () => {
+  const panel = panelState({
+    workflowStatus: "completed",
+    selectedPipelineDefinition: threeStepPipelineDefinition(),
+    transcript: [{ id: "last-loaded", kind: "answer", agentId: "lead", stepId: "review", text: "Latest review response", createdAt: timestamp }],
+    transcriptHasMore: true,
+    transcriptTotal: 401,
+    transcriptError: "Earlier participant messages could not be loaded.",
+  });
+  const harness = bootWebview(managerState({ eventsByConversation: { "run-1": [stepEvent(1, "review", "Review", timestamp)] } }), panel);
+  try {
+    harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    const pipeline = harness.document.root.querySelector(".pipeline-summary");
+    assert.match(pipeline.textContent, /Earlier participant work is not loaded yet/u);
+    assert.match(harness.document.root.innerHTML, /class="error-banner">Earlier participant messages could not be loaded\./u);
+    const load = pipeline.querySelector('[data-action="load-older"]');
+    assert.ok(load);
+    harness.messages.length = 0;
+    load.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "transcript.loadOlder", beforeId: "last-loaded" },
+    });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: {
+      type: "transcript.prepend",
+      entries: [{ id: "early-plan", kind: "answer", agentId: "lead", stepId: "plan", text: "Earlier planning response", createdAt: timestamp }],
+      total: 2,
+      hasMore: false,
+    } });
+    assert.match(harness.document.root.querySelector(".pipeline-summary").textContent, /Earlier planning response/u);
+    assert.equal(harness.document.root.querySelector('.pipeline-summary [data-action="load-older"]'), null);
+  } finally { harness.restore(); }
+});
+
+test("continuation rejects a delayed result button after a newer result replaces the same run", () => {
+  const harness = openResultActions();
+  try {
+    const olderButton = harness.document.root.querySelector('[data-action="result-continue"]');
+    assert.equal(olderButton.dataset.resultVersion, "result-version-1");
+    const newer = readableContinuationResult({ readableMarkdown: "# Run result: Completed\n\nA newer assessment.", continuation: { available: true, resultVersion: "result-version-2" } });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": newer } }) });
+    harness.messages.length = 0;
+    harness.document.root.dispatch("click", { target: olderButton, preventDefault() {}, stopPropagation() {} });
+    assert.equal(harness.messages.length, 0);
+    assert.match(harness.document.liveStatus.textContent, /result has changed since the action was displayed/u);
+    dispatchResultAction(harness, "result-continue", "run-1", "");
+    assert.equal(harness.messages.length, 0);
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    assert.deepEqual(harness.messages, [{ type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "result-version-2" }]);
+  } finally { harness.restore(); }
+});
+
+test("Execution groups accepted findings with one unresolved section and preserves every visible disposition", () => {
+  for (const hasUnresolved of [false, true]) {
+    const findings = ["accepted", "accepted", hasUnresolved ? "unresolved" : "rejected"].map((disposition, index) => ({
+      ...readableContinuationResult().findings[0],
+      id: `finding-${index}`,
+      subject: `Finding ${index + 1}`,
+      disposition,
+      message: `Assessment ${index + 1}`,
+    }));
+    const harness = openResultActions({}, {}, readableContinuationResult({ findings }));
+    try {
+      const group = harness.document.root.querySelector(".result-findings");
+      assert.ok(group);
+      assert.equal(group.getAttribute("aria-label"), "Findings");
+      assert.equal(harness.document.root.querySelectorAll(".result-findings-unresolved").length, hasUnresolved ? 1 : 0);
+      assert.equal(group.querySelectorAll(".result-finding-list > li").length, 3);
+      assert.equal(group.querySelectorAll(".finding-accepted").length, 2);
+      assert.equal(group.querySelectorAll(".finding-unresolved").length, hasUnresolved ? 1 : 0);
+      assert.equal(group.querySelectorAll(".finding-rejected").length, hasUnresolved ? 0 : 1);
+      for (const finding of findings) {
+        assert.ok(group.textContent.includes(finding.subject));
+        assert.ok(group.textContent.includes(finding.message));
+      }
+      for (const [index, row] of group.querySelectorAll(".result-finding-list > li").entries()) {
+        assert.match(row.querySelector("small").textContent, /src\/view\.ts:42/u);
+        assert.equal(row.querySelector("small").textContent, `${{ accepted: "Accepted", unresolved: "Unresolved", rejected: "Rejected" }[findings[index].disposition]} · src/view.ts:42`);
+        assert.equal(row.className.includes("result-findings-unresolved"), false);
+        assert.match(row.textContent, /Evidence[^]*Challenges/u);
+      }
+      assert.match(group.textContent, hasUnresolved ? /2 actionable · 1 need human/u : /2 actionable · 0 need human/u);
+    } finally { harness.restore(); }
+  }
+});
+
+for (const evidenceState of ["recorded", "notApplicable", "missing"]) {
+  test(`Execution ${evidenceState} evidence keeps status text and only missing evidence marks the group unresolved`, () => {
+    const evidence = [{ kind: "verification", label: "Verification", state: evidenceState, detail: "The controller recorded this verification state." }];
+    const harness = openResultActions({}, {}, readableContinuationResult({ evidence }));
+    try {
+      const ledger = harness.document.root.querySelector(".evidence-ledger");
+      assert.ok(ledger);
+      assert.equal(ledger.className.includes("result-evidence-missing"), evidenceState === "missing");
+      assert.equal(harness.document.root.querySelectorAll(".result-evidence-missing").length, evidenceState === "missing" ? 1 : 0);
+      assert.equal(ledger.querySelectorAll("ul > li").length, 1);
+      assert.equal(ledger.querySelectorAll(".evidence-state").length, 1);
+      assert.equal(ledger.querySelector(".evidence-state").textContent.trim(), { recorded: "Recorded", notApplicable: "Not applicable", missing: "Expected but missing" }[evidenceState]);
+      assert.match(ledger.textContent, /Verification[^]*The controller recorded this verification state/u);
+      assert.ok(ledger.textContent.includes({ recorded: "Recorded", notApplicable: "Not applicable", missing: "Expected but missing" }[evidenceState]));
+    } finally { harness.restore(); }
+  });
+}
+
+test("Execution mixed evidence retains every row and marks only its containing ledger unresolved", () => {
+  const evidence = ["recorded", "notApplicable", "missing"].map((state) => ({
+    kind: "verification",
+    label: `Verification ${state}`,
+    state,
+    detail: `The controller recorded the ${state} detail.`,
+  }));
+  const harness = openResultActions({}, {}, readableContinuationResult({ evidence }));
+  try {
+    const ledger = harness.document.root.querySelector(".evidence-ledger");
+    assert.ok(ledger);
+    assert.equal(harness.document.root.querySelectorAll(".result-evidence-missing").length, 1);
+    assert.equal(ledger.className.includes("result-evidence-missing"), true);
+    const rows = ledger.querySelectorAll("ul > li");
+    assert.equal(rows.length, 3);
+    assert.equal(ledger.querySelectorAll(".evidence-state").length, 3);
+    for (const [index, row] of rows.entries()) {
+      const entry = evidence[index];
+      assert.equal(row.className, `evidence-${entry.state}`);
+      assert.equal(row.querySelector(".evidence-state").textContent.trim(), { recorded: "Recorded", notApplicable: "Not applicable", missing: "Expected but missing" }[entry.state]);
+      assert.ok(row.textContent.includes(entry.label));
+      assert.ok(row.textContent.includes(entry.detail));
+    }
+  } finally { harness.restore(); }
+});
+
+test("Execution response labels and exact Chat targets survive moving between all response kinds", () => {
+  const transcript = ["answer", "interrupted", "error"].map((kind) => ({
+    id: `same-agent-${kind}`,
+    kind,
+    agentId: "lead",
+    stepId: "plan",
+    text: `Recorded ${kind}`,
+    createdAt: timestamp,
+  }));
+  const panel = panelState({ selectedPipelineDefinition: threeStepPipelineDefinition(), transcript });
+  const manager = managerState({ eventsByConversation: { "run-1": [stepEvent(1, "plan", "Plan", timestamp)] } });
+  const harness = bootWebview(manager, panel);
+  try {
+    for (const entry of transcript) {
+      harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+      const link = harness.document.root.querySelector(`[data-message-id="${entry.id}"]`);
+      const response = link.closest(".pipeline-step-message");
+      const label = { answer: "Response", interrupted: "Interrupted", error: "Error" }[entry.kind];
+      assert.ok(response.className.includes(`pipeline-step-message-${entry.kind}`));
+      assert.ok(response.querySelector(".pipeline-step-message-heading").textContent.includes(label));
+      assert.equal(response.querySelector('[data-output-scroll]').getAttribute("aria-label"), `Lead: ${label}`);
+      link.focus();
+      assert.equal(harness.document.activeElement, link);
+      link.click();
+      assert.equal(harness.document.activeElement.dataset.entry, entry.id);
+      assert.ok(harness.document.activeElement.textContent.includes(entry.text));
+    }
+  } finally { harness.restore(); }
+});
+
+test("Execution marks only unresolved final rulings as an unresolved group", () => {
+  for (const status of ["accepted", "resolved"]) {
+    const finalDecision = {
+      status,
+      stepId: "plan",
+      candidate: { summary: "The visible review conclusion." },
+      participants: [],
+      objections: [],
+      unresolvedRisks: [],
+    };
+    const harness = openResultActions({}, {}, readableContinuationResult({ finalDecision }));
+    try {
+      const ruling = harness.document.root.querySelector(".final-ruling-card");
+      assert.ok(ruling);
+      assert.equal(ruling.className.includes("final-ruling-unresolved"), status === "resolved");
+      assert.ok(ruling.textContent.includes(status === "resolved" ? "Finished with unresolved findings" : "Final decision"));
+    } finally { harness.restore(); }
+  }
+});
+
+for (const refusal of [false, true]) {
+  test(`Copy result preserves ordinary review prose and local file details when clipboard refusal is ${refusal}`, async () => {
+    const { readableResultMarkdown } = require("../dist/results/readableResult.js");
+    const { resultHandoffFixture } = require("./fixtures/resultHandoff.cjs");
+    const source = resultHandoffFixture();
+    source.changedFiles.push("package-lock.json", "dist/output.js");
+    source.finalRuling = JSON.stringify({
+      summary: "The lead must review the current source before changing the build.",
+      agentId: "lead",
+      stepId: "review",
+      sessionId: "a497c55b-8695-4f70-a2cc-4a0fb736b917",
+      digest: "b7".repeat(32),
+      provenance: { text: "HIDDEN_METADATA" },
+    });
+    const readableMarkdown = readableResultMarkdown(source);
+    const harness = openResultActions({}, {}, readableContinuationResult({ ...source, readableMarkdown }));
+    try {
+      harness.clipboard.refuse = refusal;
+      harness.document.root.querySelector('[data-action="result-copy"]').focus();
+      harness.document.root.querySelector('[data-action="result-copy"]').click();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(harness.clipboard.writes, [readableMarkdown]);
+      assert.match(readableMarkdown, /The lead must review the current source before changing the build/u);
+      assert.match(readableMarkdown, /package-lock\.json/u);
+      assert.match(readableMarkdown, /dist\/output\.js/u);
+      assert.doesNotMatch(readableMarkdown, /HIDDEN_METADATA|sessionId|agentId|stepId|a497c55b|b7{32}|internal value omitted/u);
+      assert.ok(!readableMarkdown.includes("b7".repeat(32)));
+      assert.match(harness.document.liveStatus.textContent, refusal ? /Copying the run result failed/u : /copied to the clipboard/u);
+      assert.equal(harness.messages.some((message) => message.type === "conversation.continueFromResult"), false);
+    } finally { harness.restore(); }
+  });
+}
+
+test("a generated bounded implementation draft opens from Execution and survives webview persistence and restoration exactly", () => {
+  const { implementationDraftFromResult } = require("../dist/results/implementationHandoff.js");
+  const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
+  const { largeResultHandoffFixture } = require("./fixtures/resultHandoff.cjs");
+  const preparedDraft = implementationDraftFromResult(largeResultHandoffFixture());
+  assert.ok(preparedDraft.length <= RESULT_TEXT_LIMITS.preparedDraftUnits);
+  assert.doesNotMatch(preparedDraft, /[\r\0]/u);
+  assert.ok(preparedDraft.includes("Review the current source.\nKeep the evidence readable.\uFFFD"));
+  const harness = openResultActions();
+  let persisted;
+  const draftConversation = { ...managerState().conversations[0], id: "implementation-draft", runRef: "implementation-draft", preparedDraft, workflowStatus: "idle", running: false };
+  const manager = managerState({ activeConversationId: draftConversation.id, conversations: [draftConversation] });
+  try {
+    harness.document.root.querySelector('[data-action="result-continue"]').click();
+    harness.sendWindowMessage({ type: "manager.snapshot", state: JSON.parse(JSON.stringify(manager)) });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: draftConversation.id, message: { type: "state.snapshot", state: panelState({ workflowStatus: "idle", running: false }) } });
+    const composer = harness.document.getElementById("composer-prompt");
+    assert.ok(composer);
+    assert.equal(composer.textContent, preparedDraft);
+    assert.equal(composer.getAttribute("maxlength"), String(RESULT_TEXT_LIMITS.preparedDraftUnits));
+    composer.value = preparedDraft;
+    harness.document.root.dispatch("input", { target: composer });
+    assert.equal(harness.webviewState.value.drafts[draftConversation.id], preparedDraft);
+    harness.sendWindowEvent("beforeunload", {});
+    const saved = harness.messages.findLast((message) => message.type === "conversation.saveDraft");
+    assert.equal(saved.text, preparedDraft);
+    assert.equal(harness.messages.some((message) => message.message?.type === "pipeline.run"), false);
+    persisted = JSON.parse(JSON.stringify(harness.webviewState.value));
+  } finally { harness.restore(); }
+  const reloaded = installGlobals();
+  reloaded.webviewState.value = persisted;
+  try {
+    delete require.cache[require.resolve("../dist/webview-behavior.js")];
+    delete require.cache[require.resolve("../dist/webview.js")];
+    require("../dist/webview-behavior.js");
+    require("../dist/webview.js");
+    reloaded.sendWindowMessage({ type: "manager.snapshot", state: JSON.parse(JSON.stringify(manager)) });
+    reloaded.sendWindowMessage({ type: "conversation.message", conversationId: draftConversation.id, message: { type: "state.snapshot", state: panelState({ workflowStatus: "idle", running: false }) } });
+    assert.equal(reloaded.document.getElementById("composer-prompt").textContent, preparedDraft);
+    assert.equal(reloaded.webviewState.value.drafts[draftConversation.id], preparedDraft);
+    assert.equal(reloaded.messages.some((message) => message.message?.type === "pipeline.run"), false);
+  } finally { reloaded.restore(); }
+});
+
+test("webview draft persistence never silently slices an oversized value or splits the final surrogate pair", () => {
+  const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
+  const boundary = `${"x".repeat(RESULT_TEXT_LIMITS.preparedDraftUnits - 2)}😀`;
+  const harness = bootWebview();
+  try {
+    const composer = harness.document.getElementById("composer-prompt");
+    composer.value = boundary;
+    harness.document.root.dispatch("input", { target: composer });
+    assert.equal(harness.webviewState.value.drafts["run-1"], boundary);
+    harness.sendWindowEvent("beforeunload", {});
+    assert.equal(harness.messages.findLast((message) => message.type === "conversation.saveDraft").text, boundary);
+    harness.messages.length = 0;
+    const current = harness.document.getElementById("composer-prompt");
+    current.value = `${boundary}x`;
+    harness.document.root.dispatch("input", { target: current });
+    harness.sendWindowEvent("beforeunload", {});
+    assert.match(harness.document.liveStatus.textContent, /draft exceeds.*character limit/u);
+    assert.equal(harness.webviewState.value.drafts["run-1"], boundary);
+    assert.equal(harness.messages.some((message) => message.type === "conversation.saveDraft"), false);
+  } finally { harness.restore(); }
 });

@@ -6,6 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { DatabaseSync } = require("node:sqlite");
 const { execFileSync } = require("node:child_process");
+const { resultHandoffFixture, resultHandoffPlacements } = require("./fixtures/resultHandoff.cjs");
 const {
   createResourceBroker,
   ResourceQuarantinedError,
@@ -427,6 +428,7 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
           },
           resolvePipelineSnapshot: async (pipelineId, resolveOptions = {}) => {
             instance.resolveSnapshotCalls.push({ pipelineId, options: { ...resolveOptions } });
+            await instance.beforeResolveSnapshot?.(pipelineId, resolveOptions);
             const definition = definitionFor(pipelineId);
             if (definition === undefined) {
               throw new Error(`Unknown pipeline ${pipelineId}`);
@@ -769,6 +771,14 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
   Module._load = function load(request, parent, isMain) {
     if (request === "vscode") {
       return vscode;
+    }
+    if (request === "../results/projectResult" && harnessOptions.resultProjection) {
+      const actual = originalLoad.call(this, request, parent, isMain);
+      return {
+        ...actual,
+        projectRunResult: (...args) => harnessOptions.resultProjection(actual.projectRunResult(...args)),
+        mergeRunResults: (...args) => harnessOptions.resultProjection(actual.mergeRunResults(...args)),
+      };
     }
     return originalLoad.call(this, request, parent, isMain);
   };
@@ -6114,6 +6124,446 @@ test("the next action opens a scoped fix for the accepted finding", async () => 
   }
 });
 
+test("a completed review opens an editable draft on a write-capable implementation pipeline", async () => {
+  const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-result-continue-"));
+  const harness = loadHarness(undefined, {
+    storageRoot,
+    removeStorageOnDispose: true,
+    configurationValues: {
+      freshReviewPipelineId: "review-only",
+      fixPipelineId: "fix-only",
+    },
+    pipelineDefinitions: {
+      "cross-reference-development": writeCapableDefinition("cross-reference-development"),
+      "review-only": readOnlyReviewDefinition("review-only"),
+      "fix-only": writeCapableDefinition("fix-only"),
+    },
+    onRuntimeCreated: (instance) => {
+      publishJourneyDecision(instance, { findings: [journeyFinding()] });
+    },
+  });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    await harness.manager.handleMessage({
+      type: "initiative.define",
+      title: "Stabilize cancellation",
+      goal: "Cancellation never leaks a worktree",
+    });
+    await harness.manager.handleMessage({ type: "review.startFresh" });
+    const source = harness.manager.getState().activeConversationId;
+    const before = harness.runtimeInstances.length;
+    await harness.manager.handleMessage({
+      type: "conversation.continueFromResult",
+      conversationId: source,
+      resultVersion: harness.manager.getState().resultsByConversation[source].continuation.resultVersion,
+    });
+    const state = harness.manager.getState();
+    const created = state.conversations.find((conversation) => conversation.id === state.activeConversationId);
+    assert.equal(created.selectedPipelineId, "fix-only");
+    assert.match(created.preparedDraft, /Implement the findings from this completed run/u);
+    assert.match(created.preparedDraft, /Cancellation guard/u);
+    assert.match(created.preparedDraft, /Unresolved findings require confirmation before edits/u);
+    assert.match(created.preparedDraft, /Both participants traced the bypass/u);
+    assert.match(created.preparedDraft, /The finally block was inspected/u);
+    assert.match(created.preparedDraft, /src\/a\.ts:12/u);
+    assert.match(created.preparedDraft, /Final assessment/u);
+    assert.match(created.preparedDraft, /Verification/u);
+    assert.match(created.preparedDraft, /No reproduction exists yet/u);
+    assert.doesNotMatch(created.preparedDraft, /DJOURNEY|hash-1-0|candidateHash|rulingProvenance/u);
+    assert.equal(created.workflowStatus, "idle");
+    assert.equal(created.running, false);
+    assert.equal(created.input, undefined);
+    assert.equal(harness.runtimeInstances.length, before + 1);
+    assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0, "continuing a result started before the reader reviewed its draft");
+    assert.equal(harness.runtimeInstances.at(-1).runtime.getState().running, false);
+    assert.equal(harness.runtimeInstances.at(-1).messages.some((message) =>
+      ["pipeline.run", "message.send", "workflow.resume", "workflow.restart"].includes(message.type)), false);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
+const continuationResultHarness = async (options = {}) => {
+  const harness = loadHarness(undefined, {
+    ...options,
+    configurationValues: { fixPipelineId: "fix-only", ...options.configurationValues },
+    pipelineDefinitions: {
+      "cross-reference-development": readOnlyReviewDefinition("cross-reference-development"),
+      "fix-only": writeCapableDefinition("fix-only"),
+      "managed-fix": null,
+      ...options.pipelineDefinitions,
+    },
+    onRuntimeCreated: (instance) => {
+      publishJourneyDecision(instance, { findings: [journeyFinding({ disposition: "unresolved" })] });
+      options.onRuntimeCreated?.(instance);
+    },
+  });
+  await harness.manager.handleMessage({ type: "manager.ready" });
+  const sourceId = harness.manager.getState().activeConversationId;
+  const sourceRuntime = harness.runtimeInstances[0];
+  await harness.manager.runConversation(sourceId, "Review cancellation and preserve unresolved evidence");
+  await waitFor(() => {
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    return result !== undefined && !result.continuation.reason?.startsWith("Checking");
+  });
+  return { harness, sourceId, sourceRuntime };
+};
+
+const disposeContinuationHarness = async (harness) => {
+  harness.runtimeInstances.forEach((instance) => {
+    instance.state.running = false;
+    instance.state.operationActive = false;
+    instance.state.queuedMessages = [];
+    instance.beforeRun.resolve();
+    instance.run.resolve();
+  });
+  harness.subscription.dispose();
+  await harness.manager.dispose();
+};
+
+const assertContinuationRefused = async (harness, sourceId, reason) => {
+  const before = harness.manager.getState().conversations.length;
+  const executions = harness.runtimeInstances.reduce((sum, instance) => sum + instance.pipelineCalls.length, 0);
+  await assert.rejects(harness.manager.handleMessage({
+    type: "conversation.continueFromResult",
+    conversationId: sourceId,
+    resultVersion: harness.manager.getState().resultsByConversation[sourceId]?.continuation.resultVersion ?? "unavailable-result",
+  }), reason);
+  assert.equal(harness.manager.getState().conversations.length, before);
+  assert.equal(harness.runtimeInstances.reduce((sum, instance) => sum + instance.pipelineCalls.length, 0), executions);
+};
+
+const continuationMessage = (harness, sourceId) => ({
+  type: "conversation.continueFromResult",
+  conversationId: sourceId,
+  resultVersion: harness.manager.getState().resultsByConversation[sourceId].continuation.resultVersion,
+});
+
+test("continuation projects the same safe readable result into a prepared draft without confirming unresolved findings", async () => {
+  const { harness, sourceId } = await continuationResultHarness();
+  try {
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    assert.equal(result.continuation.available, true);
+    assert.match(result.readableMarkdown, /Cancellation guard/u);
+    assert.doesNotMatch(result.readableMarkdown, /candidateId|candidateHash|DJOURNEY|hash-1-0/u);
+    await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+    const current = harness.manager.getState();
+    const draft = current.conversations.find((conversation) => conversation.id === current.activeConversationId);
+    assert.equal(draft.selectedPipelineId, "fix-only");
+    assert.equal(draft.workflowStatus, "idle");
+    assert.equal(draft.running, false);
+    assert.equal(draft.input, undefined);
+    assert.ok(draft.preparedDraft.includes(result.readableMarkdown));
+    assert.match(draft.preparedDraft, /Unresolved findings require confirmation before edits/u);
+    assert.match(draft.preparedDraft, /unresolved/i);
+    assert.doesNotMatch(draft.preparedDraft, /DJOURNEY|candidateId|candidateHash|hash-1-0/u);
+    assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0);
+    assert.equal(harness.runtimeInstances.at(-1).resumeCalls.length, 0);
+    assert.equal(harness.runtimeInstances.at(-1).restartCalls.length, 0);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation refuses a managed workflow whose effective write scope is read-only", async () => {
+  const readOnlyFix = { ...writeCapableDefinition("fix-only"), managedPolicy: { writeScope: "readOnly" } };
+  const { harness, sourceId } = await continuationResultHarness({ pipelineDefinitions: { "fix-only": readOnlyFix } });
+  try {
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    assert.equal(result.continuation.available, false);
+    assert.match(result.continuation.reason, /effective write authority/u);
+    await assertContinuationRefused(harness, sourceId, /effective write authority/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation refuses when no implementation workflow is available", async () => {
+  const { harness, sourceId } = await continuationResultHarness({ pipelineDefinitions: { "fix-only": null } });
+  try {
+    assert.equal(harness.manager.getState().resultsByConversation[sourceId].continuation.available, false);
+    await assertContinuationRefused(harness, sourceId, /No available workflow/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation can select a proven writer from the current catalog after rejecting a read-only configured fix", async () => {
+  const { harness, sourceId, sourceRuntime } = await continuationResultHarness({ pipelineDefinitions: {
+    "fix-only": readOnlyReviewDefinition("fix-only"),
+    "custom-implementation": writeCapableDefinition("custom-implementation"),
+  } });
+  try {
+    sourceRuntime.state.pipelines.push({ id: "custom-implementation", name: "Custom implementation" });
+    await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+    await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+    const current = harness.manager.getState();
+    const draft = current.conversations.find((conversation) => conversation.id === current.activeConversationId);
+    assert.equal(draft.selectedPipelineId, "custom-implementation");
+    assert.equal(draft.running, false);
+    assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation refuses a source without a result or a source that no longer exists", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const sourceId = harness.manager.getState().activeConversationId;
+    await assertContinuationRefused(harness, sourceId, /no meaningful result/u);
+    await assertContinuationRefused(harness, "removed-source", /source run no longer exists/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation refuses an archived source while preserving its readable result", async () => {
+  const { harness, sourceId } = await continuationResultHarness();
+  try {
+    await harness.manager.archiveConversation(sourceId, true);
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    assert.match(result.readableMarkdown, /Cancellation guard/u);
+    assert.equal(result.continuation.available, false);
+    assert.match(result.continuation.reason, /Archived runs/u);
+    await assertContinuationRefused(harness, sourceId, /Archived runs/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+for (const [name, patch] of [
+  ["running", { running: true, workflowStatus: "running" }],
+  ["restarting", { operationActive: true }],
+  ["resuming", { operationActive: true, workflowStatus: "paused" }],
+  ["queued", { queuedMessages: [{ id: "queued-attempt" }] }],
+  ["awaiting a decision", { pendingGate: { stepName: "Confirm" } }],
+]) {
+  test(`continuation refuses stale earlier results while the source is ${name}`, async () => {
+    const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+    try {
+      Object.assign(sourceRuntime.state, patch);
+      await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+      const result = harness.manager.getState().resultsByConversation[sourceId];
+      if (result !== undefined) {
+        assert.equal(result.continuation.available, false);
+        assert.match(result.continuation.reason, /source run is busy/u);
+      }
+      await assertContinuationRefused(harness, sourceId, /source run is busy/u);
+    } finally {
+      delete sourceRuntime.state.pendingGate;
+      await disposeContinuationHarness(harness);
+    }
+  });
+}
+
+test("continuation refuses an older terminal result after the source has been reset", async () => {
+  const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+  try {
+    sourceRuntime.state.workflowStatus = "idle";
+    await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    assert.equal(result.continuation.available, false);
+    assert.match(result.continuation.reason, /earlier attempt/u);
+    await assertContinuationRefused(harness, sourceId, /earlier attempt/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation refuses a result from a tab that is no longer selected", async () => {
+  const { harness, sourceId } = await continuationResultHarness();
+  try {
+    const selected = await harness.manager.createConversation({ title: "Another selected run" });
+    await assertContinuationRefused(harness, sourceId, /selected run changed/u);
+    assert.equal(harness.manager.getState().activeConversationId, selected.id);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation retains the active run capacity limit", async () => {
+  const { harness, sourceId } = await continuationResultHarness({ configurationValues: { maxActiveConversations: 1 } });
+  try {
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    assert.equal(result.continuation.available, false);
+    assert.match(result.continuation.reason, /more than 1 active runs/u);
+    await assertContinuationRefused(harness, sourceId, /more than 1 active runs/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation revalidates source activity after resolving the implementation workflow", async () => {
+  const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+  try {
+    sourceRuntime.beforeResolveSnapshot = async () => { sourceRuntime.state.operationActive = true; };
+    await assertContinuationRefused(harness, sourceId, /source run is busy/u);
+  } finally {
+    sourceRuntime.beforeResolveSnapshot = undefined;
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation revalidates source selection after resolving the implementation workflow", async () => {
+  const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+  try {
+    sourceRuntime.beforeResolveSnapshot = async () => {
+      sourceRuntime.beforeResolveSnapshot = undefined;
+      sourceRuntime.state.selectedPipelineId = "another-review";
+      await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+    };
+    await assertContinuationRefused(harness, sourceId, /workflow, or result changed/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation refuses a delayed action from an earlier completed attempt", async () => {
+  const { harness, sourceId } = await continuationResultHarness();
+  try {
+    const previous = continuationMessage(harness, sourceId);
+    await harness.manager.runConversation(sourceId, "Review the next cancellation attempt");
+    const current = continuationMessage(harness, sourceId);
+    assert.notEqual(current.resultVersion, previous.resultVersion);
+    const before = harness.manager.getState().conversations.length;
+    await assert.rejects(harness.manager.handleMessage(previous), /displayed result changed/u);
+    assert.equal(harness.manager.getState().conversations.length, before);
+    await harness.manager.handleMessage(current);
+    assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("continuation versions survive identical snapshots and expire when the assessment changes", async () => {
+  const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+  try {
+    const previous = continuationMessage(harness, sourceId);
+    await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+    assert.equal(continuationMessage(harness, sourceId).resultVersion, previous.resultVersion);
+    sourceRuntime.state.workflowStatus = "error";
+    await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+    assert.notEqual(continuationMessage(harness, sourceId).resultVersion, previous.resultVersion);
+    await assert.rejects(harness.manager.handleMessage(previous), /displayed result changed/u);
+    assert.doesNotMatch(harness.manager.getState().resultsByConversation[sourceId].readableMarkdown,
+      new RegExp(previous.resultVersion, "u"));
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+test("implementation availability is recomputed after a catalog authority change", async () => {
+  const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+  try {
+    const previous = continuationMessage(harness, sourceId);
+    harness.options.pipelineDefinitions["fix-only"] = {
+      ...writeCapableDefinition("fix-only"),
+      managedPolicy: { writeScope: "readOnly" },
+    };
+    await sourceRuntime.options.onPipelineCatalogChanged();
+    await waitFor(() => {
+      const availability = harness.manager.getState().resultsByConversation[sourceId].continuation;
+      return availability.available === false && availability.reason?.startsWith("No available workflow");
+    });
+    assert.notEqual(continuationMessage(harness, sourceId).resultVersion, previous.resultVersion);
+    await assertContinuationRefused(harness, sourceId, /effective write authority/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
+for (const timing of ["before dispatch", "during pipeline resolution"]) {
+  test(`continuation refuses lost workspace ownership ${timing}`, async () => {
+    const controller = new AbortController();
+    let lost = false;
+    let released = false;
+    let releaseCount = 0;
+    const isValid = () => !lost && !released && !controller.signal.aborted;
+    const workspaceLease = {
+      id: "workspace-lease-continuation",
+      resources: [{ key: "workspace-state-writer:continuation", capacity: 1 }],
+      fences: { "workspace-state-writer:continuation": 1 },
+      signal: controller.signal,
+      isValid,
+      assertValid: () => {
+        if (!isValid()) throw new Error("Workspace ownership was lost");
+      },
+      release: async () => {
+        if (released) return;
+        released = true;
+        releaseCount += 1;
+      },
+      quarantine: async () => {
+        lost = true;
+        controller.abort();
+      },
+    };
+    const { harness, sourceId, sourceRuntime } = await continuationResultHarness({ workspaceLease });
+    try {
+      if (timing === "before dispatch") {
+        lost = true;
+        controller.abort();
+        const state = harness.manager.getState();
+        assert.equal(state.readOnly.owned, false);
+        assert.equal(state.resultsByConversation[sourceId].continuation.available, false);
+        assert.match(state.resultsByConversation[sourceId].continuation.reason, /no longer owns/u);
+        await assertContinuationRefused(harness, sourceId, /ownership was lost/u);
+      } else {
+        sourceRuntime.beforeResolveSnapshot = async () => { lost = true; };
+        await assertContinuationRefused(harness, sourceId, /no longer owns/u);
+      }
+      assert.equal(workspaceLease.isValid(), false);
+      assert.throws(workspaceLease.assertValid, /ownership was lost/u);
+    } finally {
+      sourceRuntime.beforeResolveSnapshot = undefined;
+      await assert.doesNotReject(disposeContinuationHarness(harness));
+      assert.equal(releaseCount, 0, "the manager released its caller-owned workspace lease");
+      await workspaceLease.release();
+      assert.equal(releaseCount, 1);
+      assert.equal(workspaceLease.isValid(), false);
+      assert.equal(harness.outputLines.some((line) => /isValid.*not a function|cleanup was not fully confirmed/u.test(line)), false);
+    }
+  });
+}
+
+for (const status of ["completed", "interrupted", "error"]) {
+  test(`a ${status} source with meaningful result material can prepare implementation without changing its assessment`, async () => {
+    const { harness, sourceId, sourceRuntime } = await continuationResultHarness();
+    try {
+      sourceRuntime.state.workflowStatus = status;
+      await sourceRuntime.emit({ type: "state.snapshot", state: sourceRuntime.runtime.getState() });
+      const result = harness.manager.getState().resultsByConversation[sourceId];
+      assert.equal(result.status, status);
+      if (status === "completed") assert.equal(result.finalAssessment.outcome, "inconclusive");
+      assert.equal(result.continuation.available, true);
+      await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+      const current = harness.manager.getState();
+      const draft = current.conversations.find((conversation) => conversation.id === current.activeConversationId);
+      assert.ok(draft.preparedDraft.includes(result.readableMarkdown));
+      assert.equal(draft.running, false);
+      assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0);
+      if (status !== "completed") assert.match(draft.preparedDraft, /stopped run/u);
+    } finally {
+      await disposeContinuationHarness(harness);
+    }
+  });
+}
+
+test("continuation protocol rejects empty source IDs and unrecognized execution controls", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    await assert.rejects(harness.manager.handleMessage({ type: "conversation.continueFromResult", conversationId: " ", resultVersion: "source-version" }), /Invalid conversation message/u);
+    await assert.rejects(harness.manager.handleMessage({ type: "conversation.continueFromResult", conversationId: harness.manager.getState().activeConversationId }), /Invalid conversation message/u);
+    await assert.rejects(harness.manager.handleMessage({ type: "conversation.continueFromResult", conversationId: harness.manager.getState().activeConversationId, resultVersion: "source-version", execute: true }), /Invalid conversation message/u);
+  } finally {
+    await disposeContinuationHarness(harness);
+  }
+});
+
 test("direction stays identical when the human selects a different run tab", async () => {
   const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-tabbound-"));
   const harness = loadHarness(undefined, {
@@ -6618,7 +7068,7 @@ test("a linked worktree shares the initiative of its main worktree", async () =>
     { cwd: repository },
   );
   const linked = path.join(base, "linked");
-  execFileSync("git", ["worktree", "add", "--quiet", "-b", "linked-branch", linked], { cwd: repository });
+  execFileSync("git", ["worktree", "add", "-b", "linked-branch", linked], { cwd: repository });
 
   const harness = loadHarness(undefined, { workingDirectory: repository });
   try {
@@ -8400,5 +8850,344 @@ test("localized inconclusive apply confirmation preserves its explicit override 
     harness.runtimeInstances.forEach((instance) => instance.run.resolve());
     harness.subscription.dispose();
     await harness.manager.dispose();
+  }
+});
+
+for (const [field, place] of resultHandoffPlacements) {
+  test(`continuation excludes ${field} material from the complete prepared draft before any execution`, async () => {
+    const sourceMaterial = resultHandoffFixture();
+    const digest = "b7".repeat(32);
+    const session = "session-7Gr3Tm9Qa2Zv5Jk8Lp4Wx6Bn";
+    const version = "a497c55b-8695-4f70-a2cc-4a0fb736b917";
+    place(sourceMaterial, `Review [generated material](nested/%64ist/out.js), package-lock.json, node_modules/library.js and extension.vsix.\n\n\`\`\`text\nEXCLUDED_PAYLOAD ${digest} ${session} ${version}\n\`\`\``);
+    const before = structuredClone(sourceMaterial);
+    const { harness, sourceId } = await continuationResultHarness({
+      resultProjection: (result) => ({ ...result, ...structuredClone(sourceMaterial) }),
+    });
+    try {
+      const shown = harness.manager.getState().resultsByConversation[sourceId];
+      assert.equal(shown.continuation.available, true);
+      const calls = harness.runtimeInstances.reduce((sum, instance) => sum + instance.pipelineCalls.length, 0);
+      await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+      const state = harness.manager.getState();
+      const draft = state.conversations.find((item) => item.id === state.activeConversationId);
+      assert.equal(draft.selectedPipelineId, "fix-only");
+      assert.equal(draft.workflowStatus, "idle");
+      assert.equal(draft.running, false);
+      assert.equal(draft.input, undefined);
+      assert.match(draft.preparedDraft, /Unresolved findings require confirmation before edits/u);
+      assert.match(draft.preparedDraft, /withheld/u);
+      assert.doesNotMatch(draft.preparedDraft, /EXCLUDED_PAYLOAD|package-lock|node_modules|extension\.vsix|%64ist|dist\/out/u);
+      for (const hidden of [digest, session, version, shown.continuation.resultVersion]) {
+        assert.ok(!draft.preparedDraft.includes(hidden));
+      }
+      assert.equal(harness.runtimeInstances.reduce((sum, instance) => sum + instance.pipelineCalls.length, 0), calls);
+      const draftRuntime = harness.runtimeInstances.at(-1);
+      assert.equal(draftRuntime.pipelineCalls.length, 0);
+      assert.equal(draftRuntime.resumeCalls.length, 0);
+      assert.equal(draftRuntime.restartCalls.length, 0);
+      assert.equal(draftRuntime.messages.some((message) => ["pipeline.run", "message.send", "workflow.resume", "workflow.restart"].includes(message.type)), false);
+      const after = state.resultsByConversation[sourceId];
+      for (const key of ["finalAssessment", "finalRuling", "finalDecision", "findings", "checks", "changedFiles", "unresolvedRisks", "evidenceGaps", "failure"]) {
+        assert.deepEqual(after[key], shown[key]);
+      }
+      assert.deepEqual(sourceMaterial, before);
+    } finally {
+      await disposeContinuationHarness(harness);
+    }
+  });
+}
+
+for (const assignee of ["worker", "reviewer"]) {
+  test(`continuation evaluates the deterministic ${assignee} assignment before offering a draft`, async () => {
+    const pipeline = writeCapableDefinition("fix-only");
+    pipeline.agents = [
+      { id: "worker", name: "Implementation worker", adapter: "codex-app-server", permissionMode: "workspaceWrite" },
+      { id: "reviewer", name: "Planner and reviewer", adapter: "claude-code", permissionMode: "plan" },
+    ];
+    pipeline.roles = [{ id: "implementer", name: "Implementer", instructions: "Confirm findings and edit source", candidateAgentIds: ["reviewer", "worker"] }];
+    const step = pipeline.steps[0];
+    pipeline.steps = [
+      { ...step, id: "plan", name: "Plan", participants: ["reviewer"] },
+      { id: "assign", name: "Assign implementation", type: "assignRoles", enabled: true, humanGate: "none", roleAssignments: [{ role: "implementer", agentId: assignee }] },
+      { ...step, participants: ["implementer"] },
+      { ...step, id: "review", name: "Review", participants: ["reviewer"] },
+    ];
+    const { harness, sourceId } = await continuationResultHarness({ pipelineDefinitions: { "fix-only": pipeline } });
+    try {
+      const result = harness.manager.getState().resultsByConversation[sourceId];
+      assert.equal(result.continuation.available, assignee === "worker");
+      if (assignee === "reviewer") {
+        await assertContinuationRefused(harness, sourceId, /effective write authority/u);
+      } else {
+        await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+        const state = harness.manager.getState();
+        const draft = state.conversations.find((item) => item.id === state.activeConversationId);
+        assert.equal(draft.selectedPipelineId, "fix-only");
+        assert.equal(draft.workflowStatus, "idle");
+        assert.equal(draft.running, false);
+        assert.equal(draft.input, undefined);
+        assert.match(draft.preparedDraft, /Cancellation guard/u);
+        assert.match(draft.preparedDraft, /Unresolved findings require confirmation before edits/u);
+        assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0);
+      }
+    } finally {
+      await disposeContinuationHarness(harness);
+    }
+  });
+}
+
+const persistedTerminalResultOf = (harness, conversationId) => {
+  const database = new DatabaseSync(path.join(harness.storageRoot, "bachata-state.sqlite"), { readOnly: true });
+  try {
+    const row = database.prepare("SELECT result_json FROM runs WHERE run_ref = ?")
+      .get(summaryOf(harness, conversationId).runRef);
+    assert.equal(typeof row?.result_json, "string");
+    const value = JSON.parse(row.result_json);
+    const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
+    assert.ok(Buffer.byteLength(row.result_json, "utf8") <= RESULT_TEXT_LIMITS.catalogJsonBytes);
+    assert.ok(Buffer.byteLength(JSON.stringify(value), "utf8") <= RESULT_TEXT_LIMITS.catalogJsonBytes);
+    return { json: row.result_json, value };
+  } finally {
+    database.close();
+  }
+};
+
+test("bounded implementation drafts are identical during creation persistence serialization and manager reload", async () => {
+  const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
+  const { largeResultHandoffFixture } = require("./fixtures/resultHandoff.cjs");
+  const source = largeResultHandoffFixture();
+  const before = structuredClone(source);
+  const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-bounded-result-draft-"));
+  const workspaceState = new Map();
+  const { harness, sourceId } = await continuationResultHarness({
+    storageRoot,
+    workspaceState,
+    removeStorageOnDispose: false,
+    resultProjection: (result) => ({ ...result, ...structuredClone(source) }),
+  });
+  let draftId;
+  let preparedDraft;
+  let persistedResult;
+  let readableMarkdown;
+  try {
+    const result = harness.manager.getState().resultsByConversation[sourceId];
+    readableMarkdown = result.readableMarkdown;
+    assert.ok(result.readableMarkdown.length <= RESULT_TEXT_LIMITS.readableMarkdownUnits);
+    await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+    const state = harness.manager.getState();
+    draftId = state.activeConversationId;
+    const created = state.conversations.find((item) => item.id === draftId);
+    preparedDraft = created.preparedDraft;
+    assert.ok(preparedDraft.length <= RESULT_TEXT_LIMITS.preparedDraftUnits);
+    assert.doesNotMatch(preparedDraft, /[\r\0]/u);
+    assert.ok(preparedDraft.includes("Review the current source.\nKeep the evidence readable.\uFFFD"));
+    assert.match(preparedDraft, /omitt|not shown|withheld/iu);
+    assert.match(preparedDraft, /Unresolved findings require confirmation before edits/u);
+    assert.equal(created.workflowStatus, "idle");
+    assert.equal(created.running, false);
+    assert.equal(created.input, undefined);
+    assert.equal(harness.runtimeInstances.at(-1).pipelineCalls.length, 0);
+    assert.equal(JSON.parse(JSON.stringify(created)).preparedDraft, preparedDraft);
+    await waitFor(() => persistedSummaryOf(harness, draftId)?.preparedDraft === preparedDraft);
+    for (const message of harness.posted.filter((entry) => entry.type === "manager.snapshot")) {
+      const draft = message.state.conversations.find((item) => item.id === draftId);
+      if (draft) assert.equal(draft.preparedDraft, preparedDraft);
+      for (const snapshotResult of Object.values(message.state.resultsByConversation ?? {})) {
+        assert.ok((snapshotResult.readableMarkdown?.length ?? 0) <= RESULT_TEXT_LIMITS.readableMarkdownUnits);
+      }
+    }
+    await harness.manager.handleMessage({ type: "conversation.saveDraft", conversationId: draftId, text: preparedDraft });
+    assert.equal(summaryOf(harness, draftId).preparedDraft, preparedDraft);
+    persistedResult = persistedTerminalResultOf(harness, sourceId);
+    assert.equal(persistedResult.value.executionRef, result.executionRef);
+    assert.equal(persistedResult.value.finalDecisionEventId, result.finalDecisionEventId);
+    assert.equal(persistedResult.value.persistence.omitted, true);
+    assert.match(persistedResult.value.evidenceGaps.join("\n"), /omitt/iu);
+    assert.deepEqual(source, before);
+  } finally {
+    await assert.doesNotReject(disposeContinuationHarness(harness));
+  }
+  assert.equal(persistedTerminalResultOf(harness, sourceId).json, persistedResult.json);
+  const reloaded = loadHarness(undefined, { storageRoot, workspaceState, removeStorageOnDispose: true });
+  try {
+    await reloaded.manager.handleMessage({ type: "manager.ready" });
+    const restored = summaryOf(reloaded, draftId);
+    assert.equal(restored.preparedDraft, preparedDraft);
+    assert.equal(JSON.parse(JSON.stringify(restored)).preparedDraft, preparedDraft);
+    assert.equal(restored.workflowStatus, "idle");
+    assert.equal(restored.running, false);
+    assert.equal(restored.input, undefined);
+    assert.equal(reloaded.runtimeInstances.reduce((sum, instance) => sum + instance.pipelineCalls.length, 0), 0);
+    const { boundedTerminalResult } = require("../dist/results/persistedResult.js");
+    const restoredResult = reloaded.manager.getState().resultsByConversation[sourceId];
+    assert.deepEqual(boundedTerminalResult(restoredResult), persistedResult.value);
+    assert.equal(restoredResult.readableMarkdown, readableMarkdown);
+    assert.equal(persistedTerminalResultOf(reloaded, sourceId).json, persistedResult.json);
+  } finally {
+    await assert.doesNotReject(disposeContinuationHarness(reloaded));
+  }
+});
+
+test("large multibyte and escaped terminal results survive restart disposal and repeated manager reload", async () => {
+  const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
+  const { boundedTerminalResult } = require("../dist/results/persistedResult.js");
+  const { largeResultHandoffFixture } = require("./fixtures/resultHandoff.cjs");
+  const source = largeResultHandoffFixture();
+  const escaped = 'งานตรวจสอบ 😀 "quoted" \\ \t\n\u0001\b'.repeat(48);
+  const hiddenDigest = "a1b2c3d4";
+  const ordinary = "The lead can review the session reference file evidence; cafe remains readable.";
+  const expectedAssessment = `${escaped}\n${ordinary} Recorded material [internal identifier omitted].`;
+  source.finalAssessment.summary = `${escaped}\n${ordinary} Recorded material ${hiddenDigest}.`;
+  source.finalDecision.candidate = { digest: hiddenDigest, summary: `Review ${hiddenDigest}.`, evidence: Array.from({ length: RESULT_TEXT_LIMITS.maximumSectionEntries + 1 }, () => "Recorded candidate evidence") };
+  source.finalAssessment.failure = { error: escaped, step: "Review" };
+  source.failure = structuredClone(source.finalAssessment.failure);
+  source.finalRuling = `Review the recorded failure. ${escaped}`;
+  source.findings[0].disposition = "accepted";
+  source.findings[0].provenance = { source: "pipelineDecision", stepId: "review", decisionStatus: "accepted", participantIds: ["lead", "reviewer"] };
+  source.findings[0].message = escaped;
+  source.findings[1].message = escaped;
+  source.checks[0].command = `node scripts/verify.cjs "${escaped}"`;
+  source.unresolvedRisks[0] = escaped;
+  source.unresolvedRisks[1] = ordinary;
+  source.evidenceGaps[0] = escaped;
+  const before = structuredClone(source);
+  assert.ok(Buffer.byteLength(JSON.stringify(source), "utf8") > RESULT_TEXT_LIMITS.catalogJsonBytes);
+  const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-terminal-restart-"));
+  const workspaceState = new Map();
+  let harness = loadHarness(undefined, {
+    storageRoot,
+    workspaceState,
+    removeStorageOnDispose: false,
+    pipelineDefinitions: {
+      "cross-reference-development": {
+        ...readOnlyReviewDefinition("cross-reference-development"),
+        longitudinalIntent: "runLocal",
+      },
+    },
+    resultProjection: (result) => ({ ...result, ...structuredClone(source), status: result.status }),
+  });
+  let sourceId;
+  const readEvents = () => {
+    const database = new DatabaseSync(path.join(storageRoot, "bachata-state.sqlite"), { readOnly: true });
+    try {
+      return database.prepare("SELECT id, type, payload_json FROM events WHERE run_ref = ? ORDER BY id")
+        .all(summaryOf(harness, sourceId).runRef);
+    } finally {
+      database.close();
+    }
+  };
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    sourceId = harness.manager.getState().activeConversationId;
+    const runtime = harness.runtimeInstances[0];
+    runtime.pipelineResults.push({ status: "interrupted", answers: {}, outputs: {}, decisions: [], roles: {} });
+    await harness.manager.runConversation(sourceId, "Review the multilingual failure and retry safely");
+    await harness.manager.handleMessage({ type: "conversation.saveDraft", conversationId: sourceId, text: "" });
+    const interrupted = persistedTerminalResultOf(harness, sourceId);
+    assert.equal(interrupted.value.status, "interrupted");
+    assert.equal(typeof interrupted.value.executionRef, "string");
+    assert.equal(interrupted.value.finalAssessment.summary, expectedAssessment);
+    assert.equal(interrupted.value.failure.error, escaped);
+    assert.equal(interrupted.value.finalAssessment.failure.error, escaped);
+    assert.equal(interrupted.value.finalRuling, source.finalRuling);
+    assert.equal(interrupted.value.finalDecision.status, "pending");
+    assert.equal(typeof interrupted.value.finalDecision.candidate, "string");
+    assert.match(interrupted.value.finalDecision.candidate, /omitted/u);
+    assert.doesNotMatch(interrupted.value.finalAssessment.summary, new RegExp(hiddenDigest, "u"));
+    assert.deepEqual(interrupted.value.findings.slice(0, 2).map((finding) => finding.disposition), ["accepted", "unresolved"]);
+    assert.equal(interrupted.value.checks[0].command, source.checks[0].command);
+    assert.equal(interrupted.value.unresolvedRisks[0], escaped);
+    assert.equal(interrupted.value.evidenceGaps[0], escaped);
+    assert.deepEqual(interrupted.value.expectations, source.expectations);
+    assert.equal(interrupted.value.persistence.omitted, true);
+    const originalEvents = readEvents();
+    assert.ok(originalEvents.length > 0);
+
+    await harness.manager.handleMessage({
+      type: "conversation.runtime",
+      conversationId: sourceId,
+      message: { type: "workflow.restart" },
+    });
+    assert.equal(runtime.restartCalls.length, 1);
+    assert.equal(runtime.restartCalls[0].recovery.userPrompt, "Review the multilingual failure and retry safely");
+    await harness.manager.handleMessage({ type: "conversation.saveDraft", conversationId: sourceId, text: "" });
+    const restarted = persistedTerminalResultOf(harness, sourceId);
+    assert.equal(restarted.value.status, "completed");
+    assert.equal(typeof restarted.value.executionRef, "string");
+    assert.notEqual(restarted.value.executionRef, interrupted.value.executionRef);
+    const recordedEvents = readEvents();
+    assert.deepEqual(recordedEvents.filter((event) => originalEvents.some((original) => original.id === event.id)), originalEvents);
+    assert.equal(recordedEvents.filter((event) => event.type === "run.restarted").length, 1);
+    const markdown = harness.manager.getState().resultsByConversation[sourceId].readableMarkdown;
+    await assert.doesNotReject(disposeContinuationHarness(harness));
+    assert.equal(persistedTerminalResultOf(harness, sourceId).json, restarted.json);
+
+    for (let reload = 0; reload < 2; reload += 1) {
+      let restoreSourceRuntime = true;
+      harness = loadHarness(undefined, {
+        storageRoot,
+        workspaceState,
+        removeStorageOnDispose: false,
+        configurationValues: { fixPipelineId: "fix-only" },
+        pipelineDefinitions: { "fix-only": writeCapableDefinition("fix-only") },
+        onRuntimeCreated: (instance) => {
+          if (restoreSourceRuntime) {
+            instance.state.workflowStatus = restarted.value.status;
+            restoreSourceRuntime = false;
+          }
+        },
+      });
+      await harness.manager.handleMessage({ type: "manager.ready" });
+      const restored = harness.manager.getState().resultsByConversation[sourceId];
+      assert.deepEqual(boundedTerminalResult(restored), restarted.value);
+      assert.equal(restored.readableMarkdown, markdown);
+      assert.equal(persistedTerminalResultOf(harness, sourceId).json, restarted.json);
+      assert.deepEqual(readEvents(), recordedEvents);
+      await waitFor(() => harness.manager.getState().resultsByConversation[sourceId].continuation.available);
+      await harness.manager.handleMessage(continuationMessage(harness, sourceId));
+      const draft = summaryOf(harness, harness.manager.getState().activeConversationId);
+      assert.equal(draft.workflowStatus, "idle");
+      assert.equal(draft.running, false);
+      assert.equal(draft.selectedPipelineId, "fix-only");
+      assert.ok(draft.preparedDraft.includes(ordinary));
+      assert.doesNotMatch(draft.preparedDraft, new RegExp(hiddenDigest, "u"));
+      assert.ok(draft.preparedDraft.length <= RESULT_TEXT_LIMITS.preparedDraftUnits);
+      await harness.manager.handleMessage({ type: "conversation.select", conversationId: sourceId });
+      assert.equal(harness.runtimeInstances.reduce((sum, instance) => sum + instance.pipelineCalls.length + instance.restartCalls.length, 0), 0);
+      await assert.doesNotReject(disposeContinuationHarness(harness));
+      assert.equal(persistedTerminalResultOf(harness, sourceId).json, restarted.json);
+    }
+    assert.deepEqual(source, before);
+  } finally {
+    await assert.doesNotReject(disposeContinuationHarness(harness));
+    rmSync(storageRoot, { recursive: true, force: true });
+  }
+});
+
+test("the draft boundary preserves a final surrogate pair and rejects every oversized mutation before state changes", async () => {
+  const { RESULT_TEXT_LIMITS } = require("../dist/results/textLimits.js");
+  const limit = RESULT_TEXT_LIMITS.preparedDraftUnits;
+  const boundary = `${"x".repeat(limit - 2)}😀`;
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const created = await harness.manager.createConversation({ preparedDraft: boundary });
+    assert.equal(created.preparedDraft, boundary);
+    assert.equal(created.preparedDraft.length, limit);
+    await harness.manager.handleMessage({ type: "conversation.saveDraft", conversationId: created.id, text: boundary });
+    assert.equal(summaryOf(harness, created.id).preparedDraft, boundary);
+    const conversations = harness.manager.getState().conversations.length;
+    const runtimes = harness.runtimeInstances.length;
+    const oversized = `${boundary}x`;
+    await assert.rejects(harness.manager.createConversation({ preparedDraft: oversized }), /draft exceeds.*character limit/u);
+    await assert.rejects(harness.manager.handleMessage({ type: "conversation.saveDraft", conversationId: created.id, text: oversized }), /draft exceeds.*character limit/u);
+    await assert.rejects(harness.manager.adoptIdleConversation(created.id, oversized, "Oversized"), /draft exceeds.*character limit/u);
+    assert.equal(harness.manager.getState().conversations.length, conversations);
+    assert.equal(harness.runtimeInstances.length, runtimes);
+    assert.equal(summaryOf(harness, created.id).preparedDraft, boundary);
+    await waitFor(() => persistedSummaryOf(harness, created.id)?.preparedDraft === boundary);
+  } finally {
+    await disposeContinuationHarness(harness);
   }
 });

@@ -30,6 +30,7 @@ const READ_ONLY_SAFE_ACTIONS = new Set([
   "composer-settings-toggle",
   "advanced-mode-open",
   "copy-code",
+  "result-copy",
   "message-details",
   "jump-message",
   "jump-latest",

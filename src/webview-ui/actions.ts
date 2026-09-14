@@ -439,6 +439,39 @@ root.addEventListener("click", (event) => {
       conversationId: target.dataset.conversation,
       format,
     });
+  } else if (action === "result-copy" && target.dataset.conversation) {
+    const conversationId = target.dataset.conversation;
+    if (conversationId !== activeId() || !conversationById(conversationId)) {
+      announceStatus(localize("This result is no longer selected. Open its run again."));
+      return;
+    }
+    const text = copyableResultText(state.manager.resultsByConversation?.[conversationId]);
+    if (!text) {
+      announceStatus(localize("This run has no readable result to copy."));
+      return;
+    }
+    void Promise.resolve().then(() => {
+      if (typeof navigator.clipboard?.writeText !== "function") throw new Error("Clipboard unavailable");
+      return navigator.clipboard.writeText(text);
+    }).then(() => {
+      target.textContent = localize("Copied");
+      announceStatus(localize("Run result copied to the clipboard."));
+      setTimeout(() => { target.textContent = localize("Copy result"); }, 1200);
+    }, () => {
+      announceStatus(localize("Copying the run result failed."));
+    });
+  } else if (action === "result-continue" && target.dataset.conversation) {
+    const resultVersion = target.dataset.resultVersion ?? "";
+    const refusal = resultContinuationRefusal(target.dataset.conversation, resultVersion);
+    if (refusal) {
+      announceStatus(refusal);
+      return;
+    }
+    vscode.postMessage({
+      type: "conversation.continueFromResult",
+      conversationId: target.dataset.conversation,
+      resultVersion,
+    });
   } else if (action === "result-hunks-clear" && target.dataset.conversation) {
     resultSelection(target.dataset.conversation, target.dataset.runId).hunks.clear();
     scheduleRender();

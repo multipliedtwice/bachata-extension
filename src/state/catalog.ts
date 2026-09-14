@@ -30,6 +30,8 @@ import {
   type RunRecheckRecord,
   type RunResultCenter,
 } from "../results/projectResult";
+import { boundedTerminalResult } from "../results/persistedResult";
+import { RESULT_TEXT_LIMITS } from "../results/textLimits";
 
 export type RunCatalogStatus =
   | "draft"
@@ -332,7 +334,7 @@ export type StateCatalog = {
   nextDeadlineAt: () => string | undefined;
 };
 
-const maxJsonBytes = 262_144;
+const maxJsonBytes = RESULT_TEXT_LIMITS.catalogJsonBytes;
 
 const json = (value: unknown): string => {
   const serialized = JSON.stringify(value ?? null);
@@ -961,7 +963,7 @@ export const createStateCatalog = (
         input.iterationCount ?? 1,
         input.workingRoot ?? null,
         input.preparedDraft ?? null,
-        input.terminalResult ? json(input.terminalResult) : null,
+        input.terminalResult ? json(boundedTerminalResult(input.terminalResult)) : null,
         input.latestRecheck ? json(input.latestRecheck) : null,
         input.parentConversationId ?? null,
         input.orchestrationRunId ?? null,
@@ -1031,7 +1033,7 @@ export const createStateCatalog = (
       run.activeIteration,
       run.workingRoot ?? null,
       run.preparedDraft ?? null,
-      run.terminalResult ? json(run.terminalResult) : null,
+      run.terminalResult ? json(boundedTerminalResult(run.terminalResult)) : null,
       run.latestRecheck ? json(run.latestRecheck) : null,
       run.parentConversationId ?? null,
       run.orchestrationRunId ?? null,

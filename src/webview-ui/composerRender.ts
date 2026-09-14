@@ -616,7 +616,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   return `<footer class="composer">
     <div class="composer-surface">
       ${attachmentStripHtml(panel, draft)}
-      <textarea id="composer-prompt" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(localize("Describe the job for the selected pipeline…"))}">${escapeHtml(draft.prompt)}</textarea>
+      <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(localize("Describe the job for the selected pipeline…"))}">${escapeHtml(draft.prompt)}</textarea>
       <div class="composer-toolbar">
         <button data-action="attachment-pick" class="icon-button" aria-label="${escapeAttribute(localize("Attach image, text, log, or specification"))}" title="${escapeAttribute(localize("Attach image, text, log, or specification"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>

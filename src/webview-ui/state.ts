@@ -604,13 +604,17 @@ const persistedDrafts = (): Record<string, string> => {
 
 const rememberDraftLocally = (conversationId: string, text: string): void => {
   if (!vscode.setState) return;
+  if (text.length > BACHATA_TEXT_LIMITS.preparedDraftUnits) {
+    announceStatus(localize("The draft exceeds the {0} character limit. Shorten it before saving.", String(BACHATA_TEXT_LIMITS.preparedDraftUnits)));
+    return;
+  }
   const drafts = persistedDrafts();
   if (text.trim().length === 0) {
     if (!(conversationId in drafts)) return;
     delete drafts[conversationId];
   } else {
     if (drafts[conversationId] === text) return;
-    drafts[conversationId] = text.slice(0, 131_072);
+    drafts[conversationId] = text;
   }
   vscode.setState({ ...vscode.getState?.(), drafts });
 };
@@ -744,6 +748,10 @@ const flushDraftSave = (): void => {
 
 const scheduleDraftSave = (conversationId: string, text: string): void => {
   rememberDraftLocally(conversationId, text);
+  if (text.length > BACHATA_TEXT_LIMITS.preparedDraftUnits) {
+    if (pendingDraftSave?.conversationId === conversationId) pendingDraftSave = undefined;
+    return;
+  }
   if (pendingDraftSave && pendingDraftSave.conversationId !== conversationId) {
     flushDraftSave();
   }

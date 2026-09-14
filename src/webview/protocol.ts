@@ -122,6 +122,7 @@ export type TranscriptEntry = {
   id: string;
   kind: "prompt" | "answer" | "interrupted" | "status" | "error" | "event";
   agentId?: AgentId | undefined;
+  stepId?: string | undefined;
   step?: string | undefined;
   text: string;
   createdAt: string;
@@ -501,6 +502,7 @@ export type ConversationManagerToExtensionMessage =
   | { type: "manager.ready" }
   | { type: "workspace.ownership" }
   | { type: "conversation.create" }
+  | { type: "conversation.continueFromResult"; conversationId: string; resultVersion: string }
   | { type: "conversation.duplicate"; conversationId: string }
   | { type: "conversation.archive"; conversationId: string; archived: boolean }
   | { type: "conversation.select"; conversationId: string }
@@ -900,6 +902,9 @@ export const parseTranscriptEntry = (
     text: value.text,
     createdAt: value.createdAt,
     ...(agentId ? { agentId } : {}),
+    ...(typeof value.stepId === "string" && value.stepId.trim().length > 0
+      ? { stepId: value.stepId }
+      : {}),
     ...(typeof value.step === "string" ? { step: value.step } : {}),
     ...(typeof value.eventType === "string"
       ? { eventType: value.eventType }

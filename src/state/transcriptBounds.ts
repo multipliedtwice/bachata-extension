@@ -61,6 +61,9 @@ export const boundedTranscriptEntry = (entry: TranscriptEntry): TranscriptEntry 
     ...(typeof entry.step !== "string" || entry.step.length === 0
       ? {}
       : { step: boundedRedactedText(entry.step, TRANSCRIPT_STEP_BYTES, { structured: true }) }),
+    ...(typeof entry.stepId !== "string" || entry.stepId.length === 0
+      ? {}
+      : { stepId: boundedRedactedText(entry.stepId, TRANSCRIPT_STEP_BYTES, { structured: true }) }),
     ...(typeof entry.eventType !== "string" || entry.eventType.length === 0
       ? {}
       : { eventType: boundedRedactedText(entry.eventType, TRANSCRIPT_EVENT_TYPE_BYTES, { structured: true }) }),
@@ -77,6 +80,7 @@ export const transcriptEntryBytes = (entry: TranscriptEntry): number =>
     createdAt: entry.createdAt,
     ...(entry.agentId === undefined ? {} : { agentId: entry.agentId }),
     ...(entry.step === undefined ? {} : { step: entry.step }),
+    ...(entry.stepId === undefined ? {} : { stepId: entry.stepId }),
     ...(entry.eventType === undefined ? {} : { eventType: entry.eventType }),
     ...(entry.data === undefined ? {} : { data: entry.data }),
   });

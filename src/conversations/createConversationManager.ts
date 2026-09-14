@@ -9,6 +9,11 @@ import {
   DEFAULT_CONVERSATION_ID,
 } from "../state/localData";
 import { normalizeConversationTree } from "./conversationTree";
+import { pipelineImplementationRefusal } from "./resultContinuation";
+import { readableResultMarkdown } from "../results/readableResult";
+import { implementationDraftFromResult } from "../results/implementationHandoff";
+import { boundedTerminalResult } from "../results/persistedResult";
+import { assertPreparedDraftSize, RESULT_TEXT_LIMITS } from "../results/textLimits";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -645,7 +650,7 @@ const parseSummary = (value: unknown): ConversationSummary | undefined => {
     title: value.title.trim().slice(0, 120) || "New conversation",
     input: typeof value.input === "string" ? value.input : undefined,
     preparedDraft:
-      typeof value.preparedDraft === "string" && value.preparedDraft.length <= 131_072
+      typeof value.preparedDraft === "string" && value.preparedDraft.length <= RESULT_TEXT_LIMITS.preparedDraftUnits
         ? value.preparedDraft
         : undefined,
     iterationCount:
@@ -911,6 +916,16 @@ const parseManagerMessage = (
     };
   }
   if (
+    value.type === "conversation.continueFromResult" &&
+    typeof value.conversationId === "string" &&
+    value.conversationId.trim().length > 0 &&
+    typeof value.resultVersion === "string" &&
+    value.resultVersion.trim().length > 0 &&
+    Object.keys(value).every((key) => key === "type" || key === "conversationId" || key === "resultVersion")
+  ) {
+    return { type: value.type, conversationId: value.conversationId, resultVersion: value.resultVersion };
+  }
+  if (
     (value.type === "conversation.select" ||
       value.type === "conversation.close" ||
       value.type === "conversation.duplicate" ||
@@ -926,10 +941,11 @@ const parseManagerMessage = (
     typeof value.conversationId === "string" &&
     typeof value.text === "string"
   ) {
+    assertPreparedDraftSize(value.text);
     return {
       type: value.type,
       conversationId: value.conversationId,
-      text: value.text.slice(0, 131_072),
+      text: value.text,
     };
   }
   if (
@@ -1483,6 +1499,14 @@ export const createConversationManager = (
   });
 
   const terminalResults = new Map<string, RunResultCenter>();
+  const readableResults = new WeakMap<RunResultCenter, string>();
+  const readableResultText = (result: RunResultCenter): string => {
+    const cached = readableResults.get(result);
+    if (cached !== undefined) return cached;
+    const text = readableResultMarkdown(result);
+    readableResults.set(result, text);
+    return text;
+  };
   const latestRechecks = new Map<string, RunRecheckRecord>();
 
   const summaryFromCatalog = (run: RunCatalogRecord): ConversationSummary =>
@@ -1645,6 +1669,7 @@ export const createConversationManager = (
   const notifyPipelineCatalogChanged = async (
     change?: PipelineCatalogChange,
   ): Promise<void> => {
+    continuationPipelineGeneration += 1;
     const results = await Promise.allSettled(
       Array.from(runtimes.values(), (slot) => {
         const refresh = (slot.runtime as Runtime & {
@@ -1656,6 +1681,7 @@ export const createConversationManager = (
     catalogRefreshFailureMessages(results).forEach((message) => {
       output.appendLine(message);
     });
+    if (!disposed) emitSnapshot();
   };
   const pipelineCatalogWatchers: vscode.Disposable[] = [];
   let pipelineCatalogRefreshTimer: NodeJS.Timeout | undefined;
@@ -1801,6 +1827,12 @@ export const createConversationManager = (
   let persistQueue = Promise.resolve();
   let mutationQueue = Promise.resolve();
   let disposed = false;
+  let continuationPipelineGeneration = 0;
+  const continuationPipelines = new Map<string, {
+    key: string;
+    availability: { available: boolean; reason?: string };
+  }>();
+  const continuationResultVersions = new Map<string, { key: string; version: string }>();
   let disposeOperation: Promise<void> | undefined;
   let checklistExecutor:
     | ((context: ChecklistExecutionContext) => Promise<ExecuteChecklistResult>)
@@ -2655,6 +2687,16 @@ export const createConversationManager = (
   };
 
   const handleWorkspaceLeaseLost = (): void => {
+    const reason = "This window no longer owns the workspace. Reload the owning window before starting implementation.";
+    state.readOnly = {
+      owned: false,
+      reason,
+      retryCommand: "bachata.ownership",
+    };
+    state.resultsByConversation = Object.fromEntries(Object.entries(state.resultsByConversation).map(([id, result]) => [id, {
+      ...result,
+      continuation: { available: false, reason },
+    }]));
     executionLeaseControllers.forEach((controller) => controller.abort());
     runtimes.forEach((slot) => {
       void slot.runtime.interrupt().catch((error) => {
@@ -2667,6 +2709,7 @@ export const createConversationManager = (
       type: "manager.error",
       message: "This Extension Host lost workspace ownership. Reload the window before continuing.",
     });
+    post({ type: "manager.snapshot", state: structuredClone(state) });
   };
   options.workspaceLease?.signal.addEventListener("abort", handleWorkspaceLeaseLost, { once: true });
 
@@ -2676,9 +2719,10 @@ export const createConversationManager = (
 
   let terminalResultPersistPending = false;
   const rememberTerminalResult = (runRef: string, result: RunResultCenter): void => {
+    const bounded = boundedTerminalResult(result);
     const previous = terminalResults.get(runRef);
-    if (previous && JSON.stringify(previous) === JSON.stringify(result)) return;
-    terminalResults.set(runRef, result);
+    if (previous && JSON.stringify(previous) === JSON.stringify(bounded)) return;
+    terminalResults.set(runRef, bounded);
     if (terminalResultPersistPending) return;
     terminalResultPersistPending = true;
     queueMicrotask(() => {
@@ -2858,7 +2902,8 @@ export const createConversationManager = (
         })(),
       });
       const persisted = terminalResults.get(conversation.runRef);
-      const projected = persisted ? mergeRunResults(persisted, live) : live;
+      const complete = persisted ? mergeRunResults(persisted, live) : live;
+      const projected = boundedTerminalResult(complete);
       const ran = runWasExecuted({
         events,
         provingEventTypes: executionProvingEventTypes,
@@ -2871,7 +2916,7 @@ export const createConversationManager = (
         recordLongitudinalRound(
           conversation,
           executionRef,
-          projected,
+          complete,
           mergeDecisionSources(
             decisionSourceFromDecisionArtifact(recordedDecisionPayload),
             declaredDecisionSource(conversation, selectedDefinition, currentOutputRefs),
@@ -2881,9 +2926,17 @@ export const createConversationManager = (
             events.filter((event) => event.type === "decision.published" &&
               event.id > currentExecutionEventId).map((event) => event.payload)),
         );
-        recordCycleVerification(conversation, projected);
+        recordCycleVerification(conversation, complete);
       }
-      return ran ? [[conversation.id, projected] as const] : [];
+      if (!ran) return [];
+      const readableMarkdown = readableResultText(projected);
+      const presented = {
+        ...projected,
+        readableMarkdown,
+        continuation: continuationAvailability(conversation, projected),
+      };
+      readableResults.set(presented, readableMarkdown);
+      return [[conversation.id, presented] as const];
     }));
   };
 
@@ -4354,11 +4407,14 @@ export const createConversationManager = (
 
   const createConversation = async (
     options: ConversationCreateOptions = {},
+    assertSourceCurrent?: (createdConversationId?: string) => void,
   ): Promise<ConversationSummary> => {
+    assertPreparedDraftSize(options.preparedDraft);
     if (!options.parentConversationId) {
       assertConversationCapacity();
     }
     await ensureCanonicalRepositoryRoot(options.workingDirectory ?? options.pipelineScopeRoot);
+    assertSourceCurrent?.();
     if (options.parentConversationId) {
       const parent = findSummary(options.parentConversationId);
       if (parent.archived) {
@@ -4425,6 +4481,7 @@ export const createConversationManager = (
     state.activeConversationId = summary.id;
     try {
       const slot = await ensureRuntime(summary.id, false);
+      assertSourceCurrent?.(summary.id);
       if (requestedPipelineId || options.pipelineSnapshot || options.workingDirectory) {
         await slot.runtime.configure({
           ...(requestedPipelineId ? { pipelineId: requestedPipelineId } : {}),
@@ -4435,6 +4492,7 @@ export const createConversationManager = (
         });
       }
       const runtimeState = slot.runtime.getState();
+      assertSourceCurrent?.(summary.id);
       setOptionalProperty(summary, "selectedPipelineId", runtimeState.selectedPipelineId);
       setOptionalProperty(summary, "selectedPipelineHash", runtimeState.selectedPipelineHash);
       setOptionalProperty(summary, "pipelineScopeRoot", runtimeState.pipelineScopeRoot);
@@ -4454,7 +4512,9 @@ export const createConversationManager = (
       state.conversations = state.conversations.filter(
         (item) => item.id !== summary.id,
       );
-      state.activeConversationId = previousActiveConversationId;
+      if (state.activeConversationId === summary.id) {
+        state.activeConversationId = previousActiveConversationId;
+      }
       const slot = runtimes.get(summary.id);
       if (slot) {
         slot.proxy?.dispose();
@@ -5515,6 +5575,9 @@ export const createConversationManager = (
         activeConversationRunCompletions.delete(conversationId);
       }
       resolveCompletion();
+      if (!disposed && state.readOnly === undefined && state.resultsByConversation[conversationId] !== undefined) {
+        emitSnapshot();
+      }
     };
   };
 
@@ -5629,20 +5692,112 @@ export const createConversationManager = (
           refusal: `${pipelineId} could not be resolved: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
-      const level = executionSafetyLevel(snapshot.definition);
-      if (level === "review") {
-        return { refusal: `${pipelineId} is read-only, so it cannot implement a fix` };
-      }
+      const refusal = pipelineImplementationRefusal(snapshot.definition);
+      if (refusal !== undefined) return { refusal };
       return { snapshot, refusal: "" };
     };
-    for (const pipelineId of [configured, candidateId, "managed-fix"]) {
+    await ensureInitialized();
+    const slot = await ensureRuntime(conversationId);
+    const catalogIds = slot.runtime.getState().pipelines.map((pipeline) => pipeline.id);
+    for (const pipelineId of new Set([configured, candidateId, "managed-fix", ...catalogIds])) {
       if (pipelineId === undefined || pipelineId.trim().length === 0) continue;
       const attempt = await validate(pipelineId.trim());
       if (attempt.snapshot !== undefined) return attempt.snapshot;
     }
     throw new Error(
-      "Bachata refused this fix: no workflow with write authority could be resolved. Select a fix workflow, or set bachata.fixPipelineId to one.",
+      "No available workflow has an enabled participant with effective write authority. Read-only workflows cannot implement changes. Configure an implementation workflow before starting implementation.",
     );
+  };
+
+  const continuationRefusal = (
+    source: ConversationSummary | undefined,
+    result: RunResultCenter | undefined,
+    activeConversationId = source?.id,
+    createdConversationId?: string,
+  ): string | undefined => {
+    if (state.readOnly !== undefined) return "This window is read-only. Use the window that owns this workspace to start implementation.";
+    try {
+      assertWorkspaceLease();
+    } catch {
+      return "This window no longer owns the workspace. Reload the owning window before starting implementation.";
+    }
+    if (source === undefined) return "The source run no longer exists. Select a current run result.";
+    if (source.archived) return "Archived runs are read-only. Unarchive this run before starting implementation.";
+    if (state.activeConversationId !== activeConversationId) return "The selected run changed. Select the result you want to implement.";
+    const runtimeState = runtimes.get(source.id)?.runtime.getState();
+    if (source.running || source.waitingForResources === true || runtimeIsBusy(source.id) ||
+      runtimeState?.operationActive === true || runtimeState?.pendingGate !== undefined ||
+      (runtimeState?.queuedMessages?.length ?? 0) > 0 ||
+      catalog.listOpenInteractions().some((interaction) => interaction.runRef === source.runRef) ||
+      source.workflowStatus === "running" || source.workflowStatus === "paused") {
+      return "The source run is busy, queued, or awaiting a decision. Wait for it to stop before starting implementation.";
+    }
+    if (result === undefined || readableResultText(result).trim().length === 0) {
+      return "This run has no meaningful result to implement.";
+    }
+    const executionRef = catalog.latestExecutionRef(source.runRef);
+    if (!isTerminalWorkflowStatus(source.workflowStatus) ||
+      (executionRef !== undefined && result.executionRef !== executionRef)) {
+      return "This result is from an earlier attempt. Wait for the current attempt's result before starting implementation.";
+    }
+    const activeCount = state.conversations.filter((conversation) =>
+      conversation.id !== createdConversationId && !conversation.archived && !conversation.parentConversationId).length;
+    if (activeCount >= maximumActiveConversations) {
+      return `Archive or close a conversation before creating more than ${String(maximumActiveConversations)} active runs`;
+    }
+    return undefined;
+  };
+
+  const continuationPipelineKey = (source: ConversationSummary): string => JSON.stringify([
+    source.selectedPipelineId,
+    source.selectedPipelineHash,
+    source.pipelineScopeRoot,
+    source.workingDirectory,
+    configuration.get<string>("fixPipelineId", ""),
+    continuationPipelineGeneration,
+    runtimes.get(source.id)?.runtime.getState().pipelines,
+  ]);
+
+  const continuationAvailability = (
+    source: ConversationSummary,
+    result: RunResultCenter,
+  ): { available: boolean; reason?: string; resultVersion?: string } => {
+    const refusal = continuationRefusal(source, result);
+    if (refusal !== undefined) return { available: false, reason: refusal };
+    const key = continuationPipelineKey(source);
+    const resultKey = JSON.stringify([source.runRef, result.executionRef, result.finalDecisionEventId, readableResultText(result), key]);
+    let version = continuationResultVersions.get(source.id);
+    if (version?.key !== resultKey) {
+      version = { key: resultKey, version: randomUUID() };
+      continuationResultVersions.set(source.id, version);
+    }
+    const resultVersion = version.version;
+    const cached = continuationPipelines.get(source.id);
+    if (cached?.key === key) return { ...cached.availability, resultVersion };
+    const pending = {
+      key,
+      availability: { available: false, reason: "Checking for a workflow with effective write authority." },
+    };
+    continuationPipelines.set(source.id, pending);
+    void scopedFixSnapshot(source.id, source.selectedPipelineId).then(
+      () => ({ available: true }),
+      () => ({
+        available: false,
+        reason: "No available workflow has an enabled participant with effective write authority. Read-only workflows cannot implement changes. Configure an implementation workflow before starting implementation.",
+      }),
+    ).then((availability) => {
+      if (disposed || continuationPipelines.get(source.id) !== pending) return;
+      const current = state.conversations.find((conversation) => conversation.id === source.id);
+      if (current === undefined || continuationPipelineKey(current) !== key) {
+        continuationPipelines.delete(source.id);
+        return;
+      }
+      continuationPipelines.set(source.id, { key, availability });
+      emitSnapshot();
+    }).catch((error: unknown) => {
+      output.appendLine(`Failed to refresh implementation availability: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return { ...pending.availability, resultVersion };
   };
 
   const startScopedFix = async (identity: string): Promise<void> => {
@@ -5713,6 +5868,44 @@ export const createConversationManager = (
     } finally {
       emitSnapshot();
     }
+  };
+
+  const continueFromResult = async (conversationId: string, expectedResultVersion: string): Promise<void> => {
+    refreshCatalogViews();
+    const source = state.conversations.find((conversation) => conversation.id === conversationId);
+    const result = state.resultsByConversation[conversationId];
+    const refusal = continuationRefusal(source, result);
+    if (refusal !== undefined) throw new Error(refusal);
+    if (source === undefined || result === undefined) throw new Error("This run has no meaningful result to implement.");
+    if (result.continuation?.resultVersion !== expectedResultVersion) {
+      throw new Error("The displayed result changed. Review the current result before starting implementation.");
+    }
+    const sourceKey = continuationPipelineKey(source);
+    const resultMarkdown = readableResultText(result);
+    const resultExecutionRef = result.executionRef;
+    const resultDecisionEventId = result.finalDecisionEventId;
+    const assertSourceCurrent = (createdConversationId?: string): void => {
+      const current = state.conversations.find((conversation) => conversation.id === conversationId);
+      const currentResult = state.resultsByConversation[conversationId];
+      const currentRefusal = continuationRefusal(current, currentResult, createdConversationId ?? conversationId, createdConversationId);
+      if (currentRefusal !== undefined) throw new Error(currentRefusal);
+      if (current === undefined || current !== source || continuationPipelineKey(current) !== sourceKey ||
+        currentResult?.executionRef !== resultExecutionRef ||
+        currentResult?.finalDecisionEventId !== resultDecisionEventId ||
+        currentResult === undefined || readableResultText(currentResult) !== resultMarkdown) {
+        throw new Error("The selected run, workflow, or result changed. Review the current result before starting implementation.");
+      }
+    };
+    const snapshot = await scopedFixSnapshot(source.id, source.selectedPipelineId);
+    assertSourceCurrent();
+    const prompt = implementationDraftFromResult(result);
+    await createConversation({
+      title: "Implementation draft",
+      preparedDraft: prompt,
+      pipelineSnapshot: snapshot,
+      ...(source.workingDirectory === undefined ? {} : { workingDirectory: source.workingDirectory }),
+      ...(snapshot.scopeRoot === undefined ? {} : { pipelineScopeRoot: snapshot.scopeRoot }),
+    }, assertSourceCurrent);
   };
 
   const startFreshReview = async (cycleType?: CycleType): Promise<void> => {
@@ -6406,6 +6599,10 @@ export const createConversationManager = (
     }
     if (message.type === "finding.startFix") {
       await startScopedFix(message.identity);
+      return;
+    }
+    if (message.type === "conversation.continueFromResult") {
+      await continueFromResult(message.conversationId, message.resultVersion);
       return;
     }
     if (message.type === "notifications.markAllRead") {
@@ -7312,6 +7509,9 @@ export const createConversationManager = (
       } else {
         activeRuntimeMessages.set(message.conversationId, remaining);
       }
+      if (!disposed && state.readOnly === undefined && state.resultsByConversation[message.conversationId] !== undefined) {
+        emitSnapshot();
+      }
     }
   };
 
@@ -7381,6 +7581,7 @@ export const createConversationManager = (
     // Setup creates a run and waits for a prompt. A review command then reuses that exact
     // run instead of leaving it empty beside a second one.
     adoptIdleConversation: async (conversationId, preparedDraft, title, workingDirectory) => {
+      assertPreparedDraftSize(preparedDraft);
       const summary = state.conversations.find((entry) => entry.id === conversationId);
       if (!summary || summary.archived) return false;
       // A run belongs to the repository it was created for. In a multi-root workspace the

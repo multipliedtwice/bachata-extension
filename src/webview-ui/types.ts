@@ -184,6 +184,7 @@ type TranscriptEntry = {
   kind: "prompt" | "answer" | "interrupted" | "status" | "error" | "event";
   agentId?: string;
   step?: string;
+  stepId?: string;
   eventType?: string;
   data?: JsonValue;
   text: string;
@@ -611,6 +612,8 @@ type TodoTaskSummary = {
   worktreePath?: string;
 };
 type RunResultCenter = {
+  readableMarkdown?: string;
+  continuation?: { available: boolean; reason?: string; resultVersion?: string };
   status: Exclude<WorkflowStatus, "running" | "paused">;
   changedFiles: string[];
   diffSummary?: string;

@@ -1013,6 +1013,45 @@ const applyFieldErrors = (): void => {
   });
 };
 
+type CodeBlockScrollSnapshot = {
+  key: string;
+  top: number;
+  left: number;
+  focused: boolean;
+};
+
+const codeBlockScrollKey = (block: HTMLElement): string | undefined => {
+  const surface = block.closest<HTMLElement>("[data-code-scroll-surface], [data-entry], [data-live-agent-output]");
+  if (!surface) return undefined;
+  const identity = surface.dataset.codeScrollSurface ?? (surface.dataset.entry !== undefined
+    ? `entry:${surface.dataset.entry}`
+    : `live:${surface.dataset.liveAgentOutput ?? ""}`);
+  const scope = block.closest<HTMLElement>("[data-scroll-key]")?.dataset.scrollKey ?? activeId();
+  if (block.hasAttribute("data-output-scroll")) return `${scope}:${identity}:output`;
+  const index = Array.from(surface.querySelectorAll<HTMLElement>("pre"))
+    .filter((candidate) => candidate.closest("[data-code-scroll-surface], [data-entry], [data-live-agent-output]") === surface)
+    .indexOf(block);
+  return index < 0 ? undefined : `${scope}:${identity}:code:${String(index)}`;
+};
+
+const captureCodeBlockScroll = (): CodeBlockScrollSnapshot[] =>
+  Array.from(root.querySelectorAll<HTMLElement>("pre, [data-output-scroll]")).flatMap((block) => {
+    const key = codeBlockScrollKey(block);
+    return key === undefined ? [] : [{ key, top: block.scrollTop, left: block.scrollLeft, focused: document.activeElement === block }];
+  });
+
+const restoreCodeBlockScroll = (snapshots: readonly CodeBlockScrollSnapshot[]): void => {
+  const positions = new Map(snapshots.map((snapshot) => [snapshot.key, snapshot]));
+  root.querySelectorAll<HTMLElement>("pre, [data-output-scroll]").forEach((block) => {
+    const key = codeBlockScrollKey(block);
+    const position = key === undefined ? undefined : positions.get(key);
+    if (!position) return;
+    block.scrollTop = position.top;
+    block.scrollLeft = position.left;
+    if (position.focused) block.focus({ preventScroll: true });
+  });
+};
+
 // The popover that owns focus for as long as it is open. Both are dismissed by focus leaving them,
 // so neither may have focus put back outside it by a render.
 const openPopoverSelector = (): string | undefined =>
@@ -1055,6 +1094,7 @@ const render = (): void => {
   }
   const control = captureControl();
   const dialogScroll = captureDialogScroll();
+  const codeBlockScroll = captureCodeBlockScroll();
   try {
     root.innerHTML = `<div class="app-shell"><button class="skip-link" data-action="skip-to-composer">${escapeHtml(localize("Skip to run input"))}</button>${tabsHtml()}<div class="workspace-shell">${readOnlyBannerHtml(state.manager.readOnly)}${globalErrorsHtml()}${mainRoomHtml()}</div>${runDrawerHtml()}${pipelineEditorHtml()}${appDialogHtml()}</div>`;
     // A control the reader cannot use must say so before it is pressed, not after it refuses.
@@ -1111,6 +1151,7 @@ const render = (): void => {
   if (nextInspectorScroll) nextInspectorScroll.scrollTop = inspectorScrollTop;
   transcriptGrewAbove = false;
   settleCodeBlockFocus();
+  restoreCodeBlockScroll(codeBlockScroll);
   restoreControl(control, openPopoverSelector());
   restoreDialogScroll(dialogScroll);
   rememberEditorLocally();
@@ -2346,6 +2387,11 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     state.hydrated = true;
     const previousManager = state.manager;
     state.manager = message.state;
+    const selected = message.state.conversations.find((conversation) => conversation.id === message.state.activeConversationId);
+    if (previousManager.activeConversationId !== message.state.activeConversationId &&
+      selected?.preparedDraft && selected.workflowStatus === "idle" && !selected.running && !selected.archived) {
+      state.roomView = "chat";
+    }
     if (message.state.orchestration.status !== undefined) orchestrationStartPending = false;
     announceManagerTransition(previousManager, message.state);
     pruneResultSelections(message.state.conversations);

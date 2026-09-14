@@ -5641,7 +5641,13 @@ details.direction-evidence > ul,
 
 .execution-content .result-decision { background: transparent; border: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
 .execution-content .result-decision p { margin: 0; }
-.execution-content .result-failure { padding: 0; border: 0; border-radius: 0; }
+.execution-content .result-failure {
+  padding: 12px;
+  border: 0;
+  border-inline-start: 3px solid var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
+  border-radius: 0;
+  background: var(--vscode-inputValidation-errorBackground, transparent);
+}
 .execution-content .result-failure h3 { margin: 0 0 12px; }
 .execution-content .result-empty-sections { width: 100%; margin: 0; }
 .execution-content .pipeline-step { border: 0; border-radius: 0; background: transparent; padding: 0; }
@@ -6486,6 +6492,330 @@ button:disabled,
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+/* Results are working documents. Spacing and type carry their hierarchy; borders stay on controls,
+   focus, and exceptional states instead of outlining every nested section. */
+.execution-content .result-center,
+.execution-content .pipeline-summary {
+  padding-inline: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.execution-content .result-center > header {
+  padding-bottom: var(--bachata-section-gap);
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.execution-content .final-ruling-card,
+.execution-content .ruling-result,
+.execution-content .ruling-list:not(.risks) > li,
+.execution-content .result-finding-list > li,
+.execution-content .compare-column {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.execution-content .final-ruling-card,
+.execution-content .ruling-result {
+  margin: 0;
+  padding: 0;
+}
+
+.execution-content .ruling-list:not(.risks) > li,
+.execution-content .result-finding-list > li {
+  padding: 10px 0;
+}
+
+.execution-content .ruling-list:not(.risks) > li + li,
+.execution-content .result-finding-list > li + li {
+  border-top: 1px solid var(--bachata-border);
+}
+
+.execution-content .result-finding-list > .finding-accepted {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+
+.execution-content .result-finding-list > .finding-unresolved {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+
+.execution-content .result-finding-list {
+  gap: 0;
+}
+
+.execution-content .result-findings {
+  min-width: 0;
+}
+
+.execution-content .result-findings-unresolved,
+.execution-content .final-ruling-unresolved,
+.execution-content .pipeline-step-interrupted,
+.execution-content .result-gaps:not(.evidence-ledger) {
+  padding-inline-start: 12px;
+  border-inline-start: 3px solid var(--vscode-inputValidation-warningBorder, var(--bachata-warn-text));
+}
+
+.execution-content .result-findings-unresolved .result-finding-summary {
+  margin-top: 0;
+}
+
+.execution-content .human-resolution,
+.execution-content .ruling-disposition,
+.execution-content .evidence-state,
+.execution-content .result-gaps.evidence-ledger {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.execution-content .result-gaps.result-evidence-missing {
+  padding-inline-start: 12px;
+  border-inline-start: 3px solid var(--vscode-inputValidation-warningBorder, var(--bachata-warn-text));
+}
+
+.execution-content .result-gaps:not(.evidence-ledger) {
+  border-block: 0;
+  border-inline-end: 0;
+  background: transparent;
+}
+
+.execution-content .evidence-ledger li {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.execution-content .evidence-ledger li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.execution-content .compare-grid {
+  gap: var(--bachata-section-gap);
+}
+
+.execution-content .compare-column {
+  min-width: 0;
+  padding: 0;
+}
+
+.execution-content .result-primary-actions {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  gap: 8px 12px;
+}
+
+.execution-content .result-primary-actions > button,
+.execution-content .result-continuation-action > button {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.execution-content .result-continuation-action {
+  display: flex;
+  flex: 0 1 22rem;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
+}
+
+.execution-content .result-continuation-reason {
+  margin: 0;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.execution-content .pipeline-summary {
+  margin-top: calc(var(--bachata-section-gap) * 0.5);
+}
+
+.execution-content .pipeline-step-list {
+  gap: 0;
+}
+
+.execution-content .pipeline-step-summary,
+.execution-content .pipeline-step > details > summary {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 9px 0;
+}
+
+.execution-content .pipeline-step-position {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.execution-content .pipeline-step-count {
+  grid-column: 2;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.execution-content .pipeline-step-state {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.execution-content .pipeline-step-timing {
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.execution-content .pipeline-step-body {
+  padding: 0 0 14px 30px;
+}
+
+.execution-content .pipeline-step-activity {
+  gap: 0;
+}
+
+.execution-content .pipeline-step-activity li {
+  padding: 12px 0 0;
+  border: 0;
+}
+
+.execution-content .pipeline-step-message + .pipeline-step-message {
+  margin-top: 12px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.pipeline-step-message-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.pipeline-step-message-heading > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-step-message-body {
+  margin: 6px 0;
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(65vh, 640px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  scrollbar-gutter: stable;
+}
+
+.execution-content .pipeline-step-failed {
+  padding-inline-start: 12px;
+  border-inline-start: 3px solid var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
+}
+
+.execution-content .pipeline-step-activity > .pipeline-step-message-error,
+.execution-content .pipeline-step-activity > .pipeline-step-message-interrupted {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+
+.execution-content .pipeline-step-message-error .pipeline-step-message-heading small {
+  color: var(--bachata-danger);
+}
+
+.execution-content .pipeline-step-message-interrupted .pipeline-step-message-heading small {
+  color: var(--bachata-warn-text);
+}
+
+.execution-content .pipeline-step-interrupted .pipeline-step-state {
+  color: var(--bachata-warn-text);
+}
+
+.execution-content .code-block {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.execution-content .code-block pre[class*="language-"] {
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(50vh, 560px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.execution-content .pipeline-step-message-body:focus-visible,
+.execution-content summary:focus-visible,
+.execution-content pre:focus-visible,
+.execution-content button:focus-visible {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: 2px;
+}
+
+.execution-content .code-block pre:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (max-width: 480px) {
+  .execution-content .pipeline-step-summary,
+  .execution-content .pipeline-step > details > summary {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .execution-content .pipeline-step-state {
+    grid-column: 2;
+    grid-row: auto;
+  }
+
+  .execution-content .pipeline-step-count,
+  .execution-content .pipeline-step-timing {
+    grid-column: 2;
+  }
+
+  .execution-content .pipeline-step-body {
+    padding-inline-start: 0;
+  }
+
+  .pipeline-step-message-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .execution-content .ruling-heading,
+  .execution-content .ruling-list:not(.risks) > li {
+    flex-wrap: wrap;
+  }
+
+  .execution-content .ruling-meta,
+  .execution-content .result-check-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .execution-content .ruling-meta dd + dt,
+  .execution-content .result-check-details dd + dt {
+    margin-top: 8px;
+  }
+
+  .execution-content .result-continuation-action {
+    flex-basis: 100%;
+  }
 }
 
 .room-empty.workspace-direction {

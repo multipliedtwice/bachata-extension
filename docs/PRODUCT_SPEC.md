@@ -83,6 +83,8 @@ Every workflow declares the authority it runs with.
 
 Setup currently states safety level of each offered workflow. Level follows pipeline definition: enabled `executeChecklist` means orchestration, `managedPolicy` means managed implementation, all read-only or plan-mode agents mean review, anything else means interactive implementation.
 
+Execution is organized by pipeline step. Each step states its recorded state and contains the participant responses produced there, with a route to the same response in Chat. A completed result is a launch point: the human may copy its readable result or open an editable implementation draft carrying its findings, final ruling, risks and evidence gaps on a write-capable workflow. Opening that draft does not execute it.
+
 These modes are implementation mechanics. They must not dominate positioning or human attention. New restrictions need a concrete failure mode, user need, or platform constraint. Do not add friction for abstract safety value.
 
 ## Execution contract

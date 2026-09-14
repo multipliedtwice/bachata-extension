@@ -25,6 +25,7 @@
     "allowSyntheticDefaultImports": true
   },
   "include": [
+    "src/shared/textLimits.ts",
     "src/webview-ui/localization.ts",
     "src/webview-ui/types.ts",
     "src/webview-ui/optionalProperty.ts",

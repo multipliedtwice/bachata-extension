@@ -352,8 +352,11 @@ const updateLiveAgentOutput = (conversationId: string, agentId: string): boolean
   }
   const scroll = document.getElementById("conversation-scroll");
   const wasFollowing = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 90 : false;
+  const codeBlockScroll = captureCodeBlockScroll();
   discardCodeBlocks(output);
   output.innerHTML = renderMarkdown(agent.output || "…");
+  settleCodeBlockFocus();
+  restoreCodeBlockScroll(codeBlockScroll);
   if (scroll && wasFollowing) {
     scroll.setAttribute("data-restoring", "");
     scroll.scrollTop = scroll.scrollHeight;

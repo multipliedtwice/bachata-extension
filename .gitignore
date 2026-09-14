@@ -39,3 +39,4 @@ playwright-report/
 *~
 Thumbs.db
 cypress
+!tests/cypress/
