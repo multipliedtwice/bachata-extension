@@ -2422,9 +2422,9 @@ export const createRuntime = (
       ...(state.workingDirectory === undefined ? {} : { workingDirectory: state.workingDirectory }),
       maxIterations: Math.max(1, config.get<number>("maxPipelineIterations", 10)),
       iterations: Math.max(1, config.get<number>("defaultPipelineIterations", 1)),
-      agentTurnTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "agentTurnTimeoutMs", 30 * 60_000),
-      managedTaskTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "managedTaskTimeoutMs", 7_200_000),
-      browserOperationTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "browserOperationTimeoutMs", 1_800_000),
+      agentTurnTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "agentTurnTimeoutMs", 2 * 60 * 60_000),
+      managedTaskTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "managedTaskTimeoutMs", 14_400_000),
+      browserOperationTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "browserOperationTimeoutMs", 7_200_000),
       attachments: state.attachments.map((attachment) => ({
         name: attachment.name,
         mimeType: attachment.mimeType,
@@ -3366,7 +3366,7 @@ export const createRuntime = (
       log: logOutput,
       commandCheckTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "commandCheckTimeoutMs", 15_000),
       requestTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "codexRequestTimeoutMs", 30_000),
-      turnTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "agentTurnTimeoutMs", 30 * 60_000),
+      turnTimeoutMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "agentTurnTimeoutMs", 2 * 60 * 60_000),
       interruptGraceMs: readTimeoutSetting((settingKey, settingFallback) => config.get(settingKey, settingFallback), "interruptGraceMs", 5_000),
       environment: providerProcessEnvironment(
         workingDirectory ?? state.workspaceRoots[0] ?? storageDirectory,
@@ -4590,7 +4590,7 @@ export const createRuntime = (
               maxRevisionCycles: options.maxRevisionCycles ?? 1,
               deadlineAt: Date.now() + Math.min(
                 28_800_000,
-                Math.max(60_000, readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "managedTaskTimeoutMs", 7_200_000)),
+                Math.max(60_000, readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "managedTaskTimeoutMs", 14_400_000)),
               ),
               continuationMaxBytes: Math.min(
                 1_048_576,
@@ -4779,7 +4779,7 @@ export const createRuntime = (
         ? managedTaskState.takeLeadRevision(operationTaskId)
         : undefined;
       if (definitions[agentId]?.adapter.endsWith("-browser") === true && !managedBrowserOptions) {
-        const timeoutMs = Math.min(28_800_000, Math.max(10_000, readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "browserOperationTimeoutMs", 1_800_000)));
+        const timeoutMs = Math.min(28_800_000, Math.max(10_000, readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "browserOperationTimeoutMs", 7_200_000)));
         browserOperationDeadlineAt = Date.now() + timeoutMs;
         browserOperationDeadlineTimer = setTimeout(() => {
           browserOperationDeadlineExpired = true;

@@ -121,7 +121,7 @@ test("a bundle carrying values Bachata refuses says so instead of dropping them 
       }),
     },
   })).replay;
-  assert.equal(source.runSettings.values.agentTurnTimeoutMs, 1_800_000);
+  assert.equal(source.runSettings.values.agentTurnTimeoutMs, 7_200_000);
   assert.equal(source.runSettings.values.browserSelectorHealingBackend, undefined);
   assert.equal(source.runSettings.values.codexCommand, undefined);
   const plan = replayPlan(source, current());

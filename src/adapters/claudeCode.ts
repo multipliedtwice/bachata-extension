@@ -432,7 +432,7 @@ export const createClaudeCodeAdapter = (
   let activeRun: ActiveRun | undefined;
   let activeOperation: symbol | undefined;
   let disposed = false;
-  const turnTimeoutMs = options.turnTimeoutMs ?? 30 * 60_000;
+  const turnTimeoutMs = options.turnTimeoutMs ?? 2 * 60 * 60_000;
   const interruptGraceMs = options.interruptGraceMs ?? 5_000;
 
   const send = (

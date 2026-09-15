@@ -1795,7 +1795,7 @@ export const createBrowserBridgeServer = (
       expectedSessionId,
       signal,
       attachments = [],
-      deadlineAt = Date.now() + 30 * 60_000,
+      deadlineAt = Date.now() + 2 * 60 * 60_000,
     ) => {
       const queue = createAsyncQueue<BrowserConversationEvent>();
       const requestId = randomUUID();

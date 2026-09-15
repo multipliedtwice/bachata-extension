@@ -743,7 +743,7 @@
             "type": "number",
             "minimum": 1000,
             "maximum": 2147483647,
-            "default": 1800000,
+            "default": 7200000,
             "description": "%configuration.bachata.todoCheckTimeoutMs.description%",
             "order": 7
           },
@@ -819,7 +819,7 @@
             "type": "number",
             "minimum": 10000,
             "maximum": 2147483647,
-            "default": 1800000,
+            "default": 7200000,
             "description": "%configuration.bachata.browserOperationTimeoutMs.description%",
             "order": 7
           },
@@ -934,7 +934,7 @@
             "type": "number",
             "minimum": 60000,
             "maximum": 28800000,
-            "default": 7200000,
+            "default": 14400000,
             "description": "%configuration.bachata.managedTaskTimeoutMs.description%",
             "order": 8
           },
@@ -1275,7 +1275,7 @@
             "type": "number",
             "minimum": 10000,
             "maximum": 2147483647,
-            "default": 1800000,
+            "default": 7200000,
             "description": "%configuration.bachata.agentTurnTimeoutMs.description%",
             "order": 11
           },

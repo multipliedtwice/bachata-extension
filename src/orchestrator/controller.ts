@@ -1212,7 +1212,7 @@ export const createTodoOrchestrator = (
       const verifierApproval = repositoryVerifierApprovalFor(current.mode, current.ownerWorkspaceRoot);
       const executedChecks = await runVerificationChecks(commands, {
         cwd: prepared.worktreePath,
-        timeoutMs: readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "todoCheckTimeoutMs", 30 * 60_000),
+        timeoutMs: readTimeoutSetting((settingKey, settingFallback) => configuration().get(settingKey, settingFallback), "todoCheckTimeoutMs", 2 * 60 * 60_000),
         maxOutputBytes: configuration().get<number>("todoCheckMaxOutputBytes", 2_097_152),
         ...(checkSignal === undefined ? {} : { signal: checkSignal }),
         environment: configuredProcessEnvironment(

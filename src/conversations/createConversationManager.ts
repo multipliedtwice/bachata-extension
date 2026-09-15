@@ -5173,7 +5173,7 @@ export const createConversationManager = (
     try {
       checks = await runVerificationChecks(commands, {
         cwd,
-        timeoutMs: readTimeoutSetting((settingKey, settingFallback) => settings.get(settingKey, settingFallback), "todoCheckTimeoutMs", 30 * 60_000),
+        timeoutMs: readTimeoutSetting((settingKey, settingFallback) => settings.get(settingKey, settingFallback), "todoCheckTimeoutMs", 2 * 60 * 60_000),
         maxOutputBytes: settings.get<number>("todoCheckMaxOutputBytes", 2_097_152),
         environment: configuredProcessEnvironment(
           cwd,

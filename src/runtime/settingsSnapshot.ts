@@ -44,7 +44,7 @@ export type RunSettingsSnapshot = {
 export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
   { key: "defaultPipelineIterations", kind: "number", fallback: 1, minimum: 1, maximum: 10 },
   { key: "maxPipelineIterations", kind: "number", fallback: 10, minimum: 1, maximum: 50 },
-  { key: "browserOperationTimeoutMs", kind: "number", fallback: 1_800_000, minimum: 10_000, maximum: MAXIMUM_TIMEOUT_MS },
+  { key: "browserOperationTimeoutMs", kind: "number", fallback: 7_200_000, minimum: 10_000, maximum: MAXIMUM_TIMEOUT_MS },
   { key: "browserActionMaxRounds", kind: "number", fallback: 32, minimum: 1, maximum: 100 },
   {
     key: "browserManagedConversationMaxBytes",
@@ -58,7 +58,7 @@ export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
   {
     key: "managedTaskTimeoutMs",
     kind: "number",
-    fallback: 7_200_000,
+    fallback: 14_400_000,
     minimum: 60_000,
     maximum: 28_800_000,
   },
@@ -179,7 +179,7 @@ export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
   },
   { key: "commandCheckTimeoutMs", kind: "number", fallback: 15_000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
   { key: "codexRequestTimeoutMs", kind: "number", fallback: 30_000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
-  { key: "agentTurnTimeoutMs", kind: "number", fallback: 1_800_000, minimum: 10_000, maximum: MAXIMUM_TIMEOUT_MS },
+  { key: "agentTurnTimeoutMs", kind: "number", fallback: 7_200_000, minimum: 10_000, maximum: MAXIMUM_TIMEOUT_MS },
   { key: "interruptGraceMs", kind: "number", fallback: 5000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
   {
     key: "maxStoredResponseBytes",
@@ -204,7 +204,7 @@ export const recordedRunSettings: readonly RunSettingDeclaration[] = [
   { key: "todoMasterPipeline", kind: "string", fallback: "todo-master" },
   { key: "todoMaxConcurrency", kind: "number", fallback: 2, minimum: 1, maximum: 20 },
   { key: "todoRetries", kind: "number", fallback: 1, minimum: 0, maximum: 10 },
-  { key: "todoCheckTimeoutMs", kind: "number", fallback: 1_800_000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
+  { key: "todoCheckTimeoutMs", kind: "number", fallback: 7_200_000, minimum: 1000, maximum: MAXIMUM_TIMEOUT_MS },
   {
     key: "todoCheckMaxOutputBytes",
     kind: "number",

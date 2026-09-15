@@ -56,6 +56,22 @@ test("every declared fallback is the setting's contributed default", () => {
   }
 });
 
+test("long-running operations default to hours rather than minutes", () => {
+  const expectedDefaults = {
+    agentTurnTimeoutMs: 7_200_000,
+    browserOperationTimeoutMs: 7_200_000,
+    managedTaskTimeoutMs: 14_400_000,
+    todoCheckTimeoutMs: 7_200_000,
+  };
+  const declarations = [...pinnedRunSettings, ...recordedRunSettings];
+
+  for (const [key, expected] of Object.entries(expectedDefaults)) {
+    const declaration = declarations.find((entry) => entry.key === key);
+    assert.equal(declaration?.fallback, expected, key);
+    assert.equal(contributed[key].default, expected, key);
+  }
+});
+
 test("a snapshot records the value every pinned setting held", () => {
   const snapshot = captureRunSettings(reader({ agentTurnTimeoutMs: 12_345, todoRetries: 4 }));
   assert.equal(snapshot.schema, "bachata.run-settings.v1");
