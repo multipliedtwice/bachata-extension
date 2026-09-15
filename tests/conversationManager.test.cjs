@@ -412,6 +412,7 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
             ? { getSelectedPipelineSnapshot: () => undefined }
             : {}),
           refreshPipelines: async (change) => {
+            await harnessOptions.beforePipelineRefresh?.(change);
             instance.pipelineRefreshCalls.push(change);
           },
           configure: async (configuration) => {
@@ -4810,6 +4811,44 @@ test("external custom-pipeline file events refresh every open runtime", async ()
     harness.subscription.dispose();
     await harness.manager.dispose();
     assert.equal(harness.fileSystemWatchers.every((watcher) => watcher.disposed), true);
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("manager disposal waits for an in-flight pipeline catalog refresh", async () => {
+  const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-manager-catalog-dispose-"));
+  const releaseRefresh = deferred();
+  let refreshEntered = false;
+  const harness = loadHarness(undefined, {
+    workingDirectory: workspaceRoot,
+    workspaceFolders: [{ uri: { fsPath: workspaceRoot } }],
+    enableFileSystemWatchers: true,
+    beforePipelineRefresh: async () => {
+      refreshEntered = true;
+      await releaseRefresh.promise;
+    },
+  });
+  let disposal;
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    harness.fileSystemWatchers[0].callbacks.change.forEach((callback) => callback());
+    await waitFor(() => refreshEntered);
+    harness.subscription.dispose();
+    let disposalSettled = false;
+    disposal = harness.manager.dispose();
+    void disposal.then(
+      () => { disposalSettled = true; },
+      () => { disposalSettled = true; },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(disposalSettled, false, "manager disposal finished while catalog refresh was active");
+    releaseRefresh.resolve();
+    await disposal;
+    assert.equal(harness.runtimeInstances[0].pipelineRefreshCalls.length, 1);
+  } finally {
+    releaseRefresh.resolve();
+    harness.subscription.dispose();
+    await (disposal ?? harness.manager.dispose()).catch(() => undefined);
     rmSync(workspaceRoot, { recursive: true, force: true });
   }
 });

@@ -731,6 +731,33 @@ const refreshInteractionSubmitState = (interactionRef: string): void => {
   }
 };
 
+const interactionPromptHtml = (
+  interaction: InteractionSummary,
+  promptId: string,
+): string => {
+  const [firstLine, ...detailLines] = interaction.prompt.split("\n");
+  const summary = firstLine ?? interaction.prompt;
+  const inlineToolInput = interaction.kind === "permission" && detailLines.length === 0
+    ? /^(Tool:\s*[^:]+):\s*([\[{][\s\S]*)$/u.exec(interaction.prompt)
+    : null;
+  if (interaction.kind !== "permission" || (detailLines.length === 0 && !inlineToolInput)) {
+    return `<p id="${promptId}">${escapeHtml(interaction.prompt)}</p>`;
+  }
+  let readableSummary = summary.replace(/^Tool:\s*/u, "");
+  let details = detailLines.join("\n");
+  if (inlineToolInput) {
+    const inlinePayload = inlineToolInput[2] ?? "";
+    readableSummary = (inlineToolInput[1] ?? summary).replace(/^Tool:\s*/u, "");
+    try {
+      details = `Input:\n${JSON.stringify(JSON.parse(inlinePayload), undefined, 2)}`;
+    } catch {
+      details = `Input:\n${inlinePayload}`;
+    }
+  }
+  return `<p class="interaction-prompt-summary" id="${promptId}">${escapeHtml(readableSummary)}</p>
+    <details class="interaction-details"><summary>${escapeHtml(localize("Request details"))}</summary><pre>${escapeHtml(details)}</pre></details>`;
+};
+
 const interactionHtml = (interaction: InteractionSummary): string => {
   const options = interaction.options
     .map(optionValue)
@@ -760,9 +787,9 @@ const interactionHtml = (interaction: InteractionSummary): string => {
     : "";
   const canSubmit = interactionCanSubmit(interaction);
   const submitBlockedReason = interactionSubmitBlockedReason(interaction);
-  return `<article class="interaction-card ${pending ? "pending" : ""}" id="interaction-${escapeAttribute(interaction.interactionRef)}" data-interaction-ref="${escapeAttribute(interaction.interactionRef)}" tabindex="-1">
+  return `<article class="interaction-card interaction-${escapeAttribute(interaction.kind)} ${pending ? "pending" : ""}" id="interaction-${escapeAttribute(interaction.interactionRef)}" data-interaction-ref="${escapeAttribute(interaction.interactionRef)}" tabindex="-1">
     <div class="interaction-heading"><div><strong>${escapeHtml(interaction.title ?? interaction.kind)}</strong></div>${timer}</div>
-    <p id="${promptId}">${escapeHtml(interaction.prompt)}</p>
+    ${interactionPromptHtml(interaction, promptId)}
     ${expiry}
     ${interaction.kind === "humanGate" ? disagreementSummaryHtml(interaction) : ""}
     ${controls ? `<div class="interaction-options" role="${multiple ? "group" : "radiogroup"}" aria-labelledby="${promptId}">${controls}</div>` : ""}

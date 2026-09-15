@@ -986,6 +986,30 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
         tabToControl(send);
         expectKeyboardRing(send);
         cy.screenshot(`interaction/composer-disabled-${theme}-${width}`);
+        cy.window().then((win) => {
+          win.__managerState.interactions = [{
+            interactionRef: "permission-1",
+            conversationId: "run-1",
+            runRef: "run-1",
+            kind: "permission",
+            title: "Permission requested by Builder",
+            prompt: 'Tool: Edit Input: {"file_path":"src/webview-ui/style.css","old_string":"long internal payload","replace_all":false}',
+            options: [{ id: "allow", label: "Allow" }, { id: "reject", label: "Deny" }],
+            allowFreeText: false,
+            secret: false,
+            selected: [],
+            freeText: "",
+            status: "pending",
+            createdAt: "2026-09-15T00:00:00.000Z",
+          }];
+          win.__boot();
+        });
+        cy.get(".interaction-permission").should("be.visible").and("contain.text", "Edit Input");
+        cy.get(".interaction-details").should("not.have.attr", "open").find("pre").should("not.be.visible");
+        cy.get(".interaction-permission .interaction-option").should("have.length", 2);
+        pointerClick(".interaction-details > summary");
+        cy.get(".interaction-details").should("have.attr", "open").find("pre").should("be.visible").and("contain.text", "src/webview-ui/style.css");
+        cy.screenshot(`interaction/permission-card-${theme}-${width}`);
       });
 
       it(`shares editor mode, disclosure, reorder, native selection, and footer states in ${theme} at ${width}px`, () => {

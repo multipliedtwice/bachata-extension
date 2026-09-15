@@ -1345,7 +1345,10 @@ test("a disabled Send opens actionable requirements outside the composer", () =>
   );
   try {
     const html = harness.document.root.innerHTML;
-    assert.equal(harness.document.root.querySelector(".composer-blockers"), null);
+    const blockers = harness.document.root.querySelector(".composer-blockers");
+    assert.ok(blockers);
+    assert.match(blockers.textContent, /Choose the repository this run targets\./u);
+    assert.doesNotMatch(blockers.textContent, /The run input is empty\./u);
     assert.equal(harness.document.root.querySelector(".composer-note"), null);
     assert.doesNotMatch(html, /The run input is empty\./u);
     const send = harness.document.root.querySelector('[data-action="submit-message"]');
@@ -1695,6 +1698,63 @@ test("interaction and approval submissions are locally idempotent", () => {
     approvalButton.click();
     approvalButton.click();
     assert.equal(harness.messages.filter((message) => message.message?.type === "approval.respond").length, 1);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("permission requests keep tool input behind a readable details disclosure", () => {
+  const interaction = {
+    interactionRef: "interaction-1",
+    conversationId: "run-1",
+    runRef: "run-1",
+    kind: "permission",
+    title: "Permission requested by Builder",
+    prompt: "Tool: Edit Input\nInput:\n{\n  \"file_path\": \"src/webview-ui/style.css\",\n  \"old_string\": \"long payload\"\n}",
+    options: [{ id: "allow", label: "Allow" }, { id: "reject", label: "Deny" }],
+    allowFreeText: false,
+    secret: false,
+    selected: [],
+    freeText: "",
+    status: "pending",
+    createdAt: timestamp,
+  };
+  const harness = bootWebview(managerState({ interactions: [interaction] }));
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /class="interaction-card interaction-permission/u);
+    assert.match(html, /class="interaction-prompt-summary"[^>]*>Edit Input<\/p>/u);
+    assert.match(html, /<details class="interaction-details"><summary>Request details<\/summary><pre>Input:/u);
+    assert.match(html, /src\/webview-ui\/style\.css/u);
+    assert.equal(html.indexOf("Edit Input") < html.indexOf("Request details"), true);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("single-line tool approval payloads use the same details disclosure", () => {
+  const interaction = {
+    interactionRef: "interaction-1",
+    conversationId: "run-1",
+    runRef: "run-1",
+    kind: "permission",
+    title: "Permission requested by Builder",
+    prompt: "Tool: Edit Input: {\"file_path\":\"src/webview-ui/style.css\",\"replace_all\":false}",
+    options: [{ id: "allow", label: "Allow" }, { id: "reject", label: "Deny" }],
+    allowFreeText: false,
+    secret: false,
+    selected: [],
+    freeText: "",
+    status: "pending",
+    createdAt: timestamp,
+  };
+  const harness = bootWebview(managerState({ interactions: [interaction] }));
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /class="interaction-prompt-summary"[^>]*>Edit Input<\/p>/u);
+    assert.match(html, /<summary>Request details<\/summary><pre>Input:/u);
+    assert.match(html, /&quot;file_path&quot;: &quot;src\/webview-ui\/style\.css&quot;/u);
+    assert.doesNotMatch(html, /interaction-prompt-summary[^<]*file_path/u);
   } finally {
     harness.restore();
   }
@@ -2757,6 +2817,7 @@ test("composer hides run options behind the settings control and flags active op
     harness.document.root.dispatch("change", { target: delivery });
     // An active option is marked on the settings control without changing its size.
     assert.match(harness.document.root.querySelector('[data-action="composer-settings-toggle"]').className, /has-chips/u);
+    assert.match(harness.document.root.querySelector(".composer-chips").textContent, /queued/u);
     assert.match(harness.document.root.innerHTML, /data-action="submit-message" data-delivery="queue"/u);
   } finally {
     harness.restore();

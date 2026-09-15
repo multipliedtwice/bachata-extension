@@ -755,12 +755,30 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const settingsLabel = optionChips.length > 0
     ? localize("Pipeline settings and run options · {0}", optionChips.join(" · "))
     : localize("Pipeline settings and run options");
+  // The active run options are named where they take effect, not only inside the settings control's
+  // hover title: iteration count, until-clean and a queued or interrupting delivery each read as a
+  // pill on the surface. The gear already carries the same list as its accessible name, so the row
+  // is hidden from assistive tech to avoid a second reading of it.
+  const optionChipsHtml = optionChips.length > 0
+    ? `<div class="composer-chips" aria-hidden="true">${optionChips.map((chip) => `<span class="composer-chip">${escapeHtml(chip)}</span>`).join("")}</div>`
+    : "";
+  // Why Send is refused, stated on the surface for readers who cannot hover the button's title.
+  // Quiet blockers stay unspoken here because the field, its placeholder and the room already say
+  // them; the send button still carries the full list in its accessible description.
+  const blockers = sendBlockers(activeId(), panel, draft);
+  const visibleBlockers = blockers.filter((blocker) => blocker.quiet !== true);
+  const firstBlocker = visibleBlockers[0];
+  const blockerNoteHtml = firstBlocker
+    ? `<div class="composer-blockers"><i class="codicon codicon-warning" aria-hidden="true"></i><span>${escapeHtml(firstBlocker.requirement)}</span>${firstBlocker.action ? `<button type="button" ${firstBlocker.action.attributes}>${escapeHtml(firstBlocker.action.label)}</button>` : ""}${visibleBlockers.length > 1 ? `<button type="button" data-action="run-requirements" data-conversation="${escapeAttribute(activeId())}">${escapeHtml(localize("{0} more", String(visibleBlockers.length - 1)))}</button>` : ""}</div>`
+    : "";
   // One rounded surface holds the attachments, the borderless prompt and the compact toolbar; the
   // send control is an arrow icon carrying its Send/Queue/Interrupt name for assistive tech.
   return `<footer class="composer">
     <div class="composer-surface">
       ${attachmentStripHtml(panel, draft)}
       <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(pipelinePromptPlaceholder(panel))}">${escapeHtml(draft.prompt)}</textarea>
+      ${optionChipsHtml}
+      ${blockerNoteHtml}
       <div class="composer-toolbar">
         <button data-action="attachment-pick" class="icon-button" aria-label="${escapeAttribute(localize("Attach image, text, log, or specification"))}" title="${escapeAttribute(localize("Attach image, text, log, or specification"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>

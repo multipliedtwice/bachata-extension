@@ -140,10 +140,10 @@ export const claudeUnansweredInput = (
 export const claudePermissionPrompt = (
   request: Pick<ClaudePermissionRequest, "toolName" | "toolInput">,
 ): string => {
-  const toolDetail = JSON.stringify(request.toolInput);
+  const toolDetail = JSON.stringify(request.toolInput, undefined, 2);
   return [
     `Tool: ${request.toolName}`,
-    toolDetail === "{}" ? "" : `Input: ${toolDetail.slice(0, 4_000)}`,
+    toolDetail === "{}" ? "" : `Input:\n${toolDetail.slice(0, 4_000)}`,
   ].filter(Boolean).join("\n");
 };
 

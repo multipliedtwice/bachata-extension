@@ -135,7 +135,7 @@ test("an unanswered request is recorded as the reason it went unanswered", () =>
 test("a permission prompt quotes the tool and what it was given", () => {
   assert.equal(
     claudePermissionPrompt({ toolName: "Bash", toolInput: { command: "ls" } }),
-    "Tool: Bash\nInput: {\"command\":\"ls\"}",
+    "Tool: Bash\nInput:\n{\n  \"command\": \"ls\"\n}",
   );
 });
 
@@ -151,8 +151,8 @@ test("a permission prompt is bounded, because a dialog is not a payload viewer",
     toolName: "Write",
     toolInput: { content: "x".repeat(10_000) },
   });
-  const input = prompt.split("\n")[1];
-  assert.equal(input.length, "Input: ".length + 4_000);
+  const input = prompt.split("Input:\n")[1];
+  assert.equal(input.length, 4_000);
 });
 
 test("only an explicit allow allows, and every other answer denies with a reason", () => {

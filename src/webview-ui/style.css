@@ -1493,6 +1493,56 @@ strong + small {
   flex: 0 0 auto;
 }
 
+/* The active run options, shown as quiet pills on the surface so a queued delivery or a non-default
+   iteration count reads without opening the settings control. Decorative: the gear names the same
+   set for assistive tech. */
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--bachata-muted);
+  background: var(--bachata-surface);
+  font-size: var(--bachata-font-xs);
+  line-height: 1.4;
+}
+
+/* The first reason Send is refused, said on the surface. It wraps rather than widening the composer,
+   and its remedy — when the blocker carries one — sits inline with the text. */
+.composer-blockers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+  color: var(--bachata-warn-text);
+  font-size: var(--bachata-font-sm);
+}
+
+.composer-blockers > .codicon {
+  flex: 0 0 auto;
+}
+
+.composer-blockers > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.composer-blockers button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: var(--bachata-font-sm);
+}
+
 /* Quiet, integrated toolbar controls — no boxed form widgets inside the surface. */
 .composer-toolbar .pipeline-picker-button {
   border-color: transparent;
@@ -2478,7 +2528,7 @@ strong + small {
 
 .interaction-card {
   padding: 15px;
-  border-color: color-mix(in srgb, var(--bachata-warn-text) 62%, var(--bachata-border));
+  border-color: var(--bachata-border);
 }
 
 .interaction-heading {
@@ -2498,10 +2548,49 @@ strong + small {
   font-size: var(--bachata-font-xs);
 }
 
+.interaction-prompt-summary {
+  margin: 10px 0 0;
+  font-weight: 600;
+}
+
+.interaction-details {
+  margin: 8px 0 12px;
+}
+
+.interaction-details summary {
+  cursor: pointer;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+}
+
+.interaction-details pre {
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bachata-card);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--bachata-font-xs);
+}
+
 .interaction-options {
   display: grid;
   gap: 7px;
   margin: 12px 0;
+}
+
+.interaction-permission .interaction-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 360px;
+}
+
+.interaction-permission .interaction-option {
+  align-items: center;
+  padding: 7px 10px;
+  background: transparent;
 }
 
 .interaction-option {

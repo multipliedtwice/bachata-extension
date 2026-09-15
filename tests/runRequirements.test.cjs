@@ -19,13 +19,15 @@ const stoppedPanel = () => panelState({
   resumableWorkflow: recoverableWorkflow({ outcome: "stoppedByUser" }),
 });
 
-test("stopped pipeline requirements belong to run status and offer resume", () => {
+test("stopped pipeline requirements stay visible in the composer and offer resume", () => {
   const harness = bootWebview(managerState(), stoppedPanel());
   try {
     const composer = harness.document.root.querySelector(".composer");
-    assert.equal(composer.querySelector(".composer-blockers, .composer-note"), null);
-    const composerHtml = harness.document.root.innerHTML.split('<footer class="composer">')[1].split('</footer>')[0];
-    assert.doesNotMatch(composerHtml, /Send is disabled|composer-note|composer-blockers/u);
+    const blocker = composer.querySelector(".composer-blockers");
+    assert.ok(blocker);
+    assert.match(blocker.textContent, /Resume from the saved step/u);
+    assert.ok(blocker.querySelector('[data-action="workflow-resume"]'));
+    assert.equal(composer.querySelector(".composer-note"), null);
     const trigger = harness.document.root.querySelector('[data-action="run-requirements"]');
     assert.ok(trigger);
     assert.match(trigger.getAttribute("aria-label"), /Stopped by you/u);

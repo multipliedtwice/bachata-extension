@@ -1690,6 +1690,7 @@ export const createConversationManager = (
     if (!disposed) emitSnapshot();
   };
   const pipelineCatalogWatchers: vscode.Disposable[] = [];
+  const pipelineCatalogRefreshOperations = new Set<Promise<void>>();
   let pipelineCatalogRefreshTimer: NodeJS.Timeout | undefined;
   const schedulePipelineCatalogRefresh = (): void => {
     const schedule = catalogRefreshSchedule({
@@ -1704,13 +1705,15 @@ export const createConversationManager = (
     }
     pipelineCatalogRefreshTimer = setTimeout(() => {
       pipelineCatalogRefreshTimer = undefined;
-      void notifyPipelineCatalogChanged().catch((error) => {
+      const operation = notifyPipelineCatalogChanged().catch((error) => {
         output.appendLine(
           `Pipeline catalog watcher refresh failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
       });
+      pipelineCatalogRefreshOperations.add(operation);
+      void operation.then(() => pipelineCatalogRefreshOperations.delete(operation));
     }, PIPELINE_CATALOG_REFRESH_DEBOUNCE_MS);
     pipelineCatalogRefreshTimer.unref?.();
   };
@@ -7819,6 +7822,15 @@ export const createConversationManager = (
         }
         pipelineWorkspaceFolderSubscription?.dispose();
         disposePipelineCatalogWatchers();
+        await settle(
+          Array.from(pipelineCatalogRefreshOperations),
+          "Pipeline catalog refresh shutdown",
+        );
+        await capture(() => bounded(
+          pipelineCatalogMutationQueue,
+          timeoutMs,
+          "Pipeline catalog mutation shutdown",
+        ));
         executionLeaseControllers.forEach((value) => value.abort());
         await capture(() => bounded(initializationOperation ?? Promise.resolve(), timeoutMs, "Manager initialization shutdown"));
         await capture(() => bounded(mutationQueue, timeoutMs, "Manager mutation shutdown"));
