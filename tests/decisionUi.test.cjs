@@ -120,10 +120,10 @@ test("blocking count deduplicates the matching gate while keeping unrelated appr
   assert.equal(api.blockingDecisionCount(panel, "run-1"), 2);
 });
 
-test("the selected run tab always offers a route back to Chat and notification settings", () => {
+test("the selected run tab omits the view switcher until execution exists", () => {
   const { api } = load({ roomView: "direction" });
   const html = api.selectedRunTabToolsHtml({ id: "run-1", title: "New run", archived: false });
-  assert.match(html, /data-view="chat"/);
+  assert.doesNotMatch(html, /data-view="chat"/);
   assert.doesNotMatch(html, /data-view="execution"/);
   assert.match(html, /data-action="notification-settings"/);
 });
