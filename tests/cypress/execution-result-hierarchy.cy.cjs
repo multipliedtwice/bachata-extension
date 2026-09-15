@@ -229,6 +229,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
           const lastSection = $column[0].querySelector(".pipeline-summary").getBoundingClientRect();
           expect(lastSection.bottom).to.be.at.most(footer.top + 1);
           const scroll = $column[0].querySelector("#conversation-scroll");
+          expect(scroll.scrollHeight).to.be.greaterThan(scroll.clientHeight);
           expect(scroll.scrollTop).to.be.greaterThan(0);
         });
         cy.document().then((doc) => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth + 1));

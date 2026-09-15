@@ -230,7 +230,13 @@ test("Long participant output and nested code remain bounded and scrollable in b
 
 test("Execution continuation occupies its own bottom row without covering the report", () => {
   assert.equal(declarationsFor(".conversation-column")["grid-template-rows"], "minmax(0, 1fr) auto");
-  assert.equal(declarationsFor(".conversation-viewport")["min-height"], "0");
+  const viewport = declarationsFor(".conversation-viewport");
+  assert.equal(viewport["grid-template-rows"], "minmax(0, 1fr)");
+  assert.equal(viewport["min-height"], "0");
+  assert.equal(viewport.overflow, "hidden");
+  const execution = declarationsFor(".conversation-scroll");
+  assert.equal(execution["min-height"], "0");
+  assert.equal(execution["overflow-y"], "auto");
   const footer = declarationsFor(".execution-result-footer");
   assert.equal(footer["grid-row"], "2");
   assert.equal(footer.position, undefined);

@@ -6212,6 +6212,7 @@ details.direction-evidence > ul,
 .conversation-viewport {
   position: relative;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
