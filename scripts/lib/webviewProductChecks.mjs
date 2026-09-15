@@ -401,6 +401,13 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       assert.equal(await session.evaluate("[...document.querySelectorAll('.user-message .markdown, .user-message .markdown p, .user-message .markdown h1, .user-message .markdown li, .user-message .markdown code, .user-message .markdown a')].every(el => getComputedStyle(el).textAlign === 'left')"), true, `${theme} ${width}: user message alignment`);
       await session.evaluate("window.__bootExecution()"); await frame(session);
       await press(session, '[data-action="room-view"][data-view="execution"]');
+      let executionRendered = false;
+      for (let attempt = 0; attempt < 50; attempt++) {
+        executionRendered = await session.evaluate("document.querySelector('.execution-content') !== null");
+        if (executionRendered) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(executionRendered, true, `${theme} ${width}: execution view did not render`);
       const layout = await session.evaluate(`(() => {
         const area = document.querySelector('.execution-content'), result = area.querySelector('.result-center');
         const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
