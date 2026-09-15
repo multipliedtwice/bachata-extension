@@ -1460,7 +1460,11 @@ const dismissTransientMenus = (origin: Element | null): void => {
     delete state.pipelinePickerActiveId;
     scheduleRender();
   }
-  if (state.agentsPickerOpen && !origin?.closest(".agents-picker")) {
+  if (
+    state.agentsPickerOpen &&
+    !origin?.closest(".agents-picker") &&
+    origin?.closest<HTMLElement>("[data-action]")?.dataset.action !== "recovery-change-model"
+  ) {
     state.agentsPickerOpen = false;
     delete state.agentsBrowserFor;
     scheduleRender();

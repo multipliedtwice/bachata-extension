@@ -7394,11 +7394,18 @@ export const createRuntime = (
           attachmentPaths,
           (agentId, agentPrompt, step, agentOptions, stepAttachments) => {
             participantStarted = true;
+            const assignment = activeAssignments()[agentId];
+            const definition = definitions[agentId];
+            const roleModel = pipeline.roles?.find((role) => role.id === agentOptions.roleId)?.model;
             return consume(
               agentId,
               agentPrompt,
               step.name,
-              agentOptions,
+              {
+                ...agentOptions,
+                model: assignment?.model ?? roleModel ?? definition?.model,
+                reasoningEffort: assignment?.reasoningEffort ?? definition?.reasoningEffort,
+              },
               stepAttachments,
               taskId,
               undefined,
@@ -9285,7 +9292,11 @@ export const createRuntime = (
   const agentModelAssignmentRefusal = (): string | undefined =>
     modelAssignmentLockReason({
       catalogError: pipelineCatalogError,
-      busy: workflowActive || anyAgentRunning() || activeForegroundOperations > 0,
+      busy:
+        gateDecisionActive ||
+        anyAgentRunning() ||
+        foregroundOperations.size > 0 ||
+        (activeForegroundOperations > 0 && state.workflowStatus !== "paused"),
       workflowStatus: state.workflowStatus,
       queuedCount: state.queuedMessages.length + (queueStartClaim === undefined ? 0 : 1),
       hasResumable: resumableWorkflowData !== undefined,

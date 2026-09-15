@@ -122,10 +122,11 @@ a name from one provider's catalog is not a name in another's. Choose one for th
 provider and it applies there. Bachata never substitutes a model for the one you chose, and a
 model you chose that the provider stops listing stays selected rather than disappearing.
 
-After a run stops or fails, open **Agents** before resuming. Provider controls stay locked. Model
-and thinking effort stay editable. The new choice starts a fresh provider session for the next
-turn, then **Resume** or **Retry failed step** continues from the saved checkpoint. An active
-response and queued work keep these controls locked.
+At a paused human decision, open **Agents** to change a participant model or thinking effort for
+the next turn. After a run stops or fails, choose **Change models** on the recovery card before
+**Resume** or **Retry failed step**. Provider controls stay locked. The new choice starts a fresh
+provider session for the next turn and continues from the saved checkpoint. An active response
+and queued work keep these controls locked.
 
 A Browser Bridge participant cannot be given a model. The website owns that selection, and the
 Bridge does not report it, so the card says the model is selected in the browser and unreported

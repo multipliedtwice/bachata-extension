@@ -7908,13 +7908,19 @@ test("a failed result states the error once and offers retry as the primary way 
     assert.doesNotMatch(visible, /<h3>Unresolved risks<\/h3>/u);
     const restart = harness.document.root.querySelector('[data-action="workflow-restart"]');
     const retry = harness.document.root.querySelector('[data-action="workflow-resume"]');
+    const changeModels = harness.document.root.querySelector('[data-action="recovery-change-model"]');
     assert.ok(restart, "a failed run offers no way to start over");
     assert.ok(retry, "a failed run offers no way to retry the stopped step");
+    assert.ok(changeModels, "a failed run offers no direct way to change its model before retrying");
+    assert.equal(changeModels.dataset.agent, "lead");
     assert.ok(retry.className.includes("primary"), "retry is not the primary action");
     assert.equal(restart.className.includes("primary"), false);
     assert.ok(html.includes(">Restart pipeline</button>"));
     assert.ok(html.includes(">Retry failed step</button>"));
     assert.equal(restart.disabled, false);
+    changeModels.click();
+    assert.ok(harness.document.root.querySelector(".agents-popover"));
+    assert.equal(harness.document.activeElement?.id, "agents-model-select-lead");
     restart.click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",

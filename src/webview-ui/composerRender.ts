@@ -426,15 +426,20 @@ const agentsModelLockReason = (panel: PanelState): string | undefined =>
 const agentsAssignable = (panel: PanelState): boolean =>
   panel.agentAssignments.slots.length > 0;
 
-const openAgentsPicker = (): void => {
+const openAgentsPicker = (focusAgentId?: string): void => {
   const panel = activePanel();
   if (!agentsAssignable(panel)) {
     return;
   }
+  state.roomView = "chat";
   state.agentsPickerOpen = true;
   discoverVisibleAgentModels(panel);
-  scheduleRender();
-  focusAfterRender(() => document.getElementById("agents-picker-button")?.focus());
+  focusAfterRender(() => {
+    const requestedModel = focusAgentId === undefined
+      ? undefined
+      : document.getElementById(`agents-model-select-${focusAgentId}`);
+    (requestedModel ?? document.getElementById("agents-picker-button"))?.focus();
+  });
 };
 
 const closeAgentsPicker = (restoreFocus = true): void => {

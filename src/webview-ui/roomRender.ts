@@ -670,10 +670,13 @@ const runOutcomeHtml = (
       ].filter((part): part is string => part !== undefined).join(" ")
     : result?.status === "interrupted" ? undefined : resultSummaryText(result?.finalAssessment?.summary);
   const detail = recovery ? recoveryPositionText(panel, recovery) : assessment;
+  const modelChange = recovery && agentsAssignable(panel) && agentsModelLockReason(panel) === undefined
+    ? `<button data-action="recovery-change-model"${failure?.agentId ? ` data-agent="${escapeAttribute(failure.agentId)}"` : ""}>${escapeHtml(localize("Change models"))}</button>`
+    : "";
   const shownPhase = result ? bachataWebviewBehavior.runPhase(false, result.status) : phase;
   const presentation = bachataWebviewBehavior.runStatusPresentation(shownPhase, panel.resumableWorkflow?.outcome);
   const headline = result ? resultHeadlineLabel(result, panel.resumableWorkflow?.outcome) : localRunStatusLabel(presentation.label);
-  return `<section class="run-outcome status-${escapeAttribute(shownPhase)}" aria-label="${escapeAttribute(localize("Run result"))}"><div class="run-outcome-text"><strong><i class="codicon codicon-${escapeAttribute(presentation.icon)}" aria-hidden="true"></i> ${escapeHtml(headline)}</strong>${detail ? `<p>${escapeHtml(detail)}</p>` : ""}</div><div class="run-outcome-actions">${recoveryActionsHtml(panel, recovery)}${recovery ? `<details class="header-action-menu wide-trigger recovery-menu" ${disclosureAttributes(`recovery-menu:${conversation.id}`)}><summary aria-label="${escapeAttribute(localize("Recovery actions"))}">${escapeHtml(localize("More"))}</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}</div></details>` : ""}${result ? `<button data-action="room-view" data-view="execution">${escapeHtml(localize("Open the result"))}</button>` : ""}</div></section>`;
+  return `<section class="run-outcome status-${escapeAttribute(shownPhase)}" aria-label="${escapeAttribute(localize("Run result"))}"><div class="run-outcome-text"><strong><i class="codicon codicon-${escapeAttribute(presentation.icon)}" aria-hidden="true"></i> ${escapeHtml(headline)}</strong>${detail ? `<p>${escapeHtml(detail)}</p>` : ""}</div><div class="run-outcome-actions">${modelChange}${recoveryActionsHtml(panel, recovery)}${recovery ? `<details class="header-action-menu wide-trigger recovery-menu" ${disclosureAttributes(`recovery-menu:${conversation.id}`)}><summary aria-label="${escapeAttribute(localize("Recovery actions"))}">${escapeHtml(localize("More"))}</summary><div>${recoverySecondaryActionsHtml(panel, recovery)}</div></details>` : ""}${result ? `<button data-action="room-view" data-view="execution">${escapeHtml(localize("Open the result"))}</button>` : ""}</div></section>`;
 };
 
 const defaultAgentNames = ["Lead", "Worker", "Reviewer"];

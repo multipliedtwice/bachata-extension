@@ -595,8 +595,8 @@ export const assignmentLockReason = (input: {
  * Why the model and thinking effort cannot change for the participant's next turn.
  *
  * Provider identity is part of a recoverable run's execution boundary, but model choice is a
- * turn-level setting. Once no response is active, a stopped or failed run may therefore choose a
- * different model and continue from its checkpoint without changing who owns the participant.
+ * turn-level setting. Once no response is active, a paused, stopped, or failed run may therefore
+ * choose a different model for its next turn without changing who owns the participant.
  */
 export const modelAssignmentLockReason = (input: {
   catalogError?: string | undefined;

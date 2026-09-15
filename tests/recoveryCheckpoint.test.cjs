@@ -46,6 +46,7 @@ const usable = (overrides = {}) => {
       ? overrides.selectedSnapshot
       : snapshot,
     availableAttachmentIds: overrides.availableAttachmentIds ?? new Set(),
+    currentAssignments: overrides.currentAssignments,
   };
 };
 

@@ -2961,6 +2961,58 @@ test("a pipeline can continue through its own human gate", async () => {
   }
 });
 
+test("a paused pipeline can change model and effort for its next participant turn", async () => {
+  const models = [];
+  const efforts = [];
+  const harness = loadRuntimeHarness({
+    onAdapterSend: ({ request }) => {
+      models.push(request.model);
+      efforts.push(request.reasoningEffort);
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "fix" });
+    const run = harness.runtime.handleMessage({
+      type: "pipeline.run",
+      prompt: "Change the next turn",
+      attachmentIds: [],
+    });
+    await harness.adapterControls.get("codex").started.promise;
+    harness.adapterControls.get("codex").release.resolve();
+    await waitFor(
+      () => harness.runtime.getState().workflowStatus === "paused",
+      "Pipeline did not reach its human gate",
+    );
+
+    await harness.runtime.handleMessage({
+      type: "agents.model.select",
+      agentId: "codex",
+      model: "gpt-6-astra",
+    });
+    await harness.runtime.handleMessage({
+      type: "agents.effort.select",
+      agentId: "codex",
+      reasoningEffort: "high",
+    });
+    const reassigned = harness.runtime.getState().agentAssignments.slots.find(
+      (slot) => slot.agentId === "codex",
+    );
+    assert.equal(reassigned.assignedModel, "gpt-6-astra");
+    assert.equal(reassigned.assignedReasoningEffort, "high");
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.handleMessage({ type: "run.gate", action: "continue" });
+    await run;
+
+    assert.deepEqual(models, [undefined, "gpt-6-astra"]);
+    assert.deepEqual(efforts, [undefined, "high"]);
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
 test("pipeline import returns an unsaved draft without changing active pipelines", async () => {
   let importPath;
   const posted = [];

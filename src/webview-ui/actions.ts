@@ -815,6 +815,8 @@ root.addEventListener("click", (event) => {
   } else if (action === "agents-picker-toggle") {
     if (state.agentsPickerOpen) closeAgentsPicker();
     else openAgentsPicker();
+  } else if (action === "recovery-change-model") {
+    openAgentsPicker(target.dataset.agent);
   } else if (action === "agents-assign" && target.dataset.agent) {
     delete state.agentsBrowserFor;
     postRuntime({

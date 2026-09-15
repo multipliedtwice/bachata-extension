@@ -812,7 +812,8 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
       delete win.__panelState.agentAssignments.modelLockReason;
       win.__boot();
     });
-    cy.get("#agents-picker-button").click();
+    cy.get('[data-action="recovery-change-model"]').should("be.visible").click();
+    cy.get(".agents-popover").should("be.visible");
     cy.get("#agents-provider-lead").should("be.disabled");
     cy.get("#agents-model-select-lead").should("not.be.disabled").select("gpt-5.6-terra");
     cy.get(".agents-locked").should("contain.text", "Model and thinking effort changes apply when you resume");

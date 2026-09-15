@@ -1676,5 +1676,6 @@
   "“{0}” covers every later {1} from {2} in this run, without asking again.": "“{0}” covers every later {1} from {2} in this run, without asking again.",
   "… and {0} more": "… and {0} more",
   "Change models for the next turn": "Change models for the next turn",
+  "Change models": "Change models",
   "Providers stay fixed for this run. Model and thinking effort changes apply when you resume.": "Providers stay fixed for this run. Model and thinking effort changes apply when you resume."
 }
