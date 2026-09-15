@@ -1041,8 +1041,12 @@ const settleCodeBlockFocus = (): void => {
   });
 };
 
+const panelSelectHasFocus = (): boolean =>
+  document.activeElement instanceof HTMLSelectElement &&
+  document.activeElement.closest(".agents-popover, .composer-settings") !== null;
+
 const scheduleRender = (): void => {
-  if (composing || pointerActivationPending) {
+  if (composing || pointerActivationPending || panelSelectHasFocus()) {
     deferredRender = true;
     return;
   }
@@ -1052,7 +1056,7 @@ const scheduleRender = (): void => {
   renderScheduled = true;
   requestAnimationFrame(() => {
     renderScheduled = false;
-    if (composing || pointerActivationPending) {
+    if (composing || pointerActivationPending || panelSelectHasFocus()) {
       deferredRender = true;
       return;
     }
@@ -1474,6 +1478,10 @@ root.addEventListener("compositionend", () => {
 // control. Focus is already elsewhere, so this does not steal it back.
 document.addEventListener("focusin", (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  if (deferredRender && !composing && !pointerActivationPending && !panelSelectHasFocus()) {
+    deferredRender = false;
+    scheduleRender();
+  }
   if (state.agentsPickerOpen) {
     const insideAgents = target && typeof target.closest === "function" ? target.closest(".agents-picker") : null;
     if (!insideAgents) {

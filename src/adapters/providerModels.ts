@@ -49,8 +49,8 @@ const nonEmptyString = (value: unknown): string | undefined =>
  * The wire form is `{ data: [ { id, model, displayName, hidden, isDefault, ... } ] }`. Only `id`
  * is required here: a row with no id names nothing the reader could select and is dropped rather
  * than shown as an unnamed choice. A hidden row is dropped too — the server marks it as one the
- * reader is not offered — while everything else about a row is left alone, because reasoning
- * effort, service tiers and modalities are Codex's business and not a model's identity.
+ * reader is not offered. Reasoning-effort choices travel with the row because they are
+ * model-specific; service tiers and modalities remain Codex's business.
  *
  * A result with no `data` array is not an empty catalog: it is a server that did not answer this
  * question, and it returns undefined so the caller reports "cannot list" instead of "no models".

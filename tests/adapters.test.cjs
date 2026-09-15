@@ -863,6 +863,23 @@ test("Claude adapter sends prompts through stream JSON stdin and resumes", async
   }
 });
 
+test("Claude receives the selected thinking effort as a provider argument", async () => {
+  const recordPath = path.join(os.tmpdir(), `mock-claude-effort-${Date.now()}.jsonl`);
+  const previous = process.env.MOCK_RECORD_PATH;
+  process.env.MOCK_RECORD_PATH = recordPath;
+  const adapter = createClaude();
+  try {
+    await collect(adapter.send({ ...request("review deeply"), reasoningEffort: "high" }, new AbortController().signal));
+    const argv = readMockRecords(recordPath).find((record) => record.type === "argv").argv;
+    assert.equal(argv.at(argv.indexOf("--effort") + 1), "high");
+  } finally {
+    await adapter.dispose();
+    if (previous === undefined) delete process.env.MOCK_RECORD_PATH;
+    else process.env.MOCK_RECORD_PATH = previous;
+    fs.rmSync(recordPath, { force: true });
+  }
+});
+
 const readMockRecords = (recordPath) =>
   fs
     .readFileSync(recordPath, "utf8")

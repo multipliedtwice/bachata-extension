@@ -37,6 +37,7 @@ export type AgentAssignmentOverride = {
    * whenever the adapter changes unless the reader names one for the receiving provider too.
    */
   model?: string;
+  reasoningEffort?: string;
 };
 
 export type AgentAssignments = Record<string, AgentAssignmentOverride>;
@@ -77,6 +78,9 @@ export const isBrowserAdapterType = (adapter: string): boolean => adapter.endsWi
  */
 export const adapterAcceptsModel = (adapter: string): boolean => !isBrowserAdapterType(adapter);
 
+export const adapterAcceptsReasoningEffort = (adapter: string): boolean =>
+  adapter === "codex-app-server" || adapter === "claude-code";
+
 /** The longest model name Bachata will carry, so a stored assignment cannot grow without bound. */
 export const MAX_ASSIGNMENT_MODEL_LENGTH = 200;
 
@@ -93,6 +97,9 @@ export const isWellFormedAssignmentModel = (value: string): boolean =>
   value.length <= MAX_ASSIGNMENT_MODEL_LENGTH &&
   value === value.trim() &&
   /^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$/u.test(value);
+
+export const isWellFormedReasoningEffort = (value: string): boolean =>
+  value.length > 0 && value.length <= 64 && value === value.trim() && /^[A-Za-z][A-Za-z0-9._-]*$/u.test(value);
 
 /**
  * Which agent holds each role as of each step.
@@ -174,9 +181,14 @@ export const assignedAgentDefinition = (
   if (override.adapter === definition.adapter) {
     // Same provider, so nothing provider-specific is left behind. Only a model the reader named
     // for this provider replaces the definition's own, and naming none leaves the pipeline's.
-    return override.model === undefined || override.model === definition.model
-      ? definition
-      : { ...definition, model: override.model };
+    const model = override.model ?? definition.model;
+    const reasoningEffort = override.reasoningEffort ?? definition.reasoningEffort;
+    if (model === definition.model && reasoningEffort === definition.reasoningEffort) return definition;
+    return {
+      ...definition,
+      ...(model === undefined ? {} : { model }),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    };
   }
   const next: AgentDefinition = {
     id: definition.id,
@@ -187,6 +199,9 @@ export const assignedAgentDefinition = (
   // the rest of that provider's vocabulary. It comes back only if the reader chose one here.
   if (override.model !== undefined && adapterAcceptsModel(override.adapter)) {
     next.model = override.model;
+  }
+  if (override.reasoningEffort !== undefined && adapterAcceptsReasoningEffort(override.adapter)) {
+    next.reasoningEffort = override.reasoningEffort;
   }
   if (definition.workingDirectory !== undefined) {
     next.workingDirectory = definition.workingDirectory;
@@ -259,6 +274,13 @@ export const assignmentRefusals = (
         );
       } else if (!isWellFormedAssignmentModel(override.model)) {
         refuse(agent.id, `"${override.model}" is not a usable model name`);
+      }
+    }
+    if (override.reasoningEffort !== undefined) {
+      if (!adapterAcceptsReasoningEffort(override.adapter)) {
+        refuse(agent.id, `${override.adapter} does not accept a thinking-effort override`);
+      } else if (!isWellFormedReasoningEffort(override.reasoningEffort)) {
+        refuse(agent.id, `"${override.reasoningEffort}" is not a usable thinking-effort value`);
       }
     }
     if (override.adapter === agent.adapter) {
@@ -445,6 +467,7 @@ export type AssignmentSlot = {
   defaultAdapter: string;
   /** The model the saved pipeline names for this participant, when it names one. */
   defaultModel?: string;
+  defaultReasoningEffort?: string;
 };
 
 export type AssignmentSlots = {
@@ -532,6 +555,7 @@ export const assignmentSlots = (pipeline: PipelineDefinition): AssignmentSlots =
         ...(roleId === undefined ? {} : { roleId }),
         defaultAdapter: agent.adapter,
         ...(agent.model === undefined ? {} : { defaultModel: agent.model }),
+        ...(agent.reasoningEffort === undefined ? {} : { defaultReasoningEffort: agent.reasoningEffort }),
       };
     });
   return {
@@ -611,12 +635,19 @@ export const parseScopedAgentAssignments = (
       isWellFormedAssignmentModel(model)
       ? model
       : undefined;
+    const reasoningEffort = typeof override.reasoningEffort === "string" ? override.reasoningEffort : undefined;
+    const usableReasoningEffort = reasoningEffort !== undefined &&
+      adapterAcceptsReasoningEffort(override.adapter) &&
+      isWellFormedReasoningEffort(reasoningEffort)
+      ? reasoningEffort
+      : undefined;
     assignments[agentId] = {
       adapter: override.adapter,
       ...(typeof override.browserSessionId === "string" && override.browserSessionId
         ? { browserSessionId: override.browserSessionId }
         : {}),
       ...(usableModel === undefined ? {} : { model: usableModel }),
+      ...(usableReasoningEffort === undefined ? {} : { reasoningEffort: usableReasoningEffort }),
     };
   });
   return Object.keys(assignments).length === 0

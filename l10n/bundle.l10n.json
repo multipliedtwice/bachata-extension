@@ -1275,6 +1275,8 @@
   "There is no initiative to export.": "There is no initiative to export.",
   "These apply to this run only. They do not change the saved pipeline.": "These apply to this run only. They do not change the saved pipeline.",
   "These task pipelines declare their own steps and may review inside the pipeline, before those checks: {0}.": "These task pipelines declare their own steps and may review inside the pipeline, before those checks: {0}.",
+  "Thinking effort": "Thinking effort",
+  "Thinking effort for {0}": "Thinking effort for {0}",
   "Third-party report": "Third-party report",
   "This answer is being submitted.": "This answer is being submitted.",
   "This control is not available yet.": "This control is not available yet.",

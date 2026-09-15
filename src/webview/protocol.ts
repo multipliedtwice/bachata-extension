@@ -13,7 +13,7 @@ import { PipelineSnapshot } from "../pipeline/identity";
 import { HumanGateAction } from "../pipeline/runner";
 import { RunParticipant } from "../state/catalog";
 import { PipelineDefinition } from "../pipeline/types";
-import { isWellFormedAssignmentModel } from "../pipeline/agentAssignment";
+import { isWellFormedAssignmentModel, isWellFormedReasoningEffort } from "../pipeline/agentAssignment";
 import type { LongitudinalSummary, ResolutionTarget } from "../longitudinal/service";
 import type { CycleType, HumanResolutionAction } from "../longitudinal/types";
 import { PipelineReadiness } from "../readiness/model";
@@ -163,6 +163,7 @@ export type AgentAssignmentSlot = {
   overridden: boolean;
   /** The model the saved pipeline names for this participant, when it names one. */
   defaultModel?: string;
+  defaultReasoningEffort?: string;
   /**
    * The model this participant will actually run on. Absent means the provider's own default was
    * left in place: Bachata sends no model name and the provider chooses. A browser slot is always
@@ -170,6 +171,7 @@ export type AgentAssignmentSlot = {
    * states rather than filling in.
    */
   assignedModel?: string;
+  assignedReasoningEffort?: string;
 };
 
 /**
@@ -182,7 +184,13 @@ export type AgentAssignmentSlot = {
  */
 export type AdapterModelCatalog = {
   status: "listed" | "unsupported" | "unknown" | "discovering";
-  models: Array<{ id: string; label: string; isDefault?: boolean }>;
+  models: Array<{
+    id: string;
+    label: string;
+    isDefault?: boolean;
+    defaultReasoningEffort?: string;
+    reasoningEfforts?: Array<{ id: string; description: string }>;
+  }>;
   detail?: string;
 };
 
@@ -708,6 +716,7 @@ export type WebviewToExtensionMessage =
     }
   /** Choose the model one participant runs on, or clear it back to the provider's own default. */
   | { type: "agents.model.select"; agentId: AgentId; model?: string }
+  | { type: "agents.effort.select"; agentId: AgentId; reasoningEffort?: string }
   | { type: "agents.model.discover"; agentId: AgentId }
   | { type: "agents.reset" }
   | { type: "localModel.select"; model?: string }
@@ -1326,6 +1335,27 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
       type: "agents.model.select",
       agentId,
       ...(typeof value.model === "string" ? { model: value.model } : {}),
+    };
+  }
+
+  if (value.type === "agents.effort.select") {
+    if (!hasOnlyKeys(value, ["type", "agentId", "reasoningEffort"])) {
+      throw new Error("Invalid agents.effort.select message");
+    }
+    const agentId = parseAgentId(value.agentId);
+    if (!agentId) {
+      throw new Error("agents.effort.select contains an invalid participant");
+    }
+    if (
+      value.reasoningEffort !== undefined &&
+      (typeof value.reasoningEffort !== "string" || !isWellFormedReasoningEffort(value.reasoningEffort))
+    ) {
+      throw new Error("agents.effort.select contains an invalid thinking effort");
+    }
+    return {
+      type: "agents.effort.select",
+      agentId,
+      ...(typeof value.reasoningEffort === "string" ? { reasoningEffort: value.reasoningEffort } : {}),
     };
   }
 

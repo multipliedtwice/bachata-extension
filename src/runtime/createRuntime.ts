@@ -367,6 +367,7 @@ import {
   AssignmentSlots,
   ScopedAgentAssignments,
   adapterAcceptsModel,
+  adapterAcceptsReasoningEffort,
   adapterTypeForBrowserProvider,
   assignedPipelineDefinition,
   assignmentLockReason,
@@ -374,6 +375,7 @@ import {
   assignmentSlots,
   isBrowserAdapterType,
   isWellFormedAssignmentModel,
+  isWellFormedReasoningEffort,
   parseScopedAgentAssignments,
   usableAssignments,
 } from "../pipeline/agentAssignment";
@@ -2216,6 +2218,8 @@ export const createRuntime = (
         const assignedAdapter = assigned?.adapter ?? slot.defaultAdapter;
         const assignedModel = assigned?.model
           ?? (assignedAdapter === slot.defaultAdapter ? slot.defaultModel : undefined);
+        const assignedReasoningEffort = assigned?.reasoningEffort
+          ?? (assignedAdapter === slot.defaultAdapter ? slot.defaultReasoningEffort : undefined);
         return {
           agentId: slot.agentId,
           responsibility: slot.responsibility,
@@ -2223,9 +2227,11 @@ export const createRuntime = (
           defaultAdapter: slot.defaultAdapter,
           assignedAdapter,
           ...(sessionId === undefined ? {} : { browserSessionId: sessionId }),
-          overridden: assigned !== undefined && assigned.adapter !== slot.defaultAdapter,
+          overridden: assigned !== undefined,
           ...(slot.defaultModel === undefined ? {} : { defaultModel: slot.defaultModel }),
+          ...(slot.defaultReasoningEffort === undefined ? {} : { defaultReasoningEffort: slot.defaultReasoningEffort }),
           ...(assignedModel === undefined ? {} : { assignedModel }),
+          ...(assignedReasoningEffort === undefined ? {} : { assignedReasoningEffort }),
         };
       }),
       assignableAdapters: assignableTypes,
@@ -4201,6 +4207,7 @@ export const createRuntime = (
           "onRequest",
         ),
         model: definition.model,
+        reasoningEffort: definition.reasoningEffort,
       };
     }
     if (definition.adapter === "claude-code" || definition.adapter === "zai-glm") {
@@ -4215,9 +4222,10 @@ export const createRuntime = (
         model: definition.adapter === "zai-glm"
           ? definition.model ?? (config.get<string>("zaiModel", "").trim() || undefined)
           : definition.model,
+        reasoningEffort: definition.reasoningEffort,
       };
     }
-    return { model: definition.model };
+    return { model: definition.model, reasoningEffort: definition.reasoningEffort };
   };
 
   const reserveAgents = (agentIds: string[], ownerId: string): string[] => {
@@ -4964,6 +4972,7 @@ export const createRuntime = (
           permissionMode: options.permissionMode,
           approvalPolicy: options.approvalPolicy,
           model: options.model,
+          reasoningEffort: options.reasoningEffort,
           workspacePolicy: turnWorkspacePolicy({
             readOnly: semanticReadOnly,
             writeScope: resolvedWritePolicy.writeScope,
@@ -9264,7 +9273,10 @@ export const createRuntime = (
     // session, which is what makes the chosen model the one that actually runs.
     const remodelled = agentIds.filter(
       (agentId) =>
-        !changed.includes(agentId) && next[agentId]?.model !== previousAssignments[agentId]?.model,
+        !changed.includes(agentId) && (
+          next[agentId]?.model !== previousAssignments[agentId]?.model ||
+          next[agentId]?.reasoningEffort !== previousAssignments[agentId]?.reasoningEffort
+        ),
     );
     if (changed.length === 0 && remodelled.length === 0) {
       return;
@@ -9374,12 +9386,18 @@ export const createRuntime = (
       const carriedModel = previous[agentId]?.adapter === adapter
         ? previous[agentId]?.model
         : undefined;
+      const carriedReasoningEffort = previous[agentId]?.adapter === adapter
+        ? previous[agentId]?.reasoningEffort
+        : undefined;
       next[agentId] = {
         adapter,
         ...(browserSessionId ? { browserSessionId } : {}),
         ...(carriedModel === undefined || !adapterAcceptsModel(adapter)
           ? {}
           : { model: carriedModel }),
+        ...(carriedReasoningEffort === undefined || !adapterAcceptsReasoningEffort(adapter)
+          ? {}
+          : { reasoningEffort: carriedReasoningEffort }),
       };
     }
     // A no-op when only the conversation changed: the adapter is already the assigned one, so no
@@ -9442,13 +9460,23 @@ export const createRuntime = (
         );
       }
     }
+    const currentEffort = previous[agentId]?.reasoningEffort;
+    const effectiveModel = model ?? (adapter === base.adapter ? base.model : undefined);
+    const reportedModel = adapterModelCatalogs.get(adapter)?.models.find((candidate) =>
+      effectiveModel === undefined ? candidate.isDefault === true : candidate.id === effectiveModel,
+    );
+    const reportedEfforts = reportedModel?.reasoningEfforts?.map((effort) => effort.id);
+    const reasoningEffort = currentEffort !== undefined &&
+      (reportedEfforts === undefined || reportedEfforts.includes(currentEffort))
+      ? currentEffort
+      : undefined;
     const next = { ...previous };
     if (model === undefined) {
       const current = previous[agentId];
       if (current === undefined) {
         return;
       }
-      if (current.adapter === base.adapter && current.browserSessionId === undefined) {
+      if (current.adapter === base.adapter && current.browserSessionId === undefined && reasoningEffort === undefined) {
         delete next[agentId];
       } else {
         next[agentId] = {
@@ -9456,15 +9484,16 @@ export const createRuntime = (
           ...(current.browserSessionId === undefined
             ? {}
             : { browserSessionId: current.browserSessionId }),
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         };
       }
     } else {
+      const browserSessionId = previous[agentId]?.browserSessionId;
       next[agentId] = {
         adapter,
-        ...(previous[agentId]?.browserSessionId === undefined
-          ? {}
-          : { browserSessionId: previous[agentId]?.browserSessionId as string }),
+        ...(browserSessionId === undefined ? {} : { browserSessionId }),
         model,
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       };
     }
     await commitAgentAssignments(next);
@@ -9472,6 +9501,56 @@ export const createRuntime = (
     if (!disposed) {
       emitSnapshot();
     }
+  };
+
+  const applyAgentReasoningEffort = async (
+    agentId: string,
+    reasoningEffort: string | undefined,
+  ): Promise<void> => {
+    const refusal = agentAssignmentRefusal();
+    if (refusal) throw new Error(refusal);
+    const base = selectedPipelineSnapshot?.definition.agents.find((agent) => agent.id === agentId);
+    if (!base) throw new Error(`Unknown participant ${agentId}`);
+    const previous = activeAssignments();
+    const current = previous[agentId];
+    const adapter = current?.adapter ?? base.adapter;
+    if (!adapterAcceptsReasoningEffort(adapter)) {
+      throw new Error(`${adapter} does not accept a thinking-effort override`);
+    }
+    if (reasoningEffort !== undefined && !isWellFormedReasoningEffort(reasoningEffort)) {
+      throw new Error(`"${reasoningEffort}" is not a usable thinking-effort value`);
+    }
+    const model = current?.model ?? (adapter === base.adapter ? base.model : undefined);
+    const reportedModel = adapterModelCatalogs.get(adapter)?.models.find((candidate) =>
+      model === undefined ? candidate.isDefault === true : candidate.id === model,
+    );
+    const reportedEfforts = reportedModel?.reasoningEfforts?.map((effort) => effort.id);
+    if (reasoningEffort !== undefined && reportedEfforts !== undefined && !reportedEfforts.includes(reasoningEffort)) {
+      throw new Error(`${reportedModel?.label ?? model ?? adapter} does not offer thinking effort "${reasoningEffort}"`);
+    }
+    const next = { ...previous };
+    if (reasoningEffort === undefined) {
+      if (!current) return;
+      if (current.adapter === base.adapter && current.browserSessionId === undefined && current.model === undefined) {
+        delete next[agentId];
+      } else {
+        next[agentId] = {
+          adapter: current.adapter,
+          ...(current.browserSessionId === undefined ? {} : { browserSessionId: current.browserSessionId }),
+          ...(current.model === undefined ? {} : { model: current.model }),
+        };
+      }
+    } else {
+      next[agentId] = {
+        adapter,
+        ...(current?.browserSessionId === undefined ? {} : { browserSessionId: current.browserSessionId }),
+        ...(current?.model === undefined ? {} : { model: current.model }),
+        reasoningEffort,
+      };
+    }
+    await commitAgentAssignments(next);
+    await checkSelectedReadiness();
+    if (!disposed) emitSnapshot();
   };
 
   const resetAgentAssignments = async (): Promise<void> => {
@@ -10244,6 +10323,7 @@ export const createRuntime = (
         type:
           | "agents.assign"
           | "agents.model.select"
+          | "agents.effort.select"
           | "agents.model.discover"
           | "agents.reset"
           | "localModel.select";
@@ -10277,6 +10357,10 @@ export const createRuntime = (
     }
     if (message.type === "agents.model.select") {
       await applyAgentModel(message.agentId, message.model);
+      return;
+    }
+    if (message.type === "agents.effort.select") {
+      await applyAgentReasoningEffort(message.agentId, message.reasoningEffort);
       return;
     }
     if (message.type === "agents.model.discover") {
@@ -10497,6 +10581,7 @@ export const createRuntime = (
         return await handleCatalogMessage(message);
       case "agents.assign":
       case "agents.model.select":
+      case "agents.effort.select":
       case "agents.model.discover":
       case "agents.reset":
       case "localModel.select":

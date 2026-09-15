@@ -6906,3 +6906,175 @@ details.direction-evidence > ul,
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Composer panels stay compact enough to inspect without pushing their lower controls below the
+   viewport. Their own scroll surface is stable while background snapshots arrive. */
+.composer > .composer-settings,
+.agents-popover {
+  max-height: min(620px, calc(100dvh - 140px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.composer > .composer-settings {
+  width: min(440px, calc(100% - var(--bachata-gutter) * 2));
+  gap: 14px;
+}
+
+.composer-settings-section {
+  gap: 8px;
+}
+
+.composer-settings-section + .composer-settings-section,
+.composer-settings .run-contract {
+  padding-top: 12px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.composer-settings .compact-actions {
+  gap: 6px;
+}
+
+.composer-settings .compact-actions button {
+  min-height: 30px;
+  padding: 4px 9px;
+}
+
+.composer-advanced {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.composer-advanced .delivery-control,
+.composer-advanced .iteration-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.composer-advanced label > span,
+.agents-provider-field > span,
+.agents-model-title,
+.agents-effort-field > span,
+.agents-model-explicit > label {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  font-weight: 500;
+}
+
+.composer-settings select,
+.composer-settings input[type="number"],
+.agents-popover select,
+.agents-popover input[type="text"] {
+  min-width: 0;
+  min-height: 34px;
+  padding-block: 5px;
+  border-color: var(--vscode-input-border, var(--bachata-border));
+  border-radius: 7px;
+  background-color: var(--vscode-input-background, var(--bachata-card));
+  box-shadow: none;
+}
+
+.composer-settings select,
+.agents-popover select {
+  width: 100%;
+  padding-inline: 10px 30px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--vscode-descriptionForeground) 50%),
+    linear-gradient(135deg, var(--vscode-descriptionForeground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% - 1px),
+    calc(100% - 10px) calc(50% - 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.composer-settings select:hover,
+.agents-popover select:hover {
+  border-color: var(--vscode-focusBorder, var(--bachata-border-strong));
+}
+
+.agents-popover {
+  width: min(440px, 100%);
+}
+
+.agents-slot {
+  gap: 10px;
+  padding-block: 14px;
+}
+
+.agents-slot-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.agents-provider-field,
+.agents-model,
+.agents-bridge-setup,
+.agents-session-list {
+  grid-column: 1 / -1;
+}
+
+.agents-model {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.55fr);
+  gap: 5px 12px;
+  align-items: end;
+}
+
+.agents-model-title {
+  grid-column: 1;
+}
+
+.agents-model-select-row {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.agents-effort-field {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  align-content: end;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agents-model-detail,
+.agents-model-explicit,
+.agents-model-note {
+  grid-column: 1 / -1;
+}
+
+.agents-local.is-ready {
+  border-color: var(--vscode-input-border, var(--bachata-border));
+}
+
+@media (max-width: 420px) {
+  .composer-advanced,
+  .agents-model {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agents-effort-field,
+  .agents-model-detail,
+  .agents-model-explicit,
+  .agents-model-note {
+    grid-column: 1;
+  }
+
+  .agents-effort-field {
+    grid-row: auto;
+  }
+}

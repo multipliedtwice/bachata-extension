@@ -448,7 +448,8 @@ const discoverVisibleAgentModels = (panel: PanelState = activePanel()): void => 
 const handleAgentSelectionChange = (target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): boolean => {
   const providerAgentId = target.dataset.agentsProviderFor;
   const modelAgentId = target.dataset.agentsModelSelectFor;
-  if (!providerAgentId && !modelAgentId) return false;
+  const effortAgentId = target.dataset.agentsEffortFor;
+  if (!providerAgentId && !modelAgentId && !effortAgentId) return false;
   if (agentsAssignmentLockReason(activePanel()) !== undefined || target.disabled) return true;
   if (providerAgentId) {
     delete state.agentsModelDrafts[providerAgentId];
@@ -470,6 +471,12 @@ const handleAgentSelectionChange = (target: HTMLInputElement | HTMLSelectElement
       customAgentModelFields.delete(key);
       postRuntime({ type: "agents.model.select", agentId: modelAgentId, ...(target.value ? { model: target.value } : {}) });
     }
+  } else if (effortAgentId) {
+    postRuntime({
+      type: "agents.effort.select",
+      agentId: effortAgentId,
+      ...(target.value ? { reasoningEffort: target.value } : {}),
+    });
   }
   return true;
 };
@@ -529,11 +536,29 @@ const agentSlotModelHtml = (
   const archived = conversationById(activeId())?.archived === true;
   const detailId = `agents-model-detail-${slot.agentId}`;
   const check = `<button type="button" class="icon-button agents-model-check" data-action="agents-model-discover" data-agent="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Refresh models for {0}", slot.responsibility))}" title="${escapeAttribute(localize("Refresh provider models"))}"${status === "discovering" || archived ? " disabled" : ""}${status === "discovering" ? ' aria-busy="true"' : ""}><i class="codicon codicon-refresh" aria-hidden="true"></i></button>`;
+  const selectedModel = listed.find((model) => model.id === slot.assignedModel)
+    ?? (slot.assignedModel === undefined && defaultModel !== undefined
+      ? listed.find((model) => model.id === defaultModel)
+      : undefined)
+    ?? reportedDefault;
+  const advertisedEfforts = selectedModel?.reasoningEfforts ?? [];
+  const effortChoices = slot.assignedAdapter === "claude-code" && advertisedEfforts.length === 0
+    ? ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, description: id }))
+    : advertisedEfforts;
+  const defaultEffort = slot.defaultReasoningEffort ?? selectedModel?.defaultReasoningEffort;
+  const effortOptions = [
+    `<option value=""${slot.assignedReasoningEffort === undefined ? " selected" : ""}>${escapeHtml(defaultEffort ? localize("Provider default · {0}", defaultEffort) : localize("Provider default"))}</option>`,
+    ...effortChoices.map((effort) => `<option value="${escapeAttribute(effort.id)}"${slot.assignedReasoningEffort === effort.id ? " selected" : ""}>${escapeHtml(effort.id.slice(0, 1).toUpperCase() + effort.id.slice(1))}</option>`),
+  ].join("");
+  const effort = effortChoices.length === 0
+    ? ""
+    : `<label class="agents-effort-field" for="agents-effort-${escapeAttribute(slot.agentId)}"><span>${escapeHtml(localize("Thinking effort"))}</span><select id="agents-effort-${escapeAttribute(slot.agentId)}" data-agents-effort-for="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Thinking effort for {0}", slot.responsibility))}"${locked ? " disabled" : ""}>${effortOptions}</select></label>`;
   return `<div class="agents-model">
     <label class="agents-model-title" for="agents-model-select-${escapeAttribute(slot.agentId)}">${escapeHtml(localize("Model"))}</label>
     <div class="agents-model-select-row"><select id="agents-model-select-${escapeAttribute(slot.agentId)}" class="agents-model-select" data-agents-model-select-for="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Model for {0}", slot.responsibility))}"${detail ? ` aria-describedby="${escapeAttribute(detailId)}"` : ""}${locked ? " disabled" : ""}>${options}</select>${check}</div>
     ${detail ? `<p id="${escapeAttribute(detailId)}" class="agents-model-detail"${catalog?.detail ? ` title="${escapeAttribute(catalog.detail)}"` : ""}${status === "discovering" ? ` ${liveRegionAttributes(`agents:model:${slot.agentId}`, "status", detail)}` : ""}>${escapeHtml(detail)}</p>` : ""}
     ${explicit}
+    ${effort}
   </div>`;
 };
 

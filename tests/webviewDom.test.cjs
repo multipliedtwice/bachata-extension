@@ -1620,6 +1620,35 @@ test("a CLI slot offers every provider-reported model through a labeled selector
   } finally { harness.restore(); }
 });
 
+test("a CLI slot offers the selected model's thinking efforts and sends the choice", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: {
+      "codex-app-server": { status: "listed", models: [{
+        id: "gpt-6-astra",
+        label: "GPT-6-Astra",
+        isDefault: true,
+        defaultReasoningEffort: "medium",
+        reasoningEfforts: [
+          { id: "low", description: "Faster" },
+          { id: "high", description: "More reasoning" },
+        ],
+      }] },
+    },
+  }, { assignedModel: "gpt-6-astra" }));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const effort = harness.document.getElementById("agents-effort-builder");
+    assert.equal(effort.getAttribute("aria-label"), "Thinking effort for Builder");
+    assert.match(harness.document.root.innerHTML, /Provider default · medium/u);
+    chooseAgentOption(harness, "agents-effort-builder", "high");
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "agents.effort.select", agentId: "builder", reasoningEffort: "high" },
+    });
+  } finally { harness.restore(); }
+});
+
 test("choosing the provider default clears the selected model", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel({
     adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "provider-model", label: "Model" }] } },
@@ -8738,7 +8767,7 @@ test("All runs retains its position on updates and separates search positions", 
   } finally { harness.restore(); }
 });
 
-test("Agents and the pipeline editor retain their independent scroll positions on updates", () => {
+test("Agents, run settings, and the pipeline editor retain independent scroll positions on updates", () => {
   const manager = managerState();
   const harness = bootWebview(manager, panelState());
   try {
@@ -8749,10 +8778,31 @@ test("Agents and the pipeline editor retain their independent scroll positions o
     assert.equal(root.querySelector(".agents-popover").scrollTop, 350);
     root.querySelector('[data-action="agents-picker-toggle"]').click();
     openComposerSettings(harness);
+    root.querySelector(".composer-settings").scrollTop = 275;
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(root.querySelector(".composer-settings").scrollTop, 275);
     root.querySelector('[data-action="pipeline-edit"]').click();
     root.querySelector(".editor-scroll").scrollTop = 450;
     harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
     assert.equal(root.querySelector(".editor-scroll").scrollTop, 450);
+  } finally { harness.restore(); }
+});
+
+test("live snapshots do not replace a focused selector inside a composer panel", () => {
+  const manager = managerState();
+  const panel = cliAssignmentPanel({
+    adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "provider-model", label: "Model" }] } },
+  });
+  const harness = bootWebview(manager, panel);
+  try {
+    const root = harness.document.root;
+    root.querySelector('[data-action="agents-picker-toggle"]').click();
+    const select = harness.document.getElementById("agents-model-select-builder");
+    select.focus();
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(harness.document.getElementById("agents-model-select-builder"), select);
+    root.querySelector('[data-action="agents-picker-toggle"]').focus();
+    assert.notEqual(harness.document.getElementById("agents-model-select-builder"), select);
   } finally { harness.restore(); }
 });
 

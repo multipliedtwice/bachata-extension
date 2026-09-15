@@ -165,7 +165,17 @@ window.__panelState = {
       "codex-app-server": {
         status: "listed",
         models: [
-          { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", isDefault: true },
+          {
+            id: "gpt-5.6-sol",
+            label: "GPT-5.6-Sol",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            reasoningEfforts: [
+              { id: "low", description: "Faster" },
+              { id: "medium", description: "Balanced" },
+              { id: "high", description: "More reasoning" },
+            ],
+          },
           { id: "gpt-5.6-terra", label: "GPT-5.6-Terra" },
           { id: "gpt-5.5", label: "GPT-5.5" },
         ],

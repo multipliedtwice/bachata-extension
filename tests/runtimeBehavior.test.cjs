@@ -293,6 +293,47 @@ test("a chosen model survives a reload, and reaches the definition the run execu
   }
 });
 
+test("a chosen thinking effort survives reload and rebuilds the participant with that effort", async () => {
+  const workspace = scratchRootSync("bachata-assignment-effort-workspace-");
+  const created = [];
+  const first = assignmentHarness({
+    workspaceDirectories: [workspace],
+    onAdapterCreate: ({ definition }) => created.push(structuredClone(definition)),
+  });
+  let persisted;
+  try {
+    await first.runtime.handleMessage({ type: "ready" });
+    await first.runtime.configure({ pipelineId: "codex-review" });
+    const before = created.length;
+    await first.runtime.handleMessage({
+      type: "agents.effort.select",
+      agentId: "codex",
+      reasoningEffort: "high",
+    });
+    assert.equal(first.runtime.getState().agentAssignments.slots[0].assignedReasoningEffort, "high");
+    assert.equal(created.length, before + 1, "the provider session is rebuilt for the selected effort");
+    assert.equal(created.at(-1).reasoningEffort, "high");
+    persisted = structuredClone(first.workspaceState.get("bachata.runtimeState.v5"));
+    assert.equal(persisted.agentAssignments.assignments.codex.reasoningEffort, "high");
+  } finally {
+    await first.runtime.dispose();
+    first.cleanup();
+  }
+
+  const second = assignmentHarness({
+    workspaceDirectories: [workspace],
+    initialWorkspaceState: { "bachata.runtimeState.v5": structuredClone(persisted) },
+  });
+  try {
+    await second.runtime.handleMessage({ type: "ready" });
+    assert.equal(second.runtime.getState().agentAssignments.slots[0].assignedReasoningEffort, "high");
+  } finally {
+    await second.runtime.dispose();
+    second.cleanup();
+    removeScratchSync(workspace);
+  }
+});
+
 test("changing provider drops the previous provider's model rather than carrying it across", async () => {
   const harness = assignmentHarness();
   try {

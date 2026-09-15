@@ -423,14 +423,22 @@ type AgentAssignmentSlot = {
   browserSessionId?: string;
   overridden: boolean;
   defaultModel?: string;
+  defaultReasoningEffort?: string;
   assignedModel?: string;
+  assignedReasoningEffort?: string;
 };
 
 // What one provider answered when asked which models it accepts. "unsupported" means it cannot be
 // asked, not that it has none, so the reader keeps an explicit model field in that case.
 type AdapterModelCatalog = {
   status: "listed" | "unsupported" | "unknown" | "discovering";
-  models: Array<{ id: string; label: string; isDefault?: boolean }>;
+  models: Array<{
+    id: string;
+    label: string;
+    isDefault?: boolean;
+    defaultReasoningEffort?: string;
+    reasoningEfforts?: Array<{ id: string; description: string }>;
+  }>;
   detail?: string;
 };
 

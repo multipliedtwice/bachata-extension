@@ -3,11 +3,13 @@ const test = require("node:test");
 
 const {
   adapterAcceptsModel,
+  adapterAcceptsReasoningEffort,
   assignedAgentDefinition,
   assignedPipelineDefinition,
   assignmentRefusals,
   assignmentSlots,
   isWellFormedAssignmentModel,
+  isWellFormedReasoningEffort,
   parseScopedAgentAssignments,
   usableAssignments,
 } = require("../dist/pipeline/agentAssignment.js");
@@ -73,6 +75,29 @@ test("agents.model.select accepts a well-formed model, an absent model, and refu
   });
   assert.equal(extra.success, false);
   assert.match(extra.error, /Invalid agents\.model\.select message/u);
+});
+
+test("agents.effort.select accepts provider effort values and an absent provider default", () => {
+  assert.equal(adapterAcceptsReasoningEffort("codex-app-server"), true);
+  assert.equal(adapterAcceptsReasoningEffort("claude-code"), true);
+  assert.equal(adapterAcceptsReasoningEffort("chatgpt-browser"), false);
+  for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+    assert.equal(isWellFormedReasoningEffort(effort), true);
+    assert.deepEqual(
+      parseWebviewMessage({ type: "agents.effort.select", agentId: "codex", reasoningEffort: effort }),
+      { success: true, message: { type: "agents.effort.select", agentId: "codex", reasoningEffort: effort } },
+    );
+  }
+  assert.deepEqual(
+    parseWebviewMessage({ type: "agents.effort.select", agentId: "codex" }),
+    { success: true, message: { type: "agents.effort.select", agentId: "codex" } },
+  );
+  for (const reasoningEffort of ["", " high", "very high", "high;exit", 7, null]) {
+    assert.equal(
+      parseWebviewMessage({ type: "agents.effort.select", agentId: "codex", reasoningEffort }).success,
+      false,
+    );
+  }
 });
 
 test("a model reaches the definition the run executes, on the pipeline's provider and on a new one", () => {
@@ -157,6 +182,28 @@ test("a slot reports the pipeline's model so the editor can name what the defaul
   assert.equal(slots.slots[0].defaultModel, "gpt-5.5");
 });
 
+test("a thinking-effort override reaches the executed definition and stored assignment", () => {
+  const definition = {
+    id: "codex",
+    name: "Codex",
+    adapter: "codex-app-server",
+    model: "gpt-6-astra",
+    reasoningEffort: "medium",
+  };
+  assert.equal(
+    assignedAgentDefinition(definition, { adapter: "codex-app-server", reasoningEffort: "high" }).reasoningEffort,
+    "high",
+  );
+  const slots = assignmentSlots(pipeline([definition]));
+  assert.equal(slots.slots[0].defaultReasoningEffort, "medium");
+  const restored = parseScopedAgentAssignments({
+    scopeKey: "workspace",
+    pipelineId: "review",
+    assignments: { codex: { adapter: "codex-app-server", reasoningEffort: "xhigh" } },
+  }, knownAdapter);
+  assert.equal(restored.assignments.codex.reasoningEffort, "xhigh");
+});
+
 const checkpoint = (assignments) => ({
   pipelineId: "review",
   pipelineHash: "hash",
@@ -210,6 +257,28 @@ test("a Codex model list is read from what the server reported, hidden rows excl
   assert.equal(parseCodexModelList({}), undefined);
   assert.equal(parseCodexModelList(null), undefined);
   assert.deepEqual(parseCodexModelList({ data: [] }), []);
+});
+
+test("a Codex model list keeps the effort choices advertised for each model", () => {
+  assert.deepEqual(parseCodexModelList({ data: [{
+    id: "gpt-6-astra",
+    displayName: "GPT-6-Astra",
+    isDefault: true,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "Faster" },
+      { reasoningEffort: "high", description: "More reasoning" },
+    ],
+  }] }), [{
+    id: "gpt-6-astra",
+    label: "GPT-6-Astra",
+    isDefault: true,
+    defaultReasoningEffort: "medium",
+    reasoningEfforts: [
+      { id: "low", description: "Faster" },
+      { id: "high", description: "More reasoning" },
+    ],
+  }]);
 });
 
 test("only a catalog the provider actually reported can refuse a model", () => {

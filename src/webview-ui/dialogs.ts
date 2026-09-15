@@ -174,6 +174,7 @@ const scrollSurfaceKeys = (): Array<{ selector: string; key: string }> => {
     { selector: ".turn-details", key: `prompt:${dialogKey}` },
     { selector: ".run-drawer-list", key: JSON.stringify(["runs", state.roomSearch.trim().toLowerCase(), state.showArchived]) },
     { selector: ".agents-popover", key: JSON.stringify(["agents", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId]) },
+    { selector: ".composer-settings", key: JSON.stringify(["run-settings", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId]) },
     { selector: ".pipeline-picker-list", key: JSON.stringify(["pipelines", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId, state.pipelinePickerFilter, state.pipelinePickerQuery]) },
     { selector: ".editor-scroll", key: JSON.stringify(["editor", editorTargetId(), editorScrollSession, state.editorMode]) },
   ];

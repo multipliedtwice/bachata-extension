@@ -107,13 +107,17 @@ test("a model this Codex offers runs, and discovery alone starts no turn", async
         "listing models must never start a billable turn",
       );
 
-      const events = await collect(adapter.send(sendRequest("gpt-5.5"), new AbortController().signal));
+      const events = await collect(adapter.send({
+        ...sendRequest("gpt-5.5"),
+        reasoningEffort: "high",
+      }, new AbortController().signal));
       assert.equal(events.some((event) => event.type === "error"), false);
       const methods = recorded()
         .filter((entry) => entry.type === "rpc")
         .map((entry) => entry.message.method);
       assert.ok(methods.includes("thread/start"));
       assert.ok(methods.includes("turn/start"));
+      assert.equal(recorded().find((entry) => entry.type === "turn").params.effort, "high");
     } finally {
       await adapter.dispose();
     }

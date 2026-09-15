@@ -840,6 +840,19 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
         cy.get("#pipeline-picker-list").should("not.exist");
         cy.get('.agents-session-option[aria-selected="true"]').should("exist").and("not.have.class", "selected");
         expectControlFill('.agents-session-option[aria-selected="true"]', "selected");
+        cy.get("#agents-effort-lead").should("be.visible").select("high");
+        cy.window().its("__posted").then((messages) => {
+          expect(messages.at(-1).message).to.deep.equal({
+            type: "agents.effort.select",
+            agentId: "lead",
+            reasoningEffort: "high",
+          });
+        });
+        cy.get(".agents-popover").should(($panel) => {
+          const style = $panel[0].ownerDocument.defaultView.getComputedStyle($panel[0]);
+          expect(style.overflowY).to.match(/auto|scroll/u);
+          expect(parseFloat(style.maxHeight)).to.be.greaterThan(0);
+        });
         tabToControl("#agents-provider-lead");
         expectKeyboardRing("#agents-provider-lead");
         cy.screenshot(`interaction/agents-picker-${theme}-${width}`);
@@ -849,6 +862,11 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
         expectControlFill('.composer-settings-button', "selected");
         expectFieldResponse("#pipeline-iterations");
         expectFieldResponse("#pipeline-iteration-mode");
+        cy.get("#composer-settings").should(($panel) => {
+          const style = $panel[0].ownerDocument.defaultView.getComputedStyle($panel[0]);
+          expect(style.overflowY).to.match(/auto|scroll/u);
+          expect(parseFloat(style.maxHeight)).to.be.greaterThan(0);
+        });
         pointerClick('.composer-settings-button');
         cy.get("#composer-settings").should("not.exist");
         cy.get("#composer-prompt").type("Check primary Send colors");
