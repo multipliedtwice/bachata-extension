@@ -63,21 +63,22 @@ test("a semantic word is written in the receiving adapter's own words, and an un
   assert.equal(refused.kind, "refuse");
 });
 
-test("moving to a provider with no permission concept refuses a read restriction and drops a write", () => {
-  const readRestriction = translatedPermissionMode({
-    fromAdapter: "codex-app-server",
-    toAdapter: "generic-browser",
-    mode: "readOnly",
-  });
-  assert.equal(readRestriction.kind, "refuse");
-  assert.match(readRestriction.reason, /no permission mode to enforce it/u);
+test("a provider with no permission switch keeps adapter-independent authority", () => {
+  assert.deepEqual(
+    translatedPermissionMode({
+      fromAdapter: "codex-app-server",
+      toAdapter: "generic-browser",
+      mode: "readOnly",
+    }),
+    { kind: "rewrite", intent: "read", mode: "read" },
+  );
   assert.deepEqual(
     translatedPermissionMode({
       fromAdapter: "codex-app-server",
       toAdapter: "generic-browser",
       mode: "workspaceWrite",
     }),
-    { kind: "drop" },
+    { kind: "rewrite", intent: "write", mode: "write" },
   );
 });
 
@@ -138,27 +139,23 @@ test("a write-intent Claude slot moved to Codex keeps its write authority", () =
   assert.deepEqual(assigned.steps[0].approvalPolicies, { codex: "onRequest" });
 });
 
-test("a read-only CLI slot cannot move to a browser conversation", () => {
-  const refusals = assignmentRefusals(cliPipeline, { codex: { adapter: "generic-browser" } });
-  assert.equal(refusals.length > 0, true);
-  assert.equal(refusals[0].agentId, "codex");
-  assert.match(refusals[0].reason, /no permission mode to enforce it/u);
-  // The refusal is honoured by dropping the override, never by executing the pipeline with the
-  // restriction quietly removed.
-  assert.deepEqual(usableAssignments(cliPipeline, { codex: { adapter: "generic-browser" } }), {});
-  assert.equal(
-    assignedPipelineDefinition(cliPipeline, { codex: { adapter: "generic-browser" } }),
-    cliPipeline,
-  );
-});
+test("read and write slots may move to browser conversations without losing authority", () => {
+  assert.deepEqual(assignmentRefusals(cliPipeline, { codex: { adapter: "generic-browser" } }), []);
+  assert.deepEqual(usableAssignments(cliPipeline, { codex: { adapter: "generic-browser" } }), {
+    codex: { adapter: "generic-browser" },
+  });
+  const readAssigned = assignedPipelineDefinition(cliPipeline, {
+    codex: { adapter: "generic-browser" },
+  });
+  assert.equal(readAssigned.agents.find((agent) => agent.id === "codex").permissionMode, "read");
+  assert.deepEqual(readAssigned.steps[0].permissionModes, { codex: "read", claude: "acceptEdits" });
 
-test("a write-intent slot may move to a browser conversation, dropping the inert declaration", () => {
   assert.deepEqual(assignmentRefusals(cliPipeline, { claude: { adapter: "chatgpt-browser" } }), []);
-  const assigned = assignedPipelineDefinition(cliPipeline, {
+  const writeAssigned = assignedPipelineDefinition(cliPipeline, {
     claude: { adapter: "chatgpt-browser" },
   });
-  assert.equal(assigned.agents.find((agent) => agent.id === "claude").permissionMode, undefined);
-  assert.deepEqual(assigned.steps[0].permissionModes, { codex: "readOnly" });
+  assert.equal(writeAssigned.agents.find((agent) => agent.id === "claude").permissionMode, "write");
+  assert.deepEqual(writeAssigned.steps[0].permissionModes, { codex: "readOnly", claude: "write" });
 });
 
 test("no override, and an override naming the pipeline's own adapter, change nothing", () => {

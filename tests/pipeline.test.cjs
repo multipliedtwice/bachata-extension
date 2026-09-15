@@ -13,6 +13,7 @@ const {
   pipelineSnapshotsEqual,
 } = require("../dist/pipeline/identity.js");
 const { renderTemplate } = require("../dist/pipeline/template.js");
+const { assignmentRefusals, assignmentSlots } = require("../dist/pipeline/agentAssignment.js");
 
 const presetPath = path.join(
   __dirname,
@@ -32,13 +33,36 @@ const todoPresetPath = path.join(
 
 const readTodoPreset = () => JSON.parse(fs.readFileSync(todoPresetPath, "utf8"));
 
-const browserPresetPath = path.join(
-  __dirname,
-  "..",
-  "presets",
-  "chatgpt-browser-spike.pipeline.json",
-);
 
+
+test("shipped pipelines have provider-neutral identities and every participant can use every adapter", () => {
+  const presetRoot = path.join(__dirname, "..", "presets");
+  const adapters = [
+    "codex-app-server",
+    "claude-code",
+    "zai-glm",
+    "chatgpt-browser",
+    "claude-browser",
+    "generic-browser",
+  ];
+  for (const filename of fs.readdirSync(presetRoot).filter((name) => name.endsWith(".pipeline.json"))) {
+    const pipeline = JSON.parse(fs.readFileSync(path.join(presetRoot, filename), "utf8"));
+    assert.doesNotMatch(
+      `${pipeline.id} ${pipeline.name} ${pipeline.description ?? ""}`,
+      /(?:^|[^a-z])(browser|chatgpt|claude|codex|gpt)(?:[^a-z]|$)/iu,
+      `${filename} exposes a provider or transport in its workflow identity`,
+    );
+    for (const slot of assignmentSlots(pipeline).slots) {
+      for (const adapter of adapters) {
+        assert.deepEqual(
+          assignmentRefusals(pipeline, { [slot.agentId]: { adapter } }),
+          [],
+          `${pipeline.id}/${slot.agentId} cannot use ${adapter}`,
+        );
+      }
+    }
+  }
+});
 
 test("pipeline identity is canonical, tamper-evident, and scope-aware", () => {
   const definition = readPreset();
@@ -118,13 +142,6 @@ test("pipeline execution snapshots freeze and authenticate task-pipeline depende
     }),
     undefined,
   );
-});
-
-test("browser transport spike preset validates", () => {
-  const result = validatePipelineDefinition(
-    JSON.parse(fs.readFileSync(browserPresetPath, "utf8")),
-  );
-  assert.equal(result.success, true, result.success ? undefined : result.errors.join("\n"));
 });
 
 
@@ -607,7 +624,6 @@ test("adapter registry rejects provider-specific options before execution", () =
   };
   assert.deepEqual(registry.validatePipeline(pipeline), [
     "Agent browser adapter chatgpt-browser does not support permissionMode",
-    "Step turn, browser: ChatGPT Browser does not support permission modes",
   ]);
 });
 
@@ -692,7 +708,7 @@ test("pipeline validation rejects ambiguous checklist summarizers", () => {
 });
 
 test("managed verification accepts only controller-owned commands", () => {
-  const pipeline = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "presets", "gpt-pair.pipeline.json"), "utf8"));
+  const pipeline = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "presets", "feature-delivery.pipeline.json"), "utf8"));
   pipeline.managedPolicy.verificationChecks[0].command = "bachata:project-checks";
   const configured = validatePipelineDefinition(pipeline);
   assert.equal(configured.success, true, configured.success ? undefined : configured.errors.join("\n"));

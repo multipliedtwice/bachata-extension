@@ -7,7 +7,6 @@ export type WorkflowGoalId =
   | "featureDelivery"
   | "fix"
   | "todo"
-  | "browser"
   | "custom";
 
 export type WorkflowMode = "single" | "paired";
@@ -65,23 +64,22 @@ const goalCard = (
 });
 
 export const workflowCards = (): WorkflowCard[] => [
-  goalCard("review", "Review code", "Read-only evidence-backed review", ["codex-review", "claude-review"], ["review-only"]),
+  goalCard("review", "Review code", "Read-only evidence-backed review", ["review"], ["review-only"]),
   {
     id: "productReview",
     title: "Review the product",
     detail: "Cross-checked recommendations with explicit dispositions, recorded as artifacts",
     pipelineIds: ["product-review"],
   },
-  goalCard("plan", "Plan a change", "A bounded implementation plan, no files changed", ["codex-plan", "claude-plan"], ["plan"]),
+  goalCard("plan", "Plan a change", "A bounded implementation plan, no files changed", ["implementation-plan"], ["plan"]),
   {
     id: "featureDelivery",
     title: "Deliver a feature",
     detail: "Agreed requirements and design, then a managed implementation a Lead reviews",
     pipelineIds: ["feature-delivery"],
   },
-  goalCard("fix", "Fix a bug", "Diagnosis and implementation inside a declared write scope", ["managed-fix", "codex-fix", "claude-fix"], ["paired-managed-fix", "debug"]),
+  goalCard("fix", "Fix a bug", "Diagnosis and implementation inside a declared write scope", ["fix", "managed-fix"], ["paired-managed-fix", "debug"]),
   { id: "todo", title: "Run TODO.md", detail: "Managed task orchestration", pipelineIds: ["todo-master"], advanced: true },
-  { id: "browser", title: "Browser pair", detail: "Paired local browser sessions", pipelineIds: ["browser-pair", "claude-browser-pair"], advanced: true },
   { id: "custom", title: "Custom pipelines", detail: "The full pipeline catalog", pipelineIds: [], advanced: true },
 ];
 
@@ -205,7 +203,7 @@ const parseGoalId = (value: unknown): WorkflowGoalId | undefined => {
   if (
     value === "review" || value === "productReview" || value === "plan"
     || value === "featureDelivery" || value === "fix" || value === "todo"
-    || value === "browser" || value === "custom"
+    || value === "custom"
   ) return value;
   return undefined;
 };

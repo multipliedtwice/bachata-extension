@@ -597,8 +597,8 @@ test("setup binds a workflow run to the selected repository", async () => {
     pickCard: "review",
     pickWorkspaceFolder: "/work/second",
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
     },
   });
 
@@ -606,7 +606,7 @@ test("setup binds a workflow run to the selected repository", async () => {
 
   assert.equal(harness.createdConversations.length, 1);
   assert.equal(harness.createdConversations[0].workingDirectory, "/work/second");
-  assert.equal(harness.createdConversations[0].pipelineId, "codex-review");
+  assert.equal(harness.createdConversations[0].pipelineId, "review");
   assert.equal(harness.createdConversations[0].iterationCount, 1);
 });
 
@@ -615,12 +615,12 @@ test("setup states the resolved guardrails and needs explicit confirmation", asy
     workspaceFolders: ["/work/first"],
     pickCard: "review",
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
-      pipelineSafetyLevels: { "codex-review": "review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
+      pipelineSafetyLevels: { "review": "review" },
       pipelineGuardrails: {
-        "codex-review": {
-          pipelineId: "codex-review",
+        "review": {
+          pipelineId: "review",
           pipelineName: "Review code",
           safetyLevel: "review",
           writeAuthority: "Read-only. Nothing in your repository is written.",
@@ -789,12 +789,12 @@ test("setup states the safety level of every offered workflow", async () => {
     pickCard: "todo",
     readiness: {
       pipelines: [
-        { pipelineId: "codex-review", status: "ready", findings: [] },
+        { pipelineId: "review", status: "ready", findings: [] },
         { pipelineId: "debug", status: "ready", findings: [] },
         { pipelineId: "todo-master", status: "ready", findings: [] },
       ],
-      pipelineNames: { "codex-review": "Codex review", debug: "Debug", "todo-master": "TODO master" },
-      pipelineSafetyLevels: { "codex-review": "review", debug: "interactive", "todo-master": "review" },
+      pipelineNames: { "review": "Code review", debug: "Debug", "todo-master": "TODO master" },
+      pipelineSafetyLevels: { "review": "review", debug: "interactive", "todo-master": "review" },
     },
   });
 
@@ -814,8 +814,8 @@ test("setup states the safety level of every offered workflow", async () => {
   const advanced = harness.quickPicks[1];
   assert.deepEqual(
     advanced.map((item) => item.card.id),
-    ["todo", "browser", "custom"],
-    "TODO, browser, and custom pipelines are not behind Advanced workflows",
+    ["todo", "custom"],
+    "TODO and custom pipelines are not behind Advanced workflows",
   );
   assert.match(advanced.find((item) => item.card.id === "todo").detail, /isolated retained work you apply selectively/u);
 });
@@ -829,7 +829,7 @@ test("Doctor resolves a missing local provider with provider-specific steps and 
     configuration: { codexCommand: "codex" },
     readiness: {
       pipelines: [{
-        pipelineId: "codex-review",
+        pipelineId: "review",
         status: "needsSetup",
         findings: [{
           id: "adapter.codex",
@@ -839,9 +839,9 @@ test("Doctor resolves a missing local provider with provider-specific steps and 
           remediationId: "provider.install.codex",
         }],
       }],
-      pipelineNames: { "codex-review": "Review code" },
-      pipelineSafetyLevels: { "codex-review": "review" },
-      selectedPipelineId: "codex-review",
+      pipelineNames: { "review": "Review code" },
+      pipelineSafetyLevels: { "review": "review" },
+      selectedPipelineId: "review",
       adapters: [{ type: "codex-app-server", available: false, detail: "codex unavailable: spawn codex ENOENT" }],
       git: { available: true, detail: "git version 2.39.5", clean: true, statusDetail: "Workspace is clean" },
       bridge: { enabled: true, connected: true, sessions: [] },
@@ -984,14 +984,13 @@ test("Doctor guides Browser Bridge pairing step by step", async () => {
 const reviewReadiness = (pipelines, extra = {}) => ({
   pipelines,
   pipelineNames: {
-    "codex-review": "Codex review",
-    "claude-review": "Claude review",
+    "review": "Code review",
     "review-only": "Review only",
   },
-  pipelineSafetyLevels: { "codex-review": "review", "claude-review": "review", "review-only": "review" },
+  pipelineSafetyLevels: { "review": "review", "review-only": "review" },
   pipelineGuardrails: {
-    "codex-review": {
-      pipelineId: "codex-review",
+    "review": {
+      pipelineId: "review",
       pipelineName: "Review with Codex",
       safetyLevel: "review",
       writeAuthority: "Read-only. Nothing in your repository is written.",
@@ -1032,8 +1031,7 @@ test("setup offers both modes with providers, safety, verification, and iteratio
     pickMode: "paired",
     pickInformationAction: true,
     readiness: reviewReadiness([
-      { pipelineId: "codex-review", status: "ready", findings: [] },
-      { pipelineId: "claude-review", status: "ready", findings: [] },
+      { pipelineId: "review", status: "ready", findings: [] },
       { pipelineId: "review-only", status: "ready", findings: [] },
     ]),
   });
@@ -1064,8 +1062,7 @@ test("setup never picks a single agent when an equally ready pair exists", async
     pickCard: "review",
     pickInformationAction: true,
     readiness: reviewReadiness([
-      { pipelineId: "codex-review", status: "ready", findings: [] },
-      { pipelineId: "claude-review", status: "ready", findings: [] },
+      { pipelineId: "review", status: "ready", findings: [] },
       { pipelineId: "review-only", status: "ready", findings: [] },
     ]),
   });
@@ -1087,7 +1084,7 @@ test("setup explains a blocked pair and offers remediation instead of running it
     pickMode: "paired",
     warningChoice: "Run Doctor",
     readiness: reviewReadiness([
-      { pipelineId: "codex-review", status: "ready", findings: [] },
+      { pipelineId: "review", status: "ready", findings: [] },
       { pipelineId: "review-only", status: "needsSetup", findings: [{ status: "needsSetup", detail: "claude unavailable: spawn claude ENOENT" }] },
     ]),
   });
@@ -1110,7 +1107,7 @@ test("setup with neither mode ready creates no run", async () => {
     pickCard: "review",
     pickMode: "single",
     readiness: reviewReadiness([
-      { pipelineId: "codex-review", status: "blocked", findings: [{ status: "blocked", detail: "codex unavailable" }] },
+      { pipelineId: "review", status: "blocked", findings: [{ status: "blocked", detail: "codex unavailable" }] },
       { pipelineId: "review-only", status: "blocked", findings: [{ status: "blocked", detail: "both providers unavailable" }] },
     ]),
   });
@@ -1126,11 +1123,11 @@ test("Setup remembers an abandoned choice and offers to continue it", async () =
     pickMode: "abandoned",
     readiness: {
       pipelines: [
-        { pipelineId: "codex-review", status: "ready", findings: [] },
+        { pipelineId: "review", status: "ready", findings: [] },
         { pipelineId: "review-only", status: "ready", findings: [] },
       ],
-      pipelineNames: { "codex-review": "Codex review", "review-only": "Review only" },
-      pipelineSafetyLevels: { "codex-review": "review", "review-only": "review" },
+      pipelineNames: { "review": "Code review", "review-only": "Review only" },
+      pipelineSafetyLevels: { "review": "review", "review-only": "review" },
     },
   });
 
@@ -1144,11 +1141,11 @@ test("Setup remembers an abandoned choice and offers to continue it", async () =
     workspaceState: { "bachata.setup.v1": stored },
     readiness: {
       pipelines: [
-        { pipelineId: "codex-review", status: "ready", findings: [] },
+        { pipelineId: "review", status: "ready", findings: [] },
         { pipelineId: "review-only", status: "ready", findings: [] },
       ],
-      pipelineNames: { "codex-review": "Codex review", "review-only": "Review only" },
-      pipelineSafetyLevels: { "codex-review": "review", "review-only": "review" },
+      pipelineNames: { "review": "Code review", "review-only": "Review only" },
+      pipelineSafetyLevels: { "review": "review", "review-only": "review" },
     },
   });
   await resumed.commands.get("bachata.setup")();
@@ -1178,10 +1175,10 @@ test("Setup starting over does not resume the abandoned goal", async () => {
     },
     readiness: {
       pipelines: [
-        { pipelineId: "codex-plan", status: "ready", findings: [] },
+        { pipelineId: "implementation-plan", status: "ready", findings: [] },
       ],
-      pipelineNames: { "codex-plan": "Codex plan" },
-      pipelineSafetyLevels: { "codex-plan": "review" },
+      pipelineNames: { "implementation-plan": "Implementation plan" },
+      pipelineSafetyLevels: { "implementation-plan": "review" },
     },
   });
   await harness.commands.get("bachata.setup")();
@@ -1197,8 +1194,8 @@ test("setup collects the initiative goal before a review, and never invents one"
     workspaceFolders: ["/work/first"],
     pickCard: "review",
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
     },
   };
 
@@ -1246,9 +1243,9 @@ test("a Setup review selection never becomes the authority for another action", 
     workspaceFolders: ["/work/first"],
     pickCard: "review",
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
-      pipelineSafetyLevels: { "codex-review": "review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
+      pipelineSafetyLevels: { "review": "review" },
     },
   };
 
@@ -1256,7 +1253,7 @@ test("a Setup review selection never becomes the authority for another action", 
   // with the pipeline Setup chose.
   const review = loadCommands({ active: false, retainedRuns: [] }, setupChose);
   await review.commands.get("bachata.setup")();
-  assert.equal(review.createdConversations[0].pipelineId, "codex-review");
+  assert.equal(review.createdConversations[0].pipelineId, "review");
   await review.commands.get("bachata.reviewFile")(uriOf("/work/first/src/a.ts"));
   assert.equal(review.adoptedConversations.length, 1, "Review File did not run Setup's workflow");
 
@@ -1307,9 +1304,9 @@ test("the journey produces exactly one run: a review fills the run Setup created
     workspaceFolders: ["/work/first"],
     pickCard: "review",
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
-      pipelineSafetyLevels: { "codex-review": "review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
+      pipelineSafetyLevels: { "review": "review" },
     },
   });
 
@@ -1343,7 +1340,7 @@ test("the documented journey runs as one connected sequence, in both modes", asy
     pipelineSafetyLevels: { [pipelineId]: safety },
   });
 
-  for (const [mode, pipelineId] of [["fast single agent", "codex-review"], ["cross-checked pair", "review-only"]]) {
+  for (const [mode, pipelineId] of [["fast single agent", "review"], ["cross-checked pair", "review-only"]]) {
     const harness = loadCommands({ active: false, retainedRuns: [] }, {
       workspaceFolders: ["/work/first"],
       pickCard: "review",
@@ -1389,9 +1386,9 @@ test("the journey refuses to start a review it could not record, and states why"
     hasInitiative: false,
     initiativeGoal: undefined,
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
-      pipelineSafetyLevels: { "codex-review": "review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
+      pipelineSafetyLevels: { "review": "review" },
     },
   });
 
@@ -1410,9 +1407,9 @@ test("a restarted journey resumes rather than repeating what was done", async ()
     pickCard: "review",
     hasInitiative: true,
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
-      pipelineSafetyLevels: { "codex-review": "review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
+      pipelineSafetyLevels: { "review": "review" },
     },
   };
   const shared = new Map();
@@ -1437,9 +1434,9 @@ test("setup adoption refuses a run that belongs to another repository", async ()
     pickCard: "review",
     hasInitiative: true,
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
-      pipelineSafetyLevels: { "codex-review": "review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
+      pipelineSafetyLevels: { "review": "review" },
     },
   };
 
@@ -1520,8 +1517,8 @@ test("Setup exposes provider selection and records the chosen preference", async
     pickProvidersEntry: true,
     pickProviders: "codex-app-server",
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
       adapters: [
         { type: "codex-app-server", available: true, detail: "codex app-server 0.146.0" },
         { type: "claude-code", available: false, detail: "claude unavailable" },
@@ -1565,8 +1562,8 @@ test("Setup disables a provider by writing the setting, not by hiding it", async
     pickProviders: "manage",
     pickMany: ["codex-app-server"],
     readiness: {
-      pipelines: [{ pipelineId: "codex-review", status: "ready", findings: [] }],
-      pipelineNames: { "codex-review": "Codex review" },
+      pipelines: [{ pipelineId: "review", status: "ready", findings: [] }],
+      pipelineNames: { "review": "Code review" },
       adapters: [{ type: "codex-app-server", available: true, detail: "codex app-server 0.146.0" }],
     },
   });
@@ -1984,7 +1981,7 @@ test("localized warning actions dispatch the same native command and preserve pr
       "Bachata Setup: {0}": "Einrichtung: {0}",
     },
     readiness: reviewReadiness([
-      { pipelineId: "codex-review", status: "ready", findings: [] },
+      { pipelineId: "review", status: "ready", findings: [] },
       { pipelineId: "review-only", status: "needsSetup", findings: [
         { status: "needsSetup", detail: "claude unavailable: spawn claude ENOENT" },
       ] },

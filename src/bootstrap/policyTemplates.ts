@@ -20,11 +20,9 @@ export const policyTemplates: PolicyTemplate[] = [
     policy: () => ({
       version: 1,
       approvedPipelineIds: [
-        "codex-review",
-        "claude-review",
+        "review",
         "review-only",
-        "codex-plan",
-        "claude-plan",
+        "implementation-plan",
         "plan",
         "cross-reference-development",
       ],

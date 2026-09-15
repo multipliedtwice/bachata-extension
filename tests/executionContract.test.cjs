@@ -6,7 +6,7 @@ const {
   executionSafetyLevel,
 } = require("../dist/contract/executionContract.js");
 
-const reviewPipeline = require("../presets/codex-review.pipeline.json");
+const reviewPipeline = require("../presets/review.pipeline.json");
 const todoPipeline = require("../presets/todo-implementation.pipeline.json");
 const masterPipeline = require("../presets/todo-master.pipeline.json");
 
@@ -67,7 +67,7 @@ test("a review contract declares read-only scope and no commits", () => {
     iterations: 1,
     workingDirectory: "/work/service",
     readiness: {
-      pipelineId: "codex-review",
+      pipelineId: "review",
       status: "ready",
       findings: [{ id: "adapter.codex", label: "Codex", status: "ready", detail: "codex 1.0" }],
     },

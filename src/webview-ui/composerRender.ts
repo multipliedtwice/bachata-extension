@@ -141,7 +141,7 @@ const selectPipeline = (pipelineId: string): void => {
 
 const pipelineCategory = (pipeline: PipelineSummary): Exclude<PipelinePickerFilter, "all"> => {
   if (pipeline.pickerCategory === "common" || pipeline.pickerCategory === "specialized" ||
-      pipeline.pickerCategory === "compatibility" || pipeline.pickerCategory === "internal" ||
+      pipeline.pickerCategory === "internal" ||
       pipeline.pickerCategory === "custom") {
     return pipeline.pickerCategory;
   }
@@ -153,7 +153,6 @@ const pipelineFilterLabels: Record<PipelinePickerFilter, string> = {
   all: "All",
   common: "Common",
   specialized: "Specialized",
-  compatibility: "Compatibility",
   internal: "Internal",
   custom: "Custom",
 };
@@ -161,13 +160,12 @@ const pipelineFilterLabels: Record<PipelinePickerFilter, string> = {
 const pipelineCategoryOrder: Record<Exclude<PipelinePickerFilter, "all">, number> = {
   common: 0,
   specialized: 1,
-  compatibility: 2,
-  internal: 3,
-  custom: 4,
+  internal: 2,
+  custom: 3,
 };
 
 const pipelinePickerFilters = (panel: PanelState): PipelinePickerFilter[] => {
-  const categories = (["common", "specialized", "compatibility", "internal", "custom"] as const)
+  const categories = (["common", "specialized", "internal", "custom"] as const)
     .filter((category) => panel.pipelines.some((pipeline) => pipelineCategory(pipeline) === category));
   return categories.includes("custom") ? ["all", ...categories] : categories;
 };
@@ -177,6 +175,11 @@ const effectivePipelinePickerFilter = (panel: PanelState): PipelinePickerFilter 
   if (filters.includes(state.pipelinePickerFilter)) return state.pipelinePickerFilter;
   if (filters.includes("common")) return "common";
   return filters[0] ?? "common";
+};
+
+const pipelinePickerPriority = (pipeline: PipelineSummary): number => {
+  if (pipeline.participantCount === 1) return 2;
+  return (pipeline.participantCount ?? 0) >= 2 && pipeline.writesCode === true ? 0 : 1;
 };
 
 const pipelinePickerEntries = (panel: PanelState): PipelineSummary[] => {
@@ -191,9 +194,10 @@ const pipelinePickerEntries = (panel: PanelState): PipelineSummary[] => {
       ...(pipeline.participantNames ?? []),
     ].some((value) => value.toLocaleLowerCase().includes(query)))
     .sort((left, right) => {
+      const priorityDifference = pipelinePickerPriority(left) - pipelinePickerPriority(right);
       const categoryDifference = pipelineCategoryOrder[pipelineCategory(left)] -
         pipelineCategoryOrder[pipelineCategory(right)];
-      return categoryDifference ||
+      return priorityDifference || categoryDifference ||
         (left.prominentOrder ?? Number.MAX_SAFE_INTEGER) - (right.prominentOrder ?? Number.MAX_SAFE_INTEGER) ||
         left.name.localeCompare(right.name);
     });
@@ -214,7 +218,7 @@ const rememberPipelinePickerFilter = (filter: PipelinePickerFilter): void => {
 
 const setPipelinePickerFilter = (filter: string): void => {
   if (filter !== "all" && filter !== "common" && filter !== "specialized" &&
-      filter !== "compatibility" && filter !== "internal" && filter !== "custom") return;
+      filter !== "internal" && filter !== "custom") return;
   if (!pipelinePickerFilters(activePanel()).includes(filter)) return;
   rememberPipelinePickerFilter(filter);
   reconcilePipelinePickerActive();
@@ -313,6 +317,37 @@ const scrollPickerActiveOptionIntoView = (): void => {
 // fall back to the definition for the selected pipeline and simply omit the rest.
 const pipelineDefinitionFor = (pipeline: PipelineSummary, panel: PanelState): PipelineDefinition | undefined =>
   panel.selectedPipelineId === pipeline.id ? panel.selectedPipelineDefinition : undefined;
+
+const selectedPipelineSummary = (panel: PanelState): PipelineSummary | undefined => {
+  const selectedId = pendingPipelineSelection(activeId())?.pipelineId ?? panel.selectedPipelineId;
+  return panel.pipelines.find((pipeline) => pipeline.id === selectedId);
+};
+
+const pipelinePromptPlaceholder = (panel: PanelState): string => {
+  const pipeline = selectedPipelineSummary(panel);
+  if (!pipeline) return localize("Describe the job for the selected pipeline…");
+  return pipeline.presentation?.promptPlaceholder ?? localize("Describe the outcome for {0}…", pipeline.name);
+};
+
+const pipelineSplashHtml = (panel: PanelState): string => {
+  const pipeline = selectedPipelineSummary(panel);
+  if (!pipeline) {
+    return `<section class="conversation-intro pipeline-intro"><div class="pipeline-intro-icon" aria-hidden="true"><i class="codicon codicon-symbol-method"></i></div><h2>${escapeHtml(localize("Choose a pipeline"))}</h2><p>${escapeHtml(localize("Choose the work below, then describe the outcome you want."))}</p></section>`;
+  }
+  const stepCount = pipelineStepCount(pipeline, panel);
+  const participantCount = pipelineParticipantCount(pipeline, panel);
+  const summary = [
+    stepCount === undefined ? undefined : stepCount === 1 ? localize("{0} step", stepCount) : localize("{0} steps", stepCount),
+    participantCount === undefined ? undefined : participantCount === 1 ? localize("{0} participant", participantCount) : localize("{0} participants", participantCount),
+  ].filter((item): item is string => item !== undefined).join(" · ");
+  const icon = pipeline.presentation?.icon ?? (pipeline.editable ? "symbol-method" : "search");
+  return `<section class="conversation-intro pipeline-intro" data-intro-pipeline-id="${escapeAttribute(pipeline.id)}">
+    <div class="pipeline-intro-icon" aria-hidden="true"><i class="codicon codicon-${escapeAttribute(icon)}"></i></div>
+    <h2>${escapeHtml(pipeline.name)}</h2>
+    ${pipeline.description ? `<p class="pipeline-intro-description">${escapeHtml(pipeline.description)}</p>` : ""}
+    ${summary ? `<p class="pipeline-intro-meta">${escapeHtml(summary)}</p>` : ""}
+  </section>`;
+};
 
 const pipelineParticipantNames = (pipeline: PipelineSummary, panel: PanelState): string[] =>
   pipeline.participantNames ?? pipelineDefinitionFor(pipeline, panel)?.agents.map((agent) => agent.name) ?? [];
@@ -725,7 +760,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   return `<footer class="composer">
     <div class="composer-surface">
       ${attachmentStripHtml(panel, draft)}
-      <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(localize("Describe the job for the selected pipeline…"))}">${escapeHtml(draft.prompt)}</textarea>
+      <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(pipelinePromptPlaceholder(panel))}">${escapeHtml(draft.prompt)}</textarea>
       <div class="composer-toolbar">
         <button data-action="attachment-pick" class="icon-button" aria-label="${escapeAttribute(localize("Attach image, text, log, or specification"))}" title="${escapeAttribute(localize("Attach image, text, log, or specification"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>

@@ -35,7 +35,7 @@ test("the explanation resolves authority without creating a run", () => {
 
 test("a read-only pipeline explains as read-only with no verification", () => {
   const text = renderContractExplanation(
-    buildExecutionContract({ pipeline: preset("codex-review"), maxIterations: 10 }),
+    buildExecutionContract({ pipeline: preset("review"), maxIterations: 10 }),
   );
   assert.match(text, /Safety level: \*\*review\*\*/u);
   assert.match(text, /Write scope: no repository writes/u);

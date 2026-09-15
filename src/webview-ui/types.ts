@@ -217,10 +217,15 @@ type PipelineSummary = {
   scopeKey: string;
   scopeRoot?: string;
   prominentOrder?: number;
-  pickerCategory?: "common" | "specialized" | "compatibility" | "internal" | "custom";
+  pickerCategory?: "common" | "specialized" | "internal" | "custom";
   participantCount?: number;
   participantNames?: string[];
+  writesCode?: boolean;
   stepCount?: number;
+  presentation?: {
+    promptPlaceholder: string;
+    icon: string;
+  };
 };
 type BrowserSessionStatus =
   | "disconnected"
@@ -1169,7 +1174,7 @@ type PersistedEditorDraft = {
   sourcePipelineHash?: string;
   scopeKey?: string;
 };
-type PipelinePickerFilter = "all" | "common" | "specialized" | "compatibility" | "internal" | "custom";
+type PipelinePickerFilter = "all" | "common" | "specialized" | "internal" | "custom";
 type PersistedWebviewState = {
   drafts?: Record<string, string>;
   editor?: PersistedEditorDraft;

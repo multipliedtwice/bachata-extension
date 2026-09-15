@@ -1,16 +1,17 @@
 {
   "version": 1,
-  "id": "claude-plan",
-  "name": "Implementation plan — one planner (compatibility)",
-  "description": "Same planning workflow with a legacy default assignment. For new runs, choose Implementation plan and select Agents.",
+  "id": "implementation-plan",
+  "name": "Implementation plan",
+  "description": "Read the code and produce an implementation plan without editing files. Choose the planner in Agents.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
-      "id": "claude",
+      "id": "codex",
       "name": "Planner",
-      "adapter": "claude-code",
-      "command": "claude",
-      "permissionMode": "plan"
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "readOnly",
+      "approvalPolicy": "onRequest"
     }
   ],
   "steps": [
@@ -21,13 +22,16 @@
       "humanGate": "none",
       "type": "agent",
       "participants": [
-        "claude"
+        "codex"
       ],
       "promptTemplate": "Inspect the current repository and produce a precise implementation plan for this request without changing files. State the files you would change, the order of the changes, the risks, and how the result would be verified.\n\n{{userPrompt}}",
       "parallel": false,
       "consensus": false,
       "permissionModes": {
-        "claude": "plan"
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
       },
       "attachments": "selected"
     }

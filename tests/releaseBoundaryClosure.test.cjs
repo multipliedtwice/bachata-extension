@@ -110,7 +110,7 @@ test("Codex policy disables delegation and permits ordinary tools", () => {
 const fs = require("node:fs");
 const path = require("node:path");
 const schema = require("../dist/pipeline/schema.js");
-const preset = JSON.parse(fs.readFileSync(path.join(__dirname, "../presets/codex-plan.pipeline.json"), "utf8"));
+const preset = JSON.parse(fs.readFileSync(path.join(__dirname, "../presets/implementation-plan.pipeline.json"), "utf8"));
 
 test("shipped presets satisfy the bounded pipeline schema", () => {
   for (const name of fs.readdirSync(path.join(__dirname, "../presets"))) {

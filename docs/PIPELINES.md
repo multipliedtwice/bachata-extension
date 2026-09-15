@@ -4,7 +4,7 @@ Pipeline JSON version: `1`.
 
 ## Choosing a workflow
 
-Start with **Fix a bug**, **Code review**, **Implementation plan**, **UI/UX review**, or **Code review and refinement**. Choose providers in **Agents**. Picker search covers names, IDs, descriptions and participant roles. Filters separate common, specialized, compatibility and internal workflows. Custom definitions add **Custom** and **All** filters. Last filter persists; search text does not.
+Start with **Fix a bug**, **Code review**, **Implementation plan**, **UI/UX review**, or **Code review and refinement**. Choose providers in **Agents**. Picker search covers names, IDs, descriptions and participant roles. Filters separate common, specialized and internal workflows. Custom definitions add **Custom** and **All** filters. Last filter persists; search text does not.
 
 Code review is read-only and single-source. UI/UX review has two read-only reviewers and requires actual visual evidence. Code review and refinement reviews first, then implements confirmed findings inside its declared scope, performs independent review, one explicit revision, and final review. Consensus rounds exchange claims; composer iterations replay the entire workflow. Neither is an unbounded “until correct” loop.
 
@@ -173,82 +173,57 @@ majority, and both end by naming the material judgments they leave to you.
 
 ## Pipeline product audit — 0.7.1 source candidate
 
-This audit concerns the uploaded source candidate. It does not invalidate the user’s observed working Codex CLI and Claude CLI pipelines. Authenticated Browser Bridge acceptance and native VS Code graphical acceptance remain open.
-
 ### What to choose
 
-| Your intent | First choice | What happens |
+| Intent | First choice | Result |
 |---|---|---|
-| Fix a reported bug | Fix a bug | One participant diagnoses without writes, then implements after the existing human gate. The controller runs the declared checks. No commit. |
-| Review code without changes | Code review | One read-only pass. Findings remain single-source; there is no independent consensus or implementation phase. |
-| Plan a change | Implementation plan | One read-only planning pass. |
-| Review UI/UX | UI/UX review | Two read-only reviewers inspect usability, accessibility and hierarchy, then reconcile in at most four rounds. Supply screenshots or actual UI access. Source alone is insufficient for visual acceptance. |
-| Review and refine code | Code review and refinement | Two independent reviews, up to four reconciliation rounds, one implementation phase, independent lead review, one explicit revision phase and a final review. Writes are scoped to src/tests; checks must be configured. No commit. |
+| Fix bug | Fix a bug | One participant diagnoses and implements. Controller runs declared checks. |
+| Review code | Code review | One read-only reviewer. |
+| Plan change | Implementation plan | One read-only planner. |
+| Review UI/UX | UI/UX review | Two reviewers reconcile usability, accessibility and hierarchy findings. |
+| Review and refine | Code review and refinement | Two reviewers reconcile, one implementer fixes, another participant reviews. |
 
-Choose providers in Agents after choosing the workflow. Default filter is Common when present. Other filters expose specialized workflows, compatibility copies and internal controller stages. Custom definitions add Custom and All. Empty filters stay hidden. Last filter persists across picker and panel reopen. Invalid remembered filter falls back to Common, then first available filter. Existing IDs and archived snapshots stay unchanged; historical snapshots may keep old names because they record the exact definition that ran.
+Choose workflow first. Choose providers in **Agents**. Bundled workflow IDs, titles and descriptions name work, not providers or transports. Every participant slot can bind to any supported CLI or Browser Bridge agent. Common, Specialized and Internal filters separate product purpose. Custom definitions add Custom and All. Empty filters stay hidden. Last filter persists.
 
-### Root causes and corrections
+Provider-specific and browser-specific presets are removed. `fix`, `review`, and `implementation-plan` replace the former single-provider copies. Existing archived run snapshots remain readable because each run stores the exact definition it used.
 
-The old catalog conflated four separate dimensions: task intent, provider defaults, orchestration/controller stages, and repeated review mechanisms. Titles and participant names carried provider identities even after assignments became independent. Provider-specific duplicate presets competed with ordinary choices. Product direction review and a four-browser implementation pipeline were the nearest apparent substitutes for a visual UX audit, although neither was a read-only visual workflow.
+Read/write authority survives provider reassignment as semantic intent. CLI adapters receive their native permission word. Browser adapters receive no unsupported permission option; controller read-only enforcement still applies.
 
-All shipped titles and participant labels now describe responsibilities. Compatibility copies retain their IDs, executable steps and default adapters. They are secondary choices, not deleted definitions. No stored user definition or historical snapshot is rewritten. Two additive workflows fill the missing read-only UI/UX and review-before-refinement paths.
+### Rounds and iterations
 
-The new refinement pipeline keeps its participants in the root run. Source tracing found that executeChecklist task pipelines have their own accepted snapshot and participant configuration: parent Agents overrides are not automatically propagated to those children. The reviewed-task preset now says this explicitly. Unifying that behavior is still separate engineering work; this candidate does not pretend the parent picker controls every child.
-
-### Rounds, revisions and iterations
-
-Consensus rounds exchange structured candidate claims until agreement or the configured limit. They do not imply code changes. The generic browser worker/lead presets have an unconditional planned revision step, not an accept/reject-driven revision loop. The new code refinement workflow also has exactly one explicit revision step. It declares no browser-only maxRevisionCycles policy: its one revision is an explicit step, not a conditional loop.
-
-Improve This Project has a different controller-owned review/revision loop, with checks and structured accept/reject decisions. Its component presets require controller packets and should not be mistaken for standalone everyday workflows. The TODO controller owns child worktrees, scheduling, checks and integration.
-
-Composer iterations replay the entire accepted workflow sequentially with fresh chats. They are not consensus rounds and do not mean “repeat code refinement until defect-free.” Pipeline completion, consensus and passing checks are distinct facts.
+Consensus rounds exchange structured claims until agreement or configured limit. They do not imply code changes. Composer iterations replay the accepted workflow sequentially with fresh chats. Pipeline completion, consensus and passing checks remain separate facts.
 
 ### Complete shipped catalog
 
-Rounds list each consensus step’s configured maximum. The table is generated from all 31 final definitions, not inferred from titles. A managed declaration is not evidence that a real provider or project verifier ran in this environment.
+21 definitions ship. Rounds show each consensus step maximum.
 
-| Stable ID | Current title | Enabled steps | Consensus maxima | Input context | Verification ownership |
-|---|---|---:|---|---|---|
-| `browser-pair` | Browser research — cross-review | 2 | 10 | Run input | No managed controller checks in this definition |
-| `chatgpt-browser-spike` | Browser task — one participant | 1 | None | Run input | No managed controller checks in this definition |
-| `claude-browser-agent` | Browser task — one participant (compatibility) | 1 | None | Run input | No managed controller checks in this definition |
-| `claude-fix` | Fix a bug — one implementer (compatibility) | 2 | None | Run input | Managed policy; inspect configured checks and scope |
-| `claude-browser-pair` | Implement and refine — browser pair (compatibility) | 5 | None | Run input | Managed policy; inspect configured checks and scope |
-| `claude-plan` | Implementation plan — one planner (compatibility) | 1 | None | Run input | No managed controller checks in this definition |
-| `claude-review` | Code review — one reviewer (compatibility) | 1 | None | Run input | No managed controller checks in this definition |
-| `code-review-refine` | Code review and refinement | 7 | 4 | Run input | Managed policy; inspect configured checks and scope |
-| `codex-fix` | Fix a bug | 2 | None | Run input | Managed policy; inspect configured checks and scope |
-| `codex-plan` | Implementation plan | 1 | None | Run input | No managed controller checks in this definition |
-| `codex-review` | Code review | 1 | None | Run input | No managed controller checks in this definition |
-| `core-decisions` | Identify decisions for you | 2 | 10 | Run input | No managed controller checks in this definition |
-| `cross-reference-development` | Review and prepare tasks | 3 | 10 | Run input | No managed controller checks in this definition |
-| `debug` | Diagnose and fix — model review | 5 | 10, 15 | Run input | No managed controller checks in this definition |
-| `feature-delivery` | Deliver a feature | 8 | 6 | Direction | Managed policy; inspect configured checks and scope |
-| `generic-browser-pair` | Implement and refine — generic browser | 5 | None | Run input | Managed policy; inspect configured checks and scope |
-| `gpt-browser-pair` | Implement and refine — browser pair | 5 | None | Run input | Managed policy; inspect configured checks and scope |
-| `managed-fix` | Fix within a declared scope | 3 | None | Direction | Managed policy; inspect configured checks and scope |
-| `paired-managed-fix` | Fix a bug — reviewed tasks | 4 | 4 | Run input | Task controller: bachata:workspace-integrity, bachata:project-checks |
-| `plan` | Implementation plan — reconcile proposals | 3 | 10 | Direction | No managed controller checks in this definition |
-| `product-review` | Product direction review | 4 | 6 | Direction | No managed controller checks in this definition |
-| `review-only` | Code review — reconcile findings | 3 | 10 | Direction | No managed controller checks in this definition |
-| `self-improvement-convergence` | Internal — improvement convergence | 1 | 2 | Run input | No managed controller checks in this definition |
-| `self-improvement-discovery` | Internal — improvement discovery | 1 | None | Run input | No managed controller checks in this definition |
-| `self-improvement-review` | Internal — improvement review | 1 | None | Run input | No managed controller checks in this definition |
-| `self-improvement-revision` | Internal — improvement revision | 1 | None | Run input | No managed controller checks in this definition |
-| `self-improvement` | Internal — improvement task | 3 | None | Run input | No managed controller checks in this definition |
-| `specialist-browser-review` | Implement with QA and UX review | 5 | 16 | Run input | No managed controller checks in this definition |
-| `todo-implementation` | Internal — task implementation | 4 | None | Run input | Managed policy; inspect configured checks and scope |
-| `todo-master` | Internal — task progress check | 2 | None | Run input | No managed controller checks in this definition |
-| `ui-ux-review` | UI/UX review | 2 | 4 | Run input | No managed controller checks in this definition |
-
+| Stable ID | Title | Enabled steps | Consensus maxima | Verification |
+|---|---|---:|---|---|
+| `code-review-refine` | Code review and refinement | 7 | 4 | Controller checks/scope |
+| `core-decisions` | Identify decisions for you | 2 | 10 | Model result only |
+| `cross-reference-development` | Review and prepare tasks | 3 | 10 | Model result only |
+| `debug` | Diagnose and fix — model review | 5 | 10, 15 | Model result only |
+| `feature-delivery` | Deliver a feature | 8 | 6 | Controller checks/scope |
+| `fix` | Fix a bug | 2 | None | Controller checks/scope |
+| `implementation-plan` | Implementation plan | 1 | None | Model result only |
+| `managed-fix` | Fix within a declared scope | 3 | None | Controller checks/scope |
+| `paired-managed-fix` | Fix a bug — reviewed tasks | 4 | 4 | Task controller |
+| `plan` | Implementation plan — reconcile proposals | 3 | 10 | Model result only |
+| `product-review` | Product direction review | 4 | 6 | Model result only |
+| `review-only` | Code review — reconcile findings | 3 | 10 | Model result only |
+| `review` | Code review | 1 | None | Model result only |
+| `self-improvement-convergence` | Internal — improvement convergence | 1 | 2 | Model result only |
+| `self-improvement-discovery` | Internal — improvement discovery | 1 | None | Model result only |
+| `self-improvement-review` | Internal — improvement review | 1 | None | Model result only |
+| `self-improvement-revision` | Internal — improvement revision | 1 | None | Model result only |
+| `self-improvement` | Internal — improvement task | 3 | None | Model result only |
+| `todo-implementation` | Internal — task implementation | 4 | None | Controller checks/scope |
+| `todo-master` | Internal — task progress check | 2 | None | Model result only |
+| `ui-ux-review` | UI/UX review | 2 | 4 | Model result only |
 ### Browser Bridge and model selection
 
-Previously, Browser Bridge only expanded a list and told the user to connect elsewhere. Opening it now sends bridge.discover; the runtime starts or refreshes the local endpoint before discovery, preserving the serialized host mutation queue. The role card keeps pairing instructions, Copy pairing token, local endpoint, Refresh conversations and any bridge error together. A remote VS Code window explains the local-window requirement. Clicking the button cannot install the companion extension, sign into a provider, or establish an authenticated browser connection by itself. Those real external actions remain necessary.
+Browser Bridge is an agent transport selected in **Agents**. It is not a workflow category. A browser conversation uses the model selected by its website. Bachata does not invent or persist a browser model override.
 
-The former Model name / Use this model field sends an exact provider model-ID override for the selected participant. It does not install a model, provision access, or change the browser site’s model. It is now a closed Other model (advanced) disclosure with those semantics and Apply model override. The common model choices remain visible. Automatic means the provider default unless the pipeline pins a model, in which case Pipeline default names the pin. Browser sessions retain “selected in the browser · unreported.” Opening browser setup hides the unrelated CLI model controls.
+### Verification
 
-### Verification and remaining decisions
-
-The product regression suite checks every shipped title and role label, validates every definition, verifies UI/UX read-only permissions, and executes the new review/refinement step order with provider doubles. DOM tests cover common versus expanded choices, inline bridge discovery/pairing, advanced model explanation and the browser-model ownership note. Provider doubles prove scheduling and request formation; they are not authenticated provider acceptance.
-
-The source audit still leaves release-wide work open: a complete composed outgoing-message ceiling, the full real-adapter Stop race matrix, provider-level subagent prevention against the user’s exact installed Codex version, native VS Code graphical review, and the missing release inputs listed in the final engineering report. The new workflows require live product acceptance before publication.
+Regression coverage validates every shipped definition, rejects provider or transport names in bundled workflow identity, and rebinds every participant slot across every supported adapter without assignment refusal. Provider doubles prove scheduling and request formation; authenticated provider acceptance remains a separate external gate.

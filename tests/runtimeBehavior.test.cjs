@@ -116,9 +116,9 @@ test("the runtime publishes an execution contract for the selected pipeline", as
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     const contract = harness.runtime.getState().executionContract;
-    assert.equal(contract.pipelineId, "codex-review");
+    assert.equal(contract.pipelineId, "review");
     assert.equal(contract.safetyLevel, "review");
     assert.equal(contract.scope.writeScope, "readOnly");
     assert.equal(contract.commitPolicy, "never");
@@ -144,7 +144,7 @@ test("reassigning a participant moves the topology and the contract, and reset r
   const harness = assignmentHarness();
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
 
     await harness.runtime.handleMessage({
@@ -206,14 +206,14 @@ test("an assignment survives a reload of the same workspace, and is dropped when
   let persisted;
   try {
     await first.runtime.handleMessage({ type: "ready" });
-    await first.runtime.configure({ pipelineId: "codex-review" });
+    await first.runtime.configure({ pipelineId: "review" });
     await first.runtime.handleMessage({
       type: "agents.assign",
       agentId: "codex",
       adapter: "claude-code",
     });
     persisted = structuredClone(first.workspaceState.get("bachata.runtimeState.v5"));
-    assert.equal(persisted.agentAssignments.pipelineId, "codex-review");
+    assert.equal(persisted.agentAssignments.pipelineId, "review");
     assert.equal(persisted.agentAssignments.assignments.codex.adapter, "claude-code");
   } finally {
     await first.runtime.dispose();
@@ -255,7 +255,7 @@ test("a chosen model survives a reload, and reaches the definition the run execu
   let persisted;
   try {
     await first.runtime.handleMessage({ type: "ready" });
-    await first.runtime.configure({ pipelineId: "codex-review" });
+    await first.runtime.configure({ pipelineId: "review" });
     await first.runtime.handleMessage({
       type: "agents.model.select",
       agentId: "codex",
@@ -303,7 +303,7 @@ test("a chosen thinking effort survives reload and rebuilds the participant with
   let persisted;
   try {
     await first.runtime.handleMessage({ type: "ready" });
-    await first.runtime.configure({ pipelineId: "codex-review" });
+    await first.runtime.configure({ pipelineId: "review" });
     const before = created.length;
     await first.runtime.handleMessage({
       type: "agents.effort.select",
@@ -338,7 +338,7 @@ test("changing provider drops the previous provider's model rather than carrying
   const harness = assignmentHarness();
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await harness.runtime.handleMessage({
       type: "agents.model.select",
       agentId: "codex",
@@ -379,7 +379,7 @@ test("a model change replaces the participant's provider session rather than res
   const harness = assignmentHarness();
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     const controls = () =>
       harness.adapterControlHistory.filter((control) => control.agentId === "codex");
     const before = controls();
@@ -409,7 +409,7 @@ test("a provider that fails to answer its model list is unaskable, never stuck d
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await harness.runtime.handleMessage({ type: "agents.model.discover", agentId: "codex" });
     const catalog = harness.runtime.getState().agentAssignments.adapterModels["codex-app-server"];
     assert.equal(catalog.status, "unsupported");
@@ -420,30 +420,38 @@ test("a provider that fails to answer its model list is unaskable, never stuck d
   }
 });
 
-test("a model cannot be chosen for a browser participant, whose site owns the selection", async () => {
-  const harness = assignmentHarness();
+test("a model cannot be chosen after a neutral pipeline participant moves to the browser", async () => {
+  const session = createBrowserSession("chatgpt-session", "A ChatGPT tab");
+  const tracked = createTrackedBridge([session]);
+  const harness = assignmentHarness({
+    runtimeOptions: { bridge: tracked.bridge, startBridge: false, closeBridge: false },
+  });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    // browser-pair ships both participants on the Bridge, which is the case where the model is the
-    // website's and Bachata has no way to read it back.
-    await harness.runtime.configure({ pipelineId: "browser-pair" });
+    await harness.runtime.configure({ pipelineId: "review" });
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "chatgpt-browser",
+      browserSessionId: "chatgpt-session",
+    });
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "agents.model.select",
-        agentId: "chatgpt",
+        agentId: "codex",
         model: "gpt-6-astra",
       }),
       /whatever model the website has selected/u,
     );
     const slot = harness.runtime
       .getState()
-      .agentAssignments.slots.find((entry) => entry.agentId === "chatgpt");
+      .agentAssignments.slots.find((entry) => entry.agentId === "codex");
     assert.equal(slot.assignedAdapter, "chatgpt-browser");
     assert.equal(slot.assignedModel, undefined);
     assert.equal(
       harness.runtime
         .getState()
-        .executionParticipants.find((entry) => entry.agentId === "chatgpt").model,
+        .executionParticipants.find((entry) => entry.agentId === "codex").model,
       undefined,
       "no browser model may be invented for the record",
     );
@@ -462,7 +470,7 @@ test("model discovery reports what a provider answered, and says so when it cann
   });
   try {
     await listing.runtime.handleMessage({ type: "ready" });
-    await listing.runtime.configure({ pipelineId: "codex-review" });
+    await listing.runtime.configure({ pipelineId: "review" });
     assert.equal(
       listing.runtime.getState().agentAssignments.adapterModels["codex-app-server"],
       undefined,
@@ -480,7 +488,7 @@ test("model discovery reports what a provider answered, and says so when it cann
   const silent = assignmentHarness();
   try {
     await silent.runtime.handleMessage({ type: "ready" });
-    await silent.runtime.configure({ pipelineId: "codex-review" });
+    await silent.runtime.configure({ pipelineId: "review" });
     await silent.runtime.handleMessage({ type: "agents.model.discover", agentId: "codex" });
     const catalog = silent.runtime.getState().agentAssignments.adapterModels["codex-app-server"];
     assert.equal(catalog.status, "unsupported");
@@ -496,7 +504,7 @@ test("one pipeline's assignment never reaches another pipeline that names the sa
   const harness = assignmentHarness();
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await harness.runtime.handleMessage({
       type: "agents.assign",
       agentId: "codex",
@@ -514,7 +522,7 @@ test("one pipeline's assignment never reaches another pipeline that names the sa
     );
 
     // Coming back to the pipeline the assignment was made against restores it.
-    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "codex-review" });
+    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "review" });
     assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
   } finally {
     await harness.runtime.dispose();
@@ -533,7 +541,7 @@ test("a failed persistence leaves the previous provider, topology and assignment
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     failWrites = true;
     await assert.rejects(
       harness.runtime.handleMessage({
@@ -556,7 +564,7 @@ test("an unknown adapter and an unknown participant are refused without moving a
   const harness = assignmentHarness();
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "agents.assign",
@@ -586,7 +594,7 @@ test("a browser conversation belonging to another provider is refused", async ()
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "agents.assign",
@@ -636,7 +644,7 @@ test("a queued message holds the assignment it recorded", async () => {
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     const run = harness.runtime.handleMessage({
       type: "pipeline.run",
       requestId: "queued-hold",
@@ -683,7 +691,7 @@ test("readiness inspection probes providers and Git workspace state", async () =
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const report = await harness.runtime.inspectReadiness(["codex-review"]);
+    const report = await harness.runtime.inspectReadiness(["review"]);
     assert.equal(report.adapters.find((adapter) => adapter.type === "codex-app-server").available, true);
     assert.equal(report.adapters.find((adapter) => adapter.type === "claude-code").available, false);
     assert.equal(report.git.clean, false);
@@ -839,66 +847,42 @@ test("failed browser selection persistence restores the previous routing", async
   const oldSession = createBrowserSession("old-session", "Old conversation");
   const newSession = createBrowserSession("new-session", "New conversation");
   const tracked = createTrackedBridge([oldSession, newSession]);
-  const oldBinding = {
-    provider: oldSession.provider,
-    conversationUrl: oldSession.conversationUrl,
-    conversationIdentity: oldSession.conversationIdentity,
-    preferredTabId: oldSession.tabId,
-  };
   let failSelection = false;
   const harness = loadRuntimeHarness({
-    initialWorkspaceState: {
-      "bachata.runtimeState.v5": {
-        selectedPipelineId: "chatgpt-browser-spike",
-        taskDirty: false,
-        agents: {
-          chatgpt: {
-            version: "browser-mock",
-            sessionId: oldSession.id,
-            browserBinding: oldBinding,
-          },
-        },
-        attachments: [],
-        queuedMessages: [],
-        queuePaused: false,
-      },
-    },
     beforeWorkspaceStateUpdate: ({ value }) => {
-      if (
-        failSelection &&
-        value?.agents?.chatgpt?.sessionId === newSession.id
-      ) {
+      if (failSelection && value?.agents?.codex?.sessionId === newSession.id) {
         throw new Error("browser selection persistence failed");
       }
     },
-    runtimeOptions: {
-      bridge: tracked.bridge,
-      startBridge: false,
-      closeBridge: false,
-    },
+    runtimeOptions: { bridge: tracked.bridge, startBridge: false, closeBridge: false },
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "review" });
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "chatgpt-browser",
+      browserSessionId: oldSession.id,
+    });
     failSelection = true;
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "browser.session.select",
-        agentId: "chatgpt",
+        agentId: "codex",
         sessionId: newSession.id,
       }),
       /browser selection persistence failed/,
     );
 
-    const liveAgent = harness.runtime.getState().agents.chatgpt;
+    const liveAgent = harness.runtime.getState().agents.codex;
     assert.equal(liveAgent.sessionId, oldSession.id);
     assert.equal(liveAgent.browserBinding.conversationIdentity, oldSession.id);
-    const persistedAgent = harness.workspaceState.get("bachata.runtimeState.v5").agents.chatgpt;
+    const persistedAgent = harness.workspaceState.get("bachata.runtimeState.v5").agents.codex;
     assert.equal(persistedAgent.sessionId, oldSession.id);
     assert.equal(persistedAgent.browserBinding.conversationIdentity, oldSession.id);
     assert.deepEqual(
-      Array.from(tracked.bindings.values()).map(
-        (binding) => binding.conversationIdentity,
-      ),
+      Array.from(tracked.bindings.values()).map((binding) => binding.conversationIdentity),
       [oldSession.id],
     );
   } finally {
@@ -914,51 +898,33 @@ test("browser selection audit failure keeps the committed routing and reports th
   const tracked = createTrackedBridge([oldSession, newSession]);
   let failAudit = false;
   const harness = loadRuntimeHarness({
-    initialWorkspaceState: {
-      "bachata.runtimeState.v5": {
-        selectedPipelineId: "chatgpt-browser-spike",
-        taskDirty: false,
-        agents: {
-          chatgpt: {
-            version: "browser-mock",
-            sessionId: oldSession.id,
-            browserBinding: {
-              provider: oldSession.provider,
-              conversationUrl: oldSession.conversationUrl,
-              conversationIdentity: oldSession.conversationIdentity,
-              preferredTabId: oldSession.tabId,
-            },
-          },
-        },
-        attachments: [],
-        queuedMessages: [],
-        queuePaused: false,
-      },
-    },
     beforeTranscriptAppend: (entry) => {
       if (failAudit && entry.eventType === "browser.session.selected") {
         throw new Error("browser selection audit failed");
       }
     },
-    runtimeOptions: {
-      bridge: tracked.bridge,
-      startBridge: false,
-      closeBridge: false,
-    },
+    runtimeOptions: { bridge: tracked.bridge, startBridge: false, closeBridge: false },
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.configure({ pipelineId: "review" });
+    await harness.runtime.handleMessage({
+      type: "agents.assign",
+      agentId: "codex",
+      adapter: "chatgpt-browser",
+      browserSessionId: oldSession.id,
+    });
     failAudit = true;
     await harness.runtime.handleMessage({
       type: "browser.session.select",
-      agentId: "chatgpt",
+      agentId: "codex",
       sessionId: newSession.id,
     });
 
-    const liveAgent = harness.runtime.getState().agents.chatgpt;
+    const liveAgent = harness.runtime.getState().agents.codex;
     assert.equal(liveAgent.sessionId, newSession.id);
     assert.equal(liveAgent.browserBinding.conversationIdentity, newSession.id);
-    const persistedAgent = harness.workspaceState.get("bachata.runtimeState.v5").agents.chatgpt;
+    const persistedAgent = harness.workspaceState.get("bachata.runtimeState.v5").agents.codex;
     assert.equal(persistedAgent.sessionId, newSession.id);
     assert.equal(persistedAgent.browserBinding.conversationIdentity, newSession.id);
     assert.match(harness.runtime.getState().transcriptError, /audit entry could not be saved/);
@@ -1725,7 +1691,7 @@ test("scoped pipeline resolution reads the requested root, not the active conver
 
     const builtIn = await harness.runtime.resolvePipelineSnapshotInScope(
       secondRoot,
-      "codex-review",
+      "review",
       {},
     );
     assert.equal(builtIn.scopeKey, "builtin");
@@ -2960,21 +2926,21 @@ test("browser action loop fails when the terminal-only continuation requests ano
 });
 
 test("a pipeline can continue through its own human gate", async () => {
-  const harness = loadRuntimeHarness({ bridgeSessions: [readyBrowserSession()] });
+  const harness = loadRuntimeHarness();
   try {
     const webview = { postMessage: async () => true };
     const subscription = harness.runtime.attachWebview(webview);
     await harness.runtime.handleMessage({ type: "ready" });
     await harness.runtime.handleMessage({
       type: "pipeline.select",
-      pipelineId: "chatgpt-browser-spike",
+      pipelineId: "fix",
     });
     const run = harness.runtime.handleMessage({
       type: "pipeline.run",
       prompt: "pipeline",
       attachmentIds: [],
     });
-    const control = harness.adapterControls.get("chatgpt");
+    const control = harness.adapterControls.get("codex");
     await control.started.promise;
     control.release.resolve();
     await waitFor(
@@ -3276,7 +3242,7 @@ test("conversation mode cannot change after the first explicit user message", as
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "pipeline.select",
-        pipelineId: "chatgpt-browser-spike",
+        pipelineId: "fix",
       }),
       /Start a new run or reset this run/,
     );
@@ -3969,7 +3935,7 @@ test("pipeline mutation remains blocked when the user message is outside the rec
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "pipeline.select",
-        pipelineId: "chatgpt-browser-spike",
+        pipelineId: "fix",
       }),
       /Start a new run or reset this run/,
     );
@@ -4002,7 +3968,7 @@ test("persisted task work and queued requests independently block pipeline mutat
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "pipeline.select",
-        pipelineId: "chatgpt-browser-spike",
+        pipelineId: "fix",
       }),
       /Start a new run or reset this run/,
     );
@@ -4384,7 +4350,7 @@ test("pipeline selection restores history and topology when state persistence fa
     beforeWorkspaceStateUpdate: async ({ value }) => {
       if (
         failSelection &&
-        value?.selectedPipelineId === "chatgpt-browser-spike"
+        value?.selectedPipelineId === "fix"
       ) {
         failSelection = false;
         throw new Error("selection persistence failed");
@@ -4400,7 +4366,7 @@ test("pipeline selection restores history and topology when state persistence fa
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "pipeline.select",
-        pipelineId: "chatgpt-browser-spike",
+        pipelineId: "fix",
       }),
       /selection persistence failed/,
     );
@@ -5675,7 +5641,7 @@ test("a normal Codex workflow uses whole-working-directory reads by default", as
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const report = await harness.runtime.inspectReadiness(["codex-review"]);
+    const report = await harness.runtime.inspectReadiness(["review"]);
     assert.equal(report.adapters.find((adapter) => adapter.type === "codex-app-server").available, true);
     assert.equal(report.pipelines[0].status, "ready");
     assert.equal(report.codexWorkspaceScope, "wholeWorkingDirectory");
@@ -5700,10 +5666,10 @@ test("a disabled provider makes its workflow unsupported and refuses the turn", 
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const report = await harness.runtime.inspectReadiness(["codex-review"]);
+    const report = await harness.runtime.inspectReadiness(["review"]);
     assert.equal(report.pipelines[0].status, "unsupported");
     assert.deepEqual(report.disabledProviders, ["codex-app-server"]);
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await assert.rejects(
       harness.runtime.runPipeline("do the work"),
       /disabled in bachata\.disabledProviders/u,
@@ -6208,14 +6174,21 @@ test("a removed workspace root leaves no workingDirectory or pipelineScopeRoot k
 });
 
 test("a bound browser conversation that is gone clears the agent sessionId key", async () => {
+  const workspace = scratchRootSync("bachata-vanished-browser-assignment-");
   const tracked = createTrackedBridge([]);
   const harness = loadRuntimeHarness({
+    workspaceDirectories: [workspace],
     initialWorkspaceState: {
       "bachata.runtimeState.v5": {
-        selectedPipelineId: "chatgpt-browser-spike",
+        selectedPipelineId: "review",
         taskDirty: false,
+        agentAssignments: {
+          scopeKey: `workspace:${workspace}`,
+          pipelineId: "review",
+          assignments: { codex: { adapter: "chatgpt-browser", browserSessionId: "vanished-session" } },
+        },
         agents: {
-          chatgpt: {
+          codex: {
             version: "browser-mock",
             sessionId: "vanished-session",
             browserBinding: {
@@ -6235,7 +6208,7 @@ test("a bound browser conversation that is gone clears the agent sessionId key",
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const agent = harness.runtime.getState().agents.chatgpt;
+    const agent = harness.runtime.getState().agents.codex;
     assert.equal(Object.hasOwn(agent, "sessionId"), false);
     assert.equal(agent.status, "unknown");
     assert.match(agent.error, /not currently available/u);
@@ -6243,21 +6216,29 @@ test("a bound browser conversation that is gone clears the agent sessionId key",
     harness.adapterControls.forEach((control) => control.release.resolve());
     await harness.runtime.dispose();
     harness.cleanup();
+    removeScratchSync(workspace);
   }
 });
 
 test("a browser binding failure clears the agent sessionId key and reports the error", async () => {
+  const workspace = scratchRootSync("bachata-unbindable-browser-assignment-");
   const tracked = createTrackedBridge([]);
   tracked.bridge.bindConversation = () => {
     throw new Error("bridge refused the binding");
   };
   const harness = loadRuntimeHarness({
+    workspaceDirectories: [workspace],
     initialWorkspaceState: {
       "bachata.runtimeState.v5": {
-        selectedPipelineId: "chatgpt-browser-spike",
+        selectedPipelineId: "review",
         taskDirty: false,
+        agentAssignments: {
+          scopeKey: `workspace:${workspace}`,
+          pipelineId: "review",
+          assignments: { codex: { adapter: "chatgpt-browser", browserSessionId: "unbindable-session" } },
+        },
         agents: {
-          chatgpt: {
+          codex: {
             version: "browser-mock",
             sessionId: "unbindable-session",
             browserBinding: {
@@ -6277,7 +6258,7 @@ test("a browser binding failure clears the agent sessionId key and reports the e
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const agent = harness.runtime.getState().agents.chatgpt;
+    const agent = harness.runtime.getState().agents.codex;
     assert.equal(Object.hasOwn(agent, "sessionId"), false);
     assert.equal(agent.status, "unknown");
     assert.match(agent.error, /not currently available/u);
@@ -6285,6 +6266,7 @@ test("a browser binding failure clears the agent sessionId key and reports the e
     harness.adapterControls.forEach((control) => control.release.resolve());
     await harness.runtime.dispose();
     harness.cleanup();
+    removeScratchSync(workspace);
   }
 });
 
@@ -6360,9 +6342,14 @@ test("a malformed persisted runtime value is discarded field by field instead of
       "bachata.runtimeState.v5": {
         taskId: 17,
         workingDirectory: 42,
-        selectedPipelineId: "chatgpt-browser-spike",
+        selectedPipelineId: "review",
         selectedPipelineSnapshot: "not-a-snapshot",
         taskDirty: "yes",
+        agentAssignments: {
+          scopeKey: "builtin",
+          pipelineId: "review",
+          assignments: { codex: { adapter: "chatgpt-browser" } },
+        },
         agents: {
           notARecord: "string",
           badProvider: { browserBinding: { ...validBinding, provider: "netscape" } },
@@ -6373,7 +6360,7 @@ test("a malformed persisted runtime value is discarded field by field instead of
           fractionalTab: { browserBinding: { ...validBinding, preferredTabId: 1.5 } },
           bindingNotARecord: { browserBinding: [] },
           badVersion: { version: 3, sessionId: 9 },
-          chatgpt: { version: "browser-mock", browserBinding: validBinding },
+          codex: { version: "browser-mock", browserBinding: validBinding },
         },
         attachments: [
           "not-a-record",
@@ -6399,7 +6386,7 @@ test("a malformed persisted runtime value is discarded field by field instead of
     assert.deepEqual(state.queuedMessages, []);
     assert.equal(state.queuePaused, false);
     assert.equal(typeof state.taskId, "string");
-    const agent = state.agents.chatgpt;
+    const agent = state.agents.codex;
     assert.equal(agent.version, "browser-mock");
     assert.equal(agent.browserBinding.conversationIdentity, "kept");
   } finally {
@@ -7084,7 +7071,7 @@ test("opening a chat checks its providers without Doctor or setup", async () => 
     assert.equal(harness.runtime.getState().readiness.status, "ready");
     assert.ok(commands.includes("claude"));
     assert.ok(commands.includes(CODEX_EXECUTABLE));
-    assert.deepEqual(harness.runtime.getState().pipelines.filter((pipeline) => pipeline.prominentOrder !== undefined).sort((left, right) => left.prominentOrder - right.prominentOrder).map((pipeline) => pipeline.id), ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"]);
+    assert.deepEqual(harness.runtime.getState().pipelines.filter((pipeline) => pipeline.prominentOrder !== undefined).sort((left, right) => left.prominentOrder - right.prominentOrder).map((pipeline) => pipeline.id), ["code-review-refine", "feature-delivery", "debug", "paired-managed-fix", "review-only", "plan", "ui-ux-review", "fix", "review", "implementation-plan", "managed-fix"]);
     for (const pipeline of harness.runtime.getState().pipelines) {
       assert.equal(pipeline.participantNames.length, pipeline.participantCount);
       assert.ok(pipeline.stepCount > 0);
@@ -7092,7 +7079,7 @@ test("opening a chat checks its providers without Doctor or setup", async () => 
     const count = commands.length;
     await harness.runtime.handleMessage({ type: "ready" });
     assert.equal(commands.length, count, "reattaching a chat must reuse its completed checks");
-    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "claude-review" });
+    await harness.runtime.handleMessage({ type: "pipeline.select", pipelineId: "review" });
     assert.equal(harness.runtime.getState().readiness.status, "ready");
     assert.equal(commands.slice(count).includes(CODEX_EXECUTABLE), false, "only the selected pipeline's providers are checked");
   } finally {
@@ -7231,7 +7218,7 @@ test("reassigning a role reuses cached discovery and launches no probe", async (
   const harness = registryHarness(registry);
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await harness.runtime.inspectReadiness();
     const afterDiscovery = probes.length;
     assert.ok(afterDiscovery > 0);
@@ -7260,14 +7247,14 @@ test("a reassigned participant reports the assigned provider's readiness, not 'n
   const harness = registryHarness(registry);
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await harness.runtime.inspectReadiness();
     await harness.runtime.handleMessage({
       type: "agents.assign",
       agentId: "codex",
       adapter: "claude-code",
     });
-    await harness.runtime.inspectReadiness(["codex-review"]);
+    await harness.runtime.inspectReadiness(["review"]);
     assert.equal(harness.runtime.getState().agents.codex.adapterType, "claude-code");
     const finding = harness.runtime
       .getState()
@@ -7300,7 +7287,7 @@ test("the editor is told discovery is running rather than that providers are mis
   const harness = registryHarness(registry);
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     await harness.runtime.inspectReadiness();
     assert.equal(harness.runtime.getState().agentAssignments.discovering, false);
     assert.ok(harness.runtime.getState().agentAssignments.availableAdapters.includes("codex-app-server"));
@@ -7366,7 +7353,7 @@ test("a queued run refuses a local model change at the runtime, not only in the 
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    await harness.runtime.configure({ pipelineId: "codex-review" });
+    await harness.runtime.configure({ pipelineId: "review" });
     const run = harness.runtime.handleMessage({
       type: "pipeline.run",
       requestId: "local-model-lock",

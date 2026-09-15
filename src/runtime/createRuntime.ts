@@ -1937,6 +1937,18 @@ export const createRuntime = (
         agent.browserBinding = bindingFromSession(boundSession);
       } else if (!boundSession) {
         delete agent.sessionId;
+        const assigned = scopedAssignments?.assignments[agentId];
+        if (assigned?.browserSessionId !== undefined && scopedAssignments) {
+          const nextAssignment = { ...assigned };
+          delete nextAssignment.browserSessionId;
+          scopedAssignments = {
+            ...scopedAssignments,
+            assignments: {
+              ...scopedAssignments.assignments,
+              [agentId]: nextAssignment,
+            },
+          };
+        }
       }
       const readySessions = providerSessions.filter(
         (session) => session.status === "ready",
@@ -3413,6 +3425,27 @@ export const createRuntime = (
     adapters = topology.adapters;
     definitions = topology.definitions;
     state.agents = topology.agents;
+    if (scopedAssignments) {
+      let changed = false;
+      const assignments = Object.fromEntries(
+        Object.entries(scopedAssignments.assignments).map(([agentId, assignment]) => {
+          if (
+            assignment.browserSessionId === undefined ||
+            !topology.definitions[agentId]?.adapter.endsWith("-browser") ||
+            topology.agents[agentId]?.sessionId !== undefined
+          ) {
+            return [agentId, assignment];
+          }
+          const next = { ...assignment };
+          delete next.browserSessionId;
+          changed = true;
+          return [agentId, next];
+        }),
+      );
+      if (changed) {
+        scopedAssignments = { ...scopedAssignments, assignments };
+      }
+    }
     refreshExecutionParticipants();
   };
 

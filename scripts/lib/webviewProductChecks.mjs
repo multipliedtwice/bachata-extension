@@ -367,11 +367,18 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       await activate(menu, "keyboard");
       const controls = await session.evaluate(`Array.from(document.querySelectorAll('.header-action-menu button:enabled')).map(el => el.dataset.action)`);
       for (const action of controls) {
-        assert.equal(await session.evaluate(`(() => {
-          const el = document.querySelector('.header-action-menu [data-action="${action}"]'); el.scrollIntoView({block:'nearest'});
-          const r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
-          return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && r.height >= 24 && (hit === el || el.contains(hit));
-        })()`), true, `${theme} ${width}: hit-test ${action}`);
+        const hitResult = await session.evaluate(`(() => {
+          const el = document.querySelector('.header-action-menu [data-action="${action}"]');
+          const inspect = () => {
+            const r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+            return { rect: [r.left, r.top, r.right, r.bottom], hit: hit?.dataset?.action ?? hit?.className ?? hit?.tagName, open: el.closest('details')?.open === true, scrollY };
+          };
+          const before = inspect();
+          el.scrollIntoView({block:'nearest'});
+          const after = inspect(), r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+          return { ok: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && r.height >= 24 && (hit === el || el.contains(hit)), before, after };
+        })()`);
+        assert.equal(hitResult.ok, true, `${theme} ${width}: hit-test ${action}: ${JSON.stringify(hitResult)}`);
       }
       await activate(bell, "keyboard");
       assert.equal(await isOpen(".header-action-menu"), false);

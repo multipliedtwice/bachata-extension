@@ -1,16 +1,17 @@
 {
   "version": 1,
-  "id": "claude-fix",
-  "name": "Fix a bug — one implementer (compatibility)",
-  "description": "Same single-implementer workflow with a legacy default assignment. For new runs, choose Fix a bug and select Agents.",
+  "id": "fix",
+  "name": "Fix a bug",
+  "description": "Diagnose and implement a fix with one participant. Runs declared controller checks; creates no commit. Choose the participant in Agents.",
   "longitudinalIntent": "runLocal",
   "agents": [
     {
-      "id": "claude",
+      "id": "codex",
       "name": "Implementer",
-      "adapter": "claude-code",
-      "command": "claude",
-      "permissionMode": "acceptEdits"
+      "adapter": "codex-app-server",
+      "command": "codex",
+      "permissionMode": "workspaceWrite",
+      "approvalPolicy": "onRequest"
     }
   ],
   "steps": [
@@ -21,13 +22,16 @@
       "humanGate": "none",
       "type": "agent",
       "participants": [
-        "claude"
+        "codex"
       ],
       "promptTemplate": "Diagnose the reported defect from the current repository and supplied evidence. Identify the reproducible cause before proposing changes. Do not modify files in this step.\n\n{{userPrompt}}",
       "parallel": false,
       "consensus": false,
       "permissionModes": {
-        "claude": "plan"
+        "codex": "readOnly"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
       },
       "attachments": "selected"
     },
@@ -38,13 +42,16 @@
       "humanGate": "before",
       "type": "agent",
       "participants": [
-        "claude"
+        "codex"
       ],
       "promptTemplate": "Implement the root-cause fix you diagnosed. Stay inside the declared write scope. Do not run repository commands: the controller owns verification.\n\nDiagnosis:\n{{peerAnswersTagged}}",
       "parallel": false,
       "consensus": false,
       "permissionModes": {
-        "claude": "acceptEdits"
+        "codex": "workspaceWrite"
+      },
+      "approvalPolicies": {
+        "codex": "onRequest"
       },
       "attachments": "none"
     }

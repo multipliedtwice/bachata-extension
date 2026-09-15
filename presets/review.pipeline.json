@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "id": "codex-review",
+  "id": "review",
   "name": "Code review",
   "description": "Read-only code review by one participant. Findings remain single-source. Choose the participant in Agents.",
   "longitudinalIntent": "runLocal",

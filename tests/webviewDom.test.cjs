@@ -68,6 +68,15 @@ class FakeElement {
     return matchesSelector(this, selector);
   }
 
+  contains(element) {
+    let current = element;
+    while (current) {
+      if (current === this) return true;
+      current = current.parentElement;
+    }
+    return false;
+  }
+
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
     if (name === "id") this.id = String(value);
@@ -663,6 +672,447 @@ test("the selected run tab owns view controls, notifications, and one grouped ac
   } finally {
     harness.restore();
   }
+});
+
+const tabStressRuns = (count) => Array.from({ length: count }, (_, index) => ({
+  ...conversationSummary(),
+  id: `run-${index + 1}`,
+  title: `Run ${index + 1} ${"Long title ภาษาไทย ".repeat(20)}`,
+  createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+  iterationCount: 10,
+  activeIteration: 9,
+  unread: 123456,
+}));
+
+const stubTabStripGeometry = (root) => {
+  const layout = () => {
+    const scroll = root.querySelector(".run-tabs-scroll");
+    if (!scroll) return;
+    const rect = (left, width) => ({ left, right: left + width, width, top: 0, bottom: 42, height: 42, x: left, y: 0 });
+    scroll.clientWidth = 180;
+    scroll.getBoundingClientRect = () => rect(50, scroll.clientWidth);
+    let offset = 0;
+    for (const tab of root.querySelectorAll(".run-tab")) {
+      const left = offset;
+      const width = tab.matches(".selected") ? 100 : 40;
+      tab.getBoundingClientRect = () => rect(50 + left - scroll.scrollLeft, width);
+      tab.querySelector(".run-tab-select").getBoundingClientRect = tab.getBoundingClientRect;
+      offset += width;
+    }
+    scroll.scrollWidth = offset;
+  };
+  const html = Object.getOwnPropertyDescriptor(FakeRoot.prototype, "innerHTML");
+  Object.defineProperty(root, "innerHTML", {
+    configurable: true,
+    get() { return html.get.call(this); },
+    set(value) { html.set.call(this, value); layout(); },
+  });
+  layout();
+};
+
+test("tab strip keeps the same visible run when preceding tabs change", () => {
+  const manager = managerState({ conversations: tabStressRuns(100) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    stubTabStripGeometry(root);
+    root.querySelector(".run-tabs-scroll").scrollLeft = 910;
+    const anchor = () => root.querySelector('.run-tab-select[data-conversation="run-22"]');
+    const before = anchor().getBoundingClientRect().left;
+    manager.conversations[1].archived = true;
+    harness.sendWindowMessage({ type: "manager.snapshot", state: structuredClone(manager) });
+    assert.equal(anchor().getBoundingClientRect().left, before);
+    manager.conversations.push({ ...conversationSummary(), id: "earlier-run", title: "Earlier run", createdAt: "2025-01-01T00:00:00.000Z" });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: structuredClone(manager) });
+    assert.equal(anchor().getBoundingClientRect().left, before);
+    assert.equal(root.querySelector(".run-tab.selected .run-tab-select").dataset.conversation, "run-1");
+    const next = () => root.querySelector('.run-tab-select[data-conversation="run-23"]');
+    const nextBefore = next().getBoundingClientRect().left;
+    manager.conversations.find((run) => run.id === "run-22").archived = true;
+    harness.sendWindowMessage({ type: "manager.snapshot", state: structuredClone(manager) });
+    assert.equal(next().getBoundingClientRect().left, nextBefore);
+  } finally { harness.restore(); }
+});
+
+test("tab strip moves keyboard focus to a newly selected run without taking composer focus", () => {
+  const manager = managerState({ conversations: tabStressRuns(30) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    stubTabStripGeometry(root);
+    root.querySelector(".run-tab-select").focus();
+    manager.activeConversationId = "run-30";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: structuredClone(manager) });
+    assert.equal(harness.document.activeElement.dataset.conversation, "run-30");
+    const selected = root.querySelector(".run-tab.selected").getBoundingClientRect();
+    const bounds = root.querySelector(".run-tabs-scroll").getBoundingClientRect();
+    assert.ok(selected.left >= bounds.left && selected.right <= bounds.right);
+    assert.equal(root.querySelectorAll('.run-tab-select[tabindex="0"]').length, 1);
+    root.querySelector("#composer-prompt").focus();
+    manager.activeConversationId = "run-15";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: structuredClone(manager) });
+    assert.equal(harness.document.activeElement.id, "composer-prompt");
+  } finally { harness.restore(); }
+});
+
+test("tab strip positions its open menu after render failure recovery", () => {
+  const manager = managerState({ conversations: tabStressRuns(25) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    root.querySelector("#room-actions-button").click();
+    const before = root.querySelector(".run-tab.selected .run-action-menu").style.getPropertyValue("--run-menu-left");
+    assert.notEqual(before, "");
+    const html = Object.getOwnPropertyDescriptor(FakeRoot.prototype, "innerHTML");
+    Object.defineProperty(root, "innerHTML", {
+      get() { return html.get.call(this); },
+      set(value) {
+        if (value.includes('class="workspace-shell"')) throw new Error("Fixture rendering failure");
+        html.set.call(this, value);
+      },
+    });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: structuredClone(manager) });
+    assert.ok(root.querySelector(".render-failure"));
+    const menu = root.querySelector(".run-tab.selected .run-action-menu");
+    assert.equal(menu.open, true);
+    assert.equal(menu.style.getPropertyValue("--run-menu-left"), before);
+    assert.equal(harness.document.activeElement.id, "room-actions-button");
+  } finally { harness.restore(); }
+});
+
+test("run tabs stress keeps details on the selected run among 250 long titles", () => {
+  const runs = tabStressRuns(250);
+  const harness = bootWebview(managerState({ conversations: runs }), panelState());
+  try {
+    const tabs = harness.document.root.querySelectorAll(".run-tab");
+    assert.equal(tabs.length, runs.length);
+    assert.equal(tabs.filter((tab) => tab.querySelector(".run-action-menu")).length, 1);
+    assert.equal(tabs.filter((tab) => tab.querySelector(".run-tab-tools")).length, 1);
+    for (let index = 0; index < tabs.length; index++) {
+      const tab = tabs[index];
+      const select = tab.querySelector(".run-tab-select");
+      assert.ok(select.getAttribute("title").startsWith(runs[index].title));
+      assert.ok(select.textContent.includes(runs[index].title));
+      assert.equal(select.getAttribute("tabindex"), index === 0 ? "0" : "-1");
+      if (index > 0) {
+        assert.ok(select.textContent.includes("123,456 unread messages"));
+        assert.equal(tab.querySelector("small"), null);
+        assert.equal(tab.querySelector(".unread"), null);
+      }
+    }
+  } finally { harness.restore(); }
+});
+
+test("tab strip stress preserves browsing position across repeated snapshots", () => {
+  const manager = managerState({ conversations: tabStressRuns(100) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    for (let index = 0; index < 20; index++) {
+      const left = 1200 + index * 17;
+      const strip = harness.document.root.querySelector(".run-tabs-scroll");
+      strip.scrollLeft = left;
+      harness.document.root.dispatch("scroll", { target: strip });
+      manager.conversations = manager.conversations.map((run) => ({ ...run, unread: index + 1 }));
+      harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+      assert.equal(harness.document.root.querySelector(".run-tabs-scroll").scrollLeft, left);
+    }
+  } finally { harness.restore(); }
+});
+
+test("tab strip stress supports keyboard navigation through 1000 runs without selecting on focus", () => {
+  const harness = bootWebview(managerState({ conversations: tabStressRuns(1000) }), panelState());
+  try {
+    const root = harness.document.root;
+    const initialSelections = harness.messages.filter((message) => message.type === "conversation.select").length;
+    let tabIndexWrites = 0;
+    for (const tab of root.querySelectorAll(".run-tab-select")) {
+      const setAttribute = tab.setAttribute.bind(tab);
+      tab.setAttribute = (name, value) => {
+        if (name === "tabindex") tabIndexWrites++;
+        setAttribute(name, value);
+      };
+    }
+    root.querySelector(".run-tab-select").focus();
+    for (const [key, id] of [["End", "run-1000"], ["ArrowLeft", "run-999"], ["Home", "run-1"], ["ArrowRight", "run-2"]]) {
+      tabIndexWrites = 0;
+      let prevented = false;
+      root.dispatch("keydown", {
+        key,
+        target: harness.document.activeElement,
+        preventDefault: () => { prevented = true; },
+      });
+      assert.equal(prevented, true);
+      assert.equal(harness.document.activeElement.dataset.conversation, id);
+      assert.equal(root.querySelectorAll(".run-tab-select").filter((tab) => tab.getAttribute("tabindex") === "0").length, 1);
+      assert.ok(tabIndexWrites <= 2, `${key} rewrote ${tabIndexWrites} tab indices`);
+      assert.equal(harness.messages.filter((message) => message.type === "conversation.select").length, initialSelections);
+    }
+    harness.document.activeElement.click();
+    assert.deepEqual(harness.messages.at(-1), { type: "conversation.select", conversationId: "run-2" });
+  } finally { harness.restore(); }
+});
+
+test("tab strip scrolling closes its open action menu", () => {
+  const harness = bootWebview(managerState({ conversations: tabStressRuns(25) }), panelState());
+  try {
+    const root = harness.document.root;
+    const menu = root.querySelector(".run-tab.selected .run-action-menu");
+    menu.open = true;
+    menu.setAttribute("open", "");
+    const strip = root.querySelector(".run-tabs-scroll");
+    strip.scrollLeft = 180;
+    root.dispatch("scroll", { target: strip });
+    assert.equal(menu.open, false);
+  } finally { harness.restore(); }
+});
+
+test("tab strip stress restores roving focus and recovers when the focused run is removed", () => {
+  const manager = managerState({ conversations: tabStressRuns(100) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    root.querySelector(".run-tab-select").focus();
+    root.dispatch("keydown", { key: "End", target: harness.document.activeElement, preventDefault() {} });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(harness.document.activeElement.dataset.conversation, "run-100");
+    assert.equal(root.querySelectorAll(".run-tab-select").filter((tab) => tab.getAttribute("tabindex") === "0").length, 1);
+    manager.conversations = manager.conversations.filter((run) => run.id !== "run-100");
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(harness.document.activeElement.dataset.conversation, "run-1");
+    assert.equal(root.querySelectorAll(".run-tab").length, 99);
+    manager.conversations[0].archived = true;
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.ok(root.querySelector(".run-tab.selected.archived"));
+    manager.activeConversationId = "run-2";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(root.querySelectorAll(".run-tab").length, 98);
+    assert.equal(root.querySelector('.run-tab-select[data-conversation="run-1"]'), null);
+    assert.equal(root.querySelector(".run-tab.selected .run-tab-select").dataset.conversation, "run-2");
+  } finally { harness.restore(); }
+});
+
+test("run tabs stress keeps the existing searchable Runs list usable", () => {
+  const harness = bootWebview(managerState({ conversations: tabStressRuns(1000) }), panelState());
+  try {
+    const root = harness.document.root;
+    root.querySelector(".run-tab-all").click();
+    const search = root.querySelector("#run-search");
+    search.value = "Run 997 ";
+    root.dispatch("input", { target: search });
+    assert.equal(root.querySelectorAll(".run-drawer-select").length, 1);
+    const match = root.querySelector(".run-drawer-select");
+    assert.equal(match.dataset.conversation, "run-997");
+    match.click();
+    assert.deepEqual(harness.messages.at(-1), { type: "conversation.select", conversationId: "run-997" });
+    assert.equal(root.querySelector(".run-tab.selected .run-tab-select").dataset.conversation, "run-997");
+    assert.equal(root.querySelector(".run-drawer"), null);
+  } finally { harness.restore(); }
+});
+
+test("run drawer stress bounds ancestry lookups and finds nested tasks", () => {
+  const runs = tabStressRuns(400);
+  const children = runs.map((run) => ({ ...run, id: `child-${run.id}`, parentConversationId: run.id, title: `Task for ${run.id}` }));
+  const grandchildren = children.map((child) => ({ ...child, id: `nested-${child.id}`, parentConversationId: child.id, title: `Nested evidence ${child.id}` }));
+  const conversations = [...grandchildren, ...children, ...runs];
+  let reads = 0;
+  let budget = Infinity;
+  for (const conversation of conversations) {
+    const id = conversation.id;
+    Object.defineProperty(conversation, "id", {
+      enumerable: true,
+      get() {
+        if (++reads > budget) assert.fail("one drawer update stays within five million ancestry identifier reads");
+        return id;
+      },
+    });
+  }
+  const harness = bootWebview(managerState({ conversations }));
+  try {
+    const root = harness.document.root;
+    reads = 0;
+    budget = 5_000_000;
+    root.querySelector(".run-tab-all").click();
+    assert.equal(root.querySelector(".render-failure"), null);
+    assert.equal(root.querySelectorAll(".run-drawer-select").length, 400);
+    assert.match(root.querySelector('.run-drawer-select[data-conversation="run-300"]').textContent, /1 task run/u);
+    reads = 0;
+    const search = root.querySelector("#run-search");
+    search.value = "Nested evidence child-run-300";
+    root.dispatch("input", { target: search });
+    assert.equal(root.querySelector(".render-failure"), null);
+    assert.deepEqual(root.querySelectorAll(".run-drawer-select").map((control) => control.dataset.conversation), ["run-300"]);
+    root.querySelector(".run-drawer-select").click();
+    assert.deepEqual(harness.messages.at(-1), { type: "conversation.select", conversationId: "run-300" });
+  } finally { harness.restore(); }
+});
+
+test("run drawer family actions follow reparenting and recheck current busy descendants", async () => {
+  const runs = tabStressRuns(2);
+  const child = { ...runs[0], id: "child", parentConversationId: "run-1", title: "Child task" };
+  const nested = { ...child, id: "nested", parentConversationId: "child", title: "Nested review" };
+  const unrelated = [
+    { ...child, id: "orphan", parentConversationId: "missing", running: true },
+    { ...child, id: "cycle-a", parentConversationId: "cycle-b", running: true },
+    { ...child, id: "cycle-b", parentConversationId: "cycle-a", running: true },
+  ];
+  const manager = managerState({ conversations: [nested, child, ...unrelated, ...runs] });
+  const harness = bootWebview(manager);
+  try {
+    const root = harness.document.root;
+    root.querySelector(".run-tab-all").click();
+    const action = (id, name) => root.querySelector(`.run-drawer [data-action="${name}"][data-conversation="${id}"]`);
+    assert.equal(root.querySelectorAll(".run-drawer-select").length, 2);
+    assert.equal(action("run-1", "run-archive").getAttribute("aria-disabled"), null);
+    nested.running = true;
+    const before = harness.messages.length;
+    action("run-1", "run-archive").click();
+    assert.equal(harness.messages.length, before);
+    assert.equal(root.querySelector(".app-dialog"), null);
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    for (const name of ["run-archive", "run-delete"]) {
+      assert.equal(action("run-1", name).getAttribute("aria-disabled"), "true");
+      assert.match(action("run-1", name).getAttribute("title"), /Nested review/u);
+      assert.equal(action("run-2", name).getAttribute("aria-disabled"), null);
+    }
+    assert.equal(action("run-1", "run-duplicate").getAttribute("aria-disabled"), null);
+    child.parentConversationId = "run-2";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    for (const name of ["run-archive", "run-delete"]) {
+      assert.equal(action("run-1", name).getAttribute("aria-disabled"), null);
+      assert.equal(action("run-2", name).getAttribute("aria-disabled"), "true");
+      assert.match(action("run-2", name).getAttribute("title"), /Nested review/u);
+    }
+    const search = root.querySelector("#run-search");
+    search.value = "phrase from a saved transcript";
+    root.dispatch("input", { target: search });
+    assert.equal(root.querySelectorAll(".run-drawer-select").length, 0);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const request = harness.messages.findLast((message) => message.type === "history.search");
+    assert.ok(request);
+    harness.sendWindowMessage({ type: "manager.historyResults", requestId: request.requestId, conversationIds: ["nested", "orphan", "cycle-a"] });
+    assert.deepEqual(root.querySelectorAll(".run-drawer-select").map((control) => control.dataset.conversation), ["run-2"]);
+  } finally { harness.restore(); }
+});
+
+test("tab strip recovers focus when Direction has no selected run", () => {
+  const manager = managerState({ conversations: tabStressRuns(25) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    root.querySelector(".run-tab-all").click();
+    root.querySelector(".run-drawer-direction").click();
+    root.querySelector('.run-tab-select[data-conversation="run-25"]').focus();
+    manager.conversations.pop();
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(harness.document.activeElement === root.querySelector(".run-tab-select"), true);
+    assert.equal(root.querySelectorAll('.run-tab-select[tabindex="0"]').length, 1);
+    manager.conversations = [];
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(harness.document.activeElement === root.querySelector(".run-tab-all"), true);
+  } finally { harness.restore(); }
+});
+
+test("tab strip keeps navigation usable through a render failure", () => {
+  const manager = managerState({ conversations: tabStressRuns(25) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    root.querySelector(".run-tabs-scroll").scrollLeft = 720;
+    root.querySelector('.run-tab-select[data-conversation="run-20"]').focus();
+    const html = Object.getOwnPropertyDescriptor(FakeRoot.prototype, "innerHTML");
+    Object.defineProperty(root, "innerHTML", {
+      get() { return html.get.call(this); },
+      set(value) {
+        if (value.includes('class="workspace-shell"')) throw new Error("Fixture rendering failure");
+        html.set.call(this, value);
+      },
+    });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.ok(root.querySelector(".render-failure"));
+    assert.equal(root.querySelector(".run-tabs-scroll").scrollLeft, 720);
+    assert.equal(harness.document.activeElement === root.querySelector('.run-tab-select[data-conversation="run-20"]'), true);
+    assert.equal(harness.document.activeElement.getAttribute("tabindex"), "0");
+    assert.equal(root.querySelectorAll('.run-tab-select[tabindex="0"]').length, 1);
+  } finally { harness.restore(); }
+});
+
+test("resizing the tab strip dismisses moved menus and recovers their focus", () => {
+  const harness = bootWebview(managerState({ conversations: tabStressRuns(25) }), panelState());
+  try {
+    const root = harness.document.root;
+    const scroll = root.querySelector(".run-tabs-scroll");
+    const strip = root.querySelector(".run-tabs-strip");
+    const menu = root.querySelector(".run-tab.selected .run-action-menu");
+    menu.querySelector("summary").click();
+    menu.querySelector('[data-action="run-rename"]').focus();
+    harness.sendWindowEvent("resize", {});
+    assert.equal(menu.open, true);
+    scroll.clientWidth = 180;
+    harness.sendWindowEvent("resize", {});
+    assert.equal(menu.open, false);
+    assert.equal(harness.document.activeElement === menu.querySelector("summary"), true);
+    assert.equal(strip.hasAttribute("data-compact"), true);
+    scroll.clientWidth = 600;
+    harness.sendWindowEvent("resize", {});
+    assert.equal(strip.hasAttribute("data-compact"), false);
+    menu.querySelector("summary").click();
+    const composer = root.querySelector("#composer-prompt");
+    composer.focus();
+    scroll.clientWidth = 580;
+    harness.sendWindowEvent("resize", {});
+    assert.equal(harness.document.activeElement === composer, true);
+    assert.equal(menu.open, false);
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ conversations: tabStressRuns(25) }) });
+    assert.equal(root.querySelector(".run-tab.selected .run-action-menu").open, false);
+  } finally { harness.restore(); }
+});
+
+test("tab strip preserves menus during snapshot restoration and closes them on user scroll", () => {
+  const manager = managerState({ conversations: tabStressRuns(25) });
+  const harness = bootWebview(manager, panelState());
+  try {
+    const root = harness.document.root;
+    root.querySelector(".run-tabs-scroll").scrollLeft = 720;
+    root.querySelector(".run-tab.selected .run-action-menu > summary").click();
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    const scroll = root.querySelector(".run-tabs-scroll");
+    const menu = root.querySelector(".run-tab.selected .run-action-menu");
+    root.dispatch("scroll", { target: scroll });
+    assert.equal(menu.open, true);
+    menu.querySelector("summary").click();
+    scroll.scrollLeft = 740;
+    menu.querySelector("summary").click();
+    root.dispatch("scroll", { target: scroll });
+    assert.equal(menu.open, true);
+    menu.querySelector('[data-action="run-rename"]').focus();
+    scroll.scrollLeft = 760;
+    root.dispatch("scroll", { target: scroll });
+    assert.equal(menu.open, false);
+    assert.equal(harness.document.activeElement === menu.querySelector("summary"), true);
+  } finally { harness.restore(); }
+});
+
+test("1000 running tabs keep the active controls and dispatch Stop once", () => {
+  const manager = managerState({
+    conversations: tabStressRuns(1000).map((run) => ({ ...run, running: true, workflowStatus: "running" })),
+    eventsByConversation: { "run-1": [{ id: 1, type: "run.started", status: "running", title: "Stress run", createdAt: "2026-01-01T00:00:00.000Z" }] },
+  });
+  const harness = bootWebview(manager, panelState({ running: true, workflowStatus: "running" }));
+  try {
+    const root = harness.document.root;
+    root.querySelector('.run-tab-tools [data-view="execution"]').click();
+    const selected = root.querySelector(".run-tab.selected");
+    for (const selector of ['[data-view="chat"]', '[data-view="execution"]', '[data-action="interrupt-run"]', "#notification-button", "#room-actions-button"]) {
+      assert.equal(selected.querySelectorAll(selector).length, 1, selector);
+    }
+    assert.equal(root.querySelectorAll(".run-tab-tools").length, 1);
+    const stop = selected.querySelector('[data-action="interrupt-run"]');
+    stop.click();
+    stop.click();
+    assert.deepEqual(harness.messages.filter((message) => message.message?.type === "run.interrupt"), [
+      { type: "conversation.runtime", conversationId: "run-1", message: { type: "run.interrupt" } },
+    ]);
+  } finally { harness.restore(); }
 });
 
 const managerState = (overrides = {}) => ({
@@ -8068,23 +8518,57 @@ test("notification preferences remain available from the bell without notificati
   }
 });
 
-test("pipeline categories separate common, internal and compatibility workflows", () => {
+test("pipeline categories separate common and internal workflows without a compatibility group", () => {
   const { pipelinePickerMetadata } = require("../dist/pipeline/pipelineCatalog.js");
-  const presets = ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine", "todo-master", "claude-review"].map((id) => ({ id, name: id, editable: false, hash: "a".repeat(64), scopeKey: "builtin", ...pipelinePickerMetadata(id, false) }));
-  const harness = bootWebview(managerState(), panelState({ pipelines: presets, selectedPipelineId: "codex-review" }));
+  const ids = ["code-review-refine", "feature-delivery", "review-only", "fix", "review", "implementation-plan", "todo-master"];
+  const presets = ids.map((id) => ({ id, name: id, editable: false, hash: "a".repeat(64), scopeKey: "builtin", ...pipelinePickerMetadata(id, false) }));
+  const harness = bootWebview(managerState(), panelState({ pipelines: presets, selectedPipelineId: "review" }));
   try {
     harness.document.getElementById("pipeline-picker-button").click();
-    assert.deepEqual([...harness.document.root.querySelectorAll('[data-action="pipeline-picker-select"]')].map((node) => node.getAttribute("data-pipeline-id")), ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"]);
-    assert.ok(harness.document.root.querySelector('[data-pipeline-id="ui-ux-review"]'));
     assert.ok(harness.document.root.querySelector('[data-pipeline-id="code-review-refine"]'));
+    assert.ok(harness.document.root.querySelector('[data-pipeline-id="review"]'));
     assert.equal(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'), null);
-    assert.equal(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'), null);
+    assert.equal(harness.document.root.querySelector('[data-pipeline-filter="compatibility"]'), null);
     harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="internal"]').click();
     assert.ok(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'));
-    assert.equal(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'), null);
-    harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="compatibility"]').click();
-    assert.ok(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'));
-    assert.equal(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'), null);
+    assert.equal(harness.document.root.querySelector('[data-pipeline-id="review"]'), null);
+  } finally { harness.restore(); }
+});
+
+test("pipeline picker ranks multi-participant writers first and single-participant work last", () => {
+  const pipelines = [
+    { id: "single-common", name: "Single common", pickerCategory: "common", prominentOrder: 0, participantCount: 1, writesCode: true },
+    { id: "multi-review", name: "Multi review", pickerCategory: "common", prominentOrder: 1, participantCount: 2, writesCode: false },
+    { id: "multi-write-common", name: "Multi write common", pickerCategory: "common", prominentOrder: 2, participantCount: 2, writesCode: true },
+    { id: "multi-write-specialized", name: "Multi write specialized", pickerCategory: "specialized", participantCount: 3, writesCode: true },
+    { id: "single-specialized", name: "Single specialized", pickerCategory: "specialized", participantCount: 1, writesCode: false },
+    { id: "multi-write-custom", name: "Multi write custom", pickerCategory: "custom", participantCount: 2, writesCode: true, editable: true },
+  ].map((pipeline) => ({
+    editable: false,
+    hash: "a".repeat(64),
+    scopeKey: pipeline.editable ? "workspace:/workspace" : "builtin",
+    ...pipeline,
+  }));
+  const harness = bootWebview(
+    managerState(),
+    panelState({ pipelines, selectedPipelineId: "multi-write-common" }),
+    undefined,
+    { pipelinePickerFilter: "all" },
+  );
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.deepEqual(
+      harness.document.root.querySelectorAll('[data-action="pipeline-picker-select"]')
+        .map((node) => node.getAttribute("data-pipeline-id")),
+      [
+        "multi-write-common",
+        "multi-write-specialized",
+        "multi-write-custom",
+        "multi-review",
+        "single-common",
+        "single-specialized",
+      ],
+    );
   } finally { harness.restore(); }
 });
 
@@ -8311,6 +8795,87 @@ test("pipeline picker searches within categories and restores the remembered fil
   } finally { harness.restore(); }
 });
 
+test("an empty draft explains the selected pipeline and updates before selection acknowledgement", () => {
+  const pipelines = [
+    {
+      id: "review-one",
+      name: "Review one",
+      description: "Find correctness and regression risks.",
+      editable: false,
+      pickerCategory: "common",
+      prominentOrder: 0,
+      participantCount: 2,
+      participantNames: ["Reviewer", "Second reviewer"],
+      stepCount: 3,
+      presentation: { promptPlaceholder: "Review the first candidate…", icon: "search" },
+    },
+    {
+      id: "plan-two",
+      name: "Plan two",
+      description: "Prepare a bounded implementation plan.",
+      editable: false,
+      pickerCategory: "common",
+      prominentOrder: 1,
+      participantCount: 1,
+      stepCount: 1,
+      presentation: { promptPlaceholder: "Plan the second candidate…", icon: "lightbulb" },
+    },
+  ].map((pipeline) => ({ hash: "a".repeat(64), scopeKey: "builtin", ...pipeline }));
+  const draft = {
+    ...conversationSummary(),
+    title: "New run",
+    selectedPipelineId: "review-one",
+    input: undefined,
+    preparedDraft: undefined,
+  };
+  const unusedDrafts = ["run-2", "run-3", "run-4"].map((id) => ({
+    ...draft,
+    id,
+    runRef: id,
+    title: "New run",
+  }));
+  const harness = bootWebview(managerState({
+    conversations: [draft, ...unusedDrafts],
+    eventsByConversation: {
+      "run-1": [{ id: 1, type: "pipeline.selected", status: "idle", title: "Pipeline selected", createdAt: timestamp }],
+    },
+  }), panelState({
+    pipelines,
+    selectedPipelineId: "review-one",
+    transcript: [{
+      id: "pipeline-selected",
+      kind: "status",
+      eventType: "pipeline.selected",
+      text: "Pipeline selected",
+      createdAt: timestamp,
+    }],
+    transcriptTotal: 1,
+  }));
+  try {
+    let splash = harness.document.root.querySelector('.pipeline-intro[data-intro-pipeline-id="review-one"]');
+    assert.ok(splash);
+    assert.equal(harness.document.root.querySelector(".recent-activity"), null);
+    assert.match(harness.document.root.innerHTML, /data-intro-pipeline-id="review-one"[\s\S]*Review one[\s\S]*Find correctness and regression risks\.[\s\S]*3 steps · 2 participants/u);
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("placeholder"), "Review the first candidate…");
+
+    harness.document.getElementById("pipeline-picker-button").click();
+    harness.document.root.querySelector('[data-action="pipeline-picker-select"][data-pipeline-id="plan-two"]').click();
+    splash = harness.document.root.querySelector('.pipeline-intro[data-intro-pipeline-id="plan-two"]');
+    assert.ok(splash);
+    assert.match(harness.document.root.innerHTML, /data-intro-pipeline-id="plan-two"[\s\S]*Plan two[\s\S]*Prepare a bounded implementation plan\.[\s\S]*1 step · 1 participant/u);
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("placeholder"), "Plan the second candidate…");
+    assert.equal(harness.messages.at(-1).message.pipelineId, "plan-two");
+  } finally { harness.restore(); }
+});
+
+test("an older custom pipeline summary gets a useful name-based empty-state prompt", () => {
+  const harness = bootWebview();
+  try {
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("placeholder"), "Describe the outcome for Custom A…");
+    assert.ok(harness.document.root.querySelector('.pipeline-intro[data-intro-pipeline-id="custom-a"]'));
+  } finally { harness.restore(); }
+});
+
 test("pipeline picker restores its last category and omits Custom and All without custom definitions", () => {
   const pipelines = [
     { id: "common", name: "Common", editable: false, pickerCategory: "common", prominentOrder: 0 },
@@ -8379,6 +8944,7 @@ for (const action of ["rename", "duplicate", "archive", "delete"]) {
     const manager = managerState({ conversations: [conversationSummary(), other] });
     const harness = bootWebview(manager, panelState());
     try {
+      harness.document.root.querySelector(".run-tab-all").click();
       let control = harness.document.root.querySelector(`[data-action="run-${action}"][data-conversation="run-other"]`);
       const menu = control.closest("details");
       menu.open = true;
@@ -8950,7 +9516,7 @@ test("localization fixtures translate controls and dialogs while rename dispatch
       Runs: "Fixture runs",
       Ready: "Fixture ready",
       "Run input": "Fixture input",
-      "Describe the job for the selected pipeline…": "Fixture prompt",
+      "Describe the outcome for {0}…": "Fixture outcome for {0}",
       "Attach image, text, log, or specification": "Fixture attachment",
       "Rename run": "Fixture rename dialog",
       "Run title": "Fixture title",
@@ -8962,10 +9528,10 @@ test("localization fixtures translate controls and dialogs while rename dispatch
   };
   const harness = bootWebview(managerState(), panelState(), localization);
   try {
-    assert.match(harness.document.root.innerHTML, />Fixture runs<\/button>/u);
+    assert.equal(harness.document.root.querySelector(".run-tab-all").textContent, "Fixture runs");
     assert.equal(harness.document.root.querySelector(".room-status"), null);
     assert.equal(harness.document.getElementById("composer-prompt").getAttribute("aria-label"), "Fixture input");
-    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("placeholder"), "Fixture prompt");
+    assert.equal(harness.document.getElementById("composer-prompt").getAttribute("placeholder"), "Fixture outcome for Custom A");
     assert.equal(harness.document.root.querySelector('[data-action="attachment-pick"]').getAttribute("aria-label"), "Fixture attachment");
     harness.document.root.querySelector('[data-action="run-rename"]').click();
     assert.match(harness.document.root.innerHTML, /id="app-dialog-title">Fixture rename dialog<\/h2>/u);

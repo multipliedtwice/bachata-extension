@@ -109,7 +109,7 @@ test("VSIX verification requires manifest-referenced runtime assets", async () =
   ]);
 
   const required = requiredVsixEntries(manifest, [
-    "presets/codex-review.pipeline.json",
+    "presets/review.pipeline.json",
     "protocol/browser-protocol-v9.contract.json",
     ...webviewRuntimeAssets(),
   ]);
@@ -121,7 +121,7 @@ test("VSIX verification requires manifest-referenced runtime assets", async () =
     "extension/scripts/process-scope.cjs",
     "extension/media/icon.png",
     "extension/media/walkthrough-setup.md",
-    "extension/presets/codex-review.pipeline.json",
+    "extension/presets/review.pipeline.json",
     "extension/protocol/browser-protocol-v9.contract.json",
     "extension/dist/webview.css",
     "extension/dist/vendor/codicons/codicon.css",
@@ -137,9 +137,9 @@ test("VSIX verification requires manifest-referenced runtime assets", async () =
 
   const broken = new Set(required);
   broken.delete("extension/media/walkthrough-setup.md");
-  broken.delete("extension/presets/codex-review.pipeline.json");
+  broken.delete("extension/presets/review.pipeline.json");
   assert.deepEqual(missingVsixEntries(broken, required), [
-    "extension/presets/codex-review.pipeline.json",
+    "extension/presets/review.pipeline.json",
     "extension/media/walkthrough-setup.md",
   ]);
 });
@@ -271,7 +271,7 @@ test("packaged first-party sources are compared against the working tree", async
 
   const pairs = packagedSourceEquivalence([
     "package.json",
-    "presets/codex-review.pipeline.json",
+    "presets/review.pipeline.json",
     "protocol/browser-protocol-v9.contract.json",
     "scripts/process-scope.cjs",
   ]);
@@ -280,12 +280,12 @@ test("packaged first-party sources are compared against the working tree", async
 
   const build = {
     "package.json": "a".repeat(64),
-    "presets/codex-review.pipeline.json": "b".repeat(64),
+    "presets/review.pipeline.json": "b".repeat(64),
     "scripts/process-scope.cjs": "c".repeat(64),
   };
   assert.deepEqual(staleVsixEntries(build, { ...build }), []);
   assert.deepEqual(
-    staleVsixEntries(build, { ...build, "presets/codex-review.pipeline.json": "z".repeat(64) }),
-    ["presets/codex-review.pipeline.json"],
+    staleVsixEntries(build, { ...build, "presets/review.pipeline.json": "z".repeat(64) }),
+    ["presets/review.pipeline.json"],
   );
 });

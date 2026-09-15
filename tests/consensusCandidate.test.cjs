@@ -308,7 +308,7 @@ test("pipeline schema rejects unknown candidate and output shapes", () => {
 
 test("a step output declares exactly one of schema or shape", () => {
   const preset = JSON.parse(
-    fs.readFileSync(path.join(__dirname, "..", "presets", "claude-review.pipeline.json"), "utf8"),
+    fs.readFileSync(path.join(__dirname, "..", "presets", "review.pipeline.json"), "utf8"),
   );
   const step = preset.steps.find((item) => item.output !== undefined);
   assert.equal(step.output.shape, "proposedModelFindingSet");

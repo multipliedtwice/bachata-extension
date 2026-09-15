@@ -16,10 +16,17 @@ try {
   const root = process.cwd();
   const require = createRequire(import.meta.url);
   const { createWorktreeManager } = require(path.join(root, "dist", "orchestrator", "worktreeManager.js"));
+  const { gitProcessEnvironment } = require(path.join(root, "dist", "process", "safeEnvironment.js"));
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-managed-worktree-"));
   const repository = path.join(temporary, "repo");
   const storage = path.join(temporary, "storage");
-  const git = (...args) => execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
+  const gitAt = (cwd, ...args) => execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: gitProcessEnvironment(cwd),
+    timeout: 120_000,
+  }).trim();
+  const git = (...args) => gitAt(repository, ...args);
 
   try {
     fs.mkdirSync(repository, { recursive: true });
@@ -59,14 +66,14 @@ try {
 
     const taskWithCommit = await manager.prepareTask(run, "task-2");
     fs.writeFileSync(path.join(taskWithCommit.worktreePath, "c.txt"), "accidental commit\n");
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: taskWithCommit.worktreePath });
-    execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd: taskWithCommit.worktreePath });
-    execFileSync("git", ["add", "c.txt"], { cwd: taskWithCommit.worktreePath });
-    execFileSync("git", ["commit", "--quiet", "-m", "agent-created commit"], { cwd: taskWithCommit.worktreePath });
-    const accidentalHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: taskWithCommit.worktreePath, encoding: "utf8" }).trim();
+    gitAt(taskWithCommit.worktreePath, "config", "user.name", "Test");
+    gitAt(taskWithCommit.worktreePath, "config", "user.email", "test@example.invalid");
+    gitAt(taskWithCommit.worktreePath, "add", "c.txt");
+    gitAt(taskWithCommit.worktreePath, "commit", "--quiet", "-m", "agent-created commit");
+    const accidentalHead = gitAt(taskWithCommit.worktreePath, "rev-parse", "HEAD");
     assert.notEqual(accidentalHead, taskWithCommit.baseCommit);
     assert.equal(await manager.commitTask(taskWithCommit, "recover accidental commit"), undefined);
-    const rewoundHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: taskWithCommit.worktreePath, encoding: "utf8" }).trim();
+    const rewoundHead = gitAt(taskWithCommit.worktreePath, "rev-parse", "HEAD");
     assert.equal(rewoundHead, taskWithCommit.baseCommit);
     const recoveredTree = await manager.integrateTask(run, taskWithCommit, "recover accidental commit");
     run.integrationTree = recoveredTree;
@@ -291,13 +298,20 @@ try {
     assert.equal(modeSeeded.applied, true, modeSeeded.reason);
     git("commit", "--quiet", "-m", "seed mode file");
     const modeBase = git("rev-parse", "HEAD");
-    assert.equal(fs.statSync(path.join(repository, "s.sh")).mode & 0o111, 0);
+    assert.match(git("ls-files", "--stage", "s.sh"), /^100644 /u);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(path.join(repository, "s.sh")).mode & 0o111, 0);
+    }
 
     const modeEdit = await manager.prepareRun(repository, "managed-mode-edit");
     const modeTask = await manager.prepareTask(modeEdit, "mode-edit");
     const modeTarget = path.join(modeTask.worktreePath, "s.sh");
     fs.writeFileSync(modeTarget, "one\nCHANGED\nthree\n");
-    fs.chmodSync(modeTarget, 0o755);
+    if (process.platform === "win32") {
+      gitAt(modeTask.worktreePath, "update-index", "--chmod=+x", "s.sh");
+    } else {
+      fs.chmodSync(modeTarget, 0o755);
+    }
     await manager.commitTask(modeTask, "mode and content");
     modeEdit.integrationTree = await manager.integrateTask(modeEdit, modeTask, "mode and content");
 
@@ -310,16 +324,22 @@ try {
     const modeSplit = await manager.applyRun(modeEdit, { hunks: [{ path: "s.sh", index: 0 }] });
     assert.equal(modeSplit.applied, false);
     assert.match(modeSplit.reason, /permissions this run also changed/);
-    assert.equal(
-      fs.statSync(path.join(repository, "s.sh")).mode & 0o111,
-      0,
-      "a refused partial apply changed file permissions",
-    );
+    assert.match(git("ls-files", "--stage", "s.sh"), /^100644 /u);
+    if (process.platform !== "win32") {
+      assert.equal(
+        fs.statSync(path.join(repository, "s.sh")).mode & 0o111,
+        0,
+        "a refused partial apply changed file permissions",
+      );
+    }
 
     const modeApply = await manager.applyRun(modeEdit, { paths: ["s.sh"] });
     assert.equal(modeApply.applied, true, modeApply.reason);
     assert.match(fs.readFileSync(path.join(repository, "s.sh"), "utf8"), /CHANGED/);
-    assert.notEqual(fs.statSync(path.join(repository, "s.sh")).mode & 0o111, 0);
+    assert.match(git("ls-files", "--stage", "s.sh"), /^100755 /u);
+    if (process.platform !== "win32") {
+      assert.notEqual(fs.statSync(path.join(repository, "s.sh")).mode & 0o111, 0);
+    }
     git("reset", "--quiet", "--hard", modeBase);
     await manager.abandonRun(modeEdit);
     await manager.abandonRun(modeRun);

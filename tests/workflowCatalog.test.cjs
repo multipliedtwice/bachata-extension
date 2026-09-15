@@ -7,7 +7,7 @@ test("workflow cards keep common goals visible and custom advanced", () => {
   const cards = workflowCards();
   assert.deepEqual(
     cards.slice(0, 7).map((card) => card.id),
-    ["review", "productReview", "plan", "featureDelivery", "fix", "todo", "browser"],
+    ["review", "productReview", "plan", "featureDelivery", "fix", "todo", "custom"],
   );
   assert.equal(cards.at(-1).id, "custom");
   assert.equal(cards.at(-1).advanced, true);
@@ -15,19 +15,19 @@ test("workflow cards keep common goals visible and custom advanced", () => {
 
 test("workflow card projection selects only the best runnable candidate", () => {
   const cards = resolveWorkflowCards(workflowCards(), [
-    { pipelineId: "codex-review", status: "needsSetup", findings: [{ status: "needsSetup", detail: "Codex missing" }] },
-    { pipelineId: "claude-review", status: "ready", findings: [] },
-    { pipelineId: "plan", status: "blocked", findings: [{ status: "blocked", detail: "Workspace untrusted" }] },
-  ], { "claude-review": "Claude review" });
+    { pipelineId: "review", status: "needsSetup", findings: [{ status: "needsSetup", detail: "Agent missing" }] },
+    { pipelineId: "review-only", status: "ready", findings: [] },
+    { pipelineId: "product-review", status: "blocked", findings: [{ status: "blocked", detail: "Workspace untrusted" }] },
+  ], { "review-only": "Code review — reconcile findings" });
   assert.equal(cards[0].status, "ready");
-  assert.equal(cards[0].pipelineId, "claude-review");
-  assert.match(cards[0].readinessDetail, /Claude review/u);
+  assert.equal(cards[0].pipelineId, "review-only");
+  assert.match(cards[0].readinessDetail, /Code review/u);
   assert.equal(cards[1].status, "blocked");
   assert.equal(cards.at(-1).pipelineId, undefined);
 });
 
 test("setup state is versioned, persisted-shaped, and rejects stale versions", () => {
-  const state = completeSetup("review", "claude-review", new Date("2026-01-01T00:00:00Z"));
+  const state = completeSetup("review", "review", new Date("2026-01-01T00:00:00Z"));
   assert.deepEqual(parseSetupState(state), state);
   assert.equal(state.version, setupVersion);
   assert.equal(parseSetupState({ ...state, version: setupVersion + 1 }), undefined);
@@ -41,10 +41,9 @@ const modeOf = (card, mode) => card.modes.find((item) => item.mode === mode);
 
 test("an equally ready paired pipeline is never silently lost to a single-provider one", () => {
   const card = reviewCard([
-    { pipelineId: "codex-review", status: "ready", findings: [] },
-    { pipelineId: "claude-review", status: "ready", findings: [] },
+    { pipelineId: "review", status: "ready", findings: [] },
     { pipelineId: "review-only", status: "ready", findings: [] },
-  ], { "codex-review": "Codex review", "review-only": "Review only" });
+  ], { review: "Code review", "review-only": "Review only" });
 
   assert.equal(card.status, "ready");
   assert.equal(card.pipelineId, "review-only");
@@ -53,50 +52,48 @@ test("an equally ready paired pipeline is never silently lost to a single-provid
   assert.equal(modeOf(card, "paired").pipelineId, "review-only");
   assert.equal(modeOf(card, "paired").label, "Cross-checked pair");
   assert.equal(modeOf(card, "single").status, "ready");
-  assert.equal(modeOf(card, "single").pipelineId, "codex-review");
+  assert.equal(modeOf(card, "single").pipelineId, "review");
   assert.equal(modeOf(card, "single").label, "Fast single agent");
 });
 
 test("one ready provider still offers both modes and names what the pair needs", () => {
   const card = reviewCard([
-    { pipelineId: "codex-review", status: "ready", findings: [] },
-    { pipelineId: "claude-review", status: "needsSetup", findings: [{ status: "needsSetup", detail: "claude unavailable" }] },
-    { pipelineId: "review-only", status: "needsSetup", findings: [{ status: "needsSetup", detail: "claude unavailable" }] },
+    { pipelineId: "review", status: "ready", findings: [] },
+    { pipelineId: "review-only", status: "needsSetup", findings: [{ status: "needsSetup", detail: "second participant unavailable" }] },
   ], { "review-only": "Review only" });
 
   assert.equal(card.status, "ready");
-  assert.equal(card.pipelineId, "codex-review");
+  assert.equal(card.pipelineId, "review");
   assert.equal(modeOf(card, "single").status, "ready");
   assert.equal(modeOf(card, "paired").status, "needsSetup");
-  assert.match(modeOf(card, "paired").readinessDetail, /Review only: claude unavailable/u);
+  assert.match(modeOf(card, "paired").readinessDetail, /Review only: second participant unavailable/u);
 });
 
 test("a blocked paired pipeline never becomes the card's selection when a single agent is ready", () => {
   const card = reviewCard([
-    { pipelineId: "claude-review", status: "ready", findings: [] },
+    { pipelineId: "review", status: "ready", findings: [] },
     { pipelineId: "review-only", status: "blocked", findings: [{ status: "blocked", detail: "Workspace untrusted" }] },
-  ], { "review-only": "Review only", "claude-review": "Claude review" });
+  ], { review: "Code review", "review-only": "Review only" });
 
   assert.equal(card.status, "ready");
-  assert.equal(card.pipelineId, "claude-review");
+  assert.equal(card.pipelineId, "review");
   assert.equal(modeOf(card, "paired").status, "blocked");
   assert.match(modeOf(card, "paired").readinessDetail, /Workspace untrusted/u);
 });
 
 test("neither mode ready keeps the card blocked and still states both causes", () => {
   const card = reviewCard([
-    { pipelineId: "codex-review", status: "blocked", findings: [{ status: "blocked", detail: "codex unavailable" }] },
-    { pipelineId: "claude-review", status: "blocked", findings: [{ status: "blocked", detail: "claude unavailable" }] },
-    { pipelineId: "review-only", status: "blocked", findings: [{ status: "blocked", detail: "both providers unavailable" }] },
+    { pipelineId: "review", status: "blocked", findings: [{ status: "blocked", detail: "participant unavailable" }] },
+    { pipelineId: "review-only", status: "blocked", findings: [{ status: "blocked", detail: "both participants unavailable" }] },
   ], {});
 
   assert.equal(card.status, "blocked");
   assert.equal(card.modes.every((mode) => mode.status === "blocked"), true);
-  assert.match(modeOf(card, "single").readinessDetail, /codex unavailable/u);
-  assert.match(modeOf(card, "paired").readinessDetail, /both providers unavailable/u);
+  assert.match(modeOf(card, "single").readinessDetail, /participant unavailable/u);
+  assert.match(modeOf(card, "paired").readinessDetail, /both participants unavailable/u);
 });
 
-test("TODO, browser, and custom stay advanced while the product journey stays in front", () => {
+test("TODO and custom stay advanced while the product journey stays in front", () => {
   const cards = workflowCards();
   assert.deepEqual(
     cards.filter((card) => card.advanced !== true).map((card) => card.id),
@@ -104,13 +101,13 @@ test("TODO, browser, and custom stay advanced while the product journey stays in
   );
   assert.deepEqual(
     cards.filter((card) => card.advanced === true).map((card) => card.id),
-    ["todo", "browser", "custom"],
+    ["todo", "custom"],
   );
 });
 
 test("Fix offers managed-fix as a single agent and paired-managed-fix as the cross-checked pair", () => {
   const fix = workflowCards().find((card) => card.id === "fix");
-  assert.deepEqual(fix.modePipelineIds.single, ["managed-fix", "codex-fix", "claude-fix"]);
+  assert.deepEqual(fix.modePipelineIds.single, ["fix", "managed-fix"]);
   assert.deepEqual(
     fix.modePipelineIds.paired,
     ["paired-managed-fix", "debug"],
@@ -193,39 +190,4 @@ test("the product-review and feature-delivery goals are first-class, not advance
   assert.deepEqual(feature.pipelineIds, ["feature-delivery"]);
   assert.equal(product.advanced, undefined);
   assert.equal(feature.advanced, undefined);
-});
-
-test("a stated provider preference outranks readiness when a goal offers a choice", () => {
-  const cards = resolveWorkflowCards(
-    workflowCards(),
-    [
-      { pipelineId: "codex-review", status: "needsSetup", findings: [{ status: "needsSetup", detail: "Codex missing" }] },
-      { pipelineId: "claude-review", status: "ready", findings: [] },
-    ],
-    { "codex-review": "Codex review", "claude-review": "Claude review" },
-    {},
-    {
-      pipelineProviders: {
-        "codex-review": ["codex-app-server"],
-        "claude-review": ["claude-code"],
-      },
-      preferredProvider: "codex-app-server",
-    },
-  );
-  assert.equal(cards[0].pipelineId, "codex-review");
-  assert.equal(cards[0].status, "needsSetup");
-});
-
-test("no stated preference leaves readiness in charge", () => {
-  const cards = resolveWorkflowCards(
-    workflowCards(),
-    [
-      { pipelineId: "codex-review", status: "needsSetup", findings: [{ status: "needsSetup", detail: "Codex missing" }] },
-      { pipelineId: "claude-review", status: "ready", findings: [] },
-    ],
-    { "claude-review": "Claude review" },
-    {},
-    { preferredProvider: "auto" },
-  );
-  assert.equal(cards[0].pipelineId, "claude-review");
 });

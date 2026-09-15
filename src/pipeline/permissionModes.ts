@@ -26,9 +26,8 @@ export const adapterIndependentPermissionModes = new Set(["read", "write"]);
 /**
  * The word each adapter actually accepts, by intent.
  *
- * An adapter absent from this table receives the requested mode verbatim and its own
- * `validateOptions` decides: a browser adapter takes no permission mode at all, and saying so is
- * its answer to give, not this table's.
+ * An adapter absent from this table receives no provider option. The semantic request is still
+ * evaluated separately for controller-level read-only enforcement.
  */
 const adapterPermissionVocabulary: Record<string, { read: string; write: string }> = {
   "codex-app-server": { read: "readOnly", write: "workspaceWrite" },
@@ -132,7 +131,7 @@ export const effectivePermissionMode = (input: {
 }): string | undefined => {
   const native = adapterPermissionVocabulary[input.adapter];
   if (!native) {
-    return input.requested;
+    return undefined;
   }
   if (input.roleReadOnly) {
     return native.read;

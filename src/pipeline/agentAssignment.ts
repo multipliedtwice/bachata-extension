@@ -12,9 +12,9 @@
  * Authority is translated, never dropped and never widened. A permission word belongs to one
  * provider's vocabulary, so it is read back to its intent and written again in the receiving
  * provider's words: Codex `readOnly` becomes Claude `plan`, Claude `acceptEdits` becomes Codex
- * `workspaceWrite`. Where the receiving provider cannot express a restriction at all — a browser
- * conversation has no permission mode to refuse a write — the assignment is refused instead of
- * quietly losing the restriction.
+ * `workspaceWrite`. Where the receiving provider has no native permission switch, the semantic
+ * intent stays on the assigned definition and the controller enforces it without sending an
+ * unsupported provider option.
  *
  * Everything that belonged to the old provider is left behind. Its model name, its executable, its
  * approval vocabulary, its resource id and its capability hints do not describe the new one, so a
@@ -137,9 +137,9 @@ type PermissionTranslation =
  * the adapter-independent word, for a role-keyed entry, where the holder is a run-time decision and
  * a native word would be rejected outright.
  *
- * A write declaration is inert on a provider with no permission concept and is dropped. A read
- * restriction on such a provider, and any word with no recoverable intent, is refused: losing a
- * restriction quietly is the one outcome a reassignment must never produce.
+ * A provider with no native permission switch keeps the adapter-independent intent. Execution
+ * derives controller authority from that intent and omits the unsupported provider option. A word
+ * with no recoverable intent is refused because its authority cannot be determined.
  */
 export const translatedPermissionMode = (input: {
   fromAdapter: string;
@@ -155,12 +155,7 @@ export const translatedPermissionMode = (input: {
   }
   const native = adapterPermissionWord(input.toAdapter, intent);
   if (native === undefined) {
-    return intent === "read"
-      ? {
-          kind: "refuse",
-          reason: `a read-only participant cannot move to ${input.toAdapter}, which has no permission mode to enforce it`,
-        }
-      : { kind: "drop" };
+    return { kind: "rewrite", intent, mode: intent };
   }
   return { kind: "rewrite", intent, mode: native };
 };
@@ -247,8 +242,8 @@ const keyedAgentId = (
  * Every reason an override cannot be honoured, named per participant.
  *
  * Checked before an assignment is committed, and again whenever a stored assignment is applied, so
- * a restriction the receiving provider cannot express is reported rather than lost. A refusal here
- * is a refusal to change who answers — it never edits the pipeline down to fit.
+ * an unrecognized authority declaration is reported rather than guessed. Providers without a native
+ * permission switch keep the semantic intent for controller enforcement.
  */
 export const assignmentRefusals = (
   pipeline: PipelineDefinition,

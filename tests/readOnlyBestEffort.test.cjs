@@ -18,7 +18,7 @@ const { createReadOnlyProductService } = require("../dist/state/readOnlyProductS
 const workspace = () => fs.mkdtempSync(path.join(os.tmpdir(), "bachata-readonly-"));
 
 // A pipeline the schema actually accepts: the repository's own preset, re-identified.
-const presetPath = path.join(__dirname, "..", "presets", "gpt-pair.pipeline.json");
+const presetPath = path.join(__dirname, "..", "presets", "code-review-refine.pipeline.json");
 const pipeline = (id) => JSON.stringify({
   ...JSON.parse(fs.readFileSync(presetPath, "utf8")),
   id,

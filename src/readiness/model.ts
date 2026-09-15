@@ -431,7 +431,7 @@ export const recommendedPipelineId = (
   adapters: AdapterReadiness[],
 ): string | undefined => {
   const available = new Set(adapters.filter((adapter) => adapter.available).map((adapter) => adapter.type));
-  const preferred = ["codex-review", "claude-review"];
+  const preferred = ["review", "review-only"];
   return preferred.find((id) => {
     const pipeline = catalog.find((candidate) => candidate.id === id);
     return pipeline?.agents.every((agent) => available.has(agent.adapter));

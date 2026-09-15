@@ -920,6 +920,7 @@ const render = (): void => {
     });
   }
   const control = captureControl();
+  const tabStrip = captureRunTabStrip();
   const dialogScroll = captureDialogScroll();
   const codeBlockScroll = captureCodeBlockScroll();
   try {
@@ -944,13 +945,11 @@ const render = (): void => {
     }
     const tabs = ((): string => { try { return tabsHtml(); } catch { return ""; } })();
     root.innerHTML = `<div class="app-shell">${tabs}<main class="render-failure" ${liveRegionAttributes("render-failure", "alert", message)}><h1>${escapeHtml(localize("Bachata could not render this view"))}</h1><p>${escapeHtml(localize("Bachata could not draw this view from the current state. The run itself is untouched, and every other run is still open in the list."))}</p>${recovery}${actions}<details class="render-failure-details"><summary>${escapeHtml(localize("Technical details"))}</summary><p>${escapeHtml(message)}</p></details></main></div>`;
+    restoreControl(control);
+    restoreRunTabStrip(tabStrip);
+    positionOpenRunMenus();
     return;
   }
-  // EX-UI-04. The strip scrolls horizontally when the runs outgrow it; the selected tab is kept in
-  // view so its own action menu is a control the reader can reach rather than one clipped under
-  // the New-run button at the strip's edge. Nearest on both axes: the page must not jump.
-  root.querySelector<HTMLElement>(".run-tab.selected")
-    ?.scrollIntoView({ inline: "nearest", block: "nearest" });
   const nextScroll = document.getElementById("conversation-scroll");
   if (nextScroll) {
     // Replacing the tree reset the scroll position; putting it back is a restore, not a
@@ -1000,14 +999,8 @@ const render = (): void => {
   rememberEditorLocally();
   focusEmptyComposer(control !== undefined);
   refreshVisibleCountdowns();
-  revealSelectedTab();
-  updateTabStripEdges();
-  root.querySelectorAll<HTMLDetailsElement>(transientMenuSelector).forEach((menu) => {
-    if (menu.open) {
-      const summary = menu.querySelector<HTMLElement>("summary");
-      if (summary) positionRunMenu(summary);
-    }
-  });
+  restoreRunTabStrip(tabStrip);
+  positionOpenRunMenus();
   const focus = pendingRenderFocus;
   pendingRenderFocus = undefined;
   focus?.();
@@ -1537,6 +1530,13 @@ document.addEventListener("pointerdown", () => {
 
 document.addEventListener("keydown", (event) => {
   root.dataset.focusInput = "keyboard";
+  if (!event.altKey && !event.ctrlKey && !event.metaKey &&
+    event.target instanceof HTMLElement &&
+    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) &&
+    moveRunTabFocus(event.target, event.key)) {
+    event.preventDefault();
+    return;
+  }
   if (
     state.agentsPickerOpen &&
     event.target instanceof HTMLElement &&

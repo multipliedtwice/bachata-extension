@@ -22,6 +22,17 @@ duplicated here. Cross-repository and owner work lives in [`../TODO.md`](../TODO
   implement and verify it. No native-write attribution channel exists in current runtime.
   Preserve unrelated cache/OS activity and valid persisted verification fingerprints.
   Root-scoped enumeration alone does not distinguish task writes from unrelated activity.
+
+## Active composer work
+
+- [ ] **EX-MENTION-01 / role-addressed messages:** while a run works, typing `@` opens
+  the bound pipeline roles. Pick one or more roles; Bachata routes one direct message to
+  their current participants. Running workflow: accept as queued work without making the
+  user change Delivery. Show role + participant, keep keyboard/screen-reader behavior,
+  refuse stale or unbound roles, dedupe one participant holding multiple roles, preserve
+  attachments and exact transcript order. Add DOM/runtime/protocol regression coverage and
+  Cypress coverage for 320, 480 and 900 px in light/dark themes. Workers author Cypress but
+  do not run it; lead runs and reviews the visual gate.
 ## Feature scope undecided
 
 The three feature groups below are not automatic packaging or unrelated-release prerequisites.

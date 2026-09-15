@@ -206,6 +206,98 @@ describe("UI re-audit release states", { browser: "chrome" }, () => {
   });
 });
 
+describe("Pipeline-specific empty states", { browser: "chrome" }, () => {
+  afterEach(() => emulateTheme("light"));
+  it("ranks multi-participant write pipelines before review and single-participant pipelines", () => {
+    cy.viewport(900, 900);
+    cy.visit("tests/fixtures/webview-layout/index.html");
+    cy.window().then((win) => {
+      win.__panelState.pipelines = [
+        { id: "single-common", name: "Single common", editable: false, hash: "a".repeat(64), scopeKey: "builtin", pickerCategory: "common", prominentOrder: 0, participantCount: 1, writesCode: true },
+        { id: "multi-review", name: "Multi review", editable: false, hash: "b".repeat(64), scopeKey: "builtin", pickerCategory: "common", prominentOrder: 1, participantCount: 2, writesCode: false },
+        { id: "multi-write-common", name: "Multi write common", editable: false, hash: "c".repeat(64), scopeKey: "builtin", pickerCategory: "common", prominentOrder: 2, participantCount: 2, writesCode: true },
+        { id: "multi-write-specialized", name: "Multi write specialized", editable: false, hash: "d".repeat(64), scopeKey: "builtin", pickerCategory: "specialized", participantCount: 3, writesCode: true },
+        { id: "single-specialized", name: "Single specialized", editable: false, hash: "e".repeat(64), scopeKey: "builtin", pickerCategory: "specialized", participantCount: 1, writesCode: false },
+        { id: "multi-write-custom", name: "Multi write custom", editable: true, hash: "f".repeat(64), scopeKey: "workspace:/workspace", pickerCategory: "custom", participantCount: 2, writesCode: true },
+      ];
+      win.__panelState.selectedPipelineId = "multi-write-common";
+      win.__boot();
+    });
+    cy.get("#pipeline-picker-button").click();
+    cy.get('[data-action="pipeline-picker-filter"][data-pipeline-filter="all"]').click();
+    cy.get('[data-action="pipeline-picker-select"]').then((options) => {
+      expect([...options].map((option) => option.getAttribute("data-pipeline-id"))).to.deep.equal([
+        "multi-write-common",
+        "multi-write-specialized",
+        "multi-write-custom",
+        "multi-review",
+        "single-common",
+        "single-specialized",
+      ]);
+    });
+  });
+  for (const theme of ["light", "dark"]) {
+    for (const width of [320, 480, 900]) {
+      it(`keeps the selected pipeline splash and prompt usable in ${theme} at ${String(width)}px`, () => {
+        cy.viewport(width, 900);
+        cy.visit("tests/fixtures/webview-layout/index.html");
+        cy.wrap(null).then(() => emulateTheme(theme));
+        cy.window().then((win) => {
+          win.__panelState.pipelines = [
+            {
+              id: "review-splash",
+              name: "Review the change",
+              description: "Find correctness, regression, and test coverage risks.",
+              editable: false,
+              hash: "a".repeat(64),
+              scopeKey: "builtin",
+              pickerCategory: "common",
+              prominentOrder: 0,
+              participantCount: 2,
+              stepCount: 3,
+              presentation: { promptPlaceholder: "Review this candidate before release…", icon: "search" },
+            },
+            {
+              id: "plan-splash",
+              name: "Plan the work",
+              description: "Produce a bounded implementation plan without editing files.",
+              editable: false,
+              hash: "b".repeat(64),
+              scopeKey: "builtin",
+              pickerCategory: "common",
+              prominentOrder: 1,
+              participantCount: 1,
+              stepCount: 1,
+              presentation: { promptPlaceholder: "Plan this implementation…", icon: "lightbulb" },
+            },
+          ];
+          win.__panelState.selectedPipelineId = "review-splash";
+          win.__managerState.eventsByConversation = {
+            "run-1": [{ id: 1, type: "pipeline.selected", status: "idle", title: "Pipeline selected", createdAt: "2026-09-15T00:00:00Z" }],
+          };
+          win.__boot();
+        });
+        cy.get('.pipeline-intro[data-intro-pipeline-id="review-splash"]')
+          .should("be.visible")
+          .and("contain.text", "Review the change")
+          .and("contain.text", "3 steps · 2 participants");
+        cy.get("#composer-prompt").should("have.attr", "placeholder", "Review this candidate before release…");
+        cy.get("#pipeline-picker-button").click();
+        cy.get('[data-action="pipeline-picker-select"][data-pipeline-id="plan-splash"]').click();
+        cy.get('.pipeline-intro[data-intro-pipeline-id="plan-splash"]')
+          .should("be.visible")
+          .and("contain.text", "Plan the work")
+          .and("contain.text", "1 step · 1 participant");
+        cy.get("#composer-prompt").should("have.attr", "placeholder", "Plan this implementation…");
+        cy.document().then((doc) => {
+          expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth + 1);
+        });
+        cy.screenshot(`pipeline-splash-${theme}-${String(width)}`);
+      });
+    }
+  }
+});
+
 
 describe("Result release regression coverage", { browser: "chrome" }, () => {
   const themeColors = require("../fixtures/webview-layout/theme-colors.json");

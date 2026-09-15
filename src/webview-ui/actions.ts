@@ -8,6 +8,12 @@ const positionRunMenu = (summary: HTMLElement): void => {
       item.open = false;
     }
   });
+  const tabScroll = details.closest<HTMLElement>(".run-tabs-scroll");
+  if (tabScroll) details.dataset.anchorScrollLeft = String(tabScroll.scrollLeft);
+  else delete details.dataset.anchorScrollLeft;
+  details.dataset.anchorViewport = `${String(window.innerWidth)}x${String(window.innerHeight)}`;
+  if (tabScroll) details.dataset.anchorStripWidth = String(tabScroll.clientWidth);
+  else delete details.dataset.anchorStripWidth;
   const place = (): void => {
     const items = details.querySelector<HTMLElement>(":scope > div");
     const measured = items?.getBoundingClientRect();
@@ -26,6 +32,14 @@ const positionRunMenu = (summary: HTMLElement): void => {
   };
   place();
   requestAnimationFrame(place);
+};
+
+const positionOpenRunMenus = (): void => {
+  root.querySelectorAll<HTMLDetailsElement>(transientMenuSelector).forEach((menu) => {
+    if (!menu.open) return;
+    const summary = menu.querySelector<HTMLElement>("summary");
+    if (summary) positionRunMenu(summary);
+  });
 };
 
 /**
@@ -52,9 +66,9 @@ const closeActiveMenu = (): boolean => {
   return true;
 };
 
-const runActionRefusal = (conversation: ConversationSummary, action: string): string | undefined => {
+const runActionRefusal = (conversation: ConversationSummary, action: string, family?: readonly ConversationSummary[]): string | undefined => {
   if (!["run-duplicate", "run-archive", "run-unarchive", "run-delete"].includes(action)) return undefined;
-  const candidates = action === "run-duplicate" ? [conversation] : state.manager.conversations.filter(
+  const candidates = action === "run-duplicate" ? [conversation] : family ?? state.manager.conversations.filter(
     (candidate) => rootConversationFor(candidate).id === rootConversationFor(conversation).id,
   );
   const busy = candidates.find((candidate) => {
@@ -76,8 +90,8 @@ const runActionRefusal = (conversation: ConversationSummary, action: string): st
     : localize("Stop “{0}” before changing its archive status.", title);
 };
 
-const runActionAttributes = (conversation: ConversationSummary, action: string): string => {
-  const refusal = runActionRefusal(conversation, action);
+const runActionAttributes = (conversation: ConversationSummary, action: string, family?: readonly ConversationSummary[]): string => {
+  const refusal = runActionRefusal(conversation, action, family);
   return refusal ? ` aria-disabled="true" title="${escapeAttribute(refusal)}"` : "";
 };
 
@@ -155,6 +169,16 @@ const describedText = (id: string): string => {
   return element.dataset.announcement ?? element.textContent ?? "";
 };
 
+const closeMenusWithin = (surface: HTMLElement | null): void => {
+  root.querySelectorAll<HTMLDetailsElement>("details.header-action-menu[open], details.notification-center[open], details.run-action-menu[open]").forEach((menu) => {
+    if (surface !== null && (!surface.contains(menu) || menu.contains(surface))) return;
+    const restoreFocus = document.activeElement instanceof HTMLElement && menu.contains(document.activeElement);
+    menu.open = false;
+    if (menu.dataset.disclosureKey) recordDisclosure(menu.dataset.disclosureKey, false);
+    if (restoreFocus) menu.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
+  });
+};
+
 const installActionListeners = (): void => {
 // A fixed-position menu does not follow the surface it was opened from; scrolling that surface
 // closes it, and the tab strip's edge fades follow its own scroll.
@@ -162,15 +186,32 @@ root.addEventListener("scroll", (event) => {
   const target = event.target instanceof HTMLElement ? event.target : null;
   if (target !== null && target.matches(".run-tabs-scroll")) {
     updateTabStripEdges();
-    return;
+    const restored = target.dataset.restoredScrollLeft === String(target.scrollLeft);
+    delete target.dataset.restoredScrollLeft;
+    if (restored) return;
+    const anchored = Array.from(target.querySelectorAll<HTMLDetailsElement>(transientMenuSelector))
+      .some((menu) => menu.open && menu.dataset.anchorScrollLeft === String(target.scrollLeft));
+    if (anchored) return;
   }
-  root.querySelectorAll<HTMLDetailsElement>("details.header-action-menu[open], details.notification-center[open], details.run-action-menu[open]").forEach((menu) => {
-    if (target === null || (target.contains(menu) && !menu.contains(target))) {
-      menu.open = false;
-      if (menu.dataset.disclosureKey) recordDisclosure(menu.dataset.disclosureKey, false);
-    }
-  });
+  closeMenusWithin(target);
 }, true);
+
+window.addEventListener("resize", () => {
+  const viewport = `${String(window.innerWidth)}x${String(window.innerHeight)}`;
+  const movedMenu = Array.from(root.querySelectorAll<HTMLDetailsElement>(transientMenuSelector))
+    .filter((menu) => menu.open)
+    .some((menu) => {
+      if (menu.dataset.anchorViewport !== viewport) return true;
+      const scroll = menu.closest<HTMLElement>(".run-tabs-scroll");
+      return scroll !== null && menu.dataset.anchorStripWidth !== String(scroll.clientWidth);
+    });
+  if (movedMenu) closeMenusWithin(root);
+  updateRunTabStripLayout();
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement.closest<HTMLElement>(".run-tab") : null;
+  revealRunTab(focused ?? root.querySelector<HTMLElement>(".run-tab.selected"));
+  updateTabStripEdges();
+});
 
 // F12. Whether the inspector is a column or a sheet depends on the width, and so does what the
 // sheet makes inert; a resize across the breakpoint redraws.

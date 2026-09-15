@@ -465,7 +465,7 @@ try {
   });
 
   const schema = load("pipeline/schema.js");
-  const preset = JSON.parse(fs.readFileSync(path.join(root, "presets", "gpt-pair.pipeline.json"), "utf8"));
+  const preset = JSON.parse(fs.readFileSync(path.join(root, "presets", "code-review-refine.pipeline.json"), "utf8"));
   const validation = schema.validatePipelineDefinition(preset);
   assert.equal(validation.success, true, validation.success ? "" : validation.errors.join("\n"));
   const invalidLead = structuredClone(preset);

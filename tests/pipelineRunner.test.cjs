@@ -148,7 +148,8 @@ test("generic pipeline runner executes JSON order, exchanges answers, loops cons
   assert.equal(consensusCalls.length, 4);
   const implementation = calls.find((call) => call.step === "implement");
   assert.equal(implementation.agentId, "b");
-  assert.equal(implementation.options.permissionMode, "write");
+  assert.equal(implementation.options.permissionMode, undefined);
+  assert.equal(implementation.options.readOnly, false);
 });
 
 test("generic pipeline runner stops after an interrupted participant", async () => {

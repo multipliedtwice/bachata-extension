@@ -253,7 +253,7 @@ const state: {
   pipelinePickerFilter: (() => {
     const restored = vscode.getState?.()?.pipelinePickerFilter;
     return restored === "all" || restored === "common" || restored === "specialized" ||
-      restored === "compatibility" || restored === "internal" || restored === "custom"
+      restored === "internal" || restored === "custom"
       ? restored
       : "common";
   })(),

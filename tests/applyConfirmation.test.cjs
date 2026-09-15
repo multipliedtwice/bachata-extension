@@ -73,6 +73,14 @@ test("the question counts hunks and files, each pluralised where it is counted",
     "Apply 1 selected hunk across 1 file to your current branch?",
   );
   assert.equal(
+    applyConfirmationQuestion({ selectedPathCount: 2, hunkCount: 1 }),
+    "Apply 1 selected hunk across 2 files to your current branch?",
+  );
+  assert.equal(
+    applyConfirmationQuestion({ selectedPathCount: 1, hunkCount: 2 }),
+    "Apply 2 selected hunks across 1 file to your current branch?",
+  );
+  assert.equal(
     applyConfirmationQuestion({ selectedPathCount: 2, hunkCount: 3 }),
     "Apply 3 selected hunks across 2 files to your current branch?",
   );

@@ -3,10 +3,15 @@ import { spawnProcessScope } from "./process-scope.mjs";
 import { waitForChild } from "./wait-for-child.mjs";
 import { withWorktreeLock } from "./lib/worktreeLock.mjs";
 
-const timeoutMs = Number(process.argv[2]);
+const requestedTimeoutMs = Number(process.argv[2]);
+const timeoutMs = Number(process.env.BACHATA_COMMAND_TIMEOUT_MS?.trim() || requestedTimeoutMs);
 const [executable, ...args] = process.argv.slice(3);
-if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || !executable) {
+const validTimeout = (value) => Number.isSafeInteger(value) && value >= 1 && value <= 2_147_483_647;
+if (!validTimeout(requestedTimeoutMs) || !executable) {
   throw new Error("Usage: node scripts/run-bounded-command.mjs <timeout-ms> <command> [...args]");
+}
+if (!validTimeout(timeoutMs)) {
+  throw new Error("BACHATA_COMMAND_TIMEOUT_MS must be an integer from 1 to 2147483647");
 }
 
 let activeProcessScope;
@@ -17,8 +22,11 @@ const termination = installTerminationHandlers({
 
 const main = async () => {
   try {
+    const environment = { ...process.env };
+    delete environment.BACHATA_COMMAND_TIMEOUT_MS;
     activeProcessScope = spawnProcessScope(executable, args, {
       stdio: "inherit",
+      env: environment,
       shell: process.platform === "win32",
       cleanupGraceMs: 2_000,
     });

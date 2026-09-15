@@ -24,11 +24,16 @@ const runConfigurationLocked = (panel: PanelState, conversationId = activeId()):
   Object.values(panel.agents).some((agent) => agent.status === "running") ||
   conversationById(conversationId)?.waitingForResources === true;
 
-const runActionsMenuHtml = (conversation: ConversationSummary, surface = "tab", selected = false): string => {
-  const runActions = `${conversation.archived ? "" : `<button data-action="run-rename" data-conversation="${escapeAttribute(conversation.id)}">${escapeHtml(localize("Rename"))}</button>`}<button data-action="run-duplicate" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-duplicate")}>${escapeHtml(localize("Duplicate"))}</button><button data-action="${conversation.archived ? "run-unarchive" : "run-archive"}" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, conversation.archived ? "run-unarchive" : "run-archive")}>${escapeHtml(conversation.archived ? localize("Unarchive") : localize("Archive"))}</button>`;
+const runActionsMenuHtml = (
+  conversation: ConversationSummary,
+  surface = "tab",
+  selected = false,
+  family: readonly ConversationSummary[] | undefined = runFamilies(state.manager.conversations).get(conversation.id),
+): string => {
+  const runActions = `${conversation.archived ? "" : `<button data-action="run-rename" data-conversation="${escapeAttribute(conversation.id)}">${escapeHtml(localize("Rename"))}</button>`}<button data-action="run-duplicate" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-duplicate", family)}>${escapeHtml(localize("Duplicate"))}</button><button data-action="${conversation.archived ? "run-unarchive" : "run-archive"}" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, conversation.archived ? "run-unarchive" : "run-archive", family)}>${escapeHtml(conversation.archived ? localize("Unarchive") : localize("Archive"))}</button>`;
   const items = selected
-    ? `<div class="run-action-menu-group" role="group" aria-label="${escapeAttribute(localize("Run"))}"><span class="run-action-menu-label">${escapeHtml(localize("Run"))}</span>${runActions}</div>${selectedRunWorkspaceMenuHtml(conversation)}<div class="run-action-menu-group run-action-menu-danger" role="group" aria-label="${escapeAttribute(localize("Danger zone"))}"><span class="run-action-menu-label">${escapeHtml(localize("Danger zone"))}</span>${selectedRunResetActionHtml(conversation)}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete")}>${escapeHtml(localize("Delete"))}</button></div>`
-    : `${runActions}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete")}>${escapeHtml(localize("Delete"))}</button>`;
+    ? `<div class="run-action-menu-group" role="group" aria-label="${escapeAttribute(localize("Run"))}"><span class="run-action-menu-label">${escapeHtml(localize("Run"))}</span>${runActions}</div>${selectedRunWorkspaceMenuHtml(conversation)}<div class="run-action-menu-group run-action-menu-danger" role="group" aria-label="${escapeAttribute(localize("Danger zone"))}"><span class="run-action-menu-label">${escapeHtml(localize("Danger zone"))}</span>${selectedRunResetActionHtml(conversation)}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete", family)}>${escapeHtml(localize("Delete"))}</button></div>`
+    : `${runActions}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete", family)}>${escapeHtml(localize("Delete"))}</button>`;
   return `<details class="run-action-menu${selected ? " header-action-menu merged-run-menu" : ""}" ${disclosureAttributes(`run-menu:${surface}:${conversation.id}`)}><summary class="icon-button" ${selected ? `id="room-actions-button" ` : ""}data-action="run-menu-toggle" aria-label="${escapeAttribute(localize("Actions for {0}", runTabLabel(conversation)))}" title="${escapeAttribute(localize("Run actions"))}"><i class="codicon codicon-ellipsis" aria-hidden="true"></i></summary><div class="run-action-menu-items">${items}</div></details>`;
 };
 
@@ -84,11 +89,10 @@ const runParticipants = (conversation: ConversationSummary): string[] => {
   return Object.values(panel?.agents ?? {}).map((agent) => `${agent.name} · ${agent.adapterType}`);
 };
 
-const runTabTooltip = (conversation: ConversationSummary, label: string): string => {
+const runTabTooltip = (conversation: ConversationSummary, label: string, childCount: number): string => {
   const panel = state.panels.get(conversation.id);
   const pipeline = panel?.selectedPipelineDefinition?.name ?? pipelineNameFor(conversation.selectedPipelineId);
   const participants = runParticipants(conversation);
-  const childCount = state.manager.conversations.filter((candidate) => candidate.parentConversationId === conversation.id).length;
   return [
     runTabLabel(conversation),
     panel?.activeStep ? `${label} · ${panel.activeStep}` : label,
@@ -122,30 +126,67 @@ const tabsHtml = (): string => {
     !isPristineRunDraft(conversation) && (!conversation.archived || conversation.id === selectedRootId)
   );
   const archivedCount = rootRuns().filter((conversation) => conversation.archived).length;
+  const archivedLabel = archivedCount > 0 ? localize("{0} archived", archivedCount) : "";
+  const browseLabel = [localize("Browse all runs"), archivedLabel].filter(Boolean).join(" · ");
+  const childCounts = new Map<string, number>();
+  for (const conversation of state.manager.conversations) {
+    if (conversation.parentConversationId) {
+      childCounts.set(conversation.parentConversationId, (childCounts.get(conversation.parentConversationId) ?? 0) + 1);
+    }
+  }
+  const focusableRunId = state.roomView !== "direction" && runs.some((conversation) => conversation.id === selectedRootId)
+    ? selectedRootId : runs[0]?.id;
   const logo = `<svg class="workspace-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false"><path d="M8.75 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11M15.25 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11"/></svg>`;
   const brand = state.roomView === "direction"
     ? `<button class="icon-button run-tabs-brand" data-action="room-view" data-view="chat" aria-label="${escapeAttribute(localize("Home"))}" title="${escapeAttribute(localize("Home"))}">${logo}</button>`
     : `<span class="icon-button run-tabs-brand" aria-hidden="true">${logo}</span>`;
   return `<nav class="run-tabs" aria-label="${escapeAttribute(localize("Bachata workspace"))}">
     ${brand}
-    <button class="run-tab-all" data-action="run-drawer-toggle" aria-label="${escapeAttribute(localize("Browse all runs"))}" ${state.roomView === "direction" ? 'aria-current="page"' : ""} ${expandedControlAttributes(state.runDrawerOpen, "run-drawer")}>${escapeHtml(localize("Runs"))}${archivedCount > 0 ? `<small>${escapeHtml(localize("{0} archived", archivedCount))}</small>` : ""}</button>
+    <button class="run-tab-all" data-action="run-drawer-toggle" aria-label="${escapeAttribute(browseLabel)}" title="${escapeAttribute(browseLabel)}" ${state.roomView === "direction" ? 'aria-current="page"' : ""} ${expandedControlAttributes(state.runDrawerOpen, "run-drawer")}><span>${escapeHtml(localize("Runs"))}</span>${archivedLabel ? `<small>${escapeHtml(archivedLabel)}</small>` : ""}</button>
     <div class="run-tabs-strip"><div class="run-tabs-scroll">${runs.map((conversation) => {
       const selected = conversation.id === selectedRootId && state.roomView !== "direction";
       const { status, label } = conversation.archived ? { status: "archived", label: localize("Archived") } : conversationStatus(conversation);
       return `<div class="run-tab ${selected ? "selected" : ""} ${conversation.archived ? "archived" : ""}">
-        <button class="run-tab-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" title="${escapeAttribute(runTabTooltip(conversation, label))}" ${selected ? 'aria-current="page"' : ""}>
+        <button class="run-tab-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" tabindex="${conversation.id === focusableRunId ? "0" : "-1"}" title="${escapeAttribute(runTabTooltip(conversation, label, childCounts.get(conversation.id) ?? 0))}" ${selected ? 'aria-current="page"' : ""}>
           <i class="codicon codicon-${escapeAttribute(runStatusIcon(status, state.panels.get(conversation.id)?.resumableWorkflow?.outcome))} run-tab-status status-${escapeAttribute(status)}" aria-hidden="true"></i>
           <span>${escapeHtml(runTabLabel(conversation))}</span>
           <span class="sr-only">${escapeHtml(label)}</span>
-          ${conversation.iterationCount > 1 ? `<small>${String(conversation.activeIteration)}/${String(conversation.iterationCount)}</small>` : ""}
-          ${conversation.unread > 0 ? `<span class="unread"><span aria-hidden="true">${String(conversation.unread)}</span><span class="sr-only">${escapeHtml(conversation.unread === 1 ? localize("{0} unread message", conversation.unread) : localize("{0} unread messages", conversation.unread))}</span></span>` : ""}
+          ${selected && conversation.iterationCount > 1 ? `<small>${String(conversation.activeIteration)}/${String(conversation.iterationCount)}</small>` : ""}
+          ${conversation.unread > 0 ? `<span class="${selected ? "unread" : "sr-only"}">${selected ? `<span aria-hidden="true">${conversation.unread > 99 ? "99+" : String(conversation.unread)}</span>` : ""}<span class="sr-only">${escapeHtml(conversation.unread === 1 ? localize("{0} unread message", conversation.unread) : localize("{0} unread messages", conversation.unread))}</span></span>` : ""}
         </button>
         ${selected ? selectedRunTabToolsHtml(conversation) : ""}
-        ${runActionsMenuHtml(conversation, "tab", selected)}
+        ${selected ? runActionsMenuHtml(conversation, "tab", true) : ""}
       </div>`;
     }).join("")}</div></div>
     <button class="icon-button run-tab-new" data-action="create-conversation" aria-label="${escapeAttribute(localize("New run"))}" title="${escapeAttribute(localize("New run"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
   </nav>`;
+};
+
+const runFamilies = (conversations: readonly ConversationSummary[]): Map<string, ConversationSummary[]> => {
+  const children = new Map<string, ConversationSummary[]>();
+  for (const conversation of conversations) {
+    if (!conversation.parentConversationId) continue;
+    const siblings = children.get(conversation.parentConversationId) ?? [];
+    siblings.push(conversation);
+    children.set(conversation.parentConversationId, siblings);
+  }
+  const pending = conversations.filter((conversation) => !conversation.parentConversationId)
+    .map((conversation) => ({ conversation, rootId: conversation.id }));
+  const rootIds = new Map<string, string>();
+  for (const { conversation, rootId } of pending) {
+    if (rootIds.has(conversation.id)) continue;
+    rootIds.set(conversation.id, rootId);
+    for (const child of children.get(conversation.id) ?? []) pending.push({ conversation: child, rootId });
+  }
+  const families = new Map<string, ConversationSummary[]>();
+  for (const conversation of conversations) {
+    const rootId = rootIds.get(conversation.id);
+    if (rootId === undefined) continue;
+    const family = families.get(rootId) ?? [];
+    family.push(conversation);
+    families.set(rootId, family);
+  }
+  return families;
 };
 
 const runDrawerHtml = (): string => {
@@ -153,6 +194,7 @@ const runDrawerHtml = (): string => {
     return "";
   }
   const query = state.roomSearch.trim().toLowerCase();
+  const families = runFamilies(state.manager.conversations);
   const runs = rootRuns().filter((conversation) => {
     if (isPristineRunDraft(conversation)) {
       return false;
@@ -163,11 +205,11 @@ const runDrawerHtml = (): string => {
     if (!query) {
       return true;
     }
-    const children = state.manager.conversations.filter((candidate) => rootConversationFor(candidate).id === conversation.id);
+    const family = families.get(conversation.id) ?? [conversation];
     if (state.historyResultQuery === query) {
-      return [conversation, ...children].some((candidate) => state.historyMatches.has(candidate.id));
+      return family.some((candidate) => state.historyMatches.has(candidate.id));
     }
-    return [conversation, ...children].some((candidate) =>
+    return family.some((candidate) =>
       `${candidate.title} ${candidate.input ?? ""} ${candidate.runRef} ${candidate.orchestrationTaskId ?? ""}`.toLowerCase().includes(query)
     );
   });
@@ -189,7 +231,8 @@ const runDrawerHtml = (): string => {
     <p class="sr-only" ${liveRegionAttributes("run-drawer-count", "status", runCount)}>${escapeHtml(runCount)}</p>
     <div class="run-drawer-list">${runs.length === 0 ? `<p class="empty-list" aria-hidden="true">${escapeHtml(localize("No matching runs."))}</p>` : runs.map((conversation) => {
       const { status, label } = conversationStatus(conversation);
-      const childCount = state.manager.conversations.filter((candidate) => candidate.parentConversationId === conversation.id).length;
+      const family = families.get(conversation.id) ?? [conversation];
+      const childCount = family.filter((candidate) => candidate.parentConversationId === conversation.id).length;
       const selected = selectedRootId === conversation.id;
       return `<article class="run-drawer-item ${selected ? "selected" : ""} ${conversation.archived ? "archived" : ""}">
         <button class="run-drawer-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" ${selected ? 'aria-current="true"' : ""}>
@@ -197,7 +240,7 @@ const runDrawerHtml = (): string => {
           <span><strong>${escapeHtml(runTabLabel(conversation))}</strong><small>${escapeHtml(label)}${childCount > 0 ? ` · ${escapeHtml(childCount === 1 ? localize("{0} task run", childCount) : localize("{0} task runs", childCount))}` : ""}</small></span>
           <time title="${escapeAttribute(formatDateTime(conversation.updatedAt))}">${escapeHtml(relativeTime(conversation.updatedAt))}</time>
         </button>
-        ${runActionsMenuHtml(conversation, "drawer")}
+        ${runActionsMenuHtml(conversation, "drawer", false, family)}
       </article>`;
     }).join("")}</div>
     <footer class="run-drawer-footer"><nav aria-label="${escapeAttribute(localize("Project goals and decisions"))}"><button class="run-drawer-direction" data-action="room-view" data-view="direction" ${state.roomView === "direction" ? 'aria-current="page"' : ""} title="${escapeAttribute(localize("Project goals and decisions"))}"><i class="codicon codicon-compass" aria-hidden="true"></i>${escapeHtml(localize("Direction"))}</button></nav></footer>
@@ -221,7 +264,11 @@ const recentActivityHtml = (): string => {
             ? 3
             : 4;
   const items = state.manager.conversations
-    .filter((conversation) => !conversation.archived && conversation.id !== state.manager.activeConversationId)
+    .filter((conversation) =>
+      !conversation.archived &&
+      !isPristineRunDraft(conversation) &&
+      conversation.id !== state.manager.activeConversationId
+    )
     .sort((left, right) =>
       activityPriority(left) - activityPriority(right) ||
       right.updatedAt.localeCompare(left.updatedAt)
@@ -553,8 +600,14 @@ const mainRoomHtml = (): string => {
     childRuns: isRoot && childConversationsFor(conversation.id).length > 0,
     orchestration: !readOnly && isRoot && hasOrchestrationState(),
   };
-  const introNeeded = panel.transcript.length === 0 &&
-    !has.workflow && !has.childRuns && !has.interactions && !has.result;
+  // Catalog/readiness bookkeeping can create workflow events and transcript provenance before the
+  // user has sent anything. Those transcript entries are filtered from Chat below, so base the
+  // empty state on what the user can actually see.
+  const hasVisibleTranscript = panel.transcript.some((entry) => !isRunInformationEntry(entry));
+  const introNeeded = !hasVisibleTranscript && (
+    isPristineRunDraft(conversation) ||
+    (!has.workflow && !has.childRuns && !has.interactions && !has.result)
+  );
   const archivedBanner = readOnly
     ? `<div class="archive-readonly-banner"><strong>${escapeHtml(localize("Archived run"))}</strong><span>${escapeHtml(localize("History is read-only. Unarchive it to continue work."))}</span><button data-action="run-unarchive" data-conversation="${escapeAttribute(rootConversation.id)}">${escapeHtml(localize("Unarchive"))}</button></div>`
     : "";
@@ -571,7 +624,7 @@ const mainRoomHtml = (): string => {
     const intro = introNeeded
       ? readOnly
         ? `<section class="conversation-intro">${bachataMarkHtml}<h2>${escapeHtml(localize("Archived run"))}</h2><p>${escapeHtml(localize("No transcript entries were stored for this run."))}</p></section>`
-        : `<section class="conversation-intro">${bachataMarkHtml}<h2>${escapeHtml(localize("Start a run"))}</h2><p>${escapeHtml(localize("Pick a pipeline, enter a job, and watch it execute."))}</p></section>${recentActivityHtml()}`
+        : `${pipelineSplashHtml(panel)}${recentActivityHtml()}`
       : "";
     const transcript = panel.transcript
       .filter((entry) => !isRunInformationEntry(entry))

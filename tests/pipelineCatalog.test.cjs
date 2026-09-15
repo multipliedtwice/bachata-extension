@@ -5,6 +5,7 @@ const {
   addCustomPipelines,
   createPipelineValidator,
   pipelineSummary,
+  pipelinePresentation,
   planLegacyCustomPipelineMigration,
   readBuiltInPipelineCatalog,
   readCustomPipelineCatalog,
@@ -92,11 +93,16 @@ test("pipeline summaries preserve picker, participant, step, and workspace scope
     editable: false,
     hash: "built-in-hash",
     scopeKey: "builtin",
-    prominentOrder: 3,
+    prominentOrder: 6,
     pickerCategory: "common",
     participantCount: 2,
     participantNames: ["UX", "Accessibility"],
+    writesCode: true,
     stepCount: 1,
+    presentation: {
+      promptPlaceholder: "Review this interface for usability, accessibility, and visual hierarchy…",
+      icon: "search",
+    },
   });
 
   assert.deepEqual(pipelineSummary(definition("workspace-review"), true, "workspace-hash", {
@@ -112,8 +118,117 @@ test("pipeline summaries preserve picker, participant, step, and workspace scope
     pickerCategory: "custom",
     participantCount: 1,
     participantNames: ["Codex"],
+    writesCode: true,
     stepCount: 1,
+    presentation: {
+      promptPlaceholder: "Describe the outcome for workspace-review…",
+      icon: "symbol-method",
+    },
     scopeRoot: "/project",
+  });
+});
+
+test("pipeline summaries derive code-writing capability from every declared execution path", () => {
+  const scope = { key: "builtin", directory: "/presets" };
+  const writesCode = (pipeline) => pipelineSummary(pipeline, false, `${pipeline.id}-hash`, scope).writesCode;
+  const agent = { id: "codex", name: "Codex", adapter: "codex-app-server", permissionMode: "workspaceWrite" };
+  const step = definition("base").steps[0];
+
+  assert.equal(writesCode(definition("read-only", {
+    agents: [{ ...agent, permissionMode: "readOnly" }],
+  })), false);
+  assert.equal(writesCode(definition("writer", { agents: [agent] })), true);
+  assert.equal(writesCode(definition("policy-refusal", {
+    managedPolicy: { writeScope: "readOnly" },
+    agents: [agent],
+  })), false);
+  assert.equal(writesCode(definition("policy-writer", {
+    managedPolicy: { writeScope: "configured" },
+    agents: [{ ...agent, permissionMode: "readOnly" }],
+  })), true);
+  assert.equal(writesCode(definition("checklist-writer", {
+    agents: [agent],
+    steps: [{
+      id: "execute",
+      name: "Execute",
+      enabled: true,
+      type: "executeChecklist",
+      humanGate: "none",
+      inputName: "work",
+      pipelineId: "worker",
+      allowedPaths: ["src"],
+      checks: [],
+    }],
+  })), true);
+  assert.equal(writesCode(definition("assignment-only", {
+    agents: [agent],
+    steps: [{
+      id: "assign",
+      name: "Assign",
+      enabled: true,
+      type: "assignRoles",
+      humanGate: "none",
+      roleAssignments: [],
+    }],
+  })), false);
+  assert.equal(writesCode(definition("disabled-and-overridden", {
+    agents: [agent],
+    steps: [
+      { ...step, enabled: false },
+      { ...step, id: "read", permissionModes: { codex: "readOnly" } },
+    ],
+  })), false);
+  assert.equal(writesCode(definition("missing-participant", {
+    agents: [agent],
+    steps: [{ ...step, participants: ["missing"] }],
+  })), false);
+
+  const role = {
+    id: "reviewer",
+    name: "Reviewer",
+    instructions: "Review the change",
+    candidateAgentIds: ["codex"],
+    readOnly: true,
+  };
+  const roleSteps = [
+    {
+      id: "assign",
+      name: "Assign",
+      enabled: true,
+      type: "assignRoles",
+      humanGate: "none",
+      roleAssignments: [{ agentId: "codex", role: "reviewer" }],
+    },
+    { ...step, id: "review", participants: ["reviewer"] },
+  ];
+  assert.equal(writesCode(definition("role-reader", { agents: [agent], roles: [role], steps: roleSteps })), false);
+  assert.equal(writesCode(definition("role-writer", {
+    agents: [agent],
+    roles: [{ ...role, readOnly: false }],
+    steps: [roleSteps[0], { ...roleSteps[1], permissionModes: { reviewer: "write" } }],
+  })), true);
+});
+
+test("every shipped pipeline has distinct prompt copy and custom pipelines use their name", async () => {
+  const { readdir, readFile } = require("node:fs/promises");
+  const { join } = require("node:path");
+  const presetRoot = join(__dirname, "..", "presets");
+  const files = (await readdir(presetRoot)).filter((name) => name.endsWith(".pipeline.json"));
+  const pipelines = await Promise.all(files.map(async (name) => JSON.parse(await readFile(join(presetRoot, name), "utf8"))));
+  const presentations = pipelines.map((pipeline) => pipelinePresentation(pipeline, false));
+  assert.equal(presentations.length, files.length);
+  assert.equal(new Set(presentations.map((item) => item.promptPlaceholder)).size, presentations.length);
+  for (const item of presentations) {
+    assert.match(item.promptPlaceholder, /…$/u);
+    assert.ok(item.icon.length > 0);
+  }
+  assert.deepEqual(pipelinePresentation({ id: "mine", name: "Security pass" }, true), {
+    promptPlaceholder: "Describe the outcome for Security pass…",
+    icon: "symbol-method",
+  });
+  assert.deepEqual(pipelinePresentation({ id: "browser-check", name: "Browser check" }, false), {
+    promptPlaceholder: "Describe the outcome for Browser check…",
+    icon: "globe",
   });
 });
 
@@ -128,6 +243,18 @@ test("a preset that cannot be parsed costs its own file, never the catalog", asy
   assert.deepEqual([...result.loaded.keys()], ["good"]);
   assert.equal(result.quarantined.length, 1);
   assert.match(result.quarantined[0], /^broken\.json: /);
+});
+
+test("a non-Error preset failure is quarantined with its exact reason", async () => {
+  const result = await readBuiltInPipelineCatalog({
+    readDirectory: async () => [entry("broken.json"), entry("keep.json")],
+    readText: async (name) => {
+      if (name === "broken.json") throw "catalog unavailable";
+      return JSON.stringify(definition("keep"));
+    },
+    validate: passThrough,
+  });
+  assert.deepEqual(result.quarantined, ["broken.json: catalog unavailable"]);
 });
 
 test("two presets claiming one id quarantine both and name each other", async () => {
@@ -308,13 +435,24 @@ test("the validator refuses on schema errors and on adapter errors, naming the s
 
 test("catalog owns picker order and categories without classifying from display text", () => {
   const { pipelinePickerMetadata } = require("../dist/pipeline/pipelineCatalog.js");
-  const ordered = ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"];
+  const ordered = [
+    "code-review-refine",
+    "feature-delivery",
+    "debug",
+    "paired-managed-fix",
+    "review-only",
+    "plan",
+    "ui-ux-review",
+    "fix",
+    "review",
+    "implementation-plan",
+    "managed-fix",
+  ];
   for (const [position, id] of ordered.entries()) {
     assert.deepEqual(pipelinePickerMetadata(id, false), { pickerCategory: "common", prominentOrder: position });
     assert.deepEqual(pipelinePickerMetadata(id, true), { pickerCategory: "custom" });
   }
   assert.deepEqual(pipelinePickerMetadata("new-specialized-workflow", false), { pickerCategory: "specialized" });
-  assert.deepEqual(pipelinePickerMetadata("claude-review", false), { pickerCategory: "compatibility" });
   assert.deepEqual(pipelinePickerMetadata("todo-master", false), { pickerCategory: "internal" });
   assert.deepEqual(pipelinePickerMetadata("custom-review", true), { pickerCategory: "custom" });
 });

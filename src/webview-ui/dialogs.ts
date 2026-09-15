@@ -368,7 +368,6 @@ const updateLiveAgentOutput = (conversationId: string, agentId: string): boolean
 };
 
 let composerAutofocusKey: string | undefined;
-let revealedTabKey: string | undefined;
 
 // F19. The strip fades at whichever edge it continues past, so a cut-off tab reads as
 // "more this way" rather than as a broken tab.
@@ -382,13 +381,104 @@ const updateTabStripEdges = (): void => {
   if (end) strip.setAttribute("data-scroll-end", ""); else strip.removeAttribute("data-scroll-end");
 };
 
-const revealSelectedTab = (): void => {
-  const key = activeId();
-  if (!key || revealedTabKey === key) {
-    return;
+type RunTabStripSnapshot = {
+  left: number;
+  selectedId: string | undefined;
+  focusId: string | undefined;
+  anchors: Array<{ id: string; offset: number }>;
+};
+
+const updateRunTabStripLayout = (): void => {
+  const strip = root.querySelector<HTMLElement>(".run-tabs-strip");
+  const scroll = strip?.querySelector<HTMLElement>(".run-tabs-scroll");
+  if (!strip || !scroll) return;
+  if (scroll.clientWidth > 0 && scroll.clientWidth < 360) strip.setAttribute("data-compact", "");
+  else strip.removeAttribute("data-compact");
+};
+
+const captureRunTabStrip = (): RunTabStripSnapshot => {
+  const scroll = root.querySelector<HTMLElement>(".run-tabs-scroll");
+  const bounds = scroll?.getBoundingClientRect();
+  const anchors: RunTabStripSnapshot["anchors"] = [];
+  if (scroll && bounds && bounds.width > 0) {
+    for (const tab of scroll.querySelectorAll<HTMLElement>(".run-tab")) {
+      const box = tab.getBoundingClientRect();
+      if (box.width <= 0 || box.right <= bounds.left || box.left >= bounds.right) continue;
+      const id = tab.querySelector<HTMLElement>(".run-tab-select")?.dataset.conversation;
+      if (id) anchors.push({ id, offset: box.left - bounds.left });
+      if (anchors.length === 2) break;
+    }
   }
-  revealedTabKey = key;
-  root.querySelector<HTMLElement>(".run-tab.selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  return {
+    left: scroll?.scrollLeft ?? 0,
+    selectedId: root.querySelector<HTMLElement>(".run-tab.selected .run-tab-select")?.dataset.conversation,
+    focusId: document.activeElement instanceof HTMLElement && document.activeElement.matches(".run-tab-select")
+      ? document.activeElement.dataset.conversation : undefined,
+    anchors,
+  };
+};
+
+const setFocusableRunTab = (target: HTMLElement | undefined): void => {
+  root.querySelectorAll<HTMLElement>('.run-tab-select[tabindex="0"]').forEach((tab) => {
+    if (tab !== target) tab.setAttribute("tabindex", "-1");
+  });
+  if (target && target.getAttribute("tabindex") !== "0") target.setAttribute("tabindex", "0");
+};
+
+const revealRunTab = (tab: HTMLElement | null): void => {
+  const scroll = root.querySelector<HTMLElement>(".run-tabs-scroll");
+  if (!scroll || !tab) return;
+  const bounds = scroll.getBoundingClientRect();
+  const box = tab.getBoundingClientRect();
+  if (bounds.width <= 0 || box.width <= 0) return;
+  if (box.left < bounds.left) scroll.scrollLeft += box.left - bounds.left;
+  else if (box.right > bounds.right) scroll.scrollLeft += box.right - bounds.right;
+};
+
+const restoreRunTabStrip = (snapshot: RunTabStripSnapshot): void => {
+  const scroll = root.querySelector<HTMLElement>(".run-tabs-scroll");
+  if (!scroll) return;
+  updateRunTabStripLayout();
+  scroll.scrollLeft = snapshot.left;
+  const selected = root.querySelector<HTMLElement>(".run-tab.selected .run-tab-select");
+  const selectionChanged = snapshot.selectedId !== selected?.dataset.conversation;
+  if (selectionChanged) revealRunTab(selected?.closest<HTMLElement>(".run-tab") ?? null);
+  else {
+    for (const anchor of snapshot.anchors) {
+      const tab = scroll.querySelector<HTMLElement>(`.run-tab-select[data-conversation="${CSS.escape(anchor.id)}"]`)?.closest<HTMLElement>(".run-tab");
+      if (!tab) continue;
+      const bounds = scroll.getBoundingClientRect();
+      const box = tab.getBoundingClientRect();
+      if (bounds.width > 0 && box.width > 0) scroll.scrollLeft += box.left - bounds.left - anchor.offset;
+      break;
+    }
+  }
+  if (snapshot.focusId) {
+    const tabs = Array.from(scroll.querySelectorAll<HTMLElement>(".run-tab-select"));
+    const previous = tabs.find((tab) => tab.dataset.conversation === snapshot.focusId);
+    const target = selectionChanged && selected ? selected : previous ?? selected ?? tabs[0];
+    setFocusableRunTab(target);
+    (target ?? root.querySelector<HTMLElement>(".run-tab-all"))?.focus({ preventScroll: true });
+    if (selectionChanged || !previous) revealRunTab(target?.closest<HTMLElement>(".run-tab") ?? null);
+  }
+  scroll.dataset.restoredScrollLeft = String(scroll.scrollLeft);
+  updateTabStripEdges();
+};
+
+const moveRunTabFocus = (current: HTMLElement, key: string): boolean => {
+  if (!current.matches(".run-tab-select")) return false;
+  const tabs = Array.from(root.querySelectorAll<HTMLElement>(".run-tab-select"));
+  const index = tabs.indexOf(current);
+  if (index < 0) return false;
+  const next = key === "Home" ? 0 : key === "End" ? tabs.length - 1
+    : key === "ArrowLeft" ? Math.max(0, index - 1) : Math.min(tabs.length - 1, index + 1);
+  const target = tabs[next];
+  if (!target) return false;
+  setFocusableRunTab(target);
+  target.focus({ preventScroll: true });
+  revealRunTab(target.closest<HTMLElement>(".run-tab"));
+  updateTabStripEdges();
+  return true;
 };
 
 const focusEmptyComposer = (restored: boolean): void => {

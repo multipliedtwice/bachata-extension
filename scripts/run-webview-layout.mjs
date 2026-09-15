@@ -1,5 +1,6 @@
 import { runMinimalLayoutChecks } from "./lib/webviewMinimalLayoutChecks.mjs";
 import { runWebviewProductChecks } from "./lib/webviewProductChecks.mjs";
+import { runTabStressChecks } from "./lib/runTabStressChecks.mjs";
 /**
  * EX-UI-04. The run tab strip's hit regions at the widths a side panel actually has.
  *
@@ -172,14 +173,6 @@ const measure = `(() => {
   };
 })()`;
 
-/**
- * EX-UI-02's invariant, measured rather than read: a control that is drawn must be reachable by
- * keyboard, and a control that is not drawn must not be. Every run keeps its action menu
- * visible and keyboard reachable, including on devices without hover support.
- *
- * The fixture carries two runs so this branch actually renders; with one run there is no
- * unselected tab and the assertion would pass by never being exercised.
- */
 const reachability = `(() => {
   const tabs = Array.from(document.querySelectorAll(".run-tab"));
   return {
@@ -187,6 +180,16 @@ const reachability = `(() => {
     renderFailure: document.querySelector(".render-failure") !== null,
     mismatched: tabs.map((tab) => {
       const summary = tab.querySelector(".run-action-menu > summary");
+      if (!tab.classList.contains("selected")) {
+        const select = tab.querySelector(".run-tab-select");
+        if (summary || tab.querySelector(".run-tab-tools")) return "an inactive tab exposes details";
+        if (!select || select.getBoundingClientRect().width < 39) return "an inactive tab is hidden or smaller than 40px";
+        const previous = document.activeElement;
+        select.focus({ preventScroll: true });
+        const reachable = document.activeElement === select;
+        previous?.focus({ preventScroll: true });
+        return reachable ? null : "an inactive tab cannot receive keyboard focus";
+      }
       if (!summary) return "a run tab has no action menu";
       const box = summary.getBoundingClientRect();
       const drawn = Number(getComputedStyle(summary).opacity) > 0 && box.width > 0 && box.height > 0;
@@ -501,6 +504,7 @@ const run = async () => {
     }
     await runWebviewProductChecks(session, press, pressKey, WIDTHS);
     await runMinimalLayoutChecks(session, press, pressKey);
+    await runTabStressChecks(session, press, pressKey);
     // The execution view: booted once, then measured at every width. It replaces the fixture's
     // idle state, so it runs after every idle-state measurement is done.
     await session.evaluate("window.__bootExecution()");

@@ -18,7 +18,7 @@ const configurationProperties = Object.assign(
   {},
   ...[packageJson.contributes?.configuration ?? []].flat().map((group) => group.properties ?? {}),
 );
-const preset = JSON.parse(read("presets/gpt-pair.pipeline.json"));
+const preset = JSON.parse(read("presets/code-review-refine.pipeline.json"));
 const todoPreset = JSON.parse(read("presets/todo-implementation.pipeline.json"));
 const presetText = JSON.stringify(preset);
 const schema = read("src/pipeline/schema.ts");
@@ -295,15 +295,15 @@ check("context:diffTruncation", /diffTruncated/.test(taskHandoff) && /diffOrigin
 check("context:syntaxCoverage", /collectContextSyntaxCheck/.test(contextIndex) && /checkedPaths/.test(contextIndex) && /skippedPaths/.test(contextIndex), "bounded syntax parsing returns explicit checked and skipped path coverage");
 check("context:aggregateBudget", /maxTotalBytes/.test(contextIndex) && /indexedBytes/.test(contextIndex) && /skippedBudgetPaths/.test(contextIndex), "managed repository context retains full text only within a bounded aggregate byte budget");
 check("browserActions:exactFingerprint", /expectedFiles/.test(browserActions) && browserActions.includes("patchSha256: hashText(action.patch.replace(/\\r\\n/g, \"\\n\"))"), "browser mutation fingerprints include exact patch text and expected file hashes");
-check("preset:sharedResource", workerRole?.resourceId === "chatgpt-browser:default-account" && leadRole?.resourceId === "chatgpt-browser:default-account", "Worker and Lead share the ChatGPT account resource");
-check("preset:managed", workerRole?.managed === true && leadRole?.managed === true && workerRole?.managedRole === "worker" && leadRole?.managedRole === "lead", "browser Bachata uses explicit managed Worker/Lead identities");
-check("preset:noCommit", preset.managedPolicy?.commitMode === "never", "browser pair task policy is deterministic no-commit");
-check("preset:verification", preset.managedPolicy?.verificationChecks?.some((check) => check.id === "workspace-integrity" && check.command === "bachata:workspace-integrity"), "browser Bachata has a portable controller-owned default verification gate");
-check("preset:projectChecks", preset.managedPolicy?.verificationChecks?.some((check) => check.id === "project-checks" && check.command === "bachata:project-checks"), "browser Bachata requires controller-owned project correctness checks in addition to workspace integrity");
-check("preset:sharedManagedPolicy", Array.isArray(preset.managedPolicy?.allowedPaths) && preset.managedPolicy?.maxRevisionCycles === 1, "Worker and Lead share one task-level scope and revision policy");
+check("preset:providerNeutralRoles", workerRole?.resourceId === undefined && leadRole?.resourceId === undefined, "managed role identities do not lock assignments to one provider resource");
+check("preset:managed", workerRole?.managed === true && leadRole?.managed === true && workerRole?.managedRole === "worker" && leadRole?.managedRole === "lead", "managed workflow uses explicit Worker and Lead identities");
+check("preset:noCommit", preset.managedPolicy?.commitMode === "never", "managed workflow has deterministic no-commit policy");
+check("preset:verification", preset.managedPolicy?.verificationChecks?.some((check) => check.id === "workspace-integrity" && check.command === "bachata:workspace-integrity"), "managed workflow has a portable controller-owned default verification gate");
+check("preset:projectChecks", preset.managedPolicy?.verificationChecks?.some((check) => check.id === "project-checks" && check.command === "bachata:project-checks"), "managed workflow requires controller-owned project correctness checks in addition to workspace integrity");
+check("preset:sharedManagedPolicy", Array.isArray(preset.managedPolicy?.allowedPaths), "Worker and Lead share one task-level scope policy");
 check("preset:leadReadOnly", leadRole?.readOnly === true && workerRole?.readOnly === false, "Lead is hard read-only while Worker may request patches");
-check("preset:boundedFlow", preset.steps?.filter((step) => step.type === "agent").length === 4, "preset has Worker, Lead, one Worker revision, and final Lead review");
-check("preset:attachmentContinuity", preset.steps?.filter((step) => step.type === "agent").every((step) => step.attachments === "selected"), "selected spec/context attachments remain available to every managed pair turn");
+check("preset:boundedFlow", preset.steps?.some((step) => step.id === "worker-revision") && preset.steps?.some((step) => step.id === "lead-final-review"), "managed workflow has one Worker revision and a final Lead review");
+check("preset:attachmentContinuity", preset.steps?.filter((step) => step.type === "agent" && (step.participants?.includes("worker") || step.participants?.includes("lead"))).every((step) => step.attachments === "selected"), "selected context remains available to every managed Worker and Lead turn");
 check("preset:originalTask", (presetText.match(/\{\{userPrompt\}\}/g) || []).length >= 2, "original task is present in both role instructions");
 check("releaseGate", /check:managed-fallback/.test(packageJson.scripts?.test ?? "") && /test:managed-modules/.test(packageJson.scripts?.test ?? ""), "managed verification is part of the normal release test chain");
 check("source:noNestedDist", !exists("dist/dist"), "no nested generated output exists");

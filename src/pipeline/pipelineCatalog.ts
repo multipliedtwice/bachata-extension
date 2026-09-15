@@ -2,23 +2,22 @@ import { pipelineDefinitionHash } from "./identity";
 import { validatePipelineDefinition } from "./schema";
 import { PipelineDefinition } from "./types";
 import { assignmentSlots } from "./agentAssignment";
+import { grantsNoWrite } from "./permissionModes";
 import type { PipelineScope } from "./catalogStorage";
 import type { PipelineSummary } from "../webview/protocol";
 
 const prominentWorkflowOrder = new Map([
-  ["codex-fix", 0],
-  ["codex-review", 1],
-  ["codex-plan", 2],
-  ["ui-ux-review", 3],
-  ["code-review-refine", 4],
-]);
-
-const compatibilityWorkflows = new Set([
-  "claude-browser-agent",
-  "claude-browser-pair",
-  "claude-fix",
-  "claude-plan",
-  "claude-review",
+  ["code-review-refine", 0],
+  ["feature-delivery", 1],
+  ["debug", 2],
+  ["paired-managed-fix", 3],
+  ["review-only", 4],
+  ["plan", 5],
+  ["ui-ux-review", 6],
+  ["fix", 7],
+  ["review", 8],
+  ["implementation-plan", 9],
+  ["managed-fix", 10],
 ]);
 
 const internalWorkflows = new Set([
@@ -31,16 +30,80 @@ const internalWorkflows = new Set([
   "todo-master",
 ]);
 
+const pipelinePromptPlaceholders = new Map<string, string>([
+  ["code-review-refine", "Review this code, reconcile findings, and fix confirmed issues…"],
+  ["core-decisions", "Identify and reconcile the product decisions required for…"],
+  ["cross-reference-development", "Review this code and prepare a confirmed implementation task list for…"],
+  ["debug", "Diagnose this failure, implement a fix, and review the result…"],
+  ["feature-delivery", "Define, implement, and review this feature within the declared scope…"],
+  ["fix", "Diagnose and fix this bug, then run the declared checks…"],
+  ["implementation-plan", "Inspect the codebase and produce a bounded implementation plan for…"],
+  ["managed-fix", "Fix this issue within the configured paths and verification scope…"],
+  ["paired-managed-fix", "Diagnose this bug, reconcile the findings, and execute the selected fixes…"],
+  ["plan", "Reconcile independent implementation proposals for…"],
+  ["product-review", "Review this product decision and reconcile the recommendations…"],
+  ["review", "Review this code for correctness, regressions, and missing tests…"],
+  ["review-only", "Review this code independently and reconcile the findings…"],
+  ["self-improvement-convergence", "Reconcile the supplied improvement audits and resolve disagreements…"],
+  ["self-improvement-discovery", "Audit the supplied candidate independently for improvement opportunities…"],
+  ["self-improvement-review", "Review the supplied improvement candidate and check results…"],
+  ["self-improvement-revision", "Apply the requested bounded revision to the supplied candidate…"],
+  ["self-improvement", "Plan and implement the supplied improvement task…"],
+  ["todo-implementation", "Plan, implement, and review this bounded TODO task…"],
+  ["todo-master", "Inspect the supplied TODO execution state and report what remains…"],
+  ["ui-ux-review", "Review this interface for usability, accessibility, and visual hierarchy…"],
+]);
+
+const pipelinePresentationIcon = (pipelineId: string): string => {
+  if (pipelineId.includes("browser")) return "globe";
+  if (pipelineId.includes("fix") || pipelineId === "debug") return "wrench";
+  if (pipelineId.includes("plan") || pipelineId === "core-decisions") return "lightbulb";
+  if (pipelineId.includes("todo")) return "checklist";
+  if (pipelineId === "feature-delivery" || pipelineId.includes("improvement")) return "tools";
+  if (pipelineId === "product-review") return "compass";
+  return "search";
+};
+
+export const pipelinePresentation = (
+  pipeline: Pick<PipelineDefinition, "id" | "name">,
+  editable: boolean,
+): NonNullable<PipelineSummary["presentation"]> => ({
+  promptPlaceholder: editable
+    ? `Describe the outcome for ${pipeline.name}…`
+    : pipelinePromptPlaceholders.get(pipeline.id) ?? `Describe the outcome for ${pipeline.name}…`,
+  icon: editable ? "symbol-method" : pipelinePresentationIcon(pipeline.id),
+});
+
 export const pipelinePickerMetadata = (
   pipelineId: string,
   editable: boolean,
 ): Pick<PipelineSummary, "pickerCategory" | "prominentOrder"> => {
   if (editable) return { pickerCategory: "custom" };
-  const prominentOrder = editable ? undefined : prominentWorkflowOrder.get(pipelineId);
+  const prominentOrder = prominentWorkflowOrder.get(pipelineId);
   if (prominentOrder !== undefined) return { pickerCategory: "common", prominentOrder };
-  if (compatibilityWorkflows.has(pipelineId)) return { pickerCategory: "compatibility" };
   if (internalWorkflows.has(pipelineId)) return { pickerCategory: "internal" };
   return { pickerCategory: "specialized" };
+};
+
+const pipelineWritesCode = (pipeline: PipelineDefinition): boolean => {
+  if (pipeline.managedPolicy?.writeScope === "readOnly") return false;
+  if (pipeline.managedPolicy?.writeScope !== undefined) return true;
+  const agents = new Map(pipeline.agents.map((agent) => [agent.id, agent]));
+  const roles = new Map((pipeline.roles ?? []).map((role) => [role.id, role]));
+  return pipeline.steps.some((step) => {
+    if (!step.enabled) return false;
+    if (step.type === "executeChecklist") return true;
+    if (step.type === "assignRoles") return false;
+    return step.participants.some((participant) => {
+      const role = roles.get(participant);
+      const agent = agents.get(participant);
+      if (role === undefined && agent === undefined) return false;
+      return !grantsNoWrite({
+        requested: step.permissionModes?.[participant] ?? agent?.permissionMode,
+        roleReadOnly: role?.readOnly === true,
+      });
+    });
+  });
 };
 
 export const pipelineSummary = (
@@ -60,7 +123,9 @@ export const pipelineSummary = (
     ...pipelinePickerMetadata(pipeline.id, editable),
     participantCount: slots.length,
     participantNames: slots.map((slot) => slot.responsibility),
+    writesCode: pipelineWritesCode(pipeline),
     stepCount: pipeline.steps.filter((step) => step.enabled).length,
+    presentation: pipelinePresentation(pipeline, editable),
     ...(editable && scope.root ? { scopeRoot: scope.root } : {}),
   };
 };
@@ -145,13 +210,11 @@ export const readBuiltInPipelineCatalog = async (
   parsed.forEach(({ file, pipeline }) => {
     filesById.set(pipeline.id, [...(filesById.get(pipeline.id) ?? []), file]);
   });
-  const conflictingIds = new Set(
-    [...filesById.entries()]
-      .filter(([, files]) => files.length > 1)
-      .map(([pipelineId]) => pipelineId),
-  );
-  [...conflictingIds].sort().forEach((pipelineId) => {
-    const files = [...(filesById.get(pipelineId) ?? [])].sort();
+  const conflictingEntries = [...filesById.entries()]
+    .filter(([, files]) => files.length > 1);
+  const conflictingIds = new Set(conflictingEntries.map(([pipelineId]) => pipelineId));
+  conflictingEntries.forEach(([pipelineId, declaredFiles]) => {
+    const files = [...declaredFiles].sort();
     files.forEach((file) => {
       quarantined.push(
         `${file}: duplicate pipeline id ${pipelineId}, also declared by ${files.filter((other) => other !== file).join(", ")}`,

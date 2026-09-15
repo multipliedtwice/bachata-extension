@@ -13,7 +13,7 @@ Local settings and pipeline definitions can only narrow it. Nothing in a user's 
 ```json
 {
   "version": 1,
-  "approvedPipelineIds": ["codex-review", "managed-fix"],
+  "approvedPipelineIds": ["review", "managed-fix"],
   "maxWriteScope": "configured",
   "commitMode": "never",
   "allowedVerifiers": ["bachata:project-checks", "bachata:workspace-integrity"],
