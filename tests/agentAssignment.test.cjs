@@ -6,6 +6,7 @@ const {
   assignedAgentDefinition,
   assignedPipelineDefinition,
   assignmentLockReason,
+  modelAssignmentLockReason,
   assignmentRefusals,
   assignmentSlots,
   parseScopedAgentAssignments,
@@ -336,6 +337,19 @@ test("reassignment is refused for committed work and allowed once the run is idl
   assert.match(assignmentLockReason({ ...idle, queuedCount: 1 }), /queue/u);
   assert.match(assignmentLockReason({ ...idle, hasResumable: true }), /interrupted workflow/u);
   assert.equal(assignmentLockReason({ ...idle, catalogError: "catalog broken" }), "catalog broken");
+});
+
+test("model changes unlock at a recovery boundary while active and queued work stay locked", () => {
+  const idle = { busy: false, workflowStatus: "idle", queuedCount: 0, hasResumable: false };
+  assert.equal(modelAssignmentLockReason(idle), undefined);
+  assert.match(modelAssignmentLockReason({ ...idle, busy: true }), /active operation/u);
+  assert.match(modelAssignmentLockReason({ ...idle, queuedCount: 1 }), /queue/u);
+  assert.match(modelAssignmentLockReason({ ...idle, workflowStatus: "completed" }), /Reset this run/u);
+  assert.equal(
+    modelAssignmentLockReason({ ...idle, workflowStatus: "error", hasResumable: true }),
+    undefined,
+  );
+  assert.equal(modelAssignmentLockReason({ ...idle, catalogError: "catalog broken" }), "catalog broken");
 });
 
 test("the reassigned review-only pipeline passes the adapter registry's own option validation", () => {

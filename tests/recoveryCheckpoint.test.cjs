@@ -115,3 +115,50 @@ test("a checkpoint keeps every attachment it referenced or it is refused", () =>
     false,
   );
 });
+
+test("a checkpoint accepts a new model and thinking effort for the next turn", () => {
+  const checkpointAssignments = {
+    codex: { adapter: "codex-app-server", model: "gpt-5.6-sol", reasoningEffort: "medium" },
+  };
+  const currentAssignments = {
+    codex: { adapter: "codex-app-server", model: "gpt-6-astra", reasoningEffort: "high" },
+  };
+  assert.equal(
+    recoveryCheckpointIsUsable(usable({
+      checkpoint: { assignments: checkpointAssignments },
+      currentAssignments,
+    })),
+    true,
+  );
+});
+
+test("adding a model override to a default provider keeps the checkpoint usable", () => {
+  assert.equal(
+    recoveryCheckpointIsUsable(usable({
+      currentAssignments: {
+        codex: { adapter: "codex-app-server", model: "gpt-6-astra" },
+      },
+    })),
+    true,
+  );
+});
+
+test("a checkpoint rejects a different provider or browser conversation", () => {
+  assert.equal(
+    recoveryCheckpointIsUsable(usable({
+      currentAssignments: { codex: { adapter: "claude-code", model: "claude-opus-5" } },
+    })),
+    false,
+  );
+  assert.equal(
+    recoveryCheckpointIsUsable(usable({
+      checkpoint: {
+        assignments: { codex: { adapter: "codex-app-server", browserSessionId: "before" } },
+      },
+      currentAssignments: {
+        codex: { adapter: "codex-app-server", browserSessionId: "after" },
+      },
+    })),
+    false,
+  );
+});

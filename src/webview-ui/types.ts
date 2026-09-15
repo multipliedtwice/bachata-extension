@@ -455,6 +455,7 @@ type AgentAssignmentState = {
   adapterModels: Record<string, AdapterModelCatalog>;
   constraint?: string;
   lockReason?: string;
+  modelLockReason?: string;
 };
 
 type LocalInterpreterState = {

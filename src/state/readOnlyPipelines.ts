@@ -186,6 +186,7 @@ export const readOnlyPanelState = async (input: {
       adapterModels: {},
       ...(slots.constraint === undefined ? {} : { constraint: slots.constraint }),
       lockReason: reason,
+      modelLockReason: reason,
     },
     localInterpreter: {
       enabled: false,

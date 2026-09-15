@@ -592,6 +592,32 @@ export const assignmentLockReason = (input: {
             : undefined;
 
 /**
+ * Why the model and thinking effort cannot change for the participant's next turn.
+ *
+ * Provider identity is part of a recoverable run's execution boundary, but model choice is a
+ * turn-level setting. Once no response is active, a stopped or failed run may therefore choose a
+ * different model and continue from its checkpoint without changing who owns the participant.
+ */
+export const modelAssignmentLockReason = (input: {
+  catalogError?: string | undefined;
+  busy: boolean;
+  workflowStatus: string;
+  queuedCount: number;
+  hasResumable: boolean;
+}): string | undefined =>
+  input.catalogError
+    ? input.catalogError
+    : input.busy
+      ? "Wait for the active operation before changing models"
+      : input.queuedCount > 0
+        ? "Clear the queue before changing models"
+        : input.hasResumable
+          ? undefined
+          : input.workflowStatus !== "idle"
+            ? "Reset this run before changing models"
+            : undefined;
+
+/**
  * Restore a persisted assignment map, keeping only entries whose adapter this build still knows.
  * A stored assignment naming an adapter a later version dropped is discarded rather than failing
  * the whole conversation's restore, and a map with no pipeline identity is discarded outright

@@ -7767,6 +7767,57 @@ test("an initial provider failure leaves a checkpoint that retry continues from 
   }
 });
 
+test("a failed run accepts a new model and uses it when the stopped step resumes", async () => {
+  const extensionRoot = createSingleAgentPipelineRoot(twoStepPipelineDefinition());
+  const models = [];
+  let failFirstSend = true;
+  const harness = loadRuntimeHarness({
+    extensionRoot,
+    onAdapterSend: async ({ request }) => {
+      models.push(request.model);
+      if (failFirstSend) {
+        failFirstSend = false;
+        throw new Error("provider refused the first model");
+      }
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await assert.rejects(
+      harness.runtime.handleMessage({
+        type: "pipeline.run",
+        requestId: "model-change-recovery",
+        prompt: "Build with another model",
+        attachmentIds: [],
+        iterationCount: 1,
+        delivery: "immediate",
+      }),
+      /provider refused the first model/u,
+    );
+    assert.ok(harness.runtime.getState().resumableWorkflow);
+    assert.match(harness.runtime.getState().agentAssignments.lockReason, /Reset this run/u);
+    assert.equal(harness.runtime.getState().agentAssignments.modelLockReason, undefined);
+
+    await harness.runtime.handleMessage({
+      type: "agents.model.select",
+      agentId: "codex",
+      model: "gpt-6-astra",
+    });
+    assert.equal(harness.runtime.getState().agentAssignments.slots[0].assignedModel, "gpt-6-astra");
+    assert.ok(harness.runtime.getState().resumableWorkflow, "changing model must preserve recovery");
+
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.handleMessage({ type: "workflow.resume" });
+    assert.deepEqual(models, [undefined, "gpt-6-astra", "gpt-6-astra"]);
+    assert.equal(harness.runtime.getState().resumableWorkflow, undefined);
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+    removeScratchSync(extensionRoot);
+  }
+});
+
 test("restart replays the recorded request from step one and keeps the recorded settings", async () => {
   const extensionRoot = createSingleAgentPipelineRoot(twoStepPipelineDefinition());
   const prompts = [];

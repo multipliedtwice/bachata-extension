@@ -418,6 +418,11 @@ const agentsAssignmentLockReason = (panel: PanelState): string | undefined =>
     ? localize("Archived runs keep their original providers and models.")
     : panel.agentAssignments.lockReason;
 
+const agentsModelLockReason = (panel: PanelState): string | undefined =>
+  conversationById(activeId())?.archived
+    ? localize("Archived runs keep their original providers and models.")
+    : panel.agentAssignments.modelLockReason;
+
 const agentsAssignable = (panel: PanelState): boolean =>
   panel.agentAssignments.slots.length > 0;
 
@@ -485,7 +490,11 @@ const handleAgentSelectionChange = (target: HTMLInputElement | HTMLSelectElement
   const modelAgentId = target.dataset.agentsModelSelectFor;
   const effortAgentId = target.dataset.agentsEffortFor;
   if (!providerAgentId && !modelAgentId && !effortAgentId) return false;
-  if (agentsAssignmentLockReason(activePanel()) !== undefined || target.disabled) return true;
+  const panel = activePanel();
+  const lockReason = providerAgentId
+    ? agentsAssignmentLockReason(panel)
+    : agentsModelLockReason(panel);
+  if (lockReason !== undefined || target.disabled) return true;
   if (providerAgentId) {
     delete state.agentsModelDrafts[providerAgentId];
     if (target.value === "browser") {
@@ -570,7 +579,7 @@ const agentSlotModelHtml = (
           : chosenMissing ? localize("The selected model is not in this provider’s current list.") : "";
   const archived = conversationById(activeId())?.archived === true;
   const detailId = `agents-model-detail-${slot.agentId}`;
-  const check = `<button type="button" class="icon-button agents-model-check" data-action="agents-model-discover" data-agent="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Refresh models for {0}", slot.responsibility))}" title="${escapeAttribute(localize("Refresh provider models"))}"${status === "discovering" || archived ? " disabled" : ""}${status === "discovering" ? ' aria-busy="true"' : ""}><i class="codicon codicon-refresh" aria-hidden="true"></i></button>`;
+  const check = `<button type="button" class="icon-button agents-model-check" data-action="agents-model-discover" data-agent="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Refresh models for {0}", slot.responsibility))}" title="${escapeAttribute(localize("Refresh provider models"))}"${status === "discovering" || archived || locked ? " disabled" : ""}${status === "discovering" ? ' aria-busy="true"' : ""}><i class="codicon codicon-refresh" aria-hidden="true"></i></button>`;
   const selectedModel = listed.find((model) => model.id === slot.assignedModel)
     ?? (slot.assignedModel === undefined && defaultModel !== undefined
       ? listed.find((model) => model.id === defaultModel)
@@ -597,7 +606,12 @@ const agentSlotModelHtml = (
   </div>`;
 };
 
-const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boolean): string => {
+const agentSlotHtml = (
+  slot: AgentAssignmentSlot,
+  panel: PanelState,
+  providerLocked: boolean,
+  modelLocked: boolean,
+): string => {
   const isBrowser = isBrowserAssignment(slot.assignedAdapter);
   const showSessions = isBrowser || state.agentsBrowserFor === slot.agentId;
   const selectedValue = state.agentsBrowserFor === slot.agentId || (isBrowser && slot.overridden) ? "browser" : slot.overridden ? slot.assignedAdapter : "";
@@ -619,9 +633,9 @@ const agentSlotHtml = (slot: AgentAssignmentSlot, panel: PanelState, locked: boo
   return `<article class="agents-slot" data-agent-slot="${escapeAttribute(slot.agentId)}">
     <div class="agents-slot-head"><strong>${escapeHtml(slot.responsibility)}</strong></div>
     <div class="agents-slot-settings">
-      <label class="agents-provider-field" for="agents-provider-${escapeAttribute(slot.agentId)}"><span>${escapeHtml(localize("Provider"))}</span><select id="agents-provider-${escapeAttribute(slot.agentId)}" class="agents-provider-select" data-agents-provider-for="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Provider for {0}", slot.responsibility))}"${locked ? " disabled" : ""}>${providerOptions}</select></label>
-      ${showSessions && !locked ? agentSlotSessionsHtml(slot, panel) : ""}
-      ${showSessions && !isBrowser ? "" : agentSlotModelHtml(slot, panel, locked)}
+      <label class="agents-provider-field" for="agents-provider-${escapeAttribute(slot.agentId)}"><span>${escapeHtml(localize("Provider"))}</span><select id="agents-provider-${escapeAttribute(slot.agentId)}" class="agents-provider-select" data-agents-provider-for="${escapeAttribute(slot.agentId)}" aria-label="${escapeAttribute(localize("Provider for {0}", slot.responsibility))}"${providerLocked ? " disabled" : ""}>${providerOptions}</select></label>
+      ${showSessions && !providerLocked ? agentSlotSessionsHtml(slot, panel) : ""}
+      ${showSessions && !isBrowser ? "" : agentSlotModelHtml(slot, panel, modelLocked)}
     </div>${statusError}
   </article>`;
 };
@@ -662,11 +676,14 @@ const localInterpreterHtml = (panel: PanelState, locked: boolean): string => {
 const agentsPickerHtml = (panel: PanelState): string => {
   const assignments = panel.agentAssignments;
   const lockReason = agentsAssignmentLockReason(panel);
+  const modelLockReason = agentsModelLockReason(panel);
   const hasPipeline = agentsAssignable(panel);
   const overrides = assignments.slots.filter((slot) => slot.overridden).length;
   const open = state.agentsPickerOpen && hasPipeline;
   const disabled = !hasPipeline;
-  const title = lockReason ?? (hasPipeline ? localize("Assign a provider to each role") : localize("Select a pipeline to assign providers"));
+  const title = lockReason !== undefined && modelLockReason === undefined
+    ? localize("Change models for the next turn")
+    : lockReason ?? modelLockReason ?? (hasPipeline ? localize("Assign a provider to each role") : localize("Select a pipeline to assign providers"));
   const label = assignments.discovering
     ? localize("Discovering agents…")
     : overrides > 0
@@ -676,16 +693,22 @@ const agentsPickerHtml = (panel: PanelState): string => {
   if (!open) {
     return `<div class="agents-picker" data-agents-picker>${button}</div>`;
   }
-  const locked = lockReason !== undefined;
-  const historicalLock = locked && (panel.resumableWorkflow !== undefined || /reset this run/iu.test(lockReason ?? ""));
-  const lockText = historicalLock ? localize("This run keeps its original providers and models.") : lockReason ?? "";
-  const interpreter = localInterpreterHtml(panel, locked);
+  const providerLocked = lockReason !== undefined;
+  const modelLocked = modelLockReason !== undefined;
+  const historicalLock = providerLocked && (panel.resumableWorkflow !== undefined || /reset this run/iu.test(lockReason ?? ""));
+  const modelChangeOnResume = historicalLock && !modelLocked;
+  const lockText = modelChangeOnResume
+    ? localize("Providers stay fixed for this run. Model and thinking effort changes apply when you resume.")
+    : historicalLock
+      ? localize("This run keeps its original providers and models.")
+      : lockReason ?? modelLockReason ?? "";
+  const interpreter = localInterpreterHtml(panel, providerLocked);
   const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="${escapeAttribute(localize("Agent assignments"))}">
-    <div class="agents-popover-head"><div><h2>${escapeHtml(localize("Agents"))}</h2></div><button type="button" class="icon-button" data-action="agents-picker-toggle" aria-label="${escapeAttribute(localize("Close agent assignments"))}">×</button>${overrides > 0 && !locked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">${escapeHtml(localize("Reset to defaults"))}</button>` : ""}</div>
-    ${locked ? `<div class="agents-locked"><span>${escapeHtml(lockText)}</span>${historicalLock ? `<button type="button" data-action="create-conversation">${escapeHtml(localize("New run"))}</button>` : ""}</div>` : ""}
+    <div class="agents-popover-head"><div><h2>${escapeHtml(localize("Agents"))}</h2></div><button type="button" class="icon-button" data-action="agents-picker-toggle" aria-label="${escapeAttribute(localize("Close agent assignments"))}">×</button>${overrides > 0 && !providerLocked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">${escapeHtml(localize("Reset to defaults"))}</button>` : ""}</div>
+    ${providerLocked || modelLocked ? `<div class="agents-locked"><span>${escapeHtml(lockText)}</span>${historicalLock && modelLocked ? `<button type="button" data-action="create-conversation">${escapeHtml(localize("New run"))}</button>` : ""}</div>` : ""}
     ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>${escapeHtml(localize("Discovering agents on this machine…"))}</p>` : ""}
     ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
-    <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, locked)).join("")}</div>
+    <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, providerLocked, modelLocked)).join("")}</div>
     ${interpreter ? `<details class="agents-slot-settings" ${disclosureAttributes("agents:local-settings")}><summary>${escapeHtml(localize("Local interpreter settings"))}</summary>${interpreter}</details>` : ""}
   </div>`;
   return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;

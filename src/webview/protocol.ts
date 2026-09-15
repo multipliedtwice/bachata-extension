@@ -212,6 +212,8 @@ export type AgentAssignmentState = {
   constraint?: string;
   /** Why reassignment is refused right now, if it is. */
   lockReason?: string;
+  /** Why model and thinking-effort changes are refused right now, if they are. */
+  modelLockReason?: string;
 };
 
 /**

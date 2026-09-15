@@ -371,6 +371,7 @@ import {
   adapterTypeForBrowserProvider,
   assignedPipelineDefinition,
   assignmentLockReason,
+  modelAssignmentLockReason,
   assignmentRefusals,
   assignmentSlots,
   isBrowserAdapterType,
@@ -2267,15 +2268,20 @@ export const createRuntime = (
         .filter((adapterType) => registry.types().includes(adapterType)),
       discovering: providerRegistry.discovering(),
       ...(resolved.constraint === undefined ? {} : { constraint: resolved.constraint }),
-      ...((): { lockReason?: string } => {
-        const reason = assignmentLockReason({
+      ...((): { lockReason?: string; modelLockReason?: string } => {
+        const facts = {
           catalogError: pipelineCatalogError,
           busy: state.running,
           workflowStatus: state.workflowStatus,
           queuedCount: state.queuedMessages.length,
           hasResumable: state.resumableWorkflow !== undefined,
-        });
-        return reason === undefined ? {} : { lockReason: reason };
+        };
+        const lockReason = assignmentLockReason(facts);
+        const modelLockReason = modelAssignmentLockReason(facts);
+        return {
+          ...(lockReason === undefined ? {} : { lockReason }),
+          ...(modelLockReason === undefined ? {} : { modelLockReason }),
+        };
       })(),
     };
   };
@@ -9276,6 +9282,15 @@ export const createRuntime = (
       hasResumable: resumableWorkflowData !== undefined,
     });
 
+  const agentModelAssignmentRefusal = (): string | undefined =>
+    modelAssignmentLockReason({
+      catalogError: pipelineCatalogError,
+      busy: workflowActive || anyAgentRunning() || activeForegroundOperations > 0,
+      workflowStatus: state.workflowStatus,
+      queuedCount: state.queuedMessages.length + (queueStartClaim === undefined ? 0 : 1),
+      hasResumable: resumableWorkflowData !== undefined,
+    });
+
   /**
    * Move the selected pipeline onto a new set of participant assignments, or leave everything
    * exactly as it was.
@@ -9473,7 +9488,7 @@ export const createRuntime = (
     agentId: string,
     model: string | undefined,
   ): Promise<void> => {
-    const refusal = agentAssignmentRefusal();
+    const refusal = agentModelAssignmentRefusal();
     if (refusal) {
       throw new Error(refusal);
     }
@@ -9540,7 +9555,7 @@ export const createRuntime = (
     agentId: string,
     reasoningEffort: string | undefined,
   ): Promise<void> => {
-    const refusal = agentAssignmentRefusal();
+    const refusal = agentModelAssignmentRefusal();
     if (refusal) throw new Error(refusal);
     const base = selectedPipelineSnapshot?.definition.agents.find((agent) => agent.id === agentId);
     if (!base) throw new Error(`Unknown participant ${agentId}`);

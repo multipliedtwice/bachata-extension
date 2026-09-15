@@ -792,6 +792,39 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
     cy.get(".run-drawer-list .empty-list").should("be.visible");
   });
 
+  it("keeps providers fixed and allows a model change before recovery resumes", () => {
+    cy.viewport(700, 900);
+    cy.visit("tests/fixtures/webview-layout/index.html");
+    cy.window().then((win) => {
+      win.__panelState.running = false;
+      win.__panelState.workflowStatus = "error";
+      win.__panelState.resumableWorkflow = {
+        pipelineId: "custom-a",
+        pipelineName: "Custom review",
+        pipelineHash: win.__panelState.selectedPipelineHash,
+        userPrompt: "Recover this run",
+        attachmentIds: [],
+        nextStepIndex: 1,
+        totalSteps: 4,
+        updatedAt: "2026-09-15T00:00:00Z",
+      };
+      win.__panelState.agentAssignments.lockReason = "Resume or discard the interrupted workflow before reassigning agents";
+      delete win.__panelState.agentAssignments.modelLockReason;
+      win.__boot();
+    });
+    cy.get("#agents-picker-button").click();
+    cy.get("#agents-provider-lead").should("be.disabled");
+    cy.get("#agents-model-select-lead").should("not.be.disabled").select("gpt-5.6-terra");
+    cy.get(".agents-locked").should("contain.text", "Model and thinking effort changes apply when you resume");
+    cy.window().its("__posted").then((messages) => {
+      expect(messages.at(-1).message).to.deep.equal({
+        type: "agents.model.select",
+        agentId: "lead",
+        model: "gpt-5.6-terra",
+      });
+    });
+  });
+
   it("does not show a one-sided run view switcher before execution exists", () => {
     cy.viewport(900, 900);
     interactionFixture("light");

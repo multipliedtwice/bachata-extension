@@ -2263,24 +2263,42 @@ test("a provider selector is labeled and exposes the current provider", () => {
   } finally { harness.restore(); }
 });
 
-test("model catalogs remain discoverable while an interrupted run keeps its assignments", () => {
-  const panel = cliAssignmentPanel({ lockReason: "Reset this run before reassigning agents" });
+test("an interrupted run keeps its provider but can change model before resume", () => {
+  const panel = cliAssignmentPanel({
+    lockReason: "Resume or discard the interrupted workflow before reassigning agents",
+    adapterModels: {
+      "codex-app-server": { status: "listed", models: [
+        { id: "current-model", label: "Current model", isDefault: true },
+        { id: "next-model", label: "Next model" },
+      ] },
+    },
+  });
+  panel.resumableWorkflow = {
+    pipelineId: "browser-pipeline",
+    pipelineName: "Browser pipeline",
+    pipelineHash: "a".repeat(64),
+    userPrompt: "Recover this run",
+    attachmentIds: [],
+    nextStepIndex: 1,
+    totalSteps: 2,
+    updatedAt: "2026-09-15T00:00:00Z",
+  };
   const harness = bootWebview(managerState(), panel);
   try {
     harness.document.getElementById("agents-picker-button").click();
-    assert.equal(harness.messages.filter((entry) => entry.message?.type === "agents.model.discover").length, 1);
     assert.equal(harness.document.getElementById("agents-provider-builder").disabled, true);
-    assert.equal(harness.document.getElementById("agents-model-select-builder").disabled, true);
+    assert.equal(harness.document.getElementById("agents-model-select-builder").disabled, false);
     const refresh = harness.document.root.querySelector('[data-action="agents-model-discover"]');
     assert.equal(refresh.disabled, false);
-    refresh.click();
-    assert.equal(harness.messages.filter((entry) => entry.message?.type === "agents.model.discover").length, 2);
     assert.ok(harness.document.root.querySelector(".agents-locked"));
-    assert.match(harness.document.root.innerHTML, /<span>This run keeps its original providers and models\.<\/span>/u);
-    assert.ok(harness.document.root.querySelector('.agents-locked [data-action="create-conversation"]'));
-    const before = harness.messages.length;
-    chooseAgentOption(harness, "agents-model-select-builder", "wrong-model");
-    assert.equal(harness.messages.length, before);
+    assert.match(harness.document.root.innerHTML, /Model and thinking effort changes apply when you resume/u);
+    assert.equal(harness.document.root.querySelector('.agents-locked [data-action="create-conversation"]'), null);
+    chooseAgentOption(harness, "agents-model-select-builder", "next-model");
+    assert.deepEqual(harness.messages.at(-1).message, {
+      type: "agents.model.select",
+      agentId: "builder",
+      model: "next-model",
+    });
   } finally { harness.restore(); }
 });
 
@@ -2315,7 +2333,10 @@ test("Escape closes the Agents popover", () => {
 test("a locked assignment states why and offers no control", () => {
   const harness = bootWebview(
     managerState(),
-    assignmentPanel({ lockReason: "Clear the queue before reassigning agents" }),
+    assignmentPanel({
+      lockReason: "Clear the queue before reassigning agents",
+      modelLockReason: "Clear the queue before changing models",
+    }),
   );
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();

@@ -20,40 +20,46 @@ export type RecoveryCheckpoint = Omit<ResumableWorkflow, "attemptId" | "outcome"
 };
 
 /**
- * Whether two assignment maps name the same provider, the same model, and the same browser
- * conversation, for every participant. Compared field by field rather than by serialisation so key
- * order cannot decide it. The model is part of the identity: resuming a checkpoint that ran on one
- * model under another would continue a run nobody interrupted.
+ * Whether two assignment maps name the same provider and browser conversation for every
+ * participant. Compared field by field rather than by serialisation so key order cannot decide it.
+ * Model and thinking effort are intentionally excluded: they are turn-level choices and may change
+ * after a stop or failure before the next turn starts.
  */
-const assignmentsEqual = (
+const assignmentProvidersEqual = (
   left: AgentAssignments | undefined,
   right: AgentAssignments | undefined,
+  pipeline: PipelineSnapshot["definition"],
 ): boolean => {
-  const leftEntries = Object.entries(left ?? {});
-  const rightMap = right ?? {};
-  return (
-    leftEntries.length === Object.keys(rightMap).length &&
-    leftEntries.every(([agentId, override]) =>
-      rightMap[agentId]?.adapter === override.adapter &&
-      rightMap[agentId]?.model === override.model &&
-      rightMap[agentId]?.browserSessionId === override.browserSessionId,
-    )
-  );
+  const declared = new Set(pipeline.agents.map((agent) => agent.id));
+  if ([...Object.keys(left ?? {}), ...Object.keys(right ?? {})].some((agentId) => !declared.has(agentId))) {
+    return false;
+  }
+  return pipeline.agents.every((agent) => {
+    const before = left?.[agent.id];
+    const current = right?.[agent.id];
+    return (
+      (before?.adapter ?? agent.adapter) === (current?.adapter ?? agent.adapter) &&
+      before?.browserSessionId === current?.browserSessionId
+    );
+  });
 };
 
 export const recoveryCheckpointIsUsable = (input: {
   checkpoint: RecoveryCheckpoint;
   selectedSnapshot: PipelineSnapshot | undefined;
   availableAttachmentIds: ReadonlySet<string>;
-  // The reassignments in force now. A checkpoint records the providers that actually ran, and
-  // resuming it under different ones would continue a run nobody interrupted, so a change here
-  // discards the checkpoint exactly as a change of pipeline revision does.
+  // The reassignments in force now. Provider and browser-conversation identity stay fixed for the
+  // run; model and thinking effort may change for the next turn after a stop or failure.
   currentAssignments?: AgentAssignments | undefined;
 }): boolean => {
   const recoveryPipeline = input.checkpoint.pipelineSnapshot.definition;
   return (
     pipelineSnapshotRootsEqual(input.checkpoint.pipelineSnapshot, input.selectedSnapshot) &&
-    assignmentsEqual(input.checkpoint.assignments, input.currentAssignments) &&
+    assignmentProvidersEqual(
+      input.checkpoint.assignments,
+      input.currentAssignments,
+      recoveryPipeline,
+    ) &&
     recoveryPipeline.id === input.selectedSnapshot?.definition.id &&
     input.checkpoint.pipelineHash === input.checkpoint.pipelineSnapshot.hash &&
     input.checkpoint.totalSteps === recoveryPipeline.steps.length &&
