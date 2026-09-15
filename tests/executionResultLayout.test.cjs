@@ -374,16 +374,17 @@ test("all interaction chrome excludes brand green without stripping semantic sta
   for (const rule of rules.filter((entry) => entry.selectors.includes(".run-tab.selected"))) {
     assert.doesNotMatch(rule.body, /(?:background|border|outline|box-shadow)\s*:/u);
   }
-  const selectedRunTab = declarationsFor('#root .run-tab-select[aria-current="page"]:not(:hover):not(:active)');
+  const selectedRunTab = declarationsFor('#root .run-tab-select[aria-current="page"]');
   assert.equal(selectedRunTab.background, "transparent");
   assert.equal(selectedRunTab.color, "inherit");
   for (const selector of [
     ".bachata-mark-solid", ".bachata-mark-outline", ".room-presence.status-running",
     ".run-tab-status.status-running", ".run-tab-status.status-completed", ".action-card.result",
-    ".ruling-disposition.accepted", ".agents-local.is-ready", ".direction-saturated",
+    ".ruling-disposition.accepted", ".direction-saturated",
   ]) {
     assert.match(JSON.stringify(declarationsFor(selector)), /bachata-green/u, selector);
   }
+  assert.equal(declarationsFor(".agents-local.is-ready")["border-color"], "var(--vscode-input-border, var(--bachata-border))");
 });
 
 test("hover, selection, and pressed controls share distinct neutral fills without selection borders", () => {
@@ -461,14 +462,16 @@ test("editable fields keep their field surfaces and never inherit action hover, 
   assert.match(actionUnavailable.body, /background: var\(--bachata-surface\);/u);
 });
 
-test("one keyboard focus outline covers every control and pointer focus never acquires it", () => {
+test("keyboard focus outlines the active control surface and pointer focus never acquires it", () => {
   const outlines = rules.filter((rule) => /outline\s*:\s*2px solid/u.test(rule.body));
-  assert.equal(outlines.length, 1);
+  assert.equal(outlines.length, 2);
   assert.deepEqual(outlines[0].selectors, [":focus-visible"]);
+  assert.deepEqual(outlines[1].selectors, ['#root:not([data-focus-input="pointer"]) .composer-surface:has(> textarea:focus-visible)']);
   assert.equal(declarationsFor(":focus:not(:focus-visible)").outline, "none");
   assert.equal(declarationsFor('#root[data-focus-input="pointer"] :focus-visible').outline, "none");
-  assert.equal(rules.some((rule) => rule.selectors.includes(".composer-surface:focus-within")), false);
-  for (const selector of [".composer-surface > textarea", ".chat-minimap button", ".execution-content .code-block pre"]) {
+  assert.equal(declarationsFor(".composer-surface > textarea:focus-visible").outline, "none");
+  assert.equal(declarationsFor('#root:not([data-focus-input="pointer"]) .composer-surface:has(> textarea:focus-visible)')["outline-offset"], "var(--bachata-focus-offset, 2px)");
+  for (const selector of [".chat-minimap button", ".execution-content .code-block pre"]) {
     assert.equal(declarationsFor(selector)["--bachata-focus-offset"], "-2px", selector);
   }
   assert.match(css, /--bachata-focus-ring: var\(--vscode-focusBorder, Highlight\);/u);

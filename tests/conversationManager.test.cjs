@@ -1748,6 +1748,7 @@ test("activation heals only stale Browser Bridge quarantine without a message or
   });
   try {
     await waitFor(() => harness.bridge.getStatus().connected);
+    await harness.manager.flush();
     assert.equal(harness.bridge.startCount, 1);
     assert.equal(harness.bridge.resetPairingCount, 0);
     assert.deepEqual([...bridgeSecrets], credentials);
