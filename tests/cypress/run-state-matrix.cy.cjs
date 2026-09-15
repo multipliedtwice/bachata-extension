@@ -158,7 +158,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
 
         it("a working run says Working beside a progress indicator, offers Stop, and draws no result or recovery", () => {
           boot("running");
-          cy.get(".room-status").should("have.text", "Working")
+          cy.get(".run-tab.selected .room-status").should("have.text", "Working")
             .find(".codicon-loading.codicon-modifier-spin").should("have.attr", "aria-hidden", "true");
           cy.get(".run-outcome").should("not.exist");
           cy.get(recoveryActions).should("not.exist");
@@ -173,7 +173,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
 
         it("a stop by the user offers Resume with secondary recovery actions", () => {
           boot("stopped");
-          cy.get(".room-status").should("have.text", "Stopped by you");
+          cy.get(".run-tab.selected .room-status").should("have.text", "Stopped by you");
           cy.get(".run-outcome strong").should("contain.text", "Stopped by you");
           cy.get('.run-outcome [data-action="workflow-resume"]').should("have.text", "Resume stopped step");
           cy.get(".run-outcome").should("not.contain.text", "Retry failed step").and("not.contain.text", "Failed");
@@ -183,7 +183,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
 
         it("a failure offers Retry with secondary recovery actions", () => {
           boot("failedStep");
-          cy.get(".room-status").should("have.text", "Failed");
+          cy.get(".run-tab.selected .room-status").should("have.text", "Failed");
           cy.get('.run-outcome [data-action="workflow-resume"]').should("have.text", "Retry failed step");
           expectRecoveryRow(width, ["workflow-resume", "room-view"]);
           cy.get(".run-outcome .recovery-menu > summary").click();
@@ -239,7 +239,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
 
         it("a completed run shows its result and no recovery", () => {
           boot("completed");
-          cy.get(".room-status").should("have.text", "Completed");
+          cy.get(".run-tab.selected .room-status").should("have.text", "Completed");
           cy.get(".run-outcome strong").should("contain.text", "Completed");
           cy.get(recoveryActions).should("not.exist");
           cy.get('.run-outcome [data-action="room-view"]').should("have.text", "Open the result");

@@ -6,6 +6,14 @@ const { spawnSync } = require("node:child_process");
 
 const { isDeclarableVerificationCommand } = require("../dist/orchestrator/verificationPolicy.js");
 
+const localizedManifestValue = (root, value) => {
+  if (typeof value !== "string") return value;
+  const match = /^%([^%]+)%$/u.exec(value);
+  if (!match) return value;
+  const messages = JSON.parse(fs.readFileSync(path.join(root, "package.nls.json"), "utf8"));
+  return messages[match[1]];
+};
+
 const documentationFiles = () => {
   const directory = path.join(__dirname, "..", "docs");
   return fs.readdirSync(directory)
@@ -44,7 +52,8 @@ test("settings stay grouped with advanced limits separated from essentials", () 
   );
   const groups = [packageJson.contributes.configuration].flat();
   assert.ok(groups.length >= 2, "settings are not grouped");
-  const titles = groups.map((group) => group.title);
+  const root = path.join(__dirname, "..");
+  const titles = groups.map((group) => localizedManifestValue(root, group.title));
   assert.equal(titles[0], "Bachata");
   assert.ok(titles.includes("Bachata: Advanced"));
 
@@ -175,17 +184,18 @@ test("product doctrine fixes problem-general refinement, software focus, human d
   }
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const description = localizedManifestValue(root, packageJson.description);
   assert.equal(
-    packageJson.description,
+    description,
     "Build your own AI workflow in VS Code: choose assistants, give each a job, "
       + "and arrange planning, coding, review, and revision steps.",
     "the marketplace description no longer states the documented product claim",
   );
   assert.ok(
-    packageJson.description.length <= 200,
+    description.length <= 200,
     "the marketplace description is too long for the gallery to show in full",
   );
-  assert.doesNotMatch(packageJson.description, /safety|security|permission/iu);
+  assert.doesNotMatch(description, /safety|security|permission/iu);
 });
 
 test("the local scope of initiative state is stated wherever it is claimed", () => {

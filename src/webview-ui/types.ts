@@ -217,6 +217,7 @@ type PipelineSummary = {
   scopeKey: string;
   scopeRoot?: string;
   prominentOrder?: number;
+  pickerCategory?: "common" | "specialized" | "compatibility" | "internal" | "custom";
   participantCount?: number;
   participantNames?: string[];
   stepCount?: number;
@@ -1160,7 +1161,12 @@ type PersistedEditorDraft = {
   sourcePipelineHash?: string;
   scopeKey?: string;
 };
-type PersistedWebviewState = { drafts?: Record<string, string>; editor?: PersistedEditorDraft };
+type PipelinePickerFilter = "all" | "common" | "specialized" | "compatibility" | "internal" | "custom";
+type PersistedWebviewState = {
+  drafts?: Record<string, string>;
+  editor?: PersistedEditorDraft;
+  pipelinePickerFilter?: PipelinePickerFilter;
+};
 type VsCodeApi = {
   postMessage: (message: unknown) => void;
   getState?: () => PersistedWebviewState | undefined;

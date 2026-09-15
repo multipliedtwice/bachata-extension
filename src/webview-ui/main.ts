@@ -265,6 +265,14 @@ const agentSide = (panel: PanelState, agentId: string): "left" | "right" => {
 const eventLabel = (entry: TranscriptEntry): string =>
   (entry.eventType ?? entry.kind).replaceAll(".", " ");
 
+const workflowResumeMarkerHtml = (entry: TranscriptEntry): string => {
+  const nextStepIndex = jsonRecord(entry.data)?.nextStepIndex;
+  const label = typeof nextStepIndex === "number" && Number.isSafeInteger(nextStepIndex) && nextStepIndex >= 0
+    ? localize("Continued after interruption · from step {0}", nextStepIndex + 1)
+    : localize("Continued after interruption");
+  return `<div class="workflow-transition" data-entry="${escapeAttribute(entry.id)}" role="separator" aria-label="${escapeAttribute(label)}"><span aria-hidden="true">${escapeHtml(label)}</span></div>`;
+};
+
 const browserActionCard = (panel: PanelState, entry: TranscriptEntry): string => {
   const agent = entry.agentId ? panel.agents[entry.agentId] : undefined;
   const data = entry.data && typeof entry.data === "object" && !Array.isArray(entry.data) ? entry.data : undefined;
@@ -381,6 +389,9 @@ const avatarHtml = (identity: string, name: string, className: string): string =
 const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOnly = false): string => {
   if (entry.eventType === "browser.action.detected" || entry.eventType === "browser.action.result") {
     return browserActionCard(panel, entry);
+  }
+  if (entry.eventType === "workflow.resumed") {
+    return workflowResumeMarkerHtml(entry);
   }
   if (entry.eventType === "user.message") {
     return `<article class="message-row user-row" data-entry="${escapeAttribute(entry.id)}">
@@ -501,204 +512,10 @@ const attachmentStripHtml = (panel: PanelState, draft: ConversationDraft): strin
       const preview = attachment.previewUri
         ? `<img src="${escapeAttribute(attachment.previewUri)}" alt="${escapeAttribute(localize("Preview of {0}", attachment.name))}">`
         : "";
-      return `<div class="attachment-chip" title="${escapeAttribute(attachment.name)}"><input id="${escapeAttribute(inputId)}" type="checkbox" data-action="attachment-select" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Include {0} in this message", attachment.name))}" ${draft.selectedAttachmentIds.has(attachment.id) ? "checked" : ""}><label for="${escapeAttribute(inputId)}">${preview}<span>${escapeHtml(attachment.name)}</span><small>${escapeHtml(formatBytes(attachment.size))}</small></label><button type="button" data-action="attachment-remove" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Remove attachment {0}", attachment.name))}">×</button></div>`;
+      return `<div class="attachment-chip" title="${escapeAttribute(attachment.name)}"><input id="${escapeAttribute(inputId)}" type="checkbox" data-action="attachment-select" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Include {0} in this message", attachment.name))}" ${draft.selectedAttachmentIds.has(attachment.id) ? "checked" : ""}><label for="${escapeAttribute(inputId)}">${preview}<span>${escapeHtml(attachment.name)}</span><small>${escapeHtml(formatBytes(attachment.size))}</small></label><button type="button" class="icon-button" data-action="attachment-remove" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Remove attachment {0}", attachment.name))}">×</button></div>`;
     })
     .join("");
   return pending || stored ? `<div class="attachment-strip-shell"><div class="attachment-strip">${pending}${stored}</div></div>` : "";
-};
-
-const runActionsMenuHtml = (conversation: ConversationSummary, surface = "tab"): string =>
-  `<details class="run-action-menu" ${disclosureAttributes(`run-menu:${surface}:${conversation.id}`)}><summary data-action="run-menu-toggle" aria-label="${escapeAttribute(localize("Actions for {0}", runTabLabel(conversation)))}">•••</summary><div class="run-action-menu-items">
-    ${conversation.archived ? "" : `<button data-action="run-rename" data-conversation="${escapeAttribute(conversation.id)}">${escapeHtml(localize("Rename"))}</button>`}
-    <button data-action="run-duplicate" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-duplicate")}>${escapeHtml(localize("Duplicate"))}</button>
-    <button data-action="${conversation.archived ? "run-unarchive" : "run-archive"}" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, conversation.archived ? "run-unarchive" : "run-archive")}>${escapeHtml(conversation.archived ? localize("Unarchive") : localize("Archive"))}</button>
-    <button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete")}>${escapeHtml(localize("Delete"))}</button>
-  </div></details>`;
-
-const conversationStatus = (conversation: ConversationSummary): { status: string; label: string } => {
-  if (state.manager.interactions.some((interaction) => interaction.conversationId === conversation.id && (interaction.status === "pending" || interaction.status === "paused"))) {
-    return { status: "paused", label: localize("Waiting for you") };
-  }
-  if (conversation.waitingForResources) {
-    return { status: "paused", label: localize("Waiting for capacity") };
-  }
-  const phase = bachataWebviewBehavior.runPhase(conversation.running, conversation.workflowStatus);
-  const outcome = state.panels.get(conversation.id)?.resumableWorkflow?.outcome;
-  return {
-    status: phase === "running" ? "running" : conversation.workflowStatus,
-    label: localRunStatusLabel(bachataWebviewBehavior.runStatusPresentation(phase, outcome).label),
-  };
-};
-
-const runStatusIcon = (status: string, outcome?: string): string => {
-  if (status === "archived") return "archive";
-  const presentation = bachataWebviewBehavior.runStatusPresentation(
-    bachataWebviewBehavior.runPhase(false, status),
-    outcome,
-  );
-  return presentation.spinning ? `${presentation.icon} codicon-modifier-spin` : presentation.icon;
-};
-
-const pipelineNameFor = (pipelineId: string | undefined): string | undefined => {
-  if (!pipelineId) {
-    return undefined;
-  }
-  for (const panel of state.panels.values()) {
-    const match = panel.pipelines.find((pipeline) => pipeline.id === pipelineId);
-    if (match) {
-      return match.name;
-    }
-  }
-  return pipelineId;
-};
-
-const participantLabel = (participant: { name: string; adapter: string; model?: string }): string =>
-  [participant.name, participant.adapter, participant.model].filter((part) => part).join(" · ");
-
-const runParticipants = (conversation: ConversationSummary): string[] => {
-  const panel = state.panels.get(conversation.id);
-  const defined = panel?.selectedPipelineDefinition?.agents ?? [];
-  if (defined.length > 0) {
-    return defined.map(participantLabel);
-  }
-  if (conversation.participants && conversation.participants.length > 0) {
-    return conversation.participants.map(participantLabel);
-  }
-  return Object.values(panel?.agents ?? {}).map((agent) => `${agent.name} · ${agent.adapterType}`);
-};
-
-const runTabTooltip = (conversation: ConversationSummary, label: string): string => {
-  const panel = state.panels.get(conversation.id);
-  const pipeline = panel?.selectedPipelineDefinition?.name ?? pipelineNameFor(conversation.selectedPipelineId);
-  const participants = runParticipants(conversation);
-  const childCount = state.manager.conversations.filter((candidate) => candidate.parentConversationId === conversation.id).length;
-  return [
-    runTabLabel(conversation),
-    panel?.activeStep ? `${label} · ${panel.activeStep}` : label,
-    pipeline ? localize("Pipeline: {0}", pipeline) : undefined,
-    ...(participants.length > 0
-      ? [
-        participants.length === 1 ? localize("Participant:") : localize("Participants:"),
-        ...participants.slice(0, 6).map((entry) => `  ${entry}`),
-        ...(participants.length > 6 ? [localize("  +{0} more", participants.length - 6)] : []),
-      ]
-      : []),
-    conversation.iterationCount > 1 ? localize("Iteration {0} of {1}", conversation.activeIteration, conversation.iterationCount) : undefined,
-    childCount > 0 ? childCount === 1 ? localize("{0} task run", childCount) : localize("{0} task runs", childCount) : undefined,
-    localize("Updated {0}", relativeTime(conversation.updatedAt)),
-  ].filter((line) => line !== undefined).join("\n");
-};
-
-const tabsHtml = (): string => {
-  const active = activeConversation();
-  const selectedRootId = active ? rootConversationFor(active).id : activeId();
-  // An open archived run keeps its tab, so the strip still says where the reader is.
-  const runs = stableRunTabs().filter((conversation) => !conversation.archived || conversation.id === selectedRootId);
-  const archivedCount = rootRuns().filter((conversation) => conversation.archived).length;
-  return `<nav class="run-tabs" aria-label="${escapeAttribute(localize("Bachata workspace"))}">
-    <button class="run-tabs-brand" data-action="room-view" data-view="chat" aria-label="${escapeAttribute(localize("Home"))}" title="Bachata"><svg class="workspace-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false"><path d="M8.75 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11M15.25 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11"/></svg></button>
-    <button class="run-tab-all" data-action="run-drawer-toggle" aria-label="${escapeAttribute(localize("Browse all runs"))}" ${state.roomView === "direction" ? 'aria-current="page"' : ""} ${expandedControlAttributes(state.runDrawerOpen, "run-drawer")}>${escapeHtml(localize("Runs"))}${archivedCount > 0 ? `<small>${escapeHtml(localize("{0} archived", archivedCount))}</small>` : ""}</button>
-    <div class="run-tabs-strip"><div class="run-tabs-scroll">${runs.map((conversation) => {
-      const selected = conversation.id === selectedRootId && state.roomView !== "direction";
-      const { status, label } = conversation.archived ? { status: "archived", label: localize("Archived") } : conversationStatus(conversation);
-      return `<div class="run-tab ${selected ? "selected" : ""} ${conversation.archived ? "archived" : ""}">
-        <button class="run-tab-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" title="${escapeAttribute(runTabTooltip(conversation, label))}" ${selected ? 'aria-current="page"' : ""}>
-          <i class="codicon codicon-${escapeAttribute(runStatusIcon(status, state.panels.get(conversation.id)?.resumableWorkflow?.outcome))} run-tab-status status-${escapeAttribute(status)}" aria-hidden="true"></i>
-          <span>${escapeHtml(runTabLabel(conversation))}</span>
-          <span class="sr-only">${escapeHtml(label)}</span>
-          ${conversation.iterationCount > 1 ? `<small>${String(conversation.activeIteration)}/${String(conversation.iterationCount)}</small>` : ""}
-          ${conversation.unread > 0 ? `<span class="unread"><span aria-hidden="true">${String(conversation.unread)}</span><span class="sr-only">${escapeHtml(conversation.unread === 1 ? localize("{0} unread message", conversation.unread) : localize("{0} unread messages", conversation.unread))}</span></span>` : ""}
-        </button>
-        ${runActionsMenuHtml(conversation)}
-      </div>`;
-    }).join("")}</div></div>
-    <button class="run-tab-new" data-action="create-conversation" aria-label="${escapeAttribute(localize("New run"))}" title="${escapeAttribute(localize("New run"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
-  </nav>`;
-};
-
-const runDrawerHtml = (): string => {
-  if (!state.runDrawerOpen) {
-    return "";
-  }
-  const query = state.roomSearch.trim().toLowerCase();
-  const runs = rootRuns().filter((conversation) => {
-    if (!state.showArchived && conversation.archived) {
-      return false;
-    }
-    if (!query) {
-      return true;
-    }
-    const children = state.manager.conversations.filter((candidate) => rootConversationFor(candidate).id === conversation.id);
-    if (state.historyResultQuery === query) {
-      return [conversation, ...children].some((candidate) => state.historyMatches.has(candidate.id));
-    }
-    return [conversation, ...children].some((candidate) =>
-      `${candidate.title} ${candidate.input ?? ""} ${candidate.runRef} ${candidate.orchestrationTaskId ?? ""}`.toLowerCase().includes(query)
-    );
-  });
-  const active = activeConversation();
-  const selectedRootId = active ? rootConversationFor(active).id : undefined;
-  // The list filters as the reader types. Sight sees it shrink; a status line is what says so to
-  // everyone else, and it is the only place the result count is stated.
-  const runCount = runs.length === 0
-    ? localize("No matching runs.")
-    : state.roomSearch
-      ? runs.length === 1 ? localize("{0} run matches the search.", runs.length) : localize("{0} runs match the search.", runs.length)
-      : runs.length === 1 ? localize("{0} run.", runs.length) : localize("{0} runs.", runs.length);
-  return `<div class="run-drawer-backdrop" data-action="run-drawer-backdrop"><aside class="run-drawer" id="run-drawer" role="dialog" aria-modal="true" aria-label="${escapeAttribute(localize("All runs"))}">
-    <header><h2>${escapeHtml(localize("Runs"))}</h2><button data-action="run-drawer-toggle" aria-label="${escapeAttribute(localize("Close all runs"))}">×</button></header>
-    <label class="sr-only" for="run-search">${escapeHtml(localize("Search runs"))}</label>
-    <input id="run-search" class="room-search" value="${escapeAttribute(state.roomSearch)}" placeholder="${escapeAttribute(localize("Search runs and prompts…"))}" autofocus>
-    <label class="archive-toggle"><input id="show-archived" type="checkbox" ${state.showArchived ? "checked" : ""}> ${escapeHtml(localize("Show archived runs"))}</label>
-    ${state.historyResultsTruncated && state.historyResultQuery ? `<p class="search-truncated">${escapeHtml(localize("Search stopped at its evidence budget. Some older transcripts and events were not scanned."))}</p>` : ""}
-    <p class="sr-only" ${liveRegionAttributes("run-drawer-count", "status", runCount)}>${escapeHtml(runCount)}</p>
-    <div class="run-drawer-list">${runs.length === 0 ? `<p class="empty-list" aria-hidden="true">${escapeHtml(localize("No matching runs."))}</p>` : runs.map((conversation) => {
-      const { status, label } = conversationStatus(conversation);
-      const childCount = state.manager.conversations.filter((candidate) => candidate.parentConversationId === conversation.id).length;
-      const selected = selectedRootId === conversation.id;
-      return `<article class="run-drawer-item ${selected ? "selected" : ""} ${conversation.archived ? "archived" : ""}">
-        <button class="run-drawer-select" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}" ${selected ? 'aria-current="true"' : ""}>
-          <span class="room-presence status-${escapeAttribute(status)}"></span>
-          <span><strong>${escapeHtml(runTabLabel(conversation))}</strong><small>${escapeHtml(label)}${childCount > 0 ? ` · ${escapeHtml(childCount === 1 ? localize("{0} task run", childCount) : localize("{0} task runs", childCount))}` : ""}</small></span>
-          <time title="${escapeAttribute(formatDateTime(conversation.updatedAt))}">${escapeHtml(relativeTime(conversation.updatedAt))}</time>
-        </button>
-        ${runActionsMenuHtml(conversation, "drawer")}
-      </article>`;
-    }).join("")}</div>
-    <footer class="run-drawer-footer"><nav aria-label="${escapeAttribute(localize("Project goals and decisions"))}"><button class="run-drawer-direction" data-action="room-view" data-view="direction" ${state.roomView === "direction" ? 'aria-current="page"' : ""} title="${escapeAttribute(localize("Project goals and decisions"))}"><i class="codicon codicon-compass" aria-hidden="true"></i>${escapeHtml(localize("Direction"))}</button></nav></footer>
-  </aside></div>`;
-};
-
-const recentActivityHtml = (): string => {
-  const waitingConversationIds = new Set(
-    state.manager.interactions
-      .filter((interaction) => interaction.status === "pending" || interaction.status === "paused")
-      .map((interaction) => interaction.conversationId),
-  );
-  const activityPriority = (conversation: ConversationSummary): number =>
-    waitingConversationIds.has(conversation.id)
-      ? 0
-      : conversation.waitingForResources
-        ? 1
-        : conversation.workflowStatus === "error"
-          ? 2
-          : bachataWebviewBehavior.runPhase(conversation.running, conversation.workflowStatus) === "running"
-            ? 3
-            : 4;
-  const items = state.manager.conversations
-    .filter((conversation) => !conversation.archived && conversation.id !== state.manager.activeConversationId)
-    .sort((left, right) =>
-      activityPriority(left) - activityPriority(right) ||
-      right.updatedAt.localeCompare(left.updatedAt)
-    )
-    .slice(0, 8);
-  if (items.length === 0) {
-    return "";
-  }
-  return `<section class="recent-activity"><div class="section-heading"><div><strong>${escapeHtml(localize("Recent activity"))}</strong><small>${escapeHtml(localize("Waiting, failed, and recently updated work"))}</small></div><button data-action="run-drawer-open">${escapeHtml(localize("All runs"))}</button></div>${items.map((conversation) => {
-    const { status, label } = conversationStatus(conversation);
-    return `<button class="recent-activity-item" data-action="select-conversation" data-conversation="${escapeAttribute(conversation.id)}"><span class="room-presence status-${escapeAttribute(status)}"></span><span><strong>${escapeHtml(runTabLabel(conversation))}</strong><small>${escapeHtml(label)}</small></span><time title="${escapeAttribute(formatDateTime(conversation.updatedAt))}">${escapeHtml(relativeTime(conversation.updatedAt))}</time></button>`;
-  }).join("")}</section>`;
 };
 
 /**
@@ -827,7 +644,7 @@ const inspectorHtml = (panel: PanelState, readOnly = false): string => {
   const pipelineSummary = pipeline ? `<section class="inspector-pipeline"><h3>${escapeHtml(localize("Pipeline"))}</h3><div class="inspector-summary-row"><div><strong>${escapeHtml(pipeline.name)}</strong><small>${escapeHtml(countLabel(pipeline.steps.filter((step) => step.enabled).length, "step"))} · ${escapeHtml(countLabel(pipeline.agents.length, "participant"))}</small></div><button data-action="pipeline-view">${escapeHtml(localize("View pipeline"))}</button></div></section>` : "";
   const controlsLocked = readOnly || runConfigurationLocked(panel);
   const bridgeActions = !bridge.enabled ? "" : `<div class="compact-actions bridge-pairing-actions">${bridge.pairingToken && !bridge.connected ? `<button data-action="bridge-copy-token"${readOnly ? " disabled" : ""}>${escapeHtml(localize("Copy pairing token"))}</button>` : ""}<button data-action="bridge-discover"${readOnly ? " disabled" : ""}>${escapeHtml(localize("Find browser"))}</button><button data-action="bridge-reset"${controlsLocked ? " disabled" : ""}>${escapeHtml(localize("Reset pairing"))}</button></div>`;
-  return `<aside class="inspector" aria-label="${escapeAttribute(localize("Run details"))}"><div class="inspector-header"><h2 id="inspector-title" tabindex="-1">${escapeHtml(localize("Run details"))}</h2><button data-action="inspector-toggle" aria-label="${escapeAttribute(localize("Close run details"))}">×</button></div><div class="inspector-scroll"><section><h3>${escapeHtml(localize("Participants"))}</h3>${participantsHtml(panel, readOnly)}</section>${pipelineSummary}<section class="inspector-environment"><h3>${escapeHtml(localize("Environment"))}</h3><dl class="bridge-details"><dt>${escapeHtml(localize("Folder"))}</dt><dd>${escapeHtml(panel.workingDirectory ?? localize("Not selected"))}</dd><dt>${escapeHtml(localize("Browser Bridge"))}</dt><dd>${bridgePresentation.statusHtml}</dd></dl>${bridgeActions}${bridgePresentation.reasonHtml}<div class="compact-actions"><button data-action="working-directory" ${controlsLocked ? "disabled" : ""}>${escapeHtml(localize("Choose folder"))}</button><button data-action="availability-check" ${controlsLocked || !agentsAssignable(panel) ? "disabled" : ""}${!agentsAssignable(panel) ? ` title="${escapeAttribute(localize("Select a pipeline with participants to check providers."))}"` : ""}>${escapeHtml(localize("Check providers"))}</button></div></section></div></aside>`;
+  return `<aside class="inspector" aria-label="${escapeAttribute(localize("Run details"))}"><div class="inspector-header"><h2 id="inspector-title" tabindex="-1">${escapeHtml(localize("Run details"))}</h2><button class="icon-button" data-action="inspector-toggle" aria-label="${escapeAttribute(localize("Close run details"))}">×</button></div><div class="inspector-scroll"><section><h3>${escapeHtml(localize("Participants"))}</h3>${participantsHtml(panel, readOnly)}</section>${pipelineSummary}<section class="inspector-environment"><h3>${escapeHtml(localize("Environment"))}</h3><dl class="bridge-details"><dt>${escapeHtml(localize("Folder"))}</dt><dd>${escapeHtml(panel.workingDirectory ?? localize("Not selected"))}</dd><dt>${escapeHtml(localize("Browser Bridge"))}</dt><dd>${bridgePresentation.statusHtml}</dd></dl>${bridgeActions}${bridgePresentation.reasonHtml}<div class="compact-actions"><button data-action="working-directory" ${controlsLocked ? "disabled" : ""}>${escapeHtml(localize("Choose folder"))}</button><button data-action="availability-check" ${controlsLocked || !agentsAssignable(panel) ? "disabled" : ""}${!agentsAssignable(panel) ? ` title="${escapeAttribute(localize("Select a pipeline with participants to check providers."))}"` : ""}>${escapeHtml(localize("Check providers"))}</button></div></section></div></aside>`;
 };
 
 // The read-only sweep still disables outright; the composer's own blockers no longer do.
@@ -997,7 +814,7 @@ const globalErrorMessages = (managerError: string | undefined, conversationError
 const globalErrorsHtml = (): string =>
   globalErrorMessages(state.managerError, state.errors.get(activeId()))
     .map((message) =>
-      `<div class="global-error" ${liveRegionAttributes(`global-error:${message}`, "alert", message)}>${escapeHtml(message)}<button class="global-error-dismiss" data-action="error-dismiss" data-error-message="${escapeAttribute(message)}" aria-label="${escapeAttribute(localize("Dismiss this failure"))}" title="${escapeAttribute(localize("Dismiss this failure"))}">×</button></div>`)
+      `<div class="global-error" ${liveRegionAttributes(`global-error:${message}`, "alert", message)}>${escapeHtml(message)}<button class="icon-button global-error-dismiss" data-action="error-dismiss" data-error-message="${escapeAttribute(message)}" aria-label="${escapeAttribute(localize("Dismiss this failure"))}" title="${escapeAttribute(localize("Dismiss this failure"))}">×</button></div>`)
     .join("");
 
 /**
@@ -1088,6 +905,10 @@ const render = (): void => {
   const resultFooterScroll = resultFooter === null ? undefined : {
     key: resultFooter.dataset.scrollKey, top: resultFooter.scrollTop, left: resultFooter.scrollLeft,
   };
+  const resultDetailsScroll = root.querySelector<HTMLElement>(".result-details-scroll");
+  const resultDetailsScrollState = resultDetailsScroll === null ? undefined : {
+    key: resultDetailsScroll.dataset.scrollKey, top: resultDetailsScroll.scrollTop, left: resultDetailsScroll.scrollLeft,
+  };
   const distanceFromBottom = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight : 0;
   const scrollTopBefore = scroll ? scroll.scrollTop : 0;
   const previousScrollKey = scroll?.dataset.scrollKey;
@@ -1160,9 +981,20 @@ const render = (): void => {
   restoreCodeBlockScroll(codeBlockScroll);
   restoreControl(control, openPopoverSelector());
   const nextResultFooter = root.querySelector<HTMLElement>(".execution-result-footer");
-  if (nextResultFooter && resultFooterScroll && resultFooterScroll.key === nextResultFooter.dataset.scrollKey) {
+  const resultDetailsAreOpen = (nextResultFooter?.getAttribute("class") ?? "")
+    .split(/\s+/u)
+    .includes("result-details-open");
+  if (nextResultFooter && resultDetailsAreOpen) {
+    nextResultFooter.scrollTop = 0;
+    nextResultFooter.scrollLeft = 0;
+  } else if (nextResultFooter && resultFooterScroll && resultFooterScroll.key === nextResultFooter.dataset.scrollKey) {
     nextResultFooter.scrollTop = resultFooterScroll.top;
     nextResultFooter.scrollLeft = resultFooterScroll.left;
+  }
+  const nextResultDetailsScroll = root.querySelector<HTMLElement>(".result-details-scroll");
+  if (nextResultDetailsScroll && resultDetailsScrollState && resultDetailsScrollState.key === nextResultDetailsScroll.dataset.scrollKey) {
+    nextResultDetailsScroll.scrollTop = resultDetailsScrollState.top;
+    nextResultDetailsScroll.scrollLeft = resultDetailsScrollState.left;
   }
   restoreDialogScroll(dialogScroll);
   rememberEditorLocally();
@@ -1564,7 +1396,7 @@ const startPipelineDelete = (
 // Opening a menu, and marking notifications read, leave what is behind the menu as it was; every
 // other action changes it, so the menu that issued the action is dismissed with the rest.
 const menuPreservingActions = new Set(["run-menu-toggle", "notification-read-all"]);
-const dialogMenuActions = new Set(["task-reset", "run-rename", "run-archive", "run-delete", "workflow-discard"]);
+const dialogMenuActions = new Set(["task-reset", "run-rename", "run-archive", "run-delete", "workflow-discard", "run-requirements"]);
 
 const dismissTransientMenus = (origin: Element | null): void => {
   // An item chosen from a menu changes what is behind it, so that menu is dismissed too.
@@ -1600,6 +1432,7 @@ const dismissTransientMenus = (origin: Element | null): void => {
     origin?.closest<HTMLElement>("[data-action]")?.dataset.action !== "pipeline-picker-select"
   ) {
     state.pipelinePickerOpen = false;
+    state.pipelinePickerQuery = "";
     delete state.pipelinePickerActiveId;
     scheduleRender();
   }
@@ -1655,6 +1488,7 @@ document.addEventListener("focusin", (event) => {
   const insidePicker = target && typeof target.closest === "function" ? target.closest(".pipeline-picker") : null;
   if (!insidePicker) {
     state.pipelinePickerOpen = false;
+    state.pipelinePickerQuery = "";
     delete state.pipelinePickerActiveId;
     scheduleRender();
   }
@@ -1689,7 +1523,12 @@ const moveAgentsChoiceFocus = (current: HTMLElement, key: string): boolean => {
   return true;
 };
 
+document.addEventListener("pointerdown", () => {
+  root.dataset.focusInput = "pointer";
+});
+
 document.addEventListener("keydown", (event) => {
+  root.dataset.focusInput = "keyboard";
   if (
     state.agentsPickerOpen &&
     event.target instanceof HTMLElement &&
@@ -1704,27 +1543,26 @@ document.addEventListener("keydown", (event) => {
   // prompt, say — these keys are the prompt's again, so Enter there can never select a pipeline
   // because a popover was left open.
   const onPickerButton = event.target instanceof HTMLElement && event.target.id === "pipeline-picker-button";
-  const onPickerMore = event.target instanceof HTMLElement && event.target.id === "pipeline-picker-more";
-  if (state.pipelinePickerOpen && onPickerMore) {
-    if (event.key === "Escape") {
+  const onPickerSearch = event.target instanceof HTMLElement && event.target.id === "pipeline-picker-search";
+  const insidePipelinePicker = event.target instanceof HTMLElement && event.target.closest(".pipeline-picker") !== null;
+  if (state.pipelinePickerOpen && insidePipelinePicker && event.key === "Escape") {
+    event.preventDefault();
+    closePipelinePicker();
+    return;
+  }
+  if (state.pipelinePickerOpen && onPickerSearch) {
+    if (["ArrowDown", "ArrowUp", "Home", "End", "Enter"].includes(event.key)) {
       event.preventDefault();
-      closePipelinePicker();
-      return;
-    }
-    if (event.key === "Tab") {
-      if (event.shiftKey) {
-        event.preventDefault();
-        document.getElementById("pipeline-picker-button")?.focus();
-      } else closePipelinePicker(false);
+      if (event.key === "Enter") commitPipelinePickerActive();
+      else movePipelinePickerActive(event.key);
       return;
     }
   }
   if (state.pipelinePickerOpen && onPickerButton) {
     if (event.key === "Tab") {
-      const more = document.getElementById("pipeline-picker-more");
-      if (!event.shiftKey && more) {
+      if (!event.shiftKey) {
         event.preventDefault();
-        more.focus();
+        document.getElementById("pipeline-picker-search")?.focus();
       } else closePipelinePicker(false);
       return;
     }
@@ -1801,6 +1639,11 @@ document.addEventListener("keydown", (event) => {
     state.composerSettingsOpen = false;
     scheduleRender();
     requestAnimationFrame(() => root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.focus());
+  } else if (event.key === "Escape" && state.roomView === "execution" && resultDetailsOpen(activeId())) {
+    event.preventDefault();
+    state.disclosureStates.set(resultDetailsKey(activeId()), false);
+    scheduleRender();
+    focusAfterRender(() => root.querySelector<HTMLElement>('[data-action="result-details-toggle"]')?.focus());
   }
 });
 
@@ -1932,14 +1775,15 @@ const runHumanE2eUiScenario = async (
   // catalog a person can use.
   root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]:not([disabled])')?.click();
   await settleUi();
-  // The picker opens on the common workflows and keeps the compatibility presets behind one
-  // disclosure, so the scenario presses it the way a person looking for the rest would. The
-  // disclosure latches for the session, which is why the loop below needs no second press.
-  root.querySelector<HTMLElement>('[data-action="pipeline-picker-more"]')?.click();
-  await settleUi();
-  const renderedPipelineIds = Array.from(
-    root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-select"]'),
-  ).map((option) => option.dataset.pipelineId ?? "").filter((value) => value.length > 0);
+  const renderedPipelineIds: string[] = [];
+  for (const filter of Array.from(root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-filter"]'))) {
+    filter.click();
+    await settleUi();
+    root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-select"]').forEach((option) => {
+      const pipelineId = option.dataset.pipelineId;
+      if (pipelineId && !renderedPipelineIds.includes(pipelineId)) renderedPipelineIds.push(pipelineId);
+    });
+  }
   let everyCatalogPipelineSelectable = catalogPipelineIds.length > 0;
   for (const pipelineId of catalogPipelineIds) {
     // A disabled picker button is a control the person cannot touch, so the scenario waits for it
@@ -1954,6 +1798,10 @@ const runHumanE2eUiScenario = async (
       root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
       await settleUi();
     }
+    const pipeline = activePanel().pipelines.find((candidate) => candidate.id === pipelineId);
+    const category = pipeline ? pipelineCategory(pipeline) : "common";
+    root.querySelector<HTMLElement>(`[data-action="pipeline-picker-filter"][data-pipeline-filter="${category}"]`)?.click();
+    await settleUi();
     const option = root.querySelector<HTMLElement>(`[data-action="pipeline-picker-select"][data-pipeline-id="${pipelineId}"]`);
     if (!option) {
       everyCatalogPipelineSelectable = false;

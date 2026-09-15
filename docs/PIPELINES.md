@@ -4,7 +4,7 @@ Pipeline JSON version: `1`.
 
 ## Choosing a workflow
 
-Start with **Fix a bug**, **Code review**, **Implementation plan**, **UI/UX review**, or **Code review and refinement**. Choose the providers separately in **Agents**. The picker keeps custom definitions visible and places specialized workflows, compatibility copies and internal controller stages under **More workflows and compatibility presets**.
+Start with **Fix a bug**, **Code review**, **Implementation plan**, **UI/UX review**, or **Code review and refinement**. Choose providers in **Agents**. Picker search covers names, IDs, descriptions and participant roles. Filters separate common, specialized, compatibility and internal workflows. Custom definitions add **Custom** and **All** filters. Last filter persists; search text does not.
 
 Code review is read-only and single-source. UI/UX review has two read-only reviewers and requires actual visual evidence. Code review and refinement reviews first, then implements confirmed findings inside its declared scope, performs independent review, one explicit revision, and final review. Consensus rounds exchange claims; composer iterations replay the entire workflow. Neither is an unbounded “until correct” loop.
 
@@ -185,7 +185,7 @@ This audit concerns the uploaded source candidate. It does not invalidate the us
 | Review UI/UX | UI/UX review | Two read-only reviewers inspect usability, accessibility and hierarchy, then reconcile in at most four rounds. Supply screenshots or actual UI access. Source alone is insufficient for visual acceptance. |
 | Review and refine code | Code review and refinement | Two independent reviews, up to four reconciliation rounds, one implementation phase, independent lead review, one explicit revision phase and a final review. Writes are scoped to src/tests; checks must be configured. No commit. |
 
-Choose providers in Agents after choosing the workflow. The five common choices appear first. Custom pipelines remain visible. More workflows exposes specialized workflows, compatibility copies and clearly named internal controller stages. A selected specialized workflow remains visible in the common view. Existing IDs and archived snapshots are preserved; historical snapshots may retain their old names because they record the exact definition that ran.
+Choose providers in Agents after choosing the workflow. Default filter is Common when present. Other filters expose specialized workflows, compatibility copies and internal controller stages. Custom definitions add Custom and All. Empty filters stay hidden. Last filter persists across picker and panel reopen. Invalid remembered filter falls back to Common, then first available filter. Existing IDs and archived snapshots stay unchanged; historical snapshots may keep old names because they record the exact definition that ran.
 
 ### Root causes and corrections
 

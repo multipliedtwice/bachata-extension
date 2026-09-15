@@ -439,6 +439,13 @@ root.addEventListener("click", (event) => {
       conversationId: target.dataset.conversation,
       format,
     });
+  } else if (action === "result-details-toggle" && target.dataset.conversation) {
+    const conversationId = target.dataset.conversation;
+    if (conversationId !== activeId() || !state.manager.resultsByConversation?.[conversationId]) return;
+    const open = !resultDetailsOpen(conversationId);
+    state.disclosureStates.set(resultDetailsKey(conversationId), open);
+    scheduleRender();
+    focusAfterRender(() => root.querySelector<HTMLElement>('[data-action="result-details-toggle"]')?.focus());
   } else if (action === "result-copy" && target.dataset.conversation) {
     const conversationId = target.dataset.conversation;
     if (conversationId !== activeId() || !conversationById(conversationId)) {
@@ -758,8 +765,8 @@ root.addEventListener("click", (event) => {
   } else if (action === "pipeline-picker-toggle") {
     if (state.pipelinePickerOpen) closePipelinePicker();
     else openPipelinePicker();
-  } else if (action === "pipeline-picker-more") {
-    togglePipelinePickerMore();
+  } else if (action === "pipeline-picker-filter" && target.dataset.pipelineFilter) {
+    setPipelinePickerFilter(target.dataset.pipelineFilter);
   } else if (action === "pipeline-picker-select" && target.dataset.pipelineId) {
     const pipelineId = target.dataset.pipelineId;
     closePipelinePicker();
@@ -822,6 +829,7 @@ root.addEventListener("click", (event) => {
     state.inspectorOpen = false;
     state.composerSettingsOpen = false;
     state.pipelinePickerOpen = false;
+    state.pipelinePickerQuery = "";
     state.agentsPickerOpen = true;
     announceStatus(localize("Checking providers…"));
     postRuntime({ type: "availability.check" });
@@ -1253,6 +1261,10 @@ root.addEventListener("input", (event) => {
   if (target.id === "history-filter") {
     state.historyFilter = target.value;
     scheduleRender();
+    return;
+  }
+  if (target.id === "pipeline-picker-search") {
+    setPipelinePickerQuery(target.value);
     return;
   }
   if (target.id === "composer-prompt") {

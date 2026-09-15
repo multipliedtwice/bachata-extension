@@ -6,6 +6,12 @@ const test = require("node:test");
 
 const root = path.join(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const packageMessages = JSON.parse(fs.readFileSync(path.join(root, "package.nls.json"), "utf8"));
+const localizedManifestValue = (value) => {
+  if (typeof value !== "string") return value;
+  const match = /^%([^%]+)%$/u.exec(value);
+  return match ? packageMessages[match[1]] : value;
+};
 
 const loadLauncher = (snapshot, changeSink) => {
   const vscode = {
@@ -196,7 +202,8 @@ test("the read-only launcher introduces no retry command of its own", () => {
 test("an activation that registers no provider still explains itself through view welcome content", () => {
   const welcome = packageJson.contributes.viewsWelcome;
   assert.ok(Array.isArray(welcome), "viewsWelcome is contributed");
-  const entry = welcome.find((item) => item.view === "bachata.launcher");
+  const contributed = welcome.find((item) => item.view === "bachata.launcher");
+  const entry = contributed && { ...contributed, contents: localizedManifestValue(contributed.contents) };
   assert.ok(entry, "the launcher view declares welcome content for the empty case");
   assert.ok(entry.contents.trim().length > 0);
   const linked = Array.from(entry.contents.matchAll(/\(command:([^)]+)\)/gu), (match) => match[1]);

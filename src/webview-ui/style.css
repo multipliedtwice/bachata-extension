@@ -36,7 +36,20 @@
   --bachata-font-sm: var(--bachata-font-xs);
   --bachata-font-md: var(--bachata-font-body);
   --bachata-danger: color-mix(in srgb, var(--vscode-errorForeground) 56%, var(--vscode-foreground));
-  --bachata-focus-ring: color-mix(in srgb, var(--vscode-focusBorder) 85%, var(--vscode-foreground));
+  --bachata-focus-ring: var(--vscode-focusBorder, Highlight);
+  --bachata-control-size: 32px;
+  --bachata-control-radius: 6px;
+  --bachata-control-hover: var(--bachata-card-strong);
+  --bachata-control-selected: color-mix(in srgb, var(--vscode-foreground) 24%, var(--vscode-editor-background));
+  --bachata-control-pressed: color-mix(in srgb, var(--vscode-foreground) 32%, var(--vscode-editor-background));
+  --bachata-control-foreground: var(--vscode-foreground);
+  --bachata-control-selected-foreground: var(--vscode-foreground);
+  --bachata-control-disabled: var(--vscode-disabledForeground, color-mix(in srgb, var(--vscode-foreground) 45%, var(--vscode-editor-background)));
+  --bachata-primary-background: var(--vscode-button-background);
+  --bachata-primary-foreground: var(--vscode-button-foreground);
+  --bachata-primary-hover: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+  --bachata-primary-pressed: color-mix(in srgb, var(--vscode-button-hoverBackground, var(--vscode-button-background)) 80%, var(--vscode-button-background));
+  --bachata-primary-interactive-foreground: var(--vscode-button-foreground);
   --bachata-code-background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
   --bachata-code-fg: var(--vscode-editor-foreground, var(--vscode-foreground));
   --bachata-code-keyword: color-mix(in srgb, #c586c0 35%, var(--bachata-code-fg));
@@ -62,6 +75,7 @@ body,
 
 body {
   margin: 0;
+  padding: 0;
   overflow: hidden;
   color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
@@ -124,67 +138,163 @@ button {
   background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
 }
 
-button:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--vscode-button-secondaryHoverBackground, var(--bachata-card-strong));
-}
-
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-summary:focus-visible,
-pre:focus-visible {
+:focus-visible {
   outline: 2px solid var(--bachata-focus-ring);
-  outline-offset: 1px;
+  outline-offset: var(--bachata-focus-offset, 2px);
 }
 
-button:disabled,
-select:disabled,
-input:disabled,
-textarea:disabled {
-  cursor: default;
-  opacity: 0.48;
+:focus:not(:focus-visible),
+#root[data-focus-input="pointer"] :focus-visible {
+  outline: none;
 }
 
 button.primary,
 button.send-button {
-  color: var(--vscode-button-foreground);
+  --bachata-control-hover: var(--bachata-primary-hover);
+  --bachata-control-selected: var(--bachata-primary-pressed);
+  --bachata-control-pressed: var(--bachata-primary-pressed);
+  --bachata-control-foreground: var(--bachata-primary-interactive-foreground);
+  --bachata-control-selected-foreground: var(--bachata-primary-interactive-foreground);
+  color: var(--bachata-primary-foreground);
   border-color: var(--vscode-button-border, transparent);
-  background: var(--vscode-button-background);
+  background: var(--bachata-primary-background);
   font-weight: 600;
-}
-
-button.primary:disabled,
-button.send-button:disabled {
-  color: var(--bachata-muted);
-  border-color: var(--bachata-border);
-  background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
-  font-weight: 600;
-  opacity: 1;
-}
-
-button.primary:hover:not(:disabled):not([aria-disabled="true"]),
-button.send-button:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
 }
 
 button.danger {
+  --bachata-control-foreground: var(--bachata-danger);
+  --bachata-control-selected-foreground: var(--bachata-danger);
   color: var(--bachata-danger);
-  border-color: color-mix(in srgb, var(--bachata-danger) 52%, var(--bachata-border));
-}
-
-button.danger:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: color-mix(in srgb, var(--bachata-danger) 14%, var(--vscode-input-background));
 }
 
 button.caution {
+  --bachata-control-foreground: var(--bachata-warn-text);
+  --bachata-control-selected-foreground: var(--bachata-warn-text);
   color: var(--bachata-warn-text);
-  border-color: color-mix(in srgb, var(--bachata-warn-text) 52%, var(--bachata-border));
 }
 
-button.caution:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: color-mix(in srgb, var(--bachata-warn-text) 14%, var(--vscode-input-background));
+.icon-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 var(--bachata-control-size);
+  align-self: center;
+  width: var(--bachata-control-size);
+  height: var(--bachata-control-size);
+  min-width: var(--bachata-control-size);
+  min-height: var(--bachata-control-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--bachata-control-radius);
+  color: var(--bachata-muted);
+  background: transparent;
+  line-height: 1;
+}
+
+input:is([type="checkbox"], [type="radio"]) {
+  accent-color: var(--vscode-foreground);
+}
+
+#root :is(button, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):not(input, select, textarea):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]):where(:hover) {
+  color: var(--bachata-control-foreground);
+  background: var(--bachata-control-hover);
+}
+
+#root :is(button, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):not(input, select, textarea):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]):where([aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current]:not([aria-current="false"]), [aria-expanded="true"], [data-active="true"], details[open] > summary) {
+  color: var(--bachata-control-selected-foreground);
+  background: var(--bachata-control-selected);
+}
+
+#root select[multiple]:not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]) option:checked:not(:disabled) {
+  color: var(--bachata-control-selected-foreground);
+  background: var(--bachata-control-selected) linear-gradient(var(--bachata-control-selected), var(--bachata-control-selected));
+  font-weight: 600;
+}
+
+#root :is(button, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):not(input, select, textarea):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]):where(:active) {
+  color: var(--bachata-control-foreground);
+  background: var(--bachata-control-pressed);
+}
+
+#root .run-tab-select[aria-current="page"] {
+  --bachata-control-hover: transparent;
+  --bachata-control-selected: transparent;
+  --bachata-control-pressed: transparent;
+  color: inherit;
+  background: transparent;
+}
+
+#root :is(button, input, select, textarea, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):is(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+  color: var(--bachata-control-disabled);
+  cursor: default;
+  opacity: 1;
+}
+
+#root :is(button, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):not(input, select, textarea):is(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+  background: var(--bachata-surface);
+}
+
+#root :is(button, input, select, textarea, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle)[aria-busy="true"] {
+  cursor: progress;
+}
+
+.chat-minimap button,
+.execution-content .code-block pre {
+  --bachata-focus-offset: -2px;
+}
+
+@media (forced-colors: none) {
+  body:is(.vscode-high-contrast, .vscode-high-contrast-light) {
+    --bachata-control-hover: color-mix(in srgb, var(--vscode-foreground) 18%, var(--vscode-editor-background));
+    --bachata-control-selected: color-mix(in srgb, var(--vscode-foreground) 45%, var(--vscode-editor-background));
+    --bachata-control-pressed: color-mix(in srgb, var(--vscode-foreground) 30%, var(--vscode-editor-background));
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --bachata-control-foreground: CanvasText;
+    --bachata-control-hover: color-mix(in srgb, CanvasText 18%, Canvas);
+    --bachata-control-selected: Highlight;
+    --bachata-control-selected-foreground: HighlightText;
+    --bachata-control-pressed: color-mix(in srgb, CanvasText 32%, Canvas);
+    --bachata-control-disabled: GrayText;
+    --bachata-focus-ring: Highlight;
+    --bachata-primary-background: ButtonFace;
+    --bachata-primary-foreground: ButtonText;
+    --bachata-primary-hover: Highlight;
+    --bachata-primary-pressed: color-mix(in srgb, Highlight 80%, ButtonFace);
+    --bachata-primary-interactive-foreground: HighlightText;
+  }
+
+  #root :is(button, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):not(input, select, textarea):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]):where(:hover, :active, [aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current]:not([aria-current="false"]), [aria-expanded="true"], [data-active="true"], details[open] > summary),
+  #root select[multiple]:not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]) option:checked:not(:disabled),
+  #root :is(button.primary, button.send-button):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]) {
+    forced-color-adjust: none;
+    --bachata-muted: currentColor;
+  }
+
+  button:is(.danger, .caution) {
+    --bachata-control-foreground: CanvasText;
+    --bachata-control-selected-foreground: HighlightText;
+    color: ButtonText;
+  }
+
+  #root :is(button, input, select, textarea, summary, a[href], [role="button"], [role="option"], [role="radio"], .drag-handle):is(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+    color: GrayText;
+    border-color: GrayText;
+    background: Canvas;
+  }
+
+  input:is([type="checkbox"], [type="radio"]) {
+    accent-color: auto;
+  }
+
+  .run-tab-status,
+  .room-presence,
+  .notification-unread {
+    forced-color-adjust: auto;
+  }
 }
 
 input,
@@ -212,15 +322,6 @@ summary {
 
 summary::-webkit-details-marker {
   display: none;
-}
-
-summary:hover:not([aria-disabled="true"]) {
-  color: var(--vscode-foreground);
-  background: var(--bachata-surface);
-}
-
-summary:active:not([aria-disabled="true"]) {
-  background: var(--bachata-card-strong);
 }
 
 details:not(.editor-card):not(.run-action-menu):not(.header-action-menu):not(.notification-center) > summary:not(:has(.disclosure-chevron, .guardrail-chevron))::before {
@@ -290,8 +391,6 @@ strong + small {
 [aria-invalid="true"] {
   border-color: var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
   border-width: 2px;
-  outline: 1px solid var(--vscode-inputValidation-errorBorder, var(--bachata-danger));
-  outline-offset: -3px;
 }
 
 .field-error,
@@ -378,16 +477,6 @@ strong + small {
   margin: 3px 0;
   border: 1px solid transparent;
   border-radius: 9px;
-}
-
-.room-item:hover,
-.room-item.selected {
-  border-color: var(--bachata-border);
-  background: var(--bachata-card);
-}
-
-.room-item.selected {
-  box-shadow: inset 3px 0 0 var(--bachata-green);
 }
 
 .room-item.archived {
@@ -517,14 +606,8 @@ strong + small {
 }
 
 .global-error-dismiss {
-  flex: 0 0 auto;
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0 6px;
-  border: 0;
-  background: transparent;
   font-size: 15px;
-  line-height: 1;
+  line-
 }
 
 .room-empty {
@@ -548,46 +631,6 @@ strong + small {
   min-height: 0;
 }
 
-.room-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 0;
-  padding: 5px var(--bachata-gutter);
-  border-bottom: 1px solid var(--bachata-border);
-  background: var(--bachata-surface);
-}
-
-/* One compact utility row. The run tab already carries the title and status, so this row holds only
-   what the tab does not: parent navigation, an actionable status echo, view switching when there is
-   more than one view, notifications and the run actions menu. */
-.room-utility {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  width: 100%;
-}
-
-.room-utility-lead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.room-context {
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .room-status {
   display: inline-flex;
   align-items: center;
@@ -604,21 +647,12 @@ strong + small {
   color: var(--bachata-warn-text);
 }
 
-.room-actions,
 .compact-actions,
 .decision-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-.room-actions {
-  justify-content: flex-end;
-}
-
-.room-actions select {
-  max-width: 230px;
 }
 
 .room-body {
@@ -1180,6 +1214,33 @@ strong + small {
   overflow-wrap: anywhere;
 }
 
+.workflow-transition {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 80ch);
+  margin: 8px auto;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  line-height: 1.3;
+  opacity: 0.7;
+}
+
+.workflow-transition::before,
+.workflow-transition::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--bachata-border);
+  opacity: 0.65;
+}
+
+.workflow-transition > span {
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
 .run-preflight-text {
   margin: 0 0 8px;
 }
@@ -1334,11 +1395,6 @@ strong + small {
   box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
 }
 
-.composer-surface:focus-within {
-  border-color: var(--vscode-focusBorder, var(--bachata-green));
-  box-shadow: 0 0 0 1px var(--vscode-focusBorder, var(--bachata-green));
-}
-
 .composer > .composer-settings {
   flex: 0 1 auto;
   min-height: 0;
@@ -1361,9 +1417,13 @@ strong + small {
   resize: none;
 }
 
-.composer-surface > textarea:focus,
 .composer-surface > textarea:focus-visible {
   outline: none;
+}
+
+#root:not([data-focus-input="pointer"]) .composer-surface:has(> textarea:focus-visible) {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: var(--bachata-focus-offset, 2px);
 }
 
 /* One row: attach, the pipeline picker, the settings control, then the send group pushed to the
@@ -1371,6 +1431,7 @@ strong + small {
    send group never takes a row of its own. */
 .composer-toolbar {
   position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -1388,31 +1449,10 @@ strong + small {
 }
 
 /* Quiet, integrated toolbar controls — no boxed form widgets inside the surface. */
-.composer-toolbar .icon-button,
 .composer-toolbar .pipeline-picker-button {
   border-color: transparent;
   background: transparent;
   color: var(--bachata-muted);
-}
-
-.composer-toolbar .icon-button:hover:not(:disabled):not([aria-disabled="true"]),
-.composer-toolbar .pipeline-picker-button:hover:not(:disabled):not([aria-disabled="true"]),
-.composer-toolbar .icon-button:focus-visible:not(:disabled):not([aria-disabled="true"]),
-.composer-toolbar .pipeline-picker-button:focus-visible:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--bachata-card-strong);
-  color: var(--vscode-foreground, inherit);
-}
-
-.send-button.icon-send {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 30px;
-  min-height: 32px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 50%;
 }
 
 .attachment-strip {
@@ -1462,14 +1502,6 @@ strong + small {
   cursor: pointer;
 }
 
-.attachment-chip button {
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0 4px;
-  border: 0;
-  background: transparent;
-}
-
 .attachment-chip img,
 .attachment-chip input,
 .attachment-chip small,
@@ -1512,9 +1544,6 @@ strong + small {
 }
 
 .inspector-header button {
-  min-height: 25px;
-  border: 0;
-  background: transparent;
   font-size: 16px;
 }
 
@@ -1703,11 +1732,6 @@ strong + small {
   font-size: var(--bachata-font-title);
 }
 
-.app-dialog > header button {
-  min-width: 30px;
-  padding: 2px 8px;
-}
-
 .app-dialog > p {
   margin: var(--bachata-field-gap) 0;
   white-space: pre-line;
@@ -1768,9 +1792,6 @@ strong + small {
 }
 
 .pipeline-editor > header > button {
-  flex: 0 0 auto;
-  width: 32px;
-  padding: 0;
   font-size: 18px;
 }
 
@@ -1788,20 +1809,6 @@ strong + small {
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
   background: transparent;
-}
-
-.editor-tabs button:hover:not(:disabled):not([aria-disabled="true"]) {
-  color: var(--vscode-foreground);
-  background: var(--bachata-card);
-}
-
-.editor-tabs button.selected {
-  color: var(--vscode-foreground);
-  border-color: var(--bachata-border);
-  border-bottom-color: var(--vscode-editor-background);
-  border-top: 2px solid var(--bachata-green);
-  background: var(--vscode-editor-background);
-  font-weight: 600;
 }
 
 .editor-scroll {
@@ -1922,15 +1929,6 @@ strong + small {
 
   .room-body {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .room-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .room-actions {
-    justify-content: flex-start;
   }
 
   .conversation-scroll {
@@ -2058,21 +2056,9 @@ strong + small {
   align-items: stretch;
   min-width: 0;
   height: 42px;
+  padding-inline: var(--bachata-gutter);
   border-bottom: 1px solid var(--bachata-border);
   background: var(--vscode-sideBar-background);
-}
-
-.run-tabs-brand {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  min-width: 42px;
-  width: 42px;
-  padding: 0;
-  border: 0;
-  border-right: 1px solid var(--bachata-border);
-  border-radius: 0;
-  background: transparent;
 }
 
 .run-tabs-scroll {
@@ -2088,7 +2074,7 @@ strong + small {
      absolutely positioned against the page they escaped the strip and widened the webview. */
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) var(--bachata-control-size);
   flex: 1 1 min(240px, 26vw);
   /* Below this the label box holds an icon and a counter and no title; the strip scrolls instead. */
   min-width: 200px;
@@ -2098,13 +2084,24 @@ strong + small {
 }
 
 .run-tab.selected {
-  border-bottom-color: var(--bachata-green);
-  background: var(--bachata-surface);
+  grid-template-columns: minmax(0, 1fr) auto var(--bachata-control-size);
+  max-width: 430px;
+}
+
+.run-tab-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px 1px;
+}
+
+.run-tab-stop {
+  color: var(--bachata-danger);
 }
 
 .run-tab-select,
-.run-tab-menu,
-.run-tab-new {
+.run-tab-menu {
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2160,22 +2157,10 @@ strong + small {
 }
 
 .run-tab-new {
-  flex: 0 0 42px;
   font-size: 18px;
 }
 
-/*
- * EX-UI-04. Below 480px the strip's fixed cells — brand, Runs, New run — leave less room than one
- * tab's minimum width, so the selected tab overflowed its scroller and its action menu sat under
- * the New-run button: a press on the menu made a run. The brand and the tab give up width first;
- * the menu column (28px) and the New-run button (42px) keep their size, so both stay distinct,
- * visible hit regions and nothing is hidden or shrunk below a pointer target.
- */
 @media (max-width: 480px) {
-  .run-tabs-brand {
-    min-width: 0;
-    padding: 0 8px;
-  }
 
   .run-tab {
     flex-basis: min(200px, 44vw);
@@ -2534,11 +2519,6 @@ input.interaction-text {
   }
 
 
-  .room-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .run-tab {
     flex-basis: min(260px, 58vw);
   }
@@ -2567,28 +2547,7 @@ input.interaction-text {
 .run-action-menu,
 .header-action-menu {
   position: relative;
-}
-
-.run-action-menu > summary,
-.header-action-menu > summary {
-  display: grid;
-  place-items: center;
-  min-height: 32px;
-  padding: 5px 8px;
-  list-style: none;
-  border: 1px solid var(--vscode-input-border, var(--bachata-border));
-  border-radius: 7px;
-  background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
-}
-
-.run-action-menu > summary {
-  min-height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  color: var(--bachata-muted);
-  background: transparent;
-  letter-spacing: -0.08em;
+  align-self: center;
 }
 
 .run-action-menu > summary::-webkit-details-marker,
@@ -2624,6 +2583,35 @@ input.interaction-text {
   border-color: transparent;
   background: transparent;
   text-align: left;
+}
+
+.run-action-menu-group {
+  display: grid;
+}
+
+.run-action-menu-group + .run-action-menu-group {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.run-action-menu-label {
+  padding: 4px 8px 2px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.child-run-navigation {
+  padding: 6px var(--bachata-gutter) 0;
+}
+
+.child-run-navigation .parent-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .run-drawer-backdrop {
@@ -2675,17 +2663,12 @@ input.interaction-text {
 
 .run-drawer-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 31px;
+  grid-template-columns: minmax(0, 1fr) var(--bachata-control-size);
   align-items: stretch;
   margin: 0 0 8px;
   border: 1px solid var(--bachata-border);
   border-radius: 10px;
-  background: var(--bachata-card);
-}
-
-.run-drawer-item.selected {
-  border-left: 3px solid var(--bachata-green);
-  box-shadow: inset 3px 0 0 var(--bachata-green);
+  background: var(--bachata-surface);
 }
 
 /* Archived runs are selectable here — this drawer is how they are recovered — so they get no
@@ -2805,11 +2788,6 @@ input.interaction-text {
   grid-template-columns: 9px minmax(0, 1fr);
 }
 
-/* A task with no chat to open is still a row the reader must read, so it keeps full contrast. */
-.orchestration-task:disabled {
-  opacity: 1;
-}
-
 .room-empty {
   place-content: initial;
   align-content: start;
@@ -2865,12 +2843,6 @@ select[multiple] option {
   padding: 3px 6px;
   border-radius: 5px;
   color: var(--vscode-foreground);
-}
-
-select[multiple] option:checked {
-  color: var(--vscode-foreground);
-  background: var(--bachata-green-soft) linear-gradient(0deg, var(--bachata-green-soft) 0%, var(--bachata-green-soft) 100%);
-  font-weight: 600;
 }
 
 /* A switched-off step is data, not an inactive control: its card summary and flow chip stay
@@ -3001,11 +2973,6 @@ select[multiple] option:checked {
   font-size: var(--bachata-font-sm);
 }
 
-.step-flow-item:hover:not(:disabled):not([aria-disabled="true"]) {
-  border-color: var(--bachata-green-text);
-  background: var(--bachata-green-soft);
-}
-
 .step-flow-item::before {
   content: counter(step-flow);
   color: var(--bachata-muted);
@@ -3093,9 +3060,7 @@ select[multiple] option:checked {
 
 @media (max-width: 900px) {
   /* The panel is too narrow for a column, so the inspector reads as a sheet over the room body.
-     It is anchored below the header, so the run title, the view switch and the run actions stay
-     reachable, and nothing outside it is dimmed: dimmed chrome that still worked read as
-     disabled controls. */
+     It is anchored below the selected run tab, where run navigation and actions remain reachable. */
   .room-body {
     position: relative;
   }
@@ -3107,11 +3072,6 @@ select[multiple] option:checked {
     inset: 0;
     width: auto;
     border-left: 0;
-  }
-
-  .room-actions {
-    width: 100%;
-    justify-content: flex-start;
   }
 
   .recent-activity-item,
@@ -3128,12 +3088,6 @@ select[multiple] option:checked {
 @media (max-width: 590px) {
   .result-grid {
     grid-template-columns: 1fr;
-  }
-
-  .run-tabs-brand {
-    min-width: 40px;
-    width: 40px;
-    padding: 0;
   }
 
   .run-tab-all {
@@ -3182,10 +3136,6 @@ select[multiple] option:checked {
   min-inline-size: 0;
   margin: 0;
   padding: 0;
-}
-
-.editor-control-group:disabled .editor-card {
-  opacity: 0.72;
 }
 
 .archive-readonly-banner {
@@ -3507,31 +3457,8 @@ select[multiple] option:checked {
   background: var(--bachata-surface);
 }
 
-.icon-button {
-  padding: 4px 8px;
-}
-
-/*
- * EX-UI redesign. The composer toolbar's controls hold their size and place regardless of hover:
- * the settings gear is a fixed-size icon button, not a pencil that appears on hover and shoves the
- * row. Its open and active states are drawn with colour and a dot, never with a change in width.
- */
-.composer-toolbar .icon-button {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 30px;
-  min-height: 32px;
-}
-
 .composer-settings-button {
   position: relative;
-}
-
-.composer-settings-button.open {
-  border-color: var(--bachata-green);
-  background: var(--bachata-card-strong);
 }
 
 .composer-settings-button.has-chips::after {
@@ -3542,7 +3469,7 @@ select[multiple] option:checked {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--bachata-green);
+  background: var(--vscode-descriptionForeground);
 }
 
 /* The custom pipeline picker: a combobox trigger and the listbox it opens. */
@@ -3587,12 +3514,74 @@ select[multiple] option:checked {
   z-index: 30;
   min-width: 0;
   max-height: min(560px, calc(100vh - 180px));
-  overflow-y: auto;
-  padding: 4px;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--vscode-input-border, var(--bachata-border));
   border-radius: 10px;
-  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  background: var(--vscode-dropdown-background, var(--vscode-input-background, var(--vscode-editor-background, #fff)));
   box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+
+.pipeline-picker-header {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bachata-border);
+}
+
+.pipeline-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 8px;
+  color: var(--bachata-muted);
+  background: var(--vscode-input-background, var(--vscode-editor-background, #fff));
+}
+
+.pipeline-picker-search:focus-within {
+  outline: var(--bachata-focus-width) solid var(--bachata-focus-ring);
+  outline-offset: var(--bachata-focus-offset);
+}
+
+.pipeline-picker-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.pipeline-picker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.pipeline-picker-filters button {
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 7px;
+  font-size: var(--bachata-font-sm);
+}
+
+.pipeline-picker-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.pipeline-picker-empty {
+  margin: 20px 12px;
+  color: var(--bachata-muted);
+  text-align: center;
 }
 
 .pipeline-picker-option {
@@ -3604,15 +3593,6 @@ select[multiple] option:checked {
   cursor: pointer;
 }
 
-.pipeline-picker-option:hover:not(:disabled):not([aria-disabled="true"]),
-.pipeline-picker-option.active {
-  background: var(--bachata-card-strong);
-}
-
-.pipeline-picker-option.active {
-  box-shadow: inset 0 0 0 1px var(--bachata-green);
-}
-
 .pipeline-picker-option-head {
   display: flex;
   align-items: center;
@@ -3622,10 +3602,6 @@ select[multiple] option:checked {
 
 .pipeline-picker-option-name {
   font-weight: 600;
-}
-
-.pipeline-picker-option.selected .pipeline-picker-option-name {
-  color: var(--bachata-green-text);
 }
 
 .pipeline-picker-option-meta {
@@ -3667,10 +3643,16 @@ select[multiple] option:checked {
 .agents-picker-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  min-width: 0;
-  min-height: 32px;
-  padding: 4px 8px;
+}
+
+@media (min-width: 851px) {
+  .agents-picker-button {
+    width: auto;
+    flex-basis: auto;
+    padding-inline: 8px;
+  }
 }
 
 .agents-picker-label {
@@ -3678,11 +3660,6 @@ select[multiple] option:checked {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
-}
-
-.agents-picker-button.has-overrides {
-  box-shadow: inset 0 0 0 1px var(--bachata-green);
-  color: var(--bachata-green-text);
 }
 
 .agents-popover {
@@ -3761,7 +3738,7 @@ select[multiple] option:checked {
 }
 
 .agents-slot-actual {
-  color: var(--bachata-green-text);
+  color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
   text-align: right;
 }
@@ -3778,12 +3755,6 @@ select[multiple] option:checked {
   font-size: var(--bachata-font-sm);
 }
 
-.agents-choice.selected {
-  box-shadow: inset 0 0 0 1px var(--bachata-green);
-  color: var(--bachata-green-text);
-  background: var(--bachata-card-strong);
-}
-
 .agents-session-list {
   display: flex;
   flex-direction: column;
@@ -3797,11 +3768,6 @@ select[multiple] option:checked {
   padding: 6px 8px;
   border-radius: 6px;
   text-align: left;
-}
-
-.agents-session-option.selected {
-  box-shadow: inset 0 0 0 1px var(--bachata-green);
-  background: var(--bachata-card-strong);
 }
 
 .agents-session-name {
@@ -3939,59 +3905,6 @@ select[multiple] option:checked {
   padding: 4px 0;
 }
 
-.view-switch {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px;
-  border: 1px solid var(--bachata-border);
-  border-radius: 8px;
-  background: var(--vscode-input-background);
-}
-
-.view-switch button {
-  min-width: 0;
-  max-width: 100%;
-  min-height: 24px;
-  padding: 3px 11px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-size: var(--bachata-font-sm);
-  overflow-wrap: anywhere;
-}
-
-/*
- * Dark Modern defines button.secondaryBackground as #00000000, so painting the selected segment
- * with it left font-weight as the only cue. The ring carries the state instead: --bachata-green
- * clears 3:1 against the track in both default themes, and it is the accent the selected run tab
- * already uses.
- */
-.view-switch button.selected {
-  box-shadow: inset 0 0 0 1px var(--bachata-green);
-  background: var(--bachata-card-strong);
-  font-weight: 600;
-}
-
-.header-action-menu > summary {
-  width: 30px;
-  min-height: 32px;
-  padding: 0;
-  border-color: transparent;
-  background: transparent;
-  color: var(--bachata-muted);
-  cursor: pointer;
-}
-
-/* Same transparent-token trap as the view switch: the open state needs a fill of its own. */
-.header-action-menu > summary:hover,
-.header-action-menu[open] > summary {
-  border-color: var(--vscode-input-border, var(--bachata-border));
-  background: var(--bachata-card-strong);
-}
-
 .run-tab .run-action-menu > summary {
   opacity: 1;
 }
@@ -4089,44 +4002,11 @@ details[open] > summary .disclosure-chevron {
     border: 1px solid CanvasText;
   }
 
-  button.primary,
-  button.send-button {
-    color: ButtonText;
-    border-color: ButtonText;
-    background: ButtonFace;
-  }
-
-  button.primary:disabled,
-  button.send-button:disabled {
-    color: GrayText;
-    border-color: GrayText;
-  }
-
-  /* A refusal marked with aria-disabled reads as disabled here too; the opacity fade that carries
-     it elsewhere is not a state a forced palette conveys. */
-  [aria-disabled="true"] {
-    color: GrayText;
-    border-color: GrayText;
-  }
-
   /* These recessed states are carried by a muted colour, which a forced palette overrides. */
   .run-drawer-item.archived,
   .step-flow-disabled,
   .editor-card.step-disabled > summary strong {
     color: GrayText;
-  }
-
-  .run-tab.selected {
-    border-bottom-color: Highlight;
-  }
-
-  .room-item.selected {
-    box-shadow: inset 3px 0 0 Highlight;
-  }
-
-  .view-switch button.selected {
-    border-color: Highlight;
-    outline: 1px solid Highlight;
   }
 
   .room-presence,
@@ -4136,7 +4016,6 @@ details[open] > summary .disclosure-chevron {
 
   [aria-invalid="true"] {
     border-color: Highlight;
-    outline-color: Highlight;
   }
 
   .notification-unread-flag {
@@ -4588,14 +4467,9 @@ details[open] > summary .disclosure-chevron {
   position: relative;
 }
 
-.notification-center > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  list-style: none;
+.notification-empty {
+  margin: 12px 2px 2px;
+  color: var(--bachata-muted);
 }
 
 .notification-center > summary::-webkit-details-marker {
@@ -4603,6 +4477,10 @@ details[open] > summary .disclosure-chevron {
 }
 
 .notification-unread {
+  position: absolute;
+  top: 0;
+  right: 0;
+  pointer-events: none;
   min-width: 16px;
   padding: 0 4px;
   border-radius: 8px;
@@ -4797,30 +4675,8 @@ details[open] > summary .disclosure-chevron {
   border-top: 1px solid var(--bachata-border);
 }
 
-.decision-card:focus-visible,
-.interaction-card:focus-visible,
-.composer-blockers:focus-visible {
-  outline: 2px solid var(--bachata-focus-ring);
-  outline-offset: 2px;
-}
-
 .orchestration-task small.blocker {
   color: var(--bachata-warn-text);
-}
-
-/*
- * A control that refuses input looks like it: the control stays reachable, and stays honest.
- * Read-only mode marks every control aria-disabled rather than disabled, so the treatment has to
- * cover all of them — otherwise a locked window shows a full-strength primary under a pointer
- * cursor and swallows the click.
- */
-button[aria-disabled="true"],
-input[aria-disabled="true"],
-select[aria-disabled="true"],
-textarea[aria-disabled="true"],
-summary[aria-disabled="true"] {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 /* The kicker is the composer's heading, so a room with no other h2 still outlines
@@ -5258,18 +5114,16 @@ details.direction-evidence > ul,
 /* S15. The room header's trigger is an ellipsis glyph and is square; the result centre's is the
    word "More" and is sized to it. Both keep the same height, so the row still lines up. */
 .header-action-menu.wide-trigger > summary {
+  display: grid;
+  place-items: center;
   width: auto;
-  min-width: 30px;
+  min-height: 32px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: var(--bachata-control-radius);
+  min-width: 32px;
   padding: 5px 10px;
-  border-color: var(--vscode-input-border, var(--bachata-border));
   background: var(--vscode-button-secondaryBackground, var(--vscode-input-background));
   color: inherit;
-}
-
-/* S3. An answered approval card takes focus, so its ring must read like the other cards'. */
-.approval-card:focus-visible {
-  outline: 2px solid var(--bachata-focus-ring);
-  outline-offset: 2px;
 }
 
 /* S4. The consequence of a passed deadline, shown by the ticker rather than by a snapshot. */
@@ -5624,7 +5478,7 @@ details.direction-evidence > ul,
 .execution-content .info-disclosure > summary {
   min-height: 40px;
   padding: 10px 0;
-  font-size: var(--bachata-font-sm);
+  font-size: max(13px, var(--bachata-font-sm));
 }
 
 .notification-panel {
@@ -5654,8 +5508,7 @@ details.direction-evidence > ul,
 .execution-content .pipeline-step { border: 0; border-radius: 0; background: transparent; padding: 0; }
 .execution-content .pipeline-step + .pipeline-step { border-top: 1px solid var(--vscode-widget-border); }
 
-.pipeline-picker-guidance { margin: 12px 14px; font-size: var(--bachata-font-sm); line-height: 1.45; color: var(--vscode-descriptionForeground); }
-.pipeline-picker-more { width: calc(100% - 24px); margin: 8px 12px 12px; min-height: 36px; white-space: normal; }
+.pipeline-picker-guidance { margin: 0 0 8px; font-size: var(--bachata-font-sm); line-height: 1.45; color: var(--vscode-descriptionForeground); }
 .agents-bridge-setup { margin-top: 16px; padding: 16px; border: 1px solid var(--vscode-widget-border); border-radius: 8px; font-size: var(--bachata-font-sm); line-height: 1.5; }
 .agents-bridge-setup h3 { margin: 0 0 8px; font-size: var(--bachata-font-heading); }
 .agents-bridge-setup ol { padding-left: 20px; margin: 12px 0; }
@@ -5681,6 +5534,7 @@ details.direction-evidence > ul,
 }
 
 .conversation-column {
+  position: relative;
   container-type: size;
 }
 
@@ -5844,8 +5698,6 @@ details.direction-evidence > ul,
   color: var(--bachata-green-text);
 }
 
-.view-switch button,
-.composer-toolbar .icon-button,
 .run-outcome-actions button {
   min-height: 32px;
 }
@@ -5925,10 +5777,6 @@ details.direction-evidence > ul,
     --bachata-panel-padding: 12px;
   }
 
-  .run-tabs-brand {
-    display: grid;
-  }
-
   .run-tab:not(.selected) {
     display: none;
   }
@@ -5992,12 +5840,8 @@ details.direction-evidence > ul,
   border-radius: 2px;
   color: var(--bachata-muted);
   background: transparent;
+  font-size: max(13px, var(--bachata-font-sm));
   text-align: left;
-}
-
-.message-author-action:hover:not(:disabled):not([aria-disabled="true"]) {
-  color: var(--vscode-textLink-foreground);
-  background: transparent;
 }
 
 .message time,
@@ -6054,21 +5898,13 @@ details.direction-evidence > ul,
   background: transparent;
 }
 
-.chat-minimap button:focus-visible {
-  outline-offset: -2px;
-}
-
-.chat-minimap button:active:not(:disabled):not([aria-disabled="true"]) {
-  transform: none;
-}
-
 .chat-minimap button span {
   display: block;
   width: var(--minimap-mark);
   height: 2px;
   margin-left: auto;
   border-radius: 2px;
-  background: var(--vscode-descriptionForeground);
+  background: currentColor;
   opacity: .55;
 }
 
@@ -6076,17 +5912,11 @@ details.direction-evidence > ul,
   width: calc(var(--minimap-mark) - 2px);
 }
 
-.chat-minimap button[data-current] span {
+.chat-minimap button[aria-current="true"] span {
   width: var(--minimap-active);
   height: 3px;
   opacity: 1;
-  background: var(--vscode-focusBorder);
-}
-
-.chat-minimap button:is(:hover, :focus-visible):not(:disabled):not([aria-disabled="true"]) span {
-  width: var(--minimap-active);
-  opacity: 1;
-  background: var(--vscode-focusBorder);
+  background: currentColor;
 }
 
 @media (pointer: coarse) {
@@ -6111,18 +5941,6 @@ details.direction-evidence > ul,
   margin: 0;
   border-radius: 999px;
   box-shadow: 0 4px 14px rgb(0 0 0 / 24%);
-}
-
-button:active:not(:disabled):not([aria-disabled="true"]),
-[role="button"]:active:not([aria-disabled="true"]) {
-  filter: brightness(.9);
-  transform: translateY(1px);
-}
-
-button:disabled,
-[aria-disabled="true"] {
-  cursor: default;
-  opacity: .45;
 }
 
 .header-action-menu > div,
@@ -6183,11 +6001,6 @@ button:disabled,
   color: var(--bachata-muted);
 }
 
-.workspace-direction[aria-pressed="true"] {
-  color: var(--vscode-textLink-foreground);
-  box-shadow: inset 0 -2px var(--vscode-focusBorder);
-}
-
 .turn-details {
   max-height: min(56vh, 520px);
   overflow: auto;
@@ -6197,45 +6010,20 @@ button:disabled,
   background: var(--bachata-card);
 }
 
+.turn-details p {
+  font-size: max(13px, var(--bachata-font-sm));
+}
+
 @media (max-width: 600px) {
   .interaction-card > .final-ruling-card {
     padding: 12px;
   }
 }
 
-.room-actions {
-  flex: 0 1 auto;
-  width: auto;
-  min-width: 0;
-  max-width: 100%;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.room-utility-lead {
-  flex: 1 1 140px;
-}
-
 .room-status {
   flex-shrink: 1;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-@media (max-width: 480px) {
-  .room-utility {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .room-utility-lead:not(:empty) {
-    flex-basis: 100%;
-  }
-
-  .room-actions {
-    justify-content: flex-end;
-    margin-left: auto;
-  }
 }
 
 .pipeline-editor {
@@ -6361,10 +6149,6 @@ button:disabled,
     transition: none;
   }
 
-  button:active:not(:disabled):not([aria-disabled="true"]),
-  [role="button"]:active:not([aria-disabled="true"]) {
-    transform: none;
-  }
 }
 
 .workspace-logo {
@@ -6398,20 +6182,9 @@ button:disabled,
   overflow-wrap: anywhere;
 }
 
-.run-tab-all[aria-current="page"] {
-  background: var(--bachata-card-strong);
-  box-shadow: inset 0 -2px var(--bachata-green);
-}
-
 .run-drawer-footer {
   padding: 12px var(--bachata-panel-padding);
   border-top: 1px solid var(--bachata-border);
-}
-
-.run-drawer-direction[aria-current="page"] {
-  color: var(--vscode-foreground);
-  background: var(--bachata-surface);
-  font-weight: 600;
 }
 
 .run-requirements-trigger {
@@ -6720,7 +6493,7 @@ button:disabled,
 }
 
 .execution-content .result-pipeline-select > span,
-.execution-result-footer .result-pipeline-select > span {
+.execution-result-footer .result-pipeline-label > label {
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
 }
@@ -6762,7 +6535,7 @@ button:disabled,
 
 .execution-result-footer > .result-continuation-action {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 6px 24px;
   width: 100%;
@@ -6786,29 +6559,111 @@ button:disabled,
   line-height: 1.35;
 }
 
-.execution-result-footer .result-selection-detail {
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-sm);
-}
-
-.execution-result-footer .result-continuation-guidance,
-.execution-result-footer .result-continuation-reason {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-sm);
-  overflow-wrap: anywhere;
-}
-
 .execution-result-footer .result-continuation-controls > button,
 .execution-result-footer .result-pipeline-select > select {
   min-height: 40px;
 }
 
-.execution-result-footer button:focus-visible,
-.execution-result-footer select:focus-visible {
-  outline: 2px solid var(--bachata-focus-ring);
-  outline-offset: 2px;
+.execution-result-footer .result-continuation-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  min-width: 0;
+}
+
+.execution-result-footer .result-details-toggle {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.execution-result-footer.result-details-open {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  grid-row: 1 / 3;
+  grid-column: 1;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+}
+
+.execution-result-footer.result-details-open > .result-continuation-action {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+}
+
+.result-details-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  border-block: 1px solid var(--bachata-border);
+  background: var(--vscode-editor-background);
+}
+
+.result-details-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  padding: var(--bachata-section-gap) 0;
+}
+
+.result-details-scroll > :not(.sr-only) {
+  width: 100%;
+  max-width: var(--bachata-content-max);
+  margin-inline: auto;
+}
+
+.execution-result-footer .result-pipeline-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.result-continuation-help {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.result-continuation-tooltip {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(22rem, calc(100cqw - (2 * var(--bachata-gutter))));
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--bachata-border));
+  border-radius: 6px;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--vscode-widget-shadow) 35%, transparent);
+  font-size: var(--bachata-font-sm);
+  line-height: 1.45;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
+}
+
+.result-continuation-help:hover > .result-continuation-tooltip,
+.result-continuation-help:focus-within > .result-continuation-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 
 @container (max-width: 720px) {
@@ -6822,6 +6677,15 @@ button:disabled,
   .execution-result-footer .result-continuation-controls {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .execution-result-footer .result-continuation-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .execution-result-footer .result-details-toggle {
+    width: 100%;
+    white-space: normal;
   }
 
   .execution-result-footer .result-pipeline-select,
@@ -6971,18 +6835,6 @@ button:disabled,
   max-height: min(50vh, 560px);
   overflow: auto;
   scrollbar-gutter: stable;
-}
-
-.execution-content .pipeline-step-message-body:focus-visible,
-.execution-content summary:focus-visible,
-.execution-content pre:focus-visible,
-.execution-content button:focus-visible {
-  outline: 2px solid var(--bachata-focus-ring);
-  outline-offset: 2px;
-}
-
-.execution-content .code-block pre:focus-visible {
-  outline-offset: -2px;
 }
 
 @media (max-width: 480px) {

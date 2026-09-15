@@ -164,6 +164,8 @@ const state: {
   composerSettingsOpen: boolean;
   pipelinePickerOpen: boolean;
   pipelinePickerActiveId?: string;
+  pipelinePickerFilter: PipelinePickerFilter;
+  pipelinePickerQuery: string;
   agentsPickerOpen: boolean;
   // The slot whose Browser Bridge conversation list is expanded, if any.
   agentsBrowserFor?: string;
@@ -248,6 +250,14 @@ const state: {
   inspectorOpen: false,
   composerSettingsOpen: false,
   pipelinePickerOpen: false,
+  pipelinePickerFilter: (() => {
+    const restored = vscode.getState?.()?.pipelinePickerFilter;
+    return restored === "all" || restored === "common" || restored === "specialized" ||
+      restored === "compatibility" || restored === "internal" || restored === "custom"
+      ? restored
+      : "common";
+  })(),
+  pipelinePickerQuery: "",
   agentsPickerOpen: false,
   agentsModelDrafts: {},
   roomView: "chat",
@@ -451,6 +461,7 @@ const resetViewState = (): void => {
   state.inspectorOpen = false;
   state.composerSettingsOpen = false;
   state.pipelinePickerOpen = false;
+  state.pipelinePickerQuery = "";
   delete state.pipelinePickerActiveId;
   state.agentsPickerOpen = false;
   delete state.agentsBrowserFor;
@@ -818,5 +829,3 @@ const longitudinalState = (): LongitudinalState =>
   state.manager.direction ?? EMPTY_LONGITUDINAL_STATE;
 
 let orchestrationStartPending = false;
-
-let pipelinePickerShowAll = false;

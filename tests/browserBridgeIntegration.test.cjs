@@ -35,6 +35,7 @@ for (const automaticPort of [false, true]) test(`real Bridge recovery and shared
   const databasePath = path.join(root, "resources.sqlite");
   const port = automaticPort ? 0 : await availablePort();
   const endpoint = `ws://127.0.0.1:${port}/bachata-browser-bridge-v9`;
+  const legacyEndpoint = `ws://127.0.0.1:${await availablePort()}/bachata-browser-bridge-v9`;
   const values = new Map([
     ["bachata.browserBridge.connectionToken.v8", "retained-browser-pairing-credential"],
     ["bachata.browserBridge.extensionOrigin.v8", "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
@@ -68,6 +69,7 @@ for (const automaticPort of [false, true]) test(`real Bridge recovery and shared
     const controller = createBrowserBridgeRecovery({
       enabled: true,
       endpoint,
+      legacyEndpoint,
       broker,
       secretStore,
       retryBaseMs: 25,

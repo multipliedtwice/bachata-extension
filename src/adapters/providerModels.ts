@@ -17,6 +17,8 @@ export type ProviderModelOption = {
   label: string;
   /** The provider's own default, so the reader can see what "Provider default" resolves to. */
   isDefault?: boolean;
+  defaultReasoningEffort?: string;
+  reasoningEfforts?: Array<{ id: string; description: string }>;
 };
 
 export type ProviderModelCatalog =
@@ -65,10 +67,22 @@ export const parseCodexModelList = (result: unknown): ProviderModelOption[] | un
     if (id === undefined) {
       return [];
     }
+    const defaultReasoningEffort = nonEmptyString(entry.defaultReasoningEffort);
+    const reasoningEfforts = Array.isArray(entry.supportedReasoningEfforts)
+      ? entry.supportedReasoningEfforts.flatMap((effort) => {
+          if (!isRecord(effort)) return [];
+          const effortId = nonEmptyString(effort.reasoningEffort);
+          return effortId === undefined
+            ? []
+            : [{ id: effortId, description: nonEmptyString(effort.description) ?? effortId }];
+        })
+      : [];
     return [{
       id,
       label: nonEmptyString(entry.displayName) ?? id,
       ...(entry.isDefault === true ? { isDefault: true as const } : {}),
+      ...(defaultReasoningEffort === undefined ? {} : { defaultReasoningEffort }),
+      ...(reasoningEfforts.length === 0 ? {} : { reasoningEfforts }),
     }];
   });
 };

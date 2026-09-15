@@ -42,7 +42,7 @@ test("each subsystem owns its module, and main.ts keeps none of them", () => {
     "dialogs.ts": ["appDialogHtml", "confirmDialog"],
     "protocolReducer.ts": ["applyRuntimeMessage"],
     "actions.ts": ["installActionListeners"],
-    "roomRender.ts": ["roomHeaderHtml", "mainRoomHtml"],
+    "roomRender.ts": ["selectedRunTabToolsHtml", "mainRoomHtml", "tabsHtml", "runDrawerHtml"],
     "notificationsRender.ts": ["notificationBellHtml"],
     "state.ts": ["activeId", "activePanel", "longitudinalState"],
     "markdownRender.ts": ["renderMarkdown", "renderInline", "highlightedCode", "codeBlockHtml", "normalizeLanguage", "markdownTableHtml"],
@@ -112,7 +112,12 @@ test("the webview build concatenates the extracted modules ahead of main", () =>
     path.join(__dirname, "..", "tsconfig.webview.json"),
     "utf8",
   ));
-  assert.equal(config.include.at(0), "src/webview-ui/localization.ts", "localization must initialize before rendered labels");
+  assert.equal(config.include.at(0), "src/shared/textLimits.ts", "shared text limits must initialize first");
+  assert.ok(
+    config.include.indexOf("src/webview-ui/localization.ts") <
+      config.include.indexOf("src/webview-ui/render.ts"),
+    "localization must initialize before rendered labels",
+  );
   assert.ok(
     config.include.indexOf("src/webview-ui/types.ts") <
       config.include.indexOf("src/webview-ui/render.ts"),

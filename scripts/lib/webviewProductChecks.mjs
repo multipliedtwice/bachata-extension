@@ -6,7 +6,7 @@ const menu = ".header-action-menu > summary";
 const bell = ".notification-center > summary";
 const frame = (session) => session.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
 const runtime = (type) => ({ type: "conversation.runtime", conversationId: "run-1", message: { type } });
-const actions = ["inspector-toggle", "notification-settings", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
+const actions = ["inspector-toggle", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
 
 const participantStep = "Inspect the interface independently";
 const reviewPrompt = "Review the supplied interface for usability, accessibility, navigation, reading hierarchy, spacing, responsiveness, focus and action feedback.\n\nreview extension/";
@@ -284,7 +284,7 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       await reset();
       await activate(menu, mode);
       assert.equal(await isOpen(".header-action-menu"), true, `${mode}: menu opened`);
-      await session.evaluate("window.__posted = []");
+      await session.evaluate("window.__posted = []; window.__activatedActions = []");
       await activate(`.header-action-menu [data-action="${action}"]`, mode, mode === "pointer");
       assert.equal(await isOpen(".header-action-menu"), false, `${mode} ${action}: menu dismissal`);
       const sent = await dispatched();
@@ -314,14 +314,14 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       if (["working-directory", "orchestration-start", "transcript-export"].includes(action)) assert.equal(await session.evaluate("document.activeElement.id"), "room-actions-button");
       passed++;
     }
-    for (const action of ["run-unarchive", "transcript-export", "inspector-toggle", "notification-settings"]) {
+    for (const action of ["run-unarchive", "transcript-export", "inspector-toggle"]) {
       await reset({}, true); await activate(menu, mode);
       assert.equal(await session.evaluate(`[
         "pipeline-new", "pipeline-fork", "availability-check", "working-directory", "orchestration-start", "task-reset"
       ].every(action => document.querySelector('.header-action-menu [data-action="' + action + '"]') === null)`), true);
       await session.evaluate("window.__posted = []");
       await activate(`.header-action-menu [data-action="${action}"]`, mode);
-      assert.deepEqual(await dispatched(), action === "inspector-toggle" || action === "notification-settings" ? [] : [action === "run-unarchive" ? { type: "conversation.archive", conversationId: "run-1", archived: false } : runtime("transcript.export")]);
+      assert.deepEqual(await dispatched(), action === "inspector-toggle" ? [] : [action === "run-unarchive" ? { type: "conversation.archive", conversationId: "run-1", archived: false } : runtime("transcript.export")]);
       assert.equal(await isOpen(".header-action-menu"), false); passed++;
     }
     for (const waiting of [false, true]) {
@@ -406,15 +406,15 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
         const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
         const textNodes = [...area.querySelectorAll('p,li,dt,dd,button,summary,small,[class*="meta"],.pipeline-step-timing')];
         const nodes = textNodes.filter(visible);
-        const cards = [...area.querySelectorAll('.result-center,.pipeline-summary')].filter(visible);
         const box = result.getBoundingClientRect();
+        const areaStyle = getComputedStyle(area);
         return { overflow: document.documentElement.scrollWidth > innerWidth,
           gutters: box.left >= 12 && box.right <= innerWidth - 12,
           disclosures: [...area.querySelectorAll('details.info-disclosure')].every(el => !el.open),
           undersized: textNodes.filter(el => parseFloat(getComputedStyle(el).fontSize) < 13).map(el => ({ tag: el.tagName, className: el.className, size: getComputedStyle(el).fontSize })),
           text: textNodes.every(el => parseFloat(getComputedStyle(el).fontSize) >= 13),
           controls: nodes.filter(el => el.matches('button,summary')).every(el => el.getBoundingClientRect().height >= 24),
-          padding: cards.every(el => parseFloat(getComputedStyle(el).paddingLeft) >= (innerWidth <= 600 ? 12 : 16) && parseFloat(getComputedStyle(el).paddingRight) >= (innerWidth <= 600 ? 12 : 16))
+          padding: parseFloat(areaStyle.paddingLeft) >= (innerWidth <= 600 ? 12 : 16) && parseFloat(areaStyle.paddingRight) >= (innerWidth <= 600 ? 12 : 16)
         };
       })()`);
       assert.deepEqual(layout.undersized, [], `${theme} ${width}: secondary text below 13px`);

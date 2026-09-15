@@ -94,6 +94,16 @@ test("complete structured release evidence bound to the staged artifacts produce
   assert.deepEqual(releaseMetadataFindings(completeInput()), []);
 });
 
+test("localized manifest descriptions satisfy public identity from package.nls.json", async () => {
+  const { releaseMetadataFindings } = await load();
+  const input = completeInput();
+  input.packageJson.description = "%extension.description%";
+  input.packageNls = {
+    "extension.description": "Build your own AI workflow in VS Code with explicit planning, coding, review, and revision steps.",
+  };
+  assert.deepEqual(releaseMetadataFindings(input), []);
+});
+
 test("placeholder identity, missing evidence, and unrecorded rows all block release", async () => {
   const { releaseMetadataFindings } = await load();
   const input = completeInput();

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import fastGlob from "fast-glob";
 import yauzl from "yauzl";
 
 import {
@@ -109,6 +110,15 @@ export const shippedSourceFiles = async (manifest) => {
     const normalized = relative.replace(/^\.\//u, "").replace(/\/$/u, "");
     if (MANIFEST_EXCLUDED_ROOTS.has(normalized.split("/")[0])) continue;
     if (RENAMED_SOURCES.has(normalized)) continue;
+    if (fastGlob.isDynamicPattern(normalized)) {
+      entries.push(...await fastGlob(normalized, {
+        cwd: repositoryRoot,
+        onlyFiles: true,
+        dot: true,
+        followSymbolicLinks: false,
+      }));
+      continue;
+    }
     entries.push(...(await isDirectory(normalized) ? await repositoryFiles(normalized) : [normalized]));
   }
   const unique = Array.from(new Set(entries)).sort();

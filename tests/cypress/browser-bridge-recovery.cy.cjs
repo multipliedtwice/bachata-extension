@@ -167,7 +167,7 @@ describe("Browser Bridge host status and discovery controls", () => {
     expectTransient("retrying");
     publishBridge("connected");
     expectTransient("connected");
-    cy.get(".room-status").should("contain.text", "Stopped by you");
+    cy.get(".run-tab.selected .room-status").should("contain.text", "Stopped by you");
     cy.window().its("__posted").should("deep.equal", []);
   });
 

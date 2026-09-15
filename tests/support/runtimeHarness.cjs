@@ -248,7 +248,7 @@ const installHostDoubles = (options = {}) => {
           return { dispose: () => undefined };
         },
         resetPairing: async () => undefined,
-        discover: () => undefined,
+        discover: () => { options.bridgeDiscover?.(); },
         bindSession: () => {
           throw new Error("Browser bridge session binding is not used by this test");
         },

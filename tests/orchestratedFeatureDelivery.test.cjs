@@ -30,6 +30,17 @@ const {
 
 const scratch = async () => await scratchRoot("bachata-orchestrated-");
 
+const repositoryStatusAfterTransientCatalogLock = async (repository) => {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const status = git(repository, "status", "--porcelain", "--untracked-files=all");
+    if (status === "" || status !== "?? .bachata/pipelines/.pipeline-catalog.lock" || Date.now() >= deadline) {
+      return status;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+};
+
 const todoSource = (checks = [
   "  - Verify: bachata:workspace-integrity",
   "  - Verify Final: bachata:project-checks",
@@ -465,7 +476,7 @@ test("a Worker write outside the accepted scope is refused, named, and repairabl
       "an out-of-scope change was retained",
     );
     // The selected workspace saw none of it either way.
-    assert.equal(git(session.repository, "status", "--porcelain"), "");
+    assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "");
     assert.equal(fs.readFileSync(path.join(session.repository, "README.md"), "utf8"), "# fixture\n");
   } finally {
     await session.dispose();
@@ -488,7 +499,7 @@ test("a Worker that never comes back into scope fails the run and retains nothin
     assert.equal(session.requests.some((entry) => entry.role === "Lead Reviewer"), false);
     assert.deepEqual(session.controller.getSnapshot().retainedRuns, []);
     // And the selected workspace is exactly as it was.
-    assert.equal(git(session.repository, "status", "--porcelain"), "");
+    assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "");
     assert.equal(fs.readFileSync(path.join(session.repository, "README.md"), "utf8"), "# fixture\n");
     assert.equal(
       fs.readFileSync(path.join(session.repository, "src/feature.mjs"), "utf8"),
@@ -513,7 +524,7 @@ test("work that was never verified stays inspectable, and discarding is what rem
     await assert.rejects(session.controller.applyRetained(runId), /Required verification/u);
     // Refused, and still there to read: the retained worktree, its changed paths and its patch.
     assert.equal(fs.existsSync(session.run.integrationWorktree), true);
-    assert.equal(git(session.repository, "status", "--porcelain"), "");
+    assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "");
     assert.equal(
       fs.readFileSync(path.join(session.run.integrationWorktree, "src/feature.mjs"), "utf8"),
       "export const feature = 7;\n",
@@ -523,7 +534,7 @@ test("work that was never verified stays inspectable, and discarding is what rem
     assert.equal(fs.existsSync(session.run.integrationWorktree), false, "discard left the worktree behind");
     assert.deepEqual(session.controller.getSnapshot().retainedRuns, []);
     // Discarding changed nothing in the workspace.
-    assert.equal(git(session.repository, "status", "--porcelain"), "");
+    assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "");
   } finally {
     await session.dispose();
     await removeScratch(root);
@@ -616,7 +627,7 @@ test("a Lead rejection sends the task back to the Worker and only the accepted r
       "export const feature = 3;\n",
       "the retained tree does not hold the revision the Lead accepted",
     );
-    assert.equal(git(session.repository, "status", "--porcelain"), "");
+    assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "");
     assert.equal(
       fs.readFileSync(path.join(session.repository, "src/feature.mjs"), "utf8"),
       "export const feature = 1;\n",
@@ -658,7 +669,7 @@ test("a Lead that keeps rejecting runs out of the task's own revision budget and
     );
     assert.ok(failure, JSON.stringify(session.harness.transcript.filter((entry) => entry.kind === "error").map((entry) => entry.text)));
     assert.deepEqual(session.controller.getSnapshot().retainedRuns, []);
-    assert.equal(git(session.repository, "status", "--porcelain"), "");
+    assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "");
     assert.equal(
       fs.readFileSync(path.join(session.repository, "src/feature.mjs"), "utf8"),
       "export const feature = 1;\n",
@@ -774,7 +785,7 @@ test("a Lead verdict that is not usable fails the task rather than approving it"
       );
       assert.ok(failure, name);
       assert.deepEqual(session.controller.getSnapshot().retainedRuns, [], name);
-      assert.equal(git(session.repository, "status", "--porcelain"), "", name);
+      assert.equal(await repositoryStatusAfterTransientCatalogLock(session.repository), "", name);
       assert.equal(
         fs.readFileSync(path.join(session.repository, "src/feature.mjs"), "utf8"),
         "export const feature = 1;\n",

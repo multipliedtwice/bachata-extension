@@ -13,12 +13,34 @@ const prominentWorkflowOrder = new Map([
   ["code-review-refine", 4],
 ]);
 
+const compatibilityWorkflows = new Set([
+  "claude-browser-agent",
+  "claude-browser-pair",
+  "claude-fix",
+  "claude-plan",
+  "claude-review",
+]);
+
+const internalWorkflows = new Set([
+  "self-improvement-convergence",
+  "self-improvement-discovery",
+  "self-improvement-review",
+  "self-improvement-revision",
+  "self-improvement",
+  "todo-implementation",
+  "todo-master",
+]);
+
 export const pipelinePickerMetadata = (
   pipelineId: string,
   editable: boolean,
-): { prominentOrder?: number } => {
+): Pick<PipelineSummary, "pickerCategory" | "prominentOrder"> => {
+  if (editable) return { pickerCategory: "custom" };
   const prominentOrder = editable ? undefined : prominentWorkflowOrder.get(pipelineId);
-  return prominentOrder === undefined ? {} : { prominentOrder };
+  if (prominentOrder !== undefined) return { pickerCategory: "common", prominentOrder };
+  if (compatibilityWorkflows.has(pipelineId)) return { pickerCategory: "compatibility" };
+  if (internalWorkflows.has(pipelineId)) return { pickerCategory: "internal" };
+  return { pickerCategory: "specialized" };
 };
 
 export const pipelineSummary = (

@@ -30,6 +30,7 @@ const AGENT_KEYS = new Set([
   "adapter",
   "command",
   "model",
+  "reasoningEffort",
   "workingDirectory",
   "permissionMode",
   "approvalPolicy",
@@ -925,6 +926,7 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
     }
     validateOptionalString(agent.command, `${agentPath}.command`, errors);
     validateOptionalString(agent.model, `${agentPath}.model`, errors);
+    validateOptionalString(agent.reasoningEffort, `${agentPath}.reasoningEffort`, errors);
     validateOptionalString(
       agent.workingDirectory,
       `${agentPath}.workingDirectory`,

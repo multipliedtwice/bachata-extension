@@ -24,12 +24,12 @@ test("the webview and the controller describe a controller check identically", (
   for (const command of ["bachata:workspace-integrity", "bachata:project-checks"]) {
     const described = controllerCheckDescription(command);
     assert.ok(
-      webview.includes(`return "${described}"`),
+      webview.includes(`return localize("${described}")`),
       `the webview must describe ${command} as "${described}"`,
     );
   }
   assert.ok(
-    webview.includes('repository verifier "'),
+    webview.includes('localize("repository verifier \\"{0}\\"'),
     "the webview must name a repository verifier the way the controller does",
   );
   assert.equal(controllerCheckDescription("bachata:verifier:npm-test"), 'repository verifier "npm-test"');

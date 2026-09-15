@@ -7250,7 +7250,7 @@ export const createRuntime = (
           await appendTranscript(
             createEventEntry(
               "workflow.resumed",
-              `Resumed ${pipeline.name} from step ${String(
+              `Continued ${pipeline.name} after interruption from step ${String(
                 options.resume.checkpoint.nextStepIndex + 1,
               )}.`,
               toJsonValue({

@@ -438,6 +438,7 @@ export const schemaFindings = ({ findings, label, recordTables, schemas }) => {
 
 export const releaseMetadataFindings = ({
   packageJson,
+  packageNls = {},
   readme = "",
   screenshotFiles = [],
   bridgeInstallDocument,
@@ -460,6 +461,12 @@ export const releaseMetadataFindings = ({
           artifact: stage === "artifact",
         };
   const bindsArtifacts = stages.artifact;
+  const descriptionKey = typeof packageJson.description === "string"
+    ? /^%([^%]+)%$/u.exec(packageJson.description.trim())?.[1]
+    : undefined;
+  const description = descriptionKey === undefined
+    ? packageJson.description
+    : packageNls[descriptionKey];
 
   if (stages.identity) {
   if (placeholder(packageJson.publisher) || packageJson.publisher === "local") {
@@ -468,7 +475,7 @@ export const releaseMetadataFindings = ({
   if (packageJson.displayName !== "Bachata") {
     findings.push('displayName must be the canonical product name "Bachata".');
   }
-  if (typeof packageJson.description !== "string" || packageJson.description.trim().length < 40) {
+  if (typeof description !== "string" || description.trim().length < 40) {
     findings.push("description must state what the extension does in one full sentence.");
   }
   if (typeof packageJson.license !== "string" || packageJson.license.trim().length === 0) {

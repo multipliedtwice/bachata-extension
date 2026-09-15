@@ -85,7 +85,7 @@ describe("UI re-audit release states", { browser: "chrome" }, () => {
         cy.window().its("__boot").should("be.a", "function");
         cy.wrap(null).then(() => emulateTheme(theme));
         cy.window().then(prepareDecision);
-        cy.get('.view-switch [data-action="room-view"][data-view="execution"]').click();
+        cy.get('.run-tab.selected .run-tab-tools [data-action="room-view"][data-view="execution"]').click();
         cy.get("#pending-gate").should("be.visible").within(() => {
           cy.contains("Independent specialist review");
           cy.get("#gate-rationale").should("be.visible");
@@ -128,12 +128,41 @@ describe("UI re-audit release states", { browser: "chrome" }, () => {
       win.__managerState.notifications = { mode: "off", unread: 0, events: [] };
       win.__boot();
     });
-    cy.get(".notification-center").should("not.exist");
-    cy.get(".header-action-menu > summary").click();
-    cy.get('.header-action-menu [data-action="notification-settings"]').click();
+    cy.get(".notification-center").should("exist");
+    cy.get(".notification-center > summary").click();
+    cy.get('.notification-center [data-action="notification-settings"]').click();
     cy.get("#notification-mode").select("decisions");
     cy.window().its("__posted").then((messages) => {
       expect(messages.at(-1)).to.deep.equal({ type: "notifications.setMode", mode: "decisions" });
+    });
+  });
+
+  it("renders a resumed workflow as a quiet chronological marker between messages", () => {
+    cy.viewport(480, 800);
+    cy.visit("tests/fixtures/webview-layout/index.html");
+    cy.window().then((win) => {
+      win.__panelState.transcript = [
+        { id: "before-resume", kind: "answer", agentId: "lead", text: "Work before the interruption", createdAt: "2026-09-13T00:00:00Z" },
+        { id: "resume-marker", kind: "event", eventType: "workflow.resumed", text: "Legacy resume wording", data: { pipelineId: "custom-a", nextStepIndex: 1 }, createdAt: "2026-09-13T00:01:00Z" },
+        { id: "after-resume", kind: "answer", agentId: "worker", text: "Work after the interruption", createdAt: "2026-09-13T00:02:00Z" },
+      ];
+      win.__panelState.transcriptTotal = 3;
+      win.__boot();
+    });
+    cy.get('[data-entry="resume-marker"]')
+      .should("have.class", "workflow-transition")
+      .and("have.attr", "role", "separator")
+      .and("have.attr", "aria-label", "Continued after interruption · from step 2")
+      .and("not.contain.text", "Structured data")
+      .within(() => {
+        cy.get("details, time").should("not.exist");
+      });
+    cy.get('[data-entry="resume-marker"]').then(($marker) => {
+      const markerStyle = $marker[0].ownerDocument.defaultView.getComputedStyle($marker[0]);
+      const messageStyle = $marker[0].ownerDocument.defaultView.getComputedStyle($marker[0].previousElementSibling.querySelector(".message-text"));
+      expect(parseFloat(markerStyle.fontSize)).to.be.at.most(parseFloat(messageStyle.fontSize));
+      expect($marker[0].previousElementSibling.getAttribute("data-entry")).to.equal("before-resume");
+      expect($marker[0].nextElementSibling.getAttribute("data-entry")).to.equal("after-resume");
     });
   });
 
@@ -147,17 +176,14 @@ describe("UI re-audit release states", { browser: "chrome" }, () => {
         editable: false,
         hash: "c".repeat(64),
         scopeKey: "builtin",
+        pickerCategory: "specialized",
       });
       win.__boot();
     });
     cy.get("#pipeline-picker-button").focus();
     pressKey("ArrowDown", "ArrowDown", 40);
-    pressKey("Tab", "Tab", 9);
-    cy.focused().should("have.id", "pipeline-picker-more");
-    pressKey("Enter", "Enter", 13);
+    cy.focused().should("have.id", "pipeline-picker-search").type("Zebra");
     cy.get('[data-pipeline-id="specialized-z"]').should("exist");
-    pressKey("Tab", "Tab", 9, 8);
-    cy.focused().should("have.id", "pipeline-picker-button");
     pressKey("End", "End", 35);
     pressKey("Enter", "Enter", 13);
     cy.window().its("__posted").then((messages) => {
@@ -361,7 +387,7 @@ describe("Result release regression coverage", { browser: "chrome" }, () => {
             }
           });
           cy.get('[data-action="result-continue"]').should("have.attr", "aria-disabled", "true").and("have.attr", "aria-describedby");
-          cy.get(".result-continuation-reason").should("be.visible").and("contain.text", "No write-capable pipeline is available");
+          cy.get(".result-continuation-tooltip").should("contain.text", "No write-capable pipeline is available");
           cy.document().then((doc) => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth + 1));
         });
       }
@@ -612,4 +638,498 @@ describe("Result release regression coverage", { browser: "chrome" }, () => {
         }
       }
     }
+});
+
+const {
+  interactionThemes, interactionWidths, applyInteractionTheme, emulateInteractionTheme,
+  interactionKey, pointerAt, pointerClick, tabToControl, controlVisual,
+  expectControlFill, expectKeyboardRing, expectPointerFocus, expectSquareIcon, expectStationary, resolvedControlColor,
+  expectPrimaryColors, expectPrimaryResponse, expectSemanticColors, expectSemanticResponse, expectFieldResponse, releasePointerAway,
+} = require("./helpers/interactionStates.cjs");
+
+const interactionFixture = (theme, execution = false) => {
+  cy.visit("tests/fixtures/webview-layout/index.html");
+  cy.window().its(execution ? "__bootExecution" : "__boot").should("be.a", "function");
+  emulateInteractionTheme(theme);
+  cy.window().then((win) => {
+    applyInteractionTheme(win, theme);
+    if (execution) win.__bootExecution();
+    else win.__boot();
+  });
+};
+
+const expectDisabledResponse = (selector) => {
+  let before;
+  cy.get(selector).then(($control) => {
+    expect($control[0].matches(':disabled, [aria-disabled="true"]')).to.equal(true);
+    $control[0].scrollIntoView({ block: "nearest", inline: "nearest" });
+    before = controlVisual($control[0]);
+    expect(before.color).to.equal(resolvedControlColor($control[0].ownerDocument, "--bachata-control-disabled", "color"));
+    expect($control.css("cursor")).to.equal($control.attr("aria-busy") === "true" ? "progress" : "default");
+  });
+  pointerAt(selector);
+  cy.get(selector).should(($control) => {
+    const after = controlVisual($control[0]);
+    expect(after.background).to.equal(before.background);
+    expect(after.color).to.equal(before.color);
+    expectStationary(before, after);
+  });
+  pointerAt(selector, "mousePressed");
+  cy.get(selector).should(($control) => {
+    const after = controlVisual($control[0]);
+    expect(after.background).to.equal(before.background);
+    expect(after.color).to.equal(before.color);
+    expectStationary(before, after);
+  });
+  pointerAt(selector, "mouseReleased");
+};
+
+describe("shared interaction contract", { browser: "chrome" }, () => {
+  afterEach(() => emulateInteractionTheme("light"));
+
+  it("does not represent the pristine composer as a run tab", () => {
+    cy.viewport(900, 900);
+    cy.visit("tests/fixtures/webview-layout/index.html");
+    cy.window().its("__bootPristine").should("be.a", "function");
+    cy.window().then((win) => win.__bootPristine());
+    cy.get(".run-tab").should("not.exist");
+    cy.get("#composer-prompt").should("be.visible");
+    cy.get('.run-tabs [data-action="create-conversation"]').should("be.visible");
+    cy.get('[data-action="run-drawer-toggle"]').click();
+    cy.get(".run-drawer-item").should("not.exist");
+    cy.get(".run-drawer-list .empty-list").should("be.visible");
+  });
+
+  it("does not show a one-sided run view switcher before execution exists", () => {
+    cy.viewport(900, 900);
+    interactionFixture("light");
+    cy.get(".run-tab.selected").should("exist");
+    cy.get('.run-tab-tools [data-view="chat"], .run-tab-tools [data-view="execution"]').should("not.exist");
+  });
+
+  for (const theme of interactionThemes) {
+    for (const width of interactionWidths) {
+      it(`keeps navigation selection, hover, press, and keyboard focus independent in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme, true);
+        const chat = '.run-tab-tools [data-view="chat"]';
+        const execution = '.run-tab-tools [data-view="execution"]';
+        cy.get(".run-tabs-brand, .run-tab-new, .run-tab-tool, #notification-button, #room-actions-button").each(($control) => expectSquareIcon($control[0]));
+        let brandBefore;
+        cy.get(".run-tabs-brand").should(($brand) => {
+          expect($brand[0].tagName).to.equal("SPAN");
+          expect($brand.attr("data-action")).to.equal(undefined);
+          brandBefore = controlVisual($brand[0]);
+        });
+        pointerAt(".run-tabs-brand");
+        cy.get(".run-tabs-brand").should(($brand) => expectStationary(brandBefore, controlVisual($brand[0])));
+        pointerAt(execution);
+        expectControlFill(execution, "hover");
+        let before;
+        cy.get(execution).then(($control) => { before = controlVisual($control[0]); });
+        pointerAt(execution, "mousePressed");
+        expectControlFill(execution, "pressed");
+        cy.get(execution).should(($control) => expectStationary(before, controlVisual($control[0])));
+        pointerAt(execution, "mouseReleased");
+        cy.get(execution).should("have.attr", "aria-pressed", "true").and("not.have.class", "selected");
+        cy.get(chat).should("have.attr", "aria-pressed", "false");
+        expectControlFill(execution, "selected");
+        expectPointerFocus(execution);
+        cy.window().then((win) => win.__bootExecution());
+        expectControlFill(execution, "selected");
+        expectPointerFocus(execution);
+        pointerClick(chat);
+        expectControlFill(chat, "selected");
+        expectPointerFocus(chat);
+        cy.get(chat).should(($control) => {
+          expect(controlVisual($control[0]).background).not.to.equal(controlVisual($control[0].closest(".run-tab")).background);
+        });
+        tabToControl(chat);
+        expectKeyboardRing(chat);
+        expectControlFill(chat, "selected");
+        cy.screenshot(`interaction/navigation-${theme}-${width}`);
+        pointerClick('[data-action="run-drawer-toggle"]');
+        cy.get(".run-drawer").should("be.visible");
+        cy.get('.run-drawer-select[aria-current="true"]').then(($row) => {
+          expect(controlVisual($row[0]).shadow).not.to.contain("inset");
+          expect(controlVisual($row[0].parentElement).borderWidths[3]).to.equal(controlVisual($row[0].parentElement).borderWidths[1]);
+        });
+        interactionKey("Escape", "Escape", 27);
+        cy.get(".run-drawer").should("not.exist");
+        cy.focused().should("have.class", "run-tab-all");
+      });
+
+      it(`shares menu and notification states and preserves dismissal in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme, true);
+        for (const trigger of ["#room-actions-button", "#notification-button"]) {
+          pointerClick(trigger);
+          cy.get(trigger).parent().should("have.attr", "open");
+          expectControlFill(trigger, "selected");
+          expectPointerFocus(trigger);
+          cy.window().then((win) => win.__bootExecution());
+          cy.get(trigger).parent().should("have.attr", "open");
+          expectControlFill(trigger, "selected");
+          interactionKey("Escape", "Escape", 27);
+          cy.get(trigger).parent().should("not.have.attr", "open");
+          cy.focused().should("have.id", trigger.slice(1));
+          pointerClick(trigger);
+          pointerClick(".run-tabs-brand");
+          cy.get(trigger).parent().should("not.have.attr", "open");
+          pointerClick(trigger);
+          pointerClick(trigger);
+          cy.get(trigger).parent().should("not.have.attr", "open");
+        }
+        pointerClick("#room-actions-button");
+        pointerClick("#notification-button");
+        cy.get("#room-actions-button").parent().should("not.have.attr", "open");
+        cy.get("#notification-button").parent().should("have.attr", "open");
+        cy.get(".notification-unread").should("have.attr", "aria-hidden", "true");
+        pointerAt('[data-action="notification-read-all"]');
+        expectControlFill('[data-action="notification-read-all"]', "hover");
+        tabToControl('[data-action="notification-read-all"]');
+        expectKeyboardRing('[data-action="notification-read-all"]');
+        cy.screenshot(`interaction/notifications-${theme}-${width}`);
+        interactionKey("Escape", "Escape", 27);
+        pointerClick('.run-tab-tools [data-view="execution"]');
+        pointerClick('.result-center > header .header-action-menu > summary');
+        expectControlFill('.result-center > header .header-action-menu > summary', "selected");
+        pointerAt('.result-center [data-action="workflow-restart"]');
+        expectControlFill('.result-center [data-action="workflow-restart"]', "hover");
+        expectSemanticResponse('.result-center [data-action="workflow-discard"]', "danger");
+        cy.screenshot(`interaction/recovery-menu-${theme}-${width}`);
+        interactionKey("Escape", "Escape", 27);
+      });
+
+      it(`unifies composer, pickers, fields, and refusal states in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme);
+        cy.get('[data-action="attachment-pick"], .composer-settings-button, .icon-send').each(($control) => expectSquareIcon($control[0]));
+        if (width <= 850) cy.get("#agents-picker-button").then(($control) => expectSquareIcon($control[0]));
+        expectFieldResponse("#composer-prompt", ".composer-surface");
+        pointerClick("#composer-prompt");
+        expectPointerFocus("#composer-prompt");
+        interactionKey("Tab", "Tab", 9);
+        interactionKey("Tab", "Tab", 9, true);
+        cy.get("#composer-prompt").should(($prompt) => expect(controlVisual($prompt[0]).outline).to.equal("none"));
+        cy.get(".composer-surface").should(($surface) => {
+          const visual = controlVisual($surface[0]);
+          expect(visual.outline).to.equal("solid");
+          expect(visual.outlineWidth).to.equal("2px");
+          expect(visual.outlineColor).to.equal(resolvedControlColor($surface[0].ownerDocument, "--bachata-focus-ring", "color"));
+          expect(visual.shadow).not.to.contain("inset");
+        });
+        pointerClick("#pipeline-picker-button");
+        expectControlFill("#pipeline-picker-button", "selected");
+        expectPointerFocus("#pipeline-picker-search");
+        interactionKey("ArrowDown", "ArrowDown", 40);
+        cy.get('[data-pipeline-id="custom-a"]').should("have.attr", "aria-selected", "true").and("have.attr", "data-active", "false");
+        cy.get('[data-pipeline-id="custom-b"]').should("have.attr", "aria-selected", "false").and("have.attr", "data-active", "true");
+        cy.get("#pipeline-picker-button").should(($button) => {
+          const active = $button[0].ownerDocument.getElementById($button[0].getAttribute("aria-activedescendant"));
+          expect(active.dataset.pipelineId).to.equal("custom-b");
+          expect(controlVisual(active).outline).to.equal("none");
+        });
+        expectKeyboardRing("#pipeline-picker-search");
+        expectControlFill('[data-pipeline-id="custom-b"]', "selected");
+        cy.screenshot(`interaction/pipeline-picker-${theme}-${width}`);
+        interactionKey("Escape", "Escape", 27);
+        pointerClick("#agents-picker-button");
+        expectControlFill("#agents-picker-button", "selected");
+        expectPointerFocus("#agents-picker-button");
+        cy.get("#pipeline-picker-list").should("not.exist");
+        cy.get('.agents-session-option[aria-selected="true"]').should("exist").and("not.have.class", "selected");
+        expectControlFill('.agents-session-option[aria-selected="true"]', "selected");
+        tabToControl("#agents-provider-lead");
+        expectKeyboardRing("#agents-provider-lead");
+        cy.screenshot(`interaction/agents-picker-${theme}-${width}`);
+        interactionKey("Escape", "Escape", 27);
+        cy.focused().should("have.id", "agents-picker-button");
+        pointerClick('.composer-settings-button');
+        expectControlFill('.composer-settings-button', "selected");
+        expectFieldResponse("#pipeline-iterations");
+        expectFieldResponse("#pipeline-iteration-mode");
+        pointerClick('.composer-settings-button');
+        cy.get("#composer-settings").should("not.exist");
+        cy.get("#composer-prompt").type("Check primary Send colors");
+        cy.get('.composer-send [data-action="submit-message"]').should("not.be.disabled").and("not.have.attr", "aria-disabled");
+        expectPrimaryResponse('.composer-send [data-action="submit-message"]');
+        cy.screenshot(`interaction/composer-primary-${theme}-${width}`);
+        cy.window().then((win) => {
+          win.__panelState.pipelineMutable = false;
+          win.__panelState.workspaceRoots = ["/workspace", "/other"];
+          delete win.__panelState.workingDirectory;
+          win.__boot();
+        });
+        let refusedMessageCount;
+        cy.window().then((win) => { refusedMessageCount = win.__posted.length; });
+        cy.get("#pipeline-picker-button").should("be.disabled");
+        expectDisabledResponse("#pipeline-picker-button");
+        cy.get("#pipeline-picker-list").should("not.exist");
+        const send = '.composer-send [data-action="submit-message"]';
+        cy.get(send).should("have.attr", "aria-disabled", "true").and("not.be.disabled");
+        expectDisabledResponse(send);
+        cy.get(".app-dialog").should("be.visible");
+        cy.window().its("__posted").then((messages) => expect(messages).to.have.length(refusedMessageCount));
+        cy.screenshot(`interaction/refusal-dialog-${theme}-${width}`);
+        interactionKey("Escape", "Escape", 27);
+        tabToControl(send);
+        expectKeyboardRing(send);
+        cy.screenshot(`interaction/composer-disabled-${theme}-${width}`);
+      });
+
+      it(`shares editor mode, disclosure, reorder, native selection, and footer states in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme);
+        pointerClick('.composer-settings-button');
+        pointerClick('[data-action="pipeline-edit"]');
+        cy.get(".pipeline-editor").should("be.visible");
+        cy.get('.pipeline-editor > header [data-action="pipeline-editor-close"]').then(($control) => expectSquareIcon($control[0]));
+        expectPrimaryResponse('[data-action="pipeline-save"]');
+        const json = '[data-action="editor-mode"][data-mode="json"]';
+        const form = '[data-action="editor-mode"][data-mode="form"]';
+        pointerClick(json);
+        expectControlFill(json, "selected");
+        expectPointerFocus(json);
+        pointerClick(form);
+        expectControlFill(form, "selected");
+        tabToControl(form);
+        expectKeyboardRing(form);
+        cy.get('.editor-section[data-editor-section="agents"]').then(($section) => { if (!$section[0].open) cy.wrap($section).children("summary").click(); });
+        cy.get('.editor-card[data-drag-kind="agent"]').first().as("editorCard");
+        cy.get("@editorCard").then(($card) => { if (!$card[0].open) cy.wrap($card).children("summary").click(); });
+        cy.get("@editorCard").should("have.attr", "open");
+        cy.get("@editorCard").children("summary").should(($summary) => expect(controlVisual($summary[0]).shadow).not.to.contain("inset"));
+        cy.get('[data-action="editor-agent-up"]').first().should("be.disabled").then(($control) => expectSquareIcon($control[0]));
+        cy.get('[data-editor-agent="0"][data-field="name"]').should("be.visible");
+        expectFieldResponse('[data-editor-agent="0"][data-field="name"]');
+        tabToControl('[data-editor-agent="0"][data-field="name"]');
+        expectKeyboardRing('[data-editor-agent="0"][data-field="name"]');
+        cy.get('.editor-card[data-drag-kind="step"]').first().then(($card) => { if (!$card[0].open) cy.wrap($card).children("summary").click(); });
+        cy.get('.pipeline-editor input[type="checkbox"][data-field="participants"]').first().should("be.checked").focus().should("be.focused");
+        interactionKey("Tab", "Tab", 9);
+        cy.focused().should(($control) => expect($control[0].closest(".pipeline-editor")).not.to.equal(null));
+        cy.screenshot(`interaction/editor-${theme}-${width}`);
+        pointerClick('.pipeline-editor > footer .header-action-menu > summary');
+        expectControlFill('.pipeline-editor > footer .header-action-menu > summary', "selected");
+        pointerAt('[data-action="pipeline-export"]');
+        expectControlFill('[data-action="pipeline-export"]', "hover");
+        cy.screenshot(`interaction/editor-tools-${theme}-${width}`);
+        interactionKey("Escape", "Escape", 27);
+        cy.get('.pipeline-editor > footer .header-action-menu').should("not.have.attr", "open");
+        cy.get('.pipeline-editor > header [data-action="pipeline-editor-close"]').click();
+        cy.get(".pipeline-editor").should("not.exist");
+      });
+    }
+  }
+});
+
+
+describe("content and native control interaction states", { browser: "chrome" }, () => {
+  afterEach(() => emulateInteractionTheme("light"));
+
+  for (const theme of interactionThemes) {
+    for (const width of interactionWidths) {
+      it(`keeps minimap, Latest, inspector, and Direction states consistent in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme);
+        cy.window().then((win) => {
+          win.__panelState.transcript = Array.from({ length: 16 }, (_, index) => ({
+            id: `interaction-turn-${index}`, kind: index % 2 === 0 ? "prompt" : "answer",
+            ...(index % 2 === 0 ? { eventType: "user.message" } : { agentId: "lead" }),
+            text: `Turn ${index + 1}. `.repeat(80), createdAt: "2026-09-14T00:00:00.000Z",
+          }));
+          win.__panelState.transcriptTotal = 16;
+          win.__boot();
+        });
+        cy.get('.chat-minimap [aria-current="true"]').should("have.length", 1);
+        expectControlFill('.chat-minimap [aria-current="true"]', "selected");
+        pointerClick('.chat-minimap [data-message-id="interaction-turn-0"]');
+        cy.get('.chat-minimap [data-message-id="interaction-turn-0"]').should("have.attr", "aria-current", "true");
+        expectControlFill('.chat-minimap [data-message-id="interaction-turn-0"]', "selected");
+        cy.get('[data-action="jump-latest"]').should("be.visible");
+        pointerAt('[data-action="jump-latest"]');
+        expectControlFill('[data-action="jump-latest"]', "hover");
+        pointerClick('[data-action="jump-latest"]');
+        cy.focused().should("have.id", "conversation-scroll");
+        expectPointerFocus("#conversation-scroll");
+        pointerClick("#room-actions-button");
+        pointerClick('.header-action-menu [data-action="inspector-toggle"]');
+        cy.get(".inspector").should("be.visible");
+        cy.get('.inspector-header [data-action="inspector-toggle"]').then(($control) => expectSquareIcon($control[0]));
+        cy.get('.header-action-menu [data-action="inspector-toggle"]').should("have.attr", "aria-expanded", "true");
+        cy.screenshot(`interaction/content-inspector-${theme}-${width}`);
+        pointerClick('.inspector-header [data-action="inspector-toggle"]');
+        cy.get(".inspector").should("not.exist");
+        pointerClick('.run-tab-all');
+        pointerClick('.run-drawer-direction');
+        cy.get(".run-tab-all").should("have.attr", "aria-current", "page");
+        expectControlFill(".run-tab-all", "selected");
+        expectPointerFocus(".run-tab-all");
+        cy.get('.direction-secondary-toggle').first().then(($control) => {
+          const selector = `[data-action="direction-section-toggle"][data-section="${$control[0].dataset.section}"]`;
+          const wasOpen = $control[0].getAttribute("aria-expanded") === "true";
+          pointerClick(selector);
+          cy.get(selector).should("have.attr", "aria-expanded", String(!wasOpen));
+          if (!wasOpen) expectControlFill(selector, "selected");
+          expectPointerFocus(selector);
+          tabToControl(selector);
+          expectKeyboardRing(selector);
+        });
+        cy.screenshot(`interaction/direction-${theme}-${width}`);
+      });
+
+      it(`uses the same states for native and ARIA selection primitives in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme);
+        cy.document().then((doc) => {
+          const fixture = doc.createElement("main");
+          fixture.style.padding = "16px";
+          fixture.innerHTML = `
+            <h1>Native control contract fixture</h1>
+            <label class="field"><span>Multiple selection</span><select id="contract-multiple" multiple size="3"><option value="one" selected>One</option><option value="two">Two</option><option value="disabled" disabled>Unavailable</option></select></label>
+            <label class="check-field"><input id="contract-checkbox" type="checkbox">Checkbox</label>
+            <label class="check-field"><input id="contract-radio-one" name="contract-radio" type="radio" checked>Radio one</label>
+            <label class="check-field"><input id="contract-radio-two" name="contract-radio" type="radio">Radio two</label>
+            <div role="listbox" aria-label="Options"><button id="contract-option" role="option" aria-selected="true">Selected option</button></div>
+            <div role="radiogroup" aria-label="Provider choices"><button id="contract-radio-role" class="agents-choice" role="radio" aria-checked="true">Selected provider</button></div>
+            <button id="contract-disabled" disabled>Unavailable action</button>
+            <button id="contract-busy" disabled aria-busy="true">Pending action</button>
+            <details id="contract-disclosure"><summary>Disclosure</summary><p>Disclosure content</p></details>`;
+          doc.getElementById("root").replaceChildren(fixture);
+        });
+        cy.get("#contract-multiple").select(["one", "two"]);
+        cy.get("#contract-multiple option:checked").should("have.length", 2);
+        expectControlFill("#contract-multiple option:checked", "selected");
+        tabToControl("#contract-multiple");
+        expectKeyboardRing("#contract-multiple");
+        pointerClick("#contract-checkbox");
+        cy.get("#contract-checkbox").should("be.checked");
+        expectPointerFocus("#contract-checkbox");
+        tabToControl("#contract-radio-one");
+        interactionKey("ArrowRight", "ArrowRight", 39);
+        cy.get("#contract-radio-two").should("be.checked").and("be.focused");
+        expectKeyboardRing("#contract-radio-two");
+        expectControlFill("#contract-option", "selected");
+        expectControlFill("#contract-radio-role", "selected");
+        expectDisabledResponse("#contract-disabled");
+        expectDisabledResponse("#contract-busy");
+        cy.get("#contract-busy").should("have.css", "cursor", "progress");
+        pointerClick("#contract-disclosure > summary");
+        expectControlFill("#contract-disclosure > summary", "selected");
+        expectPointerFocus("#contract-disclosure > summary");
+        cy.screenshot(`interaction/native-primitives-${theme}-${width}`);
+      });
+
+      it(`preserves neutral, primary, semantic, and editable control families in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme);
+        cy.get(".composer-surface").should("be.visible");
+        cy.document().then((doc) => {
+          const fixture = doc.createElement("main");
+          Object.assign(fixture.style, { padding: "16px", display: "grid", gap: "8px", maxHeight: "100%", overflow: "auto" });
+          fixture.innerHTML = `
+            <h1>Control family fixture</h1>
+            <button id="family-neutral" data-contract-toggle aria-pressed="false">Neutral toggle</button>
+            <button id="family-primary" class="primary" data-contract-toggle aria-pressed="false">Primary action</button>
+            <button id="family-send" class="icon-button send-button" data-contract-toggle aria-pressed="false" aria-label="Send" title="Send">↑</button>
+            <button id="family-danger" class="danger" data-contract-toggle aria-pressed="false">Destructive action</button>
+            <button id="family-caution" class="caution" data-contract-toggle aria-pressed="false">Caution action</button>
+            <label>Text<input id="family-input" value="Field text"></label>
+            <label>Number<input id="family-number" type="number" value="2"></label>
+            <label>Multiline<textarea id="family-textarea">Field text</textarea></label>
+            <label>Choice<select id="family-select"><option selected>One</option><option>Two</option></select></label>
+            <button id="family-primary-disabled" class="primary" disabled>Unavailable primary action</button>
+            <button id="family-send-disabled" class="icon-button send-button" disabled aria-label="Unavailable Send" title="Unavailable Send">↑</button>
+            <button id="family-danger-disabled" class="danger" disabled>Unavailable destructive action</button>
+            <button id="family-caution-disabled" class="caution" disabled>Unavailable caution action</button>
+            <label>Unavailable text<input id="family-field-disabled" disabled value="Unchanged"></label>
+            <label>Unavailable choice<select id="family-select-disabled" disabled><option>Unchanged</option></select></label>`;
+          fixture.addEventListener("click", (event) => {
+            const control = event.target.closest("[data-contract-toggle]");
+            if (control) control.setAttribute("aria-pressed", String(control.getAttribute("aria-pressed") !== "true"));
+          });
+          doc.getElementById("root").replaceChildren(fixture);
+        });
+        pointerAt("#family-neutral");
+        expectControlFill("#family-neutral", "hover");
+        pointerAt("#family-neutral", "mousePressed");
+        expectControlFill("#family-neutral", "pressed");
+        pointerAt("#family-neutral", "mouseReleased");
+        expectControlFill("#family-neutral", "selected");
+        expectPointerFocus("#family-neutral");
+        tabToControl("#family-neutral");
+        expectKeyboardRing("#family-neutral");
+        for (const selector of ["#family-primary", "#family-send"]) {
+          expectPrimaryResponse(selector);
+          pointerClick(selector);
+          cy.get(selector).should("have.attr", "aria-pressed", "true");
+          expectPrimaryColors(selector, "selected");
+          expectPointerFocus(selector);
+          tabToControl(selector);
+          expectKeyboardRing(selector);
+          expectPrimaryColors(selector, "selected");
+          cy.screenshot(`interaction/${selector.slice(1)}-${theme}-${width}`);
+        }
+        for (const family of ["danger", "caution"]) {
+          const selector = `#family-${family}`;
+          expectSemanticResponse(selector, family);
+          pointerClick(selector);
+          expectSemanticColors(selector, family, "selected");
+          expectPointerFocus(selector);
+          tabToControl(selector);
+          expectKeyboardRing(selector);
+          expectSemanticColors(selector, family, "selected");
+          cy.screenshot(`interaction/family-${family}-${theme}-${width}`);
+        }
+        for (const selector of ["#family-input", "#family-number", "#family-textarea", "#family-select"]) expectFieldResponse(selector);
+        for (const selector of ["#family-primary-disabled", "#family-send-disabled", "#family-danger-disabled", "#family-caution-disabled", "#family-field-disabled", "#family-select-disabled"]) expectDisabledResponse(selector);
+        cy.get("#family-field-disabled").should("have.value", "Unchanged");
+        cy.get("#family-select-disabled").should("have.value", "Unchanged");
+        cy.get("#family-send, #family-send-disabled").each(($control) => expectSquareIcon($control[0]));
+        cy.screenshot(`interaction/family-fields-disabled-${theme}-${width}`);
+      });
+
+      it(`makes primary and neutral Stop controls inert while interruption is busy in ${theme} at ${width}px`, () => {
+        cy.viewport(width, 900);
+        interactionFixture(theme);
+        cy.window().then((win) => {
+          Object.assign(win.__panelState, { running: true, operationActive: true, workflowStatus: "running" });
+          Object.assign(win.__managerState.conversations[0], { running: true, workflowStatus: "running" });
+          win.__boot();
+        });
+        const primaryStop = '.composer-send [data-action="interrupt-run"]';
+        const neutralStop = '.run-tab-tools [data-action="interrupt-run"]';
+        cy.get(primaryStop).should("not.be.disabled").and("not.have.attr", "aria-busy");
+        expectPrimaryResponse(primaryStop);
+        pointerAt(neutralStop);
+        expectControlFill(neutralStop, "hover");
+        pointerAt(neutralStop, "mousePressed");
+        expectControlFill(neutralStop, "pressed");
+        releasePointerAway(neutralStop);
+        cy.window().then((win) => { win.__posted.length = 0; });
+        pointerClick(primaryStop);
+        cy.window().its("__posted").should((messages) => {
+          expect(messages.filter((message) => message.message?.type === "run.interrupt")).to.have.length(1);
+        });
+        for (const selector of [primaryStop, neutralStop]) {
+          cy.get(selector).should("be.disabled").and("have.attr", "aria-busy", "true");
+          expectDisabledResponse(selector);
+          expectPointerFocus(selector);
+          cy.get(selector).then(($control) => expectSquareIcon($control[0]));
+        }
+        cy.window().then((win) => win.__boot());
+        cy.get(primaryStop).should("be.disabled").and("have.attr", "aria-busy", "true");
+        cy.get(neutralStop).should("be.disabled").and("have.attr", "aria-busy", "true");
+        interactionKey("Enter", "Enter", 13);
+        interactionKey(" ", "Space", 32);
+        interactionKey("Tab", "Tab", 9);
+        cy.focused().should(($control) => expect($control[0].matches('[data-action="interrupt-run"]')).to.equal(false));
+        cy.window().its("__posted").should((messages) => {
+          expect(messages.filter((message) => message.message?.type === "run.interrupt")).to.have.length(1);
+        });
+        cy.screenshot(`interaction/busy-stop-${theme}-${width}`);
+      });
+    }
+  }
 });

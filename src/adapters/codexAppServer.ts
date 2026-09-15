@@ -1747,6 +1747,7 @@ export const createCodexAppServerAdapter = (
             workspaceScope,
           ),
           ...(requestData.model ? { model: requestData.model } : {}),
+          ...(requestData.reasoningEffort ? { effort: requestData.reasoningEffort } : {}),
         });
 
         if (settled) {

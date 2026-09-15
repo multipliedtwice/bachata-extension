@@ -1,4 +1,8 @@
-const themeColors = require("../fixtures/webview-layout/theme-colors.json");
+const {
+  interactionThemes, applyInteractionTheme, emulateInteractionTheme, pointerClick, tabToControl,
+  expectSquareIcon, expectControlFill, expectKeyboardRing, expectPointerFocus,
+  expectPrimaryResponse,
+} = require("./helpers/interactionStates.cjs");
 const fixture = "tests/fixtures/webview-layout/index.html";
 const translations = {
   Chat: "Unterhaltung",
@@ -18,7 +22,8 @@ const expectInside = (element, container) => {
 };
 
 describe("Translated header layout", () => {
-  for (const theme of ["light", "dark"]) {
+  afterEach(() => emulateInteractionTheme("light"));
+  for (const theme of interactionThemes) {
     for (const width of [320, 400, 792, 1280]) {
       for (const font of [13, 18]) {
         it(`keeps translated actions reachable in ${theme} at ${width}px with ${font}px text`, () => {
@@ -33,29 +38,42 @@ describe("Translated header layout", () => {
             },
           });
           cy.window().its("__bootExecution").should("be.a", "function");
+          emulateInteractionTheme(theme);
           cy.window().then((win) => {
-            for (const [key, value] of Object.entries(themeColors[theme])) {
-              win.document.documentElement.style.setProperty(`--vscode-${key.replaceAll(".", "-")}`, value);
-            }
+            applyInteractionTheme(win, theme);
             win.document.documentElement.style.setProperty("--vscode-font-size", `${font}px`);
             win.__bootExecution();
           });
-          cy.get('.view-switch [data-view="chat"]').should("have.text", translations.Chat);
-          cy.get('.view-switch [data-view="execution"]').should("have.text", translations.Execution);
-          cy.get(".room-header").should(($header) => {
-            const header = $header[0];
-            expect(header.scrollWidth).to.be.at.most(header.clientWidth + 1);
-            for (const element of header.querySelectorAll(".room-status, .view-switch button, #room-actions-button")) {
-              expectInside(element, header);
+          cy.get('.run-tab.selected .run-tab-tools [data-view="chat"]').should("have.attr", "aria-label", translations.Chat);
+          cy.get('.run-tab.selected .run-tab-tools [data-view="execution"]').should("have.attr", "aria-label", translations.Execution);
+          cy.get(".room-header").should("not.exist");
+          cy.get(".run-tab.selected").should(($tab) => {
+            const tab = $tab[0];
+            expect(tab.scrollWidth).to.be.at.most(tab.clientWidth + 1);
+            for (const element of tab.querySelectorAll(".run-tab-tool, #notification-button, #room-actions-button")) {
+              expectInside(element, tab);
+              expectSquareIcon(element);
               expect(element.scrollWidth).to.be.at.most(element.clientWidth + 1);
             }
           });
-          cy.get('.view-switch [data-view="execution"]').focus().should("be.focused").click();
+          const execution = '.run-tab.selected .run-tab-tools [data-view="execution"]';
+          const chat = '.run-tab.selected .run-tab-tools [data-view="chat"]';
+          tabToControl(execution);
+          cy.get(execution).should("be.focused");
+          expectKeyboardRing(execution);
+          pointerClick(execution);
+          expectControlFill(execution, "selected");
+          expectPointerFocus(execution);
           cy.get(".execution-content").should("be.visible");
-          cy.get('.view-switch [data-view="chat"]').click();
+          pointerClick(chat);
+          expectControlFill(chat, "selected");
+          expectPointerFocus(chat);
           cy.get(".run-outcome-actions .primary").should("be.visible").and("contain.text", translations["Retry failed step"]);
+          expectPrimaryResponse(".run-outcome-actions .primary");
+          cy.screenshot(`interaction/localized-primary-${theme}-${width}-${font}`);
           cy.get("#room-actions-button").focus().should("be.focused").click();
           cy.get('.header-action-menu [data-action="inspector-toggle"]').should("be.visible");
+          cy.screenshot(`interaction/localized-${theme}-${width}-${font}`);
           cy.document().then((doc) => {
             expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth + 1);
           });

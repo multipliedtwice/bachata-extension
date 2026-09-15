@@ -212,8 +212,8 @@ test("finishing unresolved retains every complete participant conclusion without
     const html = harness.document.root.innerHTML;
     assert.match(html, /FINAL CONCLUSION 0/u);
     assert.match(html, /FINAL CONCLUSION 1/u);
-    assert.match(html, /Warning · Unresolved/u);
-    assert.equal(harness.document.root.querySelectorAll(".result-finding-list").length, 0);
+    assert.match(html, /<li class="finding-unresolved">[\s\S]*?<small>Unresolved(?: ·|<\/small>)/u);
+    assert.equal(harness.document.root.querySelectorAll(".result-finding-list").length, 1);
     assert.doesNotMatch(html, /<small>Agreed<\/small>|compare-column accepted/u);
   } finally { harness.restore(); }
 });
@@ -231,11 +231,10 @@ test("primary finding dispositions use normalized evidence while comparisons nam
     const harness = openResult(retained);
     try {
       const html = harness.document.root.innerHTML;
-      const primary = html.split('<div class="compare-grid">')[0];
-      assert.match(primary, /Warning · Proposed/u);
-      assert.doesNotMatch(primary, /Warning · Accepted/u);
+      assert.match(html, /<li class="finding-proposed">[\s\S]*?<small>Proposed(?: ·|<\/small>)/u);
+      assert.doesNotMatch(html, /<li class="finding-proposed">[\s\S]*?<small>Accepted(?: ·|<\/small>)/u);
       assert.match(html, /Provider claim: Accepted/u);
-      assert.equal(harness.document.root.querySelectorAll(".result-finding-list").length, 0);
+      assert.equal(harness.document.root.querySelectorAll(".result-finding-list").length, 1);
     } finally { harness.restore(); }
   }
 });

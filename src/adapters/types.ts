@@ -76,6 +76,7 @@ export type SendRequest = {
   permissionMode?: string | undefined;
   approvalPolicy?: CodexApprovalPolicy | undefined;
   model?: string | undefined;
+  reasoningEffort?: string | undefined;
   workspacePolicy?: {
     readOnly: boolean;
     writeScope?: WorkspaceWriteScope | undefined;

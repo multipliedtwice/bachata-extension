@@ -120,7 +120,7 @@ const appDialogHtml = (): string => {
   const marked = refusedField === undefined
     ? input
     : input.replace(`id="${refusedField}"`, `id="${refusedField}" aria-invalid="true" aria-describedby="app-dialog-error"`);
-  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title"${dialog.message ? ' aria-describedby="app-dialog-message"' : ""}><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button data-action="dialog-cancel" aria-label="${escapeAttribute(localize("Close dialog"))}">×</button></header>${dialog.message ? `<p id="app-dialog-message">${escapeHtml(dialog.message)}</p>` : ""}${turnDetails}${notificationSettings}${requirements}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Close"))}</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Cancel"))}</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
+  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title"${dialog.message ? ' aria-describedby="app-dialog-message"' : ""}><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button class="icon-button" data-action="dialog-cancel" aria-label="${escapeAttribute(localize("Close dialog"))}">×</button></header>${dialog.message ? `<p id="app-dialog-message">${escapeHtml(dialog.message)}</p>` : ""}${turnDetails}${notificationSettings}${requirements}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Close"))}</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Cancel"))}</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
 };
 
 type ControlSnapshot = {
@@ -174,7 +174,7 @@ const scrollSurfaceKeys = (): Array<{ selector: string; key: string }> => {
     { selector: ".turn-details", key: `prompt:${dialogKey}` },
     { selector: ".run-drawer-list", key: JSON.stringify(["runs", state.roomSearch.trim().toLowerCase(), state.showArchived]) },
     { selector: ".agents-popover", key: JSON.stringify(["agents", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId]) },
-    { selector: ".pipeline-picker-popover", key: JSON.stringify(["pipelines", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId, pipelinePickerShowAll]) },
+    { selector: ".pipeline-picker-list", key: JSON.stringify(["pipelines", activeId(), panel.pipelineScopeKey, panel.selectedPipelineId, state.pipelinePickerFilter, state.pipelinePickerQuery]) },
     { selector: ".editor-scroll", key: JSON.stringify(["editor", editorTargetId(), editorScrollSession, state.editorMode]) },
   ];
 };

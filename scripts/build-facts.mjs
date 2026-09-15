@@ -83,6 +83,7 @@ const gitOutput = (args) => {
 };
 
 const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+const packageNls = JSON.parse(readFileSync(path.join(root, "package.nls.json"), "utf8"));
 const compatibility = JSON.parse(
   readFileSync(path.join(root, "protocol", "browser-bridge.compatibility.json"), "utf8"),
 );
@@ -109,6 +110,7 @@ const screenshotFiles = () => {
 
 const metadataFindings = (stage) => releaseMetadataFindings({
   packageJson,
+  packageNls,
   readme: readIfPresent("README.md"),
   screenshotFiles: screenshotFiles(),
   bridgeInstallDocument: readIfPresent("docs/BROWSER_BRIDGE_INSTALL.md"),

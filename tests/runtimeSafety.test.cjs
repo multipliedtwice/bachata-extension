@@ -237,7 +237,7 @@ test("stored attachment controls use separate labels and buttons", async () => {
     /<div class="attachment-chip"[^>]*><input id="\$\{escapeAttribute\(inputId\)\}" type="checkbox"[^>]*aria-label="\$\{escapeAttribute\(localize\("Include \{0\} in this message", attachment\.name\)\)\}"/u,
   );
   assert.match(source, /<label for="\$\{escapeAttribute\(inputId\)\}">/u);
-  assert.match(source, /<\/label><button type="button" data-action="attachment-remove"/u);
+  assert.match(source, /<\/label><button type="button"[^>]*data-action="attachment-remove"/u);
   assert.doesNotMatch(source, /<label class="attachment-chip"/u);
 });
 

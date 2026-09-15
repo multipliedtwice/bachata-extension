@@ -212,9 +212,9 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
           }
         });
         cy.get('[data-action="result-continue"]').should("have.attr", "aria-disabled", "true").and("have.attr", "aria-describedby");
-        cy.get(".result-continuation-reason").should("be.visible").and("contain.text", "No write-capable pipeline is available");
+        cy.get(".result-continuation-tooltip").should("contain.text", "No write-capable pipeline is available");
         cy.get(".execution-result-footer .result-selection-count").should("have.text", "3 of 3 issues selected");
-        cy.get(".execution-result-footer .result-selection-detail").should("have.text", "1 needs confirmation");
+        cy.get(".execution-result-footer .result-selection-detail").should("not.exist");
         let footerPosition;
         cy.get(".conversation-column").should(($column) => {
           expectFooterLayout($column[0]);
@@ -235,6 +235,45 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
       });
     }
   }
+
+  it("expands the report between the selection summary and next-pipeline controls", () => {
+    cy.viewport(400, 900);
+    boot("inconclusive");
+    cy.get(".result-center").should("not.exist");
+    cy.get('[data-action="result-details-toggle"]')
+      .should("have.text", "Review details")
+      .and("have.attr", "aria-expanded", "false")
+      .click();
+    cy.get(".conversation-viewport").should("have.attr", "inert").and("have.attr", "aria-hidden", "true");
+    cy.get(".execution-result-footer").should("have.class", "result-details-open").then(($footer) => {
+      const column = $footer[0].closest(".conversation-column").getBoundingClientRect();
+      const footer = $footer[0].getBoundingClientRect();
+      const action = $footer[0].querySelector(".result-continuation-action");
+      const overview = action.querySelector(".result-continuation-overview").getBoundingClientRect();
+      const details = action.querySelector(".result-details-panel").getBoundingClientRect();
+      const controls = action.querySelector(".result-continuation-controls").getBoundingClientRect();
+      expect(Math.abs(footer.top - column.top)).to.be.at.most(1);
+      expect(Math.abs(footer.bottom - column.bottom)).to.be.at.most(1);
+      expect(details.top).to.be.at.least(overview.bottom);
+      expect(details.bottom).to.be.at.most(controls.top);
+    });
+    cy.get(".result-details-panel").should("be.visible").and("contain.text", "The first participant conclusion.").and("contain.text", "The remaining finding still needs confirmation.");
+    cy.get('.result-details-panel [data-action="result-copy"]').should("exist");
+    cy.get('[data-action="result-details-toggle"]').should("be.focused").and("have.text", "Hide details");
+    cy.get(".result-details-scroll").scrollTo("bottom").then(($scroll) => {
+      expect($scroll[0].scrollTop).to.be.greaterThan(0);
+      cy.window().then((win) => win.__send({ type: "manager.snapshot", state: structuredClone(win.__executionManagerState) }));
+      cy.get(".result-details-scroll").should(($next) => expect($next[0].scrollTop).to.equal($scroll[0].scrollTop));
+    });
+    cy.get('[data-action="result-details-toggle"]').click();
+    cy.get(".result-details-panel").should("not.exist");
+    cy.get(".conversation-viewport").should("not.have.attr", "inert").and("not.have.attr", "aria-hidden");
+    cy.get('[data-action="result-details-toggle"]').should("be.focused").and("have.text", "Review details").click();
+    cy.get('[data-action="result-details-toggle"]').should("be.focused").type("{esc}");
+    cy.get(".result-details-panel").should("not.exist");
+    cy.get(".conversation-viewport").should("exist");
+    cy.get('[data-action="result-details-toggle"]').should("be.focused");
+  });
 
   it("uses authoritative steps and sends every response kind to the exact Chat message", () => {
     cy.viewport(400, 900);
@@ -313,7 +352,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
     cy.get(".execution-result-footer .result-selection-count").should("have.text", "2 of 2 issues selected");
     cy.get('[data-finding-id="finding-1"]').uncheck();
     cy.get(".execution-result-footer .result-selection-count").should("have.text", "1 of 2 issues selected");
-    cy.get(".execution-result-footer .result-selection-detail").should("have.text", "No unresolved issues selected.");
+    cy.get(".execution-result-footer .result-selection-detail").should("not.exist");
     cy.get('[data-action="result-pipeline-select"]').select("implement-ui");
     cy.get('[data-finding-id="finding-0"]').focus();
     cy.window().then((win) => {
@@ -337,7 +376,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
     cy.get('[data-action="result-finding-select"]').should("have.length", 3).each(($input) => cy.wrap($input).should("not.be.disabled"));
     cy.get('[data-finding-id="finding-1"]').uncheck();
     cy.get('[data-action="result-continue"]').should("have.attr", "aria-disabled", "true").click();
-    cy.get(".result-continuation-reason").should("contain.text", "No write-capable pipeline is available");
+    cy.get(".result-continuation-tooltip").should("contain.text", "No write-capable pipeline is available");
     cy.get("#bachata-live-status").should("contain.text", "No write-capable pipeline is available");
     cy.window().then((win) => {
       expect(win.__posted.some((message) => message.type === "conversation.continueFromResult")).to.equal(false);
@@ -390,7 +429,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
     cy.get("#conversation-scroll").scrollTo("bottom");
     cy.get(".execution-result-footer").should("be.visible").within(() => {
       cy.get(".result-selection-count").should("have.text", "1 of 2 issues selected");
-      cy.get(".result-continuation-guidance").should("have.text", "Opens an editable draft. Execution starts only after you submit it.");
+      cy.get(".result-continuation-tooltip").should("have.text", "Opens an editable draft. Execution starts only after you submit it.");
       cy.get('[data-action="result-pipeline-select"]').select("implement-ui").focus();
     });
     pressTab();
@@ -423,7 +462,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
     cy.get('[data-finding-id="finding-1"]').uncheck();
     cy.get(".execution-result-footer .result-selection-count").should("have.text", "0 of 2 issues selected");
     cy.get('.execution-result-footer [data-action="result-continue"]').should("have.attr", "aria-disabled", "true");
-    cy.get(".execution-result-footer .result-continuation-reason").should("have.text", "Select at least one finding to include in the new pipeline.");
+    cy.get(".execution-result-footer .result-continuation-tooltip").should("contain.text", "Select at least one finding to include in the new pipeline.");
     cy.window().then((win) => { win.__posted.length = 0; });
     cy.get('.execution-result-footer [data-action="result-continue"]').click();
     cy.window().then((win) => {
@@ -433,7 +472,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
       win.__send({ type: "manager.snapshot", state: structuredClone(win.__executionManagerState) });
     });
     cy.get(".execution-result-footer .result-selection-count").should("have.text", "0 issues selected");
-    cy.get(".execution-result-footer .result-selection-detail").should("have.text", "The report assessment and evidence will be carried forward.");
+    cy.get(".execution-result-footer .result-selection-detail").should("not.exist");
     cy.get('.execution-result-footer [data-action="result-continue"]').should("not.have.attr", "aria-disabled").click();
     cy.window().should((win) => expect(win.__posted).to.deep.equal([{
       type: "conversation.continueFromResult", conversationId: "run-1", resultVersion: "displayed-result",

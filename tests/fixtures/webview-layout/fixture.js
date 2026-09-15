@@ -373,4 +373,28 @@ window.__bootExecution = () => {
   });
 };
 
+window.__bootPristine = () => {
+  const draft = {
+    ...conversationSummary,
+    id: "draft-1",
+    runRef: "RNEW00001",
+    title: "[RNEW00001] New run",
+  };
+  window.__send({
+    type: "manager.snapshot",
+    state: {
+      ...window.__managerState,
+      conversations: [draft],
+      activeConversationId: draft.id,
+      eventsByConversation: {},
+      resultsByConversation: {},
+    },
+  });
+  window.__send({
+    type: "conversation.message",
+    conversationId: draft.id,
+    message: { type: "state.snapshot", state: { ...window.__panelState, taskId: draft.id } },
+  });
+};
+
 window.__boot();

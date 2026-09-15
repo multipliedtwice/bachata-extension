@@ -25,10 +25,14 @@ const notificationLevelLabel: Record<"decision" | "material" | "routine", string
  */
 const notificationBellHtml = (): string => {
   const center = notificationCenterState();
-  if (center.mode === "off" || center.events.length === 0) return "";
   const unread = center.unread;
-  const list = `<ul class="notification-list">${center.events
+  const list = center.events.length === 0
+    ? `<p class="notification-empty">${escapeHtml(center.mode === "off" ? localize("Notifications are off.") : localize("No notifications."))}</p>`
+    : `<ul class="notification-list">${center.events
         .map((entry) => `<li class="notification-${escapeAttribute(entry.level)}${entry.read ? "" : " unread"}">${entry.read ? "" : `<strong class="notification-unread-flag">${escapeHtml(localize("Unread"))}</strong>`}<span class="notification-level">${escapeHtml(notificationLevelLabel[entry.level])}</span><p id="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(entry.text)}</p><div class="compact-actions"><button data-action="notification-open" data-record="${escapeAttribute(entry.id)}" aria-describedby="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(notificationActionLabel[entry.action])}</button></div></li>`)
         .join("")}</ul>`;
-  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary id="notification-button" aria-label="${escapeAttribute(localize("Notifications, {0} unread", String(unread)))}" title="${escapeAttribute(localize("Notifications"))}"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="${escapeAttribute(localize("Notifications"))}"><div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>${escapeHtml(localize("Mark all read"))}</button><button data-action="notification-clear">${escapeHtml(localize("Clear"))}</button><button data-action="notification-settings">${escapeHtml(localize("Settings"))}</button></div>${list}</div></details>`;
+  const summaryLabel = center.mode === "off"
+    ? localize("Notifications are off")
+    : localize("Notifications, {0} unread", String(unread));
+  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary class="icon-button" id="notification-button" aria-label="${escapeAttribute(summaryLabel)}" title="${escapeAttribute(localize("Notifications"))}"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="${escapeAttribute(localize("Notifications"))}"><div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>${escapeHtml(localize("Mark all read"))}</button><button data-action="notification-clear"${center.events.length === 0 ? " disabled" : ""}>${escapeHtml(localize("Clear"))}</button><button data-action="notification-settings">${escapeHtml(localize("Settings"))}</button></div>${list}</div></details>`;
 };

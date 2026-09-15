@@ -13,6 +13,21 @@ test("the VSIX verifier CLI refuses invocation without an artifact on every plat
   assert.match(result.stderr, /Expected VSIX path/u);
 });
 
+test("the packaged module smoke provides the stable VS Code localization API", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-packaged-smoke-"));
+  const entry = path.join(directory, "entry.cjs");
+  try {
+    fs.writeFileSync(entry, 'const vscode = require("vscode"); if (vscode.l10n.t("Hello {0}", "world") !== "Hello world") throw new Error("localization unavailable");\n');
+    const result = spawnSync(process.execPath, [path.join(__dirname, "..", "scripts", "verify-packaged-extension.cjs"), entry], { encoding: "utf8" });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const crcTable = Array.from({ length: 256 }, (_, value) => {
   let crc = value;
   for (let index = 0; index < 8; index += 1) {
@@ -250,7 +265,9 @@ test("verification rejects unsafe, duplicate, and self-executing archives withou
 });
 
 test("packaged first-party sources are compared against the working tree", async () => {
-  const { packagedSourceEquivalence, staleVsixEntries } = await import(verifierPath);
+  const { packagedSourceEquivalence, shippedSourceFiles, staleVsixEntries } = await import(verifierPath);
+
+  assert.deepEqual(await shippedSourceFiles({ files: ["package.nls*.json"] }), ["package.nls.json"]);
 
   const pairs = packagedSourceEquivalence([
     "package.json",

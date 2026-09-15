@@ -14,6 +14,7 @@ export type AgentDefinition = {
   capabilities?: string[];
   command?: string;
   model?: string;
+  reasoningEffort?: string;
   workingDirectory?: string;
   permissionMode?: string;
   approvalPolicy?: CodexApprovalPolicy;

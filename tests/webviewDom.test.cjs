@@ -304,7 +304,7 @@ class FakeDocument {
 // real URL constructor and only add the object-URL helpers the attachment preview calls.
 const RealURL = globalThis.URL;
 
-const installGlobals = () => {
+const installGlobals = (initialWebviewState) => {
   const names = [
     "document",
     "window",
@@ -329,7 +329,7 @@ const installGlobals = () => {
   ];
   const saved = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const messages = [];
-  const webviewState = { value: undefined };
+  const webviewState = { value: initialWebviewState };
   const clipboard = { writes: [], refuse: false };
   const windowListeners = new Map();
   const documentValue = new FakeDocument();
@@ -563,6 +563,35 @@ const conversationSummary = () => ({
   pipelineScopeRoot: "/workspace",
 });
 
+test("run tabs omit a pristine New run draft until it becomes meaningful", () => {
+  const pristine = {
+    ...conversationSummary(),
+    id: "draft-1",
+    runRef: "RNEW00001",
+    title: "[RNEW00001] New run",
+    selectedPipelineId: "custom-a",
+    input: undefined,
+    preparedDraft: undefined,
+  };
+  const harness = bootWebview(managerState({ conversations: [pristine], activeConversationId: pristine.id }), panelState());
+  try {
+    const root = harness.document.root;
+    assert.equal(root.querySelector(".run-tab"), null);
+    assert.ok(root.querySelector("#composer-prompt"));
+    assert.ok(root.querySelector('[data-action="create-conversation"]'));
+    root.querySelector('[data-action="run-drawer-toggle"]').click();
+    assert.equal(root.querySelector(".run-drawer-item"), null);
+    assert.ok(root.querySelector(".run-drawer-list .empty-list"));
+
+    const prepared = { ...pristine, preparedDraft: "Fix the selected findings" };
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ conversations: [prepared], activeConversationId: prepared.id }) });
+    assert.equal(root.querySelectorAll(".run-tab").length, 1);
+    assert.equal(root.querySelectorAll(".run-drawer-item").length, 1);
+    assert.equal(root.querySelector('.run-tab-tools [data-view="chat"]'), null);
+    assert.equal(root.querySelector('.run-tab-tools [data-view="execution"]'), null);
+  } finally { harness.restore(); }
+});
+
 test("run tabs omit their own reference while preserving readable bracketed titles", () => {
   const runs = [
     { ...conversationSummary(), id: "first", runRef: "R8HYQPMZ6", title: "[R8HYQPMZ6] Fix the tab order" },
@@ -605,6 +634,35 @@ test("run tabs keep creation order across selection activity snapshots and reloa
   const restored = bootWebview(manager, panelState());
   try { assert.deepEqual(order(restored), ["first", "second", "third", "fourth"]); }
   finally { restored.restore(); }
+});
+
+test("the selected run tab owns view controls, notifications, and one grouped action menu", () => {
+  const event = { id: 1, type: "run.started", status: "running", title: "Started", createdAt: timestamp };
+  const harness = bootWebview(managerState({ eventsByConversation: { "run-1": [event] } }), panelState());
+  try {
+    const root = harness.document.root;
+    const selected = root.querySelector(".run-tab.selected");
+    assert.ok(selected);
+    assert.equal(root.querySelector(".room-header"), null);
+    assert.equal(root.querySelector(".view-switch"), null);
+    assert.equal(selected.querySelectorAll(".run-tab-tools").length, 1);
+    assert.equal(selected.querySelector('[data-view="chat"]').getAttribute("aria-label"), "Chat");
+    assert.equal(selected.querySelector('[data-view="execution"]').getAttribute("aria-label"), "Execution");
+    assert.equal(selected.querySelector('[data-view="chat"]').textContent, "");
+    assert.equal(selected.querySelector('[data-view="execution"]').textContent, "");
+    assert.equal(selected.querySelectorAll(".header-action-menu").length, 1);
+    assert.equal(selected.querySelector(".header-action-menu > summary").id, "room-actions-button");
+    assert.equal(selected.querySelectorAll(".run-action-menu-group").length, 3);
+    assert.deepEqual(
+      selected.querySelectorAll(".run-action-menu-label").map((label) => label.textContent),
+      ["Run", "Workspace", "Danger zone"],
+    );
+    const notificationSettings = selected.querySelector('.notification-center [data-action="notification-settings"]');
+    assert.ok(notificationSettings);
+    assert.equal(selected.querySelector('.header-action-menu [data-action="notification-settings"]'), null);
+  } finally {
+    harness.restore();
+  }
 });
 
 const managerState = (overrides = {}) => ({
@@ -698,8 +756,8 @@ const panelState = (overrides = {}) => ({
   ...overrides,
 });
 
-const bootWebview = (manager = managerState(), panel = panelState(), localization) => {
-  const harness = installGlobals();
+const bootWebview = (manager = managerState(), panel = panelState(), localization, initialWebviewState) => {
+  const harness = installGlobals(initialWebviewState);
   if (localization !== undefined) {
     const configuration = new FakeHTMLElement("script");
     configuration.id = "bachata-localization";
@@ -2261,12 +2319,15 @@ test("the pipeline picker is a keyboard combobox that selects a pipeline", () =>
     assert.equal(opened.getAttribute("aria-controls"), "pipeline-picker-list");
     const list = harness.document.getElementById("pipeline-picker-list");
     assert.equal(list.getAttribute("role"), "listbox");
+    const search = harness.document.getElementById("pipeline-picker-search");
+    assert.equal(harness.document.activeElement.id, "pipeline-picker-search");
+    assert.equal(search.getAttribute("aria-controls"), "pipeline-picker-list");
     const selectedOption = harness.document.root.querySelector('[data-action="pipeline-picker-select"][data-pipeline-id="custom-a"]');
     assert.equal(selectedOption.getAttribute("role"), "option");
     assert.equal(selectedOption.getAttribute("aria-selected"), "true");
     // ArrowDown moves the active option, Enter commits it, and the runtime is asked to switch.
-    harness.document.root.dispatch("keydown", { key: "ArrowDown", target: opened, preventDefault: () => undefined });
-    harness.document.root.dispatch("keydown", { key: "Enter", target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
+    harness.document.root.dispatch("keydown", { key: "ArrowDown", target: search, preventDefault: () => undefined });
+    harness.document.root.dispatch("keydown", { key: "Enter", target: harness.document.getElementById("pipeline-picker-search"), preventDefault: () => undefined });
     const request = harness.messages.at(-1);
     assert.equal(request.message.type, "pipeline.select");
     assert.equal(request.message.pipelineId, "custom-b");
@@ -2357,19 +2418,22 @@ test("Enter in the prompt never selects a pipeline when a picker popover was lef
   }
 });
 
-test("Tab out of the pipeline picker closes it and lets focus move on", () => {
+test("the pipeline trigger hands keyboard focus to search", () => {
   const harness = bootWebview();
   try {
     harness.document.getElementById("pipeline-picker-button").click();
     assert.ok(harness.document.getElementById("pipeline-picker-list"), "the picker did not open");
+    assert.equal(harness.document.activeElement.id, "pipeline-picker-search");
+    harness.document.getElementById("pipeline-picker-button").focus();
     harness.document.root.dispatch("keydown", { key: "Tab", target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
-    assert.equal(harness.document.getElementById("pipeline-picker-list"), null, "Tab left the picker open");
+    assert.equal(harness.document.activeElement.id, "pipeline-picker-search");
+    assert.ok(harness.document.getElementById("pipeline-picker-list"));
   } finally {
     harness.restore();
   }
 });
 
-test("keyboard users can expand workflows, return to the options, and select a specialized pipeline", () => {
+test("keyboard users can filter and select a specialized pipeline", () => {
   const specialized = { id: "specialized-z", name: "Zebra specialized review", editable: false, hash: "c".repeat(64), scopeKey: "builtin" };
   const base = panelState();
   const harness = bootWebview(managerState(), { ...base, pipelines: [...base.pipelines, specialized] });
@@ -2383,14 +2447,10 @@ test("keyboard users can expand workflows, return to the options, and select a s
   try {
     harness.document.getElementById("pipeline-picker-button").focus();
     key("ArrowDown");
-    key("Tab");
-    assert.equal(harness.document.activeElement.id, "pipeline-picker-more");
     assert.ok(harness.document.getElementById("pipeline-picker-list"));
-    key("Enter");
+    harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="specialized"]').click();
     assert.ok(harness.document.root.querySelector('[data-pipeline-id="specialized-z"]'));
-    assert.equal(harness.document.activeElement.id, "pipeline-picker-more");
-    key("Tab", true);
-    assert.equal(harness.document.activeElement.id, "pipeline-picker-button");
+    harness.document.getElementById("pipeline-picker-search").focus();
     key("End");
     key("Enter");
     assert.equal(harness.messages.filter((entry) => entry.message?.type === "pipeline.select").at(-1).message.pipelineId, specialized.id);
@@ -2398,20 +2458,19 @@ test("keyboard users can expand workflows, return to the options, and select a s
   } finally { harness.restore(); }
 });
 
-test("More workflows permits Escape and forward Tab to leave the picker", () => {
+test("category selection is remembered and Escape returns to the picker trigger", () => {
   const base = panelState();
   const harness = bootWebview(managerState(), { ...base, pipelines: [...base.pipelines, { id: "specialized", name: "Specialized", editable: false, hash: "c".repeat(64), scopeKey: "builtin" }] });
   try {
-    for (const key of ["Escape", "Tab"]) {
-      harness.document.getElementById("pipeline-picker-button").click();
-      const more = harness.document.getElementById("pipeline-picker-more");
-      more.focus();
-      let prevented = false;
-      harness.document.root.dispatch("keydown", { key, target: more, preventDefault() { prevented = true; } });
-      assert.equal(harness.document.getElementById("pipeline-picker-list"), null);
-      assert.equal(prevented, key === "Escape");
-      if (key === "Escape") assert.equal(harness.document.activeElement.id, "pipeline-picker-button");
-    }
+    harness.document.getElementById("pipeline-picker-button").click();
+    harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="specialized"]').click();
+    assert.equal(harness.webviewState.value.pipelinePickerFilter, "specialized");
+    const search = harness.document.getElementById("pipeline-picker-search");
+    harness.document.root.dispatch("keydown", { key: "Escape", target: search, preventDefault: () => undefined });
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null);
+    assert.equal(harness.document.activeElement.id, "pipeline-picker-button");
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.equal(harness.document.root.querySelector('[data-action="pipeline-picker-filter"][aria-pressed="true"]').getAttribute("data-pipeline-filter"), "specialized");
   } finally { harness.restore(); }
 });
 
@@ -4453,7 +4512,7 @@ test("the notification bell shows an unread count and keeps each notification in
     harness.document.root.querySelector('[data-action="notification-read-all"]').click();
     assert.deepEqual(harness.messages.at(-1), { type: "notifications.markAllRead" });
 
-    harness.document.root.querySelector('.header-action-menu [data-action="notification-settings"]').click();
+    harness.document.root.querySelector('.notification-center [data-action="notification-settings"]').click();
     const mode = harness.document.getElementById("notification-mode");
     mode.value = "off";
     harness.document.root.dispatch("change", { target: mode });
@@ -4463,7 +4522,7 @@ test("the notification bell shows an unread count and keeps each notification in
   }
 });
 
-test("notifications turned off render no bell badge and no inline bubble", () => {
+test("notifications turned off keep settings behind the bell without a badge or inline bubble", () => {
   const harness = bootWebview(managerState({
     notifications: { mode: "off", unread: 0, events: [] },
   }));
@@ -4471,8 +4530,9 @@ test("notifications turned off render no bell badge and no inline bubble", () =>
     const html = harness.document.root.innerHTML;
     assert.equal(html.includes("notification-unread"), false);
     assert.equal(html.includes("notification-bubble"), false);
-    assert.equal(html.includes("notification-center"), false);
-    harness.document.root.querySelector('.header-action-menu [data-action="notification-settings"]').click();
+    assert.equal(html.includes("notification-center"), true);
+    assert.match(html, /Notifications are off\./u);
+    harness.document.root.querySelector('.notification-center [data-action="notification-settings"]').click();
     assert.ok(harness.document.getElementById("notification-mode") !== null);
   } finally {
     harness.restore();
@@ -5784,7 +5844,7 @@ const MARKERS = {
 
 const assertMatrixRow = (label, html, expected) => {
   for (const [marker, pattern] of Object.entries(MARKERS)) {
-    const shouldShow = expected.visible.includes(marker);
+    const shouldShow = marker === "bell" || expected.visible.includes(marker);
     assert.equal(
       html.includes(pattern),
       shouldShow,
@@ -6074,7 +6134,7 @@ test("the human gate is answerable from the chat view, names its default and its
     assert.match(html, /class="primary" data-action="gate" data-gate-action="continue"/u, "no default action");
     assert.match(html, /Ask Worker to rule/u, "the arbiter button names a fixed agent");
     assert.match(html, /<label for="rollback-target">Return to step<\/label>/u, "the rollback target has no visible label");
-    assert.match(html, /class="room-status status-paused"><span[^>]*>Waiting for you<\/span>/u, "the header contradicts the gate");
+    assert.match(html, /class="room-status status-paused sr-only"><span[^>]*>Waiting for you<\/span>/u, "the selected tab contradicts the gate");
     assert.doesNotMatch(html, /<small>int-/u);
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"][data-focus="pending-decision"]').click();
     assert.equal(harness.document.activeElement.id, "pending-gate", "Review and continue left focus on the body");
@@ -6848,6 +6908,7 @@ test("a completed result can be copied or continued in a prepared implementation
   );
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    harness.document.root.querySelector('[data-action="result-details-toggle"]').click();
     const copy = harness.document.root.querySelector('[data-action="result-copy"]');
     const start = harness.document.root.querySelector('[data-action="result-continue"]');
     assert.ok(copy, "the completed result has no copy action");
@@ -7090,6 +7151,37 @@ test("primary chat keeps messages and errors visible with prompts available from
   }
 });
 
+test("a resumed workflow is a quiet chronological transition without a data card", () => {
+  const harness = bootWebview(
+    managerState(),
+    panelState({
+      transcript: [
+        { id: "before-resume", kind: "answer", agentId: "lead", text: "Work before the interruption", createdAt: timestamp },
+        { id: "resume-marker", kind: "event", eventType: "workflow.resumed", text: "Legacy resume wording", data: { pipelineId: "custom-a", nextStepIndex: 1 }, createdAt: timestamp },
+        { id: "after-resume", kind: "answer", agentId: "worker", text: "Work after the interruption", createdAt: timestamp },
+      ],
+      transcriptTotal: 3,
+    }),
+  );
+  try {
+    const root = harness.document.root;
+    const marker = root.querySelector('[data-entry="resume-marker"]');
+    assert.ok(marker);
+    assert.match(marker.getAttribute("class"), /workflow-transition/u);
+    assert.equal(marker.getAttribute("role"), "separator");
+    assert.equal(marker.getAttribute("aria-label"), "Continued after interruption · from step 2");
+    assert.equal(marker.textContent, "Continued after interruption · from step 2");
+    assert.equal(marker.querySelector("details"), null);
+    assert.equal(marker.querySelector("time"), null);
+    assert.doesNotMatch(marker.textContent, /Structured data|workflow resumed|Legacy resume wording/iu);
+    const html = root.innerHTML;
+    assert.ok(html.indexOf("Work before the interruption") < html.indexOf('data-entry="resume-marker"'));
+    assert.ok(html.indexOf('data-entry="resume-marker"') < html.indexOf("Work after the interruption"));
+  } finally {
+    harness.restore();
+  }
+});
+
 const failedResultState = () => ({
   status: "error",
   changedFiles: [],
@@ -7290,7 +7382,7 @@ test("a working room draws no result and no recovery, even beside a stale result
     }
     harness.document.root.querySelector('[data-action="room-view"][data-view="chat"]').click();
     const html = harness.document.root.innerHTML;
-    assert.match(html, /class="room-status status-running"><i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"><\/i><span[^>]*>Working<\/span>/u);
+    assert.match(html, /class="room-status status-running sr-only"><i class="codicon codicon-loading codicon-modifier-spin room-status-activity" aria-hidden="true"><\/i><span[^>]*>Working<\/span>/u);
     assert.doesNotMatch(html, /codicon-sync/u, "a refresh icon stands for progress");
     assert.ok(harness.document.root.querySelector('.composer-send [data-action="interrupt-run"]'), "Stop is not offered");
   } finally {
@@ -7929,24 +8021,25 @@ test("composer replaces Send with Stop and rejects repeated stop activation", ()
   }
 });
 
-test("notification preferences remain available from run actions without notifications", () => {
+test("notification preferences remain available from the bell without notifications", () => {
   const harness = bootWebview();
   try {
-    assert.equal(harness.document.root.querySelector(".notification-center"), null);
-    harness.document.root.querySelector('.header-action-menu [data-action="notification-settings"]').click();
+    assert.ok(harness.document.root.querySelector(".notification-center"));
+    harness.document.root.querySelector('.notification-center [data-action="notification-settings"]').click();
     const setting = harness.document.getElementById("notification-mode");
     assert.ok(setting.closest(".app-dialog"));
     assert.equal(setting.closest(".header-action-menu"), null);
-    for (const action of ["inspector-toggle", "notification-settings", "availability-check", "working-directory", "transcript-export", "task-reset"]) {
+    for (const action of ["inspector-toggle", "availability-check", "working-directory", "transcript-export", "task-reset"]) {
       assert.ok(harness.document.root.querySelector(`.header-action-menu [data-action="${action}"]`), action);
     }
+    assert.equal(harness.document.root.querySelector('.header-action-menu [data-action="notification-settings"]'), null);
     assert.ok(harness.document.root.querySelector('.header-action-menu [data-action="task-reset"]').className.includes("danger"));
   } finally {
     harness.restore();
   }
 });
 
-test("common workflows are discoverable without internal stages or compatibility copies", () => {
+test("pipeline categories separate common, internal and compatibility workflows", () => {
   const { pipelinePickerMetadata } = require("../dist/pipeline/pipelineCatalog.js");
   const presets = ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine", "todo-master", "claude-review"].map((id) => ({ id, name: id, editable: false, hash: "a".repeat(64), scopeKey: "builtin", ...pipelinePickerMetadata(id, false) }));
   const harness = bootWebview(managerState(), panelState({ pipelines: presets, selectedPipelineId: "codex-review" }));
@@ -7957,9 +8050,12 @@ test("common workflows are discoverable without internal stages or compatibility
     assert.ok(harness.document.root.querySelector('[data-pipeline-id="code-review-refine"]'));
     assert.equal(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'), null);
     assert.equal(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'), null);
-    harness.document.getElementById("pipeline-picker-more").click();
+    harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="internal"]').click();
     assert.ok(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'));
+    assert.equal(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'), null);
+    harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="compatibility"]').click();
     assert.ok(harness.document.root.querySelector('[data-pipeline-id="claude-review"]'));
+    assert.equal(harness.document.root.querySelector('[data-pipeline-id="todo-master"]'), null);
   } finally { harness.restore(); }
 });
 
@@ -8013,7 +8109,7 @@ test("header action matrix keeps navigation and export available and explains mu
     { name: "catalog conflict", panel: { pipelineMutable: false, pipelineMutationReason: "Resolve the catalog conflict" }, archived: false, hidden: [], disabled: [] },
     { name: "archived", panel: {}, archived: true, hidden: ["availability-check", "working-directory", "orchestration-start", "task-reset"], disabled: [] },
   ];
-  const actions = ["inspector-toggle", "notification-settings", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
+  const actions = ["inspector-toggle", "availability-check", "working-directory", "orchestration-start", "transcript-export", "task-reset"];
   for (const row of cases) {
     const manager = managerState();
     manager.conversations[0].archived = row.archived;
@@ -8095,7 +8191,7 @@ for (const status of ["running", "waiting"]) {
   });
 }
 
-test("unfamiliar built-in workflows are discovered behind More workflows from metadata", () => {
+test("unfamiliar built-in workflows remain discoverable in Specialized", () => {
   const unfamiliar = { id: "new-built-in-audit", name: "Concurrency audit", editable: false, hash: "c".repeat(64), scopeKey: "builtin", participantCount: 2, participantNames: ["Reviewer", "Implementer"], stepCount: 3 };
   const panel = panelState();
   panel.pipelines.push(unfamiliar);
@@ -8103,12 +8199,10 @@ test("unfamiliar built-in workflows are discovered behind More workflows from me
   try {
     harness.document.getElementById("pipeline-picker-button").click();
     assert.equal(harness.document.root.querySelector(`[data-pipeline-id="${unfamiliar.id}"]`), null);
-    const more = harness.document.getElementById("pipeline-picker-more");
-    assert.ok(more);
-    more.click();
+    const specialized = harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="specialized"]');
+    assert.ok(specialized);
+    specialized.click();
     assert.ok(harness.document.root.innerHTML.includes("Concurrency audit"));
-    harness.document.getElementById("pipeline-picker-more").click();
-    assert.ok(!harness.document.root.innerHTML.includes("Concurrency audit"));
   } finally { harness.restore(); }
 });
 
@@ -8141,29 +8235,59 @@ test("candidate-bound evidence retains acceptance context and groups provenance 
   } finally { harness.restore(); }
 });
 
-test("pipeline picker follows catalog prominence, retains custom and selected specialized workflows, and preserves keyboard order", () => {
+test("pipeline picker searches within categories and restores the remembered filter", () => {
   const pipelines = [
-    { id: "specialized-selected", name: "Specialized review", editable: false },
-    { id: "custom-visible", name: "Custom review", editable: true },
-    { id: "compatibility-copy", name: "Compatibility review", editable: false },
-    { id: "new-catalog-common", name: "Zebra review", editable: false, prominentOrder: 0 },
-    { id: "another-catalog-common", name: "Alpha review", editable: false, prominentOrder: 1 },
+    { id: "specialized-selected", name: "Specialized review", editable: false, pickerCategory: "specialized" },
+    { id: "custom-visible", name: "Custom review", editable: true, pickerCategory: "custom", description: "Checks keyboard behavior", participantNames: ["Accessibility reviewer"] },
+    { id: "compatibility-copy", name: "Compatibility review", editable: false, pickerCategory: "compatibility" },
+    { id: "new-catalog-common", name: "Zebra review", editable: false, pickerCategory: "common", prominentOrder: 0 },
+    { id: "another-catalog-common", name: "Alpha review", editable: false, pickerCategory: "common", prominentOrder: 1 },
   ].map((pipeline) => ({ hash: "a".repeat(64), scopeKey: pipeline.editable ? "workspace:/workspace" : "builtin", ...pipeline }));
   const harness = bootWebview(managerState(), panelState({ pipelines, selectedPipelineId: "specialized-selected" }));
   const visibleIds = () => [...harness.document.root.querySelectorAll('[data-action="pipeline-picker-select"]')].map((node) => node.getAttribute("data-pipeline-id"));
-  const keyboard = (key) => harness.document.root.dispatch("keydown", { key, target: harness.document.getElementById("pipeline-picker-button"), preventDefault: () => undefined });
+  const keyboard = (key) => harness.document.root.dispatch("keydown", { key, target: harness.document.getElementById("pipeline-picker-search"), preventDefault: () => undefined });
   try {
     harness.document.getElementById("pipeline-picker-button").click();
-    assert.deepEqual(visibleIds(), ["new-catalog-common", "another-catalog-common", "custom-visible", "specialized-selected"]);
-    assert.equal(harness.document.root.querySelector('[data-pipeline-id="specialized-selected"]').getAttribute("aria-selected"), "true");
-    assert.equal(harness.document.activeElement.id, "pipeline-picker-button");
+    assert.deepEqual(visibleIds(), ["new-catalog-common", "another-catalog-common"]);
+    assert.ok(harness.document.root.querySelector('[data-pipeline-filter="all"]'));
+    assert.ok(harness.document.root.querySelector('[data-pipeline-filter="custom"]'));
+    harness.document.root.querySelector('[data-pipeline-filter="custom"]').click();
+    assert.deepEqual(visibleIds(), ["custom-visible"]);
+    const search = harness.document.getElementById("pipeline-picker-search");
+    search.value = "accessibility";
+    harness.document.root.dispatch("input", { target: search });
+    assert.deepEqual(visibleIds(), ["custom-visible"]);
+    const rerenderedSearch = harness.document.getElementById("pipeline-picker-search");
+    rerenderedSearch.value = "missing";
+    harness.document.root.dispatch("input", { target: rerenderedSearch });
+    assert.deepEqual(visibleIds(), []);
+    assert.match(harness.document.root.innerHTML, /No pipelines found/u);
+    const clearedSearch = harness.document.getElementById("pipeline-picker-search");
+    clearedSearch.value = "";
+    harness.document.root.dispatch("input", { target: clearedSearch });
+    harness.document.root.querySelector('[data-pipeline-filter="common"]').click();
     keyboard("Home");
-    assert.equal(harness.document.getElementById("pipeline-picker-button").getAttribute("aria-activedescendant"), harness.document.root.querySelector('[data-pipeline-id="new-catalog-common"]').id);
+    assert.equal(harness.document.getElementById("pipeline-picker-search").getAttribute("aria-activedescendant"), harness.document.root.querySelector('[data-pipeline-id="new-catalog-common"]').id);
     keyboard("ArrowDown");
     keyboard("Enter");
     assert.equal(harness.messages.filter((entry) => entry.message?.type === "pipeline.select").length, 1);
     assert.equal(harness.messages.at(-1).message.pipelineId, "another-catalog-common");
     assert.equal(harness.document.getElementById("pipeline-picker-list"), null);
+  } finally { harness.restore(); }
+});
+
+test("pipeline picker restores its last category and omits Custom and All without custom definitions", () => {
+  const pipelines = [
+    { id: "common", name: "Common", editable: false, pickerCategory: "common", prominentOrder: 0 },
+    { id: "specialized", name: "Specialized", editable: false, pickerCategory: "specialized" },
+  ].map((pipeline) => ({ hash: "a".repeat(64), scopeKey: "builtin", ...pipeline }));
+  const harness = bootWebview(managerState(), panelState({ pipelines, selectedPipelineId: "common" }), undefined, { pipelinePickerFilter: "specialized" });
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    assert.deepEqual([...harness.document.root.querySelectorAll('[data-action="pipeline-picker-select"]')].map((node) => node.getAttribute("data-pipeline-id")), ["specialized"]);
+    assert.equal(harness.document.root.querySelector('[data-pipeline-filter="specialized"]').getAttribute("aria-pressed"), "true");
+    assert.equal(harness.document.root.querySelector('[data-pipeline-filter="custom"]'), null);
+    assert.equal(harness.document.root.querySelector('[data-pipeline-filter="all"]'), null);
   } finally { harness.restore(); }
 });
 
@@ -8279,9 +8403,10 @@ test("workspace shell uses the existing logo and keeps Direction inside Runs", (
   try {
     const before = harness.messages.length;
     const logo = harness.document.root.querySelector(".run-tabs-brand");
-    assert.equal(logo.tagName, "BUTTON");
-    assert.equal(logo.getAttribute("aria-label"), "Home");
-    assert.equal(logo.getAttribute("title"), "Bachata");
+    assert.equal(logo.tagName, "SPAN");
+    assert.equal(logo.getAttribute("aria-hidden"), "true");
+    assert.equal(logo.getAttribute("aria-label"), null);
+    assert.equal(logo.getAttribute("data-action"), null);
     const path = harness.document.root.innerHTML.match(/<svg class="workspace-logo"[^>]*><path d="([^"]+)"/u)?.[1];
     assert.ok(path);
     assert.ok(require("node:fs").readFileSync(require("node:path").join(__dirname, "../media/icon.svg"), "utf8").includes(`d="${path}"`));
@@ -8342,6 +8467,8 @@ test("Home returns to the active chat without changing run selection or order", 
     const initialOrder = order();
     openWorkspaceDirection(harness);
     const logo = harness.document.root.querySelector(".run-tabs-brand");
+    assert.equal(logo.tagName, "BUTTON");
+    assert.equal(logo.getAttribute("aria-label"), "Home");
     logo.focus();
     logo.click();
     assert.ok(harness.document.getElementById("composer-prompt"));
@@ -8418,11 +8545,11 @@ test("busy descendants block archive and delete while root duplication stays ava
   } finally { harness.restore(); }
 });
 
-test("notifications can be enabled again after Off removes the bell", () => {
+test("notifications can be enabled again from the bell after Off", () => {
   const harness = bootWebview(managerState({ notifications: { mode: "off", events: [], unread: 0 } }));
   try {
-    assert.equal(harness.document.root.querySelector('.notification-center'), null);
-    harness.document.root.querySelector('.header-action-menu [data-action="notification-settings"]').click();
+    assert.ok(harness.document.root.querySelector('.notification-center'));
+    harness.document.root.querySelector('.notification-center [data-action="notification-settings"]').click();
     const select = harness.document.getElementById("notification-mode");
     assert.ok(select);
     select.value = "decisions";
@@ -8639,26 +8766,27 @@ test("Pipeline browsing preserves its scroll on snapshots and reveals the active
   FakeElement.prototype.scrollIntoView = function () {
     if (this.getAttribute("role") !== "option") return;
     revealed.push(this.id);
-    this.closest(".pipeline-picker-popover").scrollTop = 80;
+    this.closest(".pipeline-picker-list").scrollTop = 80;
   };
   try {
     const root = harness.document.root;
     harness.document.getElementById("pipeline-picker-button").click();
     assert.equal(revealed.length, 1);
-    root.querySelector(".pipeline-picker-popover").scrollTop = 160;
+    root.querySelector(".pipeline-picker-list").scrollTop = 160;
     revealed.length = 0;
     harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
-    assert.equal(root.querySelector(".pipeline-picker-popover").scrollTop, 160);
+    assert.equal(root.querySelector(".pipeline-picker-list").scrollTop, 160);
     assert.equal(revealed.length, 0);
-    harness.document.getElementById("pipeline-picker-more").click();
-    root.querySelector(".pipeline-picker-popover").scrollTop = 450;
+    root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="specialized"]').click();
+    root.querySelector(".pipeline-picker-list").scrollTop = 450;
     harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
-    assert.equal(root.querySelector(".pipeline-picker-popover").scrollTop, 450);
+    assert.equal(root.querySelector(".pipeline-picker-list").scrollTop, 450);
     assert.equal(revealed.length, 0);
-    root.dispatch("keydown", { key: "Tab", shiftKey: true, target: harness.document.activeElement, preventDefault() {} });
-    root.dispatch("keydown", { key: "End", target: harness.document.activeElement, preventDefault() {} });
+    const search = harness.document.getElementById("pipeline-picker-search");
+    search.focus();
+    root.dispatch("keydown", { key: "End", target: search, preventDefault() {} });
     assert.deepEqual(revealed, ["pipeline-option-specialized-z"]);
-    assert.equal(root.querySelector(".pipeline-picker-popover").scrollTop, 80);
+    assert.equal(root.querySelector(".pipeline-picker-list").scrollTop, 80);
   } finally {
     FakeElement.prototype.scrollIntoView = originalScrollIntoView;
     harness.restore();
@@ -8818,7 +8946,7 @@ test("localization fixtures translate stopped recovery and Chat without changing
     },
   });
   try {
-    assert.match(harness.document.root.innerHTML, /data-view="chat"[^>]*>Fixture chat<\/button>/u);
+    assert.match(harness.document.root.innerHTML, /data-view="chat"[^>]*aria-label="Fixture chat"/u);
     assert.match(harness.document.root.innerHTML, />Fixture resume<\/button>/u);
     assert.match(harness.document.root.innerHTML, /Fixture stopped/u);
     assert.match(harness.document.root.innerHTML, /Fixture step 2\/3 · Implement/u);
@@ -9146,12 +9274,14 @@ const readableContinuationResult = (overrides = {}) => completedResult({
   ...overrides,
 });
 
-const openResultActions = (managerOverrides = {}, panelOverrides = {}, result = readableContinuationResult()) => {
+const openResultActions = (managerOverrides = {}, panelOverrides = {}, result = readableContinuationResult(), detailsOpen = true) => {
   const harness = bootWebview(
     managerState({ resultsByConversation: { "run-1": result }, ...managerOverrides }),
     panelState({ workflowStatus: "completed", ...panelOverrides }),
   );
   harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+  const detailsToggle = harness.document.root.querySelector('[data-action="result-details-toggle"]');
+  if (detailsOpen && detailsToggle?.getAttribute("aria-expanded") !== "true") detailsToggle?.click();
   return harness;
 };
 
@@ -9281,7 +9411,7 @@ test("read-only ownership permits result copy and refuses continuation even from
     assert.equal(harness.clipboard.writes.length, 1);
     const continuation = harness.document.root.querySelector('[data-action="result-continue"]');
     assert.equal(continuation.getAttribute("aria-disabled"), "true");
-    assert.match(harness.document.root.querySelector(".result-continuation-reason").textContent, /can only read/u);
+    assert.match(harness.document.root.querySelector(".result-continuation-tooltip").textContent, /can only read/u);
     harness.messages.length = 0;
     continuation.click();
     dispatchResultAction(harness, "result-continue");
@@ -9469,6 +9599,7 @@ test("pipeline output and nested result code retain both scroll axes after snaps
   const harness = bootWebview(manager, panel);
   try {
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+    harness.document.root.querySelector('[data-action="result-details-toggle"]').click();
     const outputSelector = '[data-code-scroll-surface="pipeline:plan:scroll-answer"]';
     const body = harness.document.root.querySelector(`${outputSelector} [data-output-scroll]`);
     const code = harness.document.root.querySelectorAll(`${outputSelector} pre[data-code-region]`);
@@ -9878,7 +10009,7 @@ test("finding exclusions and chosen pipeline survive a snapshot and dispatch onl
     assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-0"]').checked, true);
     assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-2"]').checked, true);
     assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "2 of 3 issues selected");
-    assert.equal(harness.document.root.querySelector(".result-selection-detail").textContent, "1 needs confirmation");
+    assert.equal(harness.document.root.querySelector(".result-selection-detail"), null);
     assert.match(harness.document.root.innerHTML, /value="implement-ui" selected/u);
     harness.messages.length = 0;
     harness.document.root.querySelector('[data-action="result-continue"]').click();
@@ -9896,10 +10027,10 @@ test("excluding every finding refuses a new pipeline until a finding is selected
     for (const id of ["select-finding-0", "select-finding-1", "select-finding-2"]) setReviewFinding(harness, id, false);
     const action = harness.document.root.querySelector('[data-action="result-continue"]');
     assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "0 of 3 issues selected");
-    assert.equal(harness.document.root.querySelector(".result-selection-detail").textContent, "No unresolved issues selected.");
+    assert.equal(harness.document.root.querySelector(".result-selection-detail"), null);
     assert.equal(action.closest(".execution-result-footer").tagName, "FOOTER");
     assert.equal(action.getAttribute("aria-disabled"), "true");
-    assert.match(harness.document.root.querySelector(".result-continuation-reason").textContent, /Select at least one finding/u);
+    assert.match(harness.document.root.querySelector(".result-continuation-tooltip").textContent, /Select at least one finding/u);
     harness.messages.length = 0;
     action.click();
     assert.deepEqual(harness.messages, []);
@@ -9977,7 +10108,7 @@ for (const [label, reason, pipelines] of [
       assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-1"]').checked, false);
       assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-0"]').checked, true);
       assert.equal(harness.document.root.querySelector('[data-finding-id="select-finding-2"]').checked, true);
-      assert.equal(harness.document.root.querySelector(".result-continuation-reason").textContent, reason);
+      assert.equal(harness.document.root.querySelector(".result-continuation-tooltip").textContent, `Opens an editable draft. Execution starts only after you submit it. ${reason}`);
       harness.messages.length = 0;
       harness.document.root.querySelector('[data-action="result-continue"]').click();
       assert.equal(harness.document.liveStatus.textContent, reason);
@@ -10066,8 +10197,8 @@ test("a current terminal review remains selectable after its runtime restores id
 });
 
 
-test("Execution places exactly one continuation footer outside the report scroll with Copy in the report header", () => {
-  const harness = openResultActions({}, {}, selectableReviewResult());
+test("Execution keeps the continuation footer outside the main scroll and hides the report until requested", () => {
+  const harness = openResultActions({}, {}, selectableReviewResult(), false);
   try {
     const root = harness.document.root;
     const column = root.querySelector(".conversation-column");
@@ -10084,10 +10215,14 @@ test("Execution places exactly one continuation footer outside the report scroll
     assert.equal(root.querySelectorAll('[data-action="result-continue"]').length, 1);
     assert.equal(footer.querySelectorAll('[data-action="result-continue"]').length, 1);
     assert.equal(scroll.querySelectorAll('[data-action="result-continue"]').length, 0);
-    assert.equal(scroll.querySelectorAll('[data-action="result-copy"]').length, 1);
+    assert.equal(scroll.querySelectorAll('[data-action="result-copy"]').length, 0);
     assert.equal(footer.querySelectorAll('[data-action="result-copy"]').length, 0);
+    assert.equal(root.querySelectorAll(".result-center").length, 0);
     assert.equal(footer.querySelectorAll('[data-action="result-pipeline-select"]').length, 1);
-    assert.equal(footer.querySelector(".result-continuation-guidance").textContent, "Opens an editable draft. Execution starts only after you submit it.");
+    const help = footer.querySelector(".result-continuation-tooltip");
+    assert.equal(help.getAttribute("role"), "tooltip");
+    assert.equal(help.textContent, "Opens an editable draft. Execution starts only after you submit it.");
+    assert.equal(footer.querySelector('.result-continuation-help [data-action="noop"]').getAttribute("aria-describedby"), help.id);
     const viewportIndex = root.innerHTML.indexOf('class="conversation-viewport');
     const footerIndex = root.innerHTML.indexOf('class="execution-result-footer"');
     assert.ok(viewportIndex >= 0);
@@ -10095,31 +10230,85 @@ test("Execution places exactly one continuation footer outside the report scroll
   } finally { harness.restore(); }
 });
 
-test("the continuation footer counts exactly the selected canonical issues and their unresolved dispositions", () => {
+test("Review details inserts the scrollable report between the selection summary and next pipeline", () => {
+  const result = selectableReviewResult({ unresolvedRisks: ["Confirm the remaining review risk before implementation."] });
+  const harness = openResultActions({}, {}, result, false);
+  try {
+    const root = harness.document.root;
+    const toggle = root.querySelector('[data-action="result-details-toggle"]');
+    assert.equal(toggle.textContent, "Review details");
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(toggle.getAttribute("aria-controls"), null);
+    assert.ok(root.querySelector(".conversation-viewport"));
+    assert.equal(root.querySelector(".result-details-panel"), null);
+    assert.equal(root.querySelector(".result-center"), null);
+
+    toggle.click();
+    const footer = root.querySelector(".execution-result-footer");
+    const panel = root.querySelector(".result-details-panel");
+    assert.match(footer.getAttribute("class"), /result-details-open/u);
+    assert.ok(panel);
+    assert.equal(panel.getAttribute("role"), "region");
+    assert.equal(panel.getAttribute("aria-label"), "Review report");
+    assert.equal(root.querySelector(".conversation-viewport").getAttribute("inert"), "");
+    assert.equal(root.querySelector(".conversation-viewport").getAttribute("aria-hidden"), "true");
+    assert.equal(root.querySelectorAll(".result-center").length, 1);
+    assert.equal(panel.querySelectorAll(".result-center").length, 1);
+    assert.equal(root.querySelector('[data-action="result-copy"]').closest(".result-details-panel"), panel);
+    assert.match(panel.textContent, /Confirm the remaining review risk before implementation\./u);
+    assert.equal(root.querySelector('[data-action="result-details-toggle"]').textContent, "Hide details");
+    assert.equal(root.querySelector('[data-action="result-details-toggle"]').getAttribute("aria-expanded"), "true");
+    assert.equal(root.querySelector('[data-action="result-details-toggle"]').getAttribute("aria-controls"), "result-details-run-1");
+    assert.equal(harness.document.activeElement.dataset.action, "result-details-toggle");
+    const actionHtml = root.innerHTML;
+    assert.ok(actionHtml.indexOf("result-continuation-overview") < actionHtml.indexOf("result-details-panel"));
+    assert.ok(actionHtml.indexOf("result-details-panel") < actionHtml.indexOf("result-continuation-controls"));
+
+    const detailsScroll = root.querySelector(".result-details-scroll");
+    assert.match(detailsScroll.getAttribute("class"), /execution-content/u);
+    detailsScroll.scrollTop = 275;
+    detailsScroll.scrollLeft = 18;
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": structuredClone(result) } }) });
+    assert.equal(root.querySelector(".result-details-panel") !== null, true);
+    assert.deepEqual([root.querySelector(".result-details-scroll").scrollTop, root.querySelector(".result-details-scroll").scrollLeft], [275, 18]);
+
+    root.querySelector('[data-action="result-details-toggle"]').click();
+    assert.equal(root.querySelector(".result-details-panel"), null);
+    assert.ok(root.querySelector(".conversation-viewport"));
+    assert.equal(root.querySelector(".conversation-viewport").getAttribute("inert"), null);
+    assert.equal(root.querySelector(".conversation-viewport").getAttribute("aria-hidden"), null);
+    assert.equal(harness.document.activeElement.dataset.action, "result-details-toggle");
+    assert.equal(harness.document.activeElement.textContent, "Review details");
+
+    harness.document.activeElement.click();
+    root.dispatch("keydown", { key: "Escape", target: root.querySelector('[data-action="result-details-toggle"]'), preventDefault: () => undefined });
+    assert.equal(root.querySelector(".result-details-panel"), null);
+    assert.ok(root.querySelector(".conversation-viewport"));
+    assert.equal(harness.document.activeElement.dataset.action, "result-details-toggle");
+  } finally { harness.restore(); }
+});
+
+test("the continuation footer counts exactly the selected canonical issues without a redundant disposition subtitle", () => {
   const result = selectableReviewResult();
   const original = JSON.stringify(result);
   const harness = openResultActions({}, {}, result);
   try {
     const root = harness.document.root;
     const count = () => root.querySelector(".result-selection-count").textContent;
-    const detail = () => root.querySelector(".result-selection-detail").textContent;
     assert.equal(count(), "3 of 3 issues selected");
-    assert.equal(detail(), "2 need confirmation");
+    assert.equal(root.querySelector(".result-selection-detail"), null);
     assert.equal(root.querySelectorAll(".execution-result-footer .result-continuation-summary").length, 1);
     const summary = root.querySelector(".result-continuation-summary");
     assert.equal(summary.getAttribute("role"), "status");
-    assert.equal(summary.getAttribute("aria-live"), null);
     assert.equal(summary.getAttribute("aria-atomic"), "true");
     assert.equal(root.querySelector(".result-selection-count").tagName, "STRONG");
     setReviewFinding(harness, "select-finding-1", false);
     assert.equal(count(), "2 of 3 issues selected");
-    assert.equal(detail(), "1 needs confirmation");
     assert.equal(root.querySelector(".result-continuation-summary").getAttribute("aria-live"), null);
     harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ resultsByConversation: { "run-1": structuredClone(result) } }) });
     assert.equal(root.querySelector(".result-continuation-summary").getAttribute("aria-live"), "off");
     setReviewFinding(harness, "select-finding-2", false);
     assert.equal(count(), "1 of 3 issues selected");
-    assert.equal(detail(), "No unresolved issues selected.");
     assert.equal(root.querySelector('[data-finding-id="select-finding-3"]'), null);
     harness.messages.length = 0;
     root.querySelector('.execution-result-footer [data-action="result-continue"]').click();
@@ -10137,7 +10326,7 @@ test("one eligible issue uses singular footer grammar and excludes rejected find
   const harness = openResultActions({}, {}, result);
   try {
     assert.equal(harness.document.root.querySelector(".result-selection-count").textContent, "1 of 1 issue selected");
-    assert.equal(harness.document.root.querySelector(".result-selection-detail").textContent, "No unresolved issues selected.");
+    assert.equal(harness.document.root.querySelector(".result-selection-detail"), null);
     assert.equal(harness.document.root.querySelectorAll('[data-action="result-finding-select"]').length, 1);
   } finally { harness.restore(); }
 });
@@ -10147,7 +10336,7 @@ test("a report without findings offers its assessment in an editable draft witho
   try {
     const footer = harness.document.root.querySelector(".execution-result-footer");
     assert.equal(footer.querySelector(".result-selection-count").textContent, "0 issues selected");
-    assert.match(footer.textContent, /assessment/u);
+    assert.match(footer.textContent, /Assessment details/u);
     assert.equal(harness.document.root.querySelectorAll('[data-action="result-finding-select"]').length, 0);
     const action = footer.querySelector('[data-action="result-continue"]');
     assert.equal(action.getAttribute("aria-disabled"), null);
@@ -10168,7 +10357,12 @@ for (const [label, panelOverrides, result] of [
   test(`${label} never adds a continuation footer to Execution`, () => {
     const harness = bootWebview(managerState({ resultsByConversation: result ? { "run-1": result } : {} }), panelState(panelOverrides));
     try {
-      harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
+      const execution = harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]');
+      if (result === undefined) assert.equal(execution, null);
+      else {
+        assert.ok(execution);
+        execution.click();
+      }
       assert.equal(harness.document.root.querySelectorAll(".execution-result-footer").length, 0);
       assert.equal(harness.document.root.querySelectorAll('[data-action="result-continue"]').length, 0);
     } finally { harness.restore(); }
@@ -10220,12 +10414,210 @@ test("footer pipeline focus and selected issue count survive snapshots without r
     harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ eventsByConversation, resultsByConversation: { "run-1": structuredClone(result) } }) });
     assert.equal(harness.document.activeElement.dataset.action, "result-pipeline-select");
     assert.equal(harness.document.activeElement.closest(".execution-result-footer").tagName, "FOOTER");
-    assert.deepEqual([root.querySelector(".execution-result-footer").scrollTop, root.querySelector(".execution-result-footer").scrollLeft], [85, 12]);
+    assert.deepEqual([root.querySelector(".execution-result-footer").scrollTop, root.querySelector(".execution-result-footer").scrollLeft], [0, 0]);
     assert.match(root.innerHTML, /value="implement-ui" selected/u);
     assert.equal(root.querySelector(".result-selection-count").textContent, "2 of 3 issues selected");
-    assert.equal(root.querySelector(".result-selection-detail").textContent, "1 needs confirmation");
+    assert.equal(root.querySelector(".result-selection-detail"), null);
     assert.equal(root.querySelector('[data-disclosure-key="run-1:pipeline-step:plan"]').open, true);
     assert.deepEqual([root.querySelector(`${surface} [data-output-scroll]`).scrollTop, root.querySelector(`${surface} [data-output-scroll]`).scrollLeft], [240, 35]);
     assert.deepEqual([root.querySelector(`${surface} pre[data-code-region]`).scrollTop, root.querySelector(`${surface} pre[data-code-region]`).scrollLeft], [180, 90]);
+  } finally { harness.restore(); }
+});
+
+const assertIconControl = (control) => {
+  assert.ok(control);
+  assert.ok(control.className.split(/\s+/u).includes("icon-button"), control.dataset.action ?? control.id);
+  assert.ok(control.getAttribute("aria-label"), control.dataset.action ?? control.id);
+  assert.doesNotMatch(control.className, /(?:^|\s)(?:selected|open|focused|focus)(?:\s|$)/u);
+};
+
+test("navigation uses semantic current and pressed states after view changes, focus changes, and snapshots", () => {
+  const manager = managerState({ eventsByConversation: { "run-1": [{ id: 1, type: "run.started", status: "running", title: "Started", createdAt: timestamp }] } });
+  const panel = panelState();
+  const harness = bootWebview(manager, panel);
+  try {
+    const root = harness.document.root;
+    for (const view of ["execution", "chat"]) {
+      root.querySelector(`.run-tab-tools [data-view="${view}"]`).click();
+      root.querySelector(".run-tab.selected .run-tab-select").focus();
+      harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
+      for (const candidate of ["chat", "execution"]) {
+        const control = root.querySelector(`.run-tab-tools [data-view="${candidate}"]`);
+        assertIconControl(control);
+        assert.equal(control.getAttribute("aria-pressed"), String(candidate === view));
+      }
+      assert.equal(root.querySelector(".run-tab.selected .run-tab-select").getAttribute("aria-current"), "page");
+    }
+    assert.equal(root.querySelector(".run-tabs-brand").tagName, "SPAN");
+    for (const selector of [".run-tab-new", "#notification-button", "#room-actions-button", '[data-action="attachment-pick"]', '[data-action="composer-settings-toggle"]', '[data-action="submit-message"]', "#agents-picker-button"]) {
+      assertIconControl(root.querySelector(selector));
+    }
+  } finally { harness.restore(); }
+});
+
+test("the notification icon retains its native open state and badge after a rerender without focus classes", () => {
+  const manager = notificationManager();
+  const harness = bootWebview(manager);
+  try {
+    openMenu(harness, ".notification-center");
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    const root = harness.document.root;
+    const trigger = harness.document.getElementById("notification-button");
+    assertIconControl(trigger);
+    assert.equal(trigger.getAttribute("title"), "Notifications");
+    assert.equal(root.querySelector(".notification-center").open, true);
+    assert.equal(root.querySelector(".notification-unread").textContent, "1");
+    assert.equal(root.querySelector(".notification-unread").getAttribute("aria-hidden"), "true");
+    harness.document.root.dispatch("keydown", { key: "Escape", target: trigger, preventDefault: () => undefined });
+    assert.equal(root.querySelector(".notification-center").open, false);
+    assert.equal(harness.document.activeElement, trigger);
+  } finally { harness.restore(); }
+});
+
+test("combobox active descendant and selected option stay independent and survive snapshots", () => {
+  const panel = panelState();
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.document.getElementById("pipeline-picker-button").click();
+    const root = harness.document.root;
+    const picker = () => harness.document.getElementById("pipeline-picker-button");
+    const search = () => harness.document.getElementById("pipeline-picker-search");
+    harness.document.root.dispatch("keydown", { key: "ArrowDown", target: search(), preventDefault: () => undefined });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
+    const selected = root.querySelector('[data-pipeline-id="custom-a"]');
+    const active = root.querySelector('[data-pipeline-id="custom-b"]');
+    assert.equal(selected.getAttribute("aria-selected"), "true");
+    assert.equal(selected.getAttribute("data-active"), "false");
+    assert.equal(active.getAttribute("aria-selected"), "false");
+    assert.equal(active.getAttribute("data-active"), "true");
+    assert.equal(picker().getAttribute("aria-activedescendant"), active.id);
+    assert.equal(search().getAttribute("aria-activedescendant"), active.id);
+    assert.equal(picker().getAttribute("aria-expanded"), "true");
+    assert.equal(selected.className, "pipeline-picker-option");
+    assert.equal(active.className, "pipeline-picker-option");
+    assert.equal(harness.document.activeElement, search());
+  } finally { harness.restore(); }
+});
+
+test("composer settings and editor mode use semantic states without selected or open styling classes", () => {
+  const harness = bootWebview();
+  try {
+    const root = harness.document.root;
+    openComposerSettings(harness);
+    const settings = root.querySelector('[data-action="composer-settings-toggle"]');
+    assert.equal(settings.getAttribute("aria-expanded"), "true");
+    assertIconControl(settings);
+    root.querySelector('[data-action="pipeline-edit"]').click();
+    assertIconControl(root.querySelector('.pipeline-editor [data-action="pipeline-editor-close"]'));
+    const assertMode = (mode) => {
+      for (const candidate of ["form", "json"]) {
+        const button = root.querySelector(`[data-action="editor-mode"][data-mode="${candidate}"]`);
+        assert.equal(button.getAttribute("aria-pressed"), String(candidate === mode));
+        assert.doesNotMatch(button.className, /selected|focus/u);
+      }
+    };
+    assertMode("form");
+    root.querySelector('[data-action="editor-mode"][data-mode="json"]').click();
+    assertMode("json");
+    root.querySelector('[data-action="editor-mode"][data-mode="form"]').click();
+    const request = lastValidateRequest(harness);
+    assert.ok(request);
+    assertMode("json");
+    harness.sendWindowMessage({
+      type: "conversation.message",
+      conversationId: "run-1",
+      message: {
+        type: "operation.result",
+        requestId: request.requestId,
+        operation: "pipeline.validate",
+        status: "completed",
+        pipeline: request.pipeline,
+      },
+    });
+    assertMode("form");
+    for (const control of root.querySelectorAll('[data-action="editor-agent-up"], [data-action="editor-agent-down"], [data-action="editor-step-up"], [data-action="editor-step-down"]')) {
+      assertIconControl(control);
+    }
+  } finally { harness.restore(); }
+});
+
+test("model listbox selection uses only aria-selected across a host rerender", () => {
+  const panel = localInterpreterPanel({ status: "ready", detail: "Ready", explicit: true, model: "model-one", availableModels: [{ id: "model-one", backend: "ollama", availability: "loaded" }, { id: "model-two", backend: "ollama", availability: "installed" }] });
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
+    const root = harness.document.root;
+    for (const model of ["model-one", "model-two"]) {
+      const option = root.querySelector(`[data-action="local-model-select"][data-model="${model}"]`);
+      assert.equal(option.getAttribute("role"), "option");
+      assert.equal(option.getAttribute("aria-selected"), String(model === "model-one"));
+      assert.equal(option.className, "agents-session-option");
+    }
+    assert.equal(harness.document.getElementById("agents-picker-button").getAttribute("aria-expanded"), "true");
+    assert.doesNotMatch(harness.document.getElementById("agents-picker-button").className, /has-overrides|selected|open/u);
+  } finally { harness.restore(); }
+});
+
+test("native disabled controls refuse activation while aria-disabled Send retains its explanation action", () => {
+  const harness = bootWebview(managerState(), panelState({ pipelineMutable: false, workspaceRoots: ["/workspace", "/other"], workingDirectory: undefined }));
+  try {
+    const root = harness.document.root;
+    const picker = harness.document.getElementById("pipeline-picker-button");
+    assert.equal(picker.disabled, true);
+    const before = harness.messages.length;
+    picker.click();
+    assert.equal(harness.document.getElementById("pipeline-picker-list"), null);
+    assert.equal(harness.messages.length, before);
+    const send = root.querySelector('[data-action="submit-message"]');
+    assert.equal(send.disabled, false);
+    assert.equal(send.getAttribute("aria-disabled"), "true");
+    send.focus();
+    assert.equal(harness.document.activeElement, send);
+    send.click();
+    assert.ok(root.querySelector(".app-dialog"));
+    assert.equal(harness.messages.length, before);
+    assertIconControl(root.querySelector('.app-dialog [data-action="dialog-cancel"]'));
+  } finally { harness.restore(); }
+});
+
+test("busy Stop retains the icon contract and cannot dispatch twice", () => {
+  const harness = bootWebview(managerState(), panelState({ running: true, operationActive: true, workflowStatus: "running" }));
+  try {
+    const root = harness.document.root;
+    const stop = () => root.querySelector('.composer-send [data-action="interrupt-run"]');
+    assertIconControl(stop());
+    stop().click();
+    const afterFirst = harness.messages.length;
+    assertIconControl(stop());
+    assert.equal(stop().disabled, true);
+    assert.equal(stop().getAttribute("aria-busy"), "true");
+    stop().click();
+    assert.equal(harness.messages.length, afterFirst);
+  } finally { harness.restore(); }
+});
+
+
+test("focus presentation follows pointer and keyboard input without changing action or selection state", () => {
+  const manager = managerState({ eventsByConversation: { "run-1": [{ id: 1, type: "run.started", status: "running", title: "Started", createdAt: timestamp }] } });
+  const harness = bootWebview(manager);
+  try {
+    const root = harness.document.root;
+    const prompt = harness.document.getElementById("composer-prompt");
+    const before = harness.messages.length;
+    root.dispatch("pointerdown", { target: prompt });
+    assert.equal(root.dataset.focusInput, "pointer");
+    prompt.focus();
+    assert.equal(harness.document.activeElement, prompt);
+    root.dispatch("keydown", { target: prompt, key: "Shift", preventDefault: () => undefined });
+    assert.equal(root.dataset.focusInput, "keyboard");
+    assert.equal(harness.messages.length, before);
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(root.dataset.focusInput, "keyboard");
+    assert.equal(root.querySelector('.run-tab-tools [data-view="chat"]').getAttribute("aria-pressed"), "true");
+    root.dispatch("pointerdown", { target: root.querySelector(".run-tabs-brand") });
+    assert.equal(root.dataset.focusInput, "pointer");
+    assert.equal(root.querySelector('.run-tab-tools [data-view="chat"]').getAttribute("aria-pressed"), "true");
   } finally { harness.restore(); }
 });

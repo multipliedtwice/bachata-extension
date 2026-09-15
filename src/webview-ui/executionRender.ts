@@ -574,36 +574,41 @@ const resultCopyActionHtml = (conversationId: string, result: RunResultCenter): 
   copyableResultText(result)
     ? `<button data-action="result-copy" data-conversation="${escapeAttribute(conversationId)}">${escapeHtml(localize("Copy result"))}</button>` : "";
 
+const resultDetailsKey = (conversationId: string): string => `${conversationId}:result-details`;
+const resultDetailsOpen = (conversationId: string): boolean =>
+  state.disclosureStates.get(resultDetailsKey(conversationId)) ?? false;
+
 const resultContinuationFooterHtml = (conversationId: string, panel: PanelState): string => {
   const result = state.manager.resultsByConversation?.[conversationId];
   const phase = runPhaseOf(panel);
   if (!result || !copyableResultText(result) || phase === "running" || phase === "waiting") return "";
   const refusal = resultContinuationRefusal(conversationId);
-  const reasonId = `result-continuation-reason-${conversationId}`;
   const countId = `result-continuation-count-${conversationId}`;
-  const guidanceId = `result-continuation-guidance-${conversationId}`;
+  const helpId = `result-continuation-help-${conversationId}`;
+  const pipelineLabelId = `result-pipeline-label-${conversationId}`;
+  const pipelineSelectId = `result-pipeline-select-${conversationId}`;
   const selected = resultContinuationSelection(conversationId, result);
   const eligible = (result.findings ?? []).filter((finding) => finding.disposition !== "rejected");
-  const confirmationCount = eligible.filter((finding) => selected.findingIds.has(finding.id) &&
-    (finding.disposition === "unresolved" || finding.disposition === "proposed")).length;
   const count = eligible.length === 0 ? localize("0 issues selected")
     : eligible.length === 1 ? localize("{0} of 1 issue selected", selected.findingIds.size)
       : localize("{0} of {1} issues selected", selected.findingIds.size, eligible.length);
-  const detail = eligible.length === 0
-    ? localize("The report assessment and evidence will be carried forward.")
-    : confirmationCount === 0 ? localize("No unresolved issues selected.")
-      : confirmationCount === 1 ? localize("1 needs confirmation")
-        : localize("{0} need confirmation", confirmationCount);
   const pipelines = result.continuation?.pipelines;
   const locked = resultSelectionRefusal(conversationId) || (pipelines?.length === 0
     ? result.continuation?.reason?.trim() || localize("No write-capable pipeline is available.")
     : undefined);
-  const selector = pipelines === undefined ? "" : `<label class="result-pipeline-select"><span>${escapeHtml(localize("Next pipeline"))}</span><select data-action="result-pipeline-select" data-conversation="${escapeAttribute(conversationId)}" data-result-version="${escapeAttribute(result.continuation?.resultVersion ?? "")}"${locked ? ` disabled title="${escapeAttribute(locked)}"` : ""}>${pipelines.some((pipeline) => pipeline.id === selected.pipelineId) ? "" : `<option value="">${escapeHtml(localize("Choose a pipeline"))}</option>`}${pipelines.map((pipeline) => `<option value="${escapeAttribute(pipeline.id)}"${pipeline.id === selected.pipelineId ? " selected" : ""}>${escapeHtml(pipeline.name)}</option>`).join("")}</select></label>`;
-  return `<footer class="execution-result-footer" role="region" aria-label="${escapeAttribute(localize("Continue from this report"))}" data-scroll-key="${escapeAttribute(`${conversationId}:result-actions`)}"><div class="result-continuation-action">
-    <div class="result-continuation-summary" id="${escapeAttribute(countId)}" aria-atomic="true" ${liveRegionAttributes(`result-continuation-count:${conversationId}`, "status", `${count} ${detail}`)}><strong class="result-selection-count">${escapeHtml(count)}</strong><small class="result-selection-detail">${escapeHtml(detail)}</small></div>
-    <div class="result-continuation-controls">${selector}<button class="primary" data-action="result-continue" data-conversation="${escapeAttribute(conversationId)}" data-result-version="${escapeAttribute(result.continuation?.resultVersion ?? "")}" aria-describedby="${escapeAttribute(`${refusal ? `${reasonId} ` : ""}${countId} ${guidanceId}`)}"${refusal ? ` aria-disabled="true" title="${escapeAttribute(refusal)}"` : ""}>${escapeHtml(localize("Start new pipeline"))}</button></div>
-    <p class="result-continuation-guidance" id="${escapeAttribute(guidanceId)}">${escapeHtml(localize("Opens an editable draft. Execution starts only after you submit it."))}</p>
-    ${refusal ? `<p class="result-continuation-reason" id="${escapeAttribute(reasonId)}">${escapeHtml(refusal)}</p>` : ""}
+  const guidance = localize("Opens an editable draft. Execution starts only after you submit it.");
+  const help = refusal ? `${guidance} ${refusal}` : guidance;
+  const helpControl = `<span class="result-continuation-help"><button type="button" class="icon-button" data-action="noop" aria-label="${escapeAttribute(localize("About starting a new pipeline"))}" aria-describedby="${escapeAttribute(helpId)}"><i class="codicon codicon-info" aria-hidden="true"></i></button><span class="result-continuation-tooltip" id="${escapeAttribute(helpId)}" role="tooltip">${escapeHtml(help)}</span></span>`;
+  const selector = pipelines === undefined ? helpControl : `<div class="result-pipeline-select"><div class="result-pipeline-label"><label id="${escapeAttribute(pipelineLabelId)}" for="${escapeAttribute(pipelineSelectId)}">${escapeHtml(localize("Next pipeline"))}</label>${helpControl}</div><select id="${escapeAttribute(pipelineSelectId)}" aria-labelledby="${escapeAttribute(pipelineLabelId)}" aria-describedby="${escapeAttribute(helpId)}" data-action="result-pipeline-select" data-conversation="${escapeAttribute(conversationId)}" data-result-version="${escapeAttribute(result.continuation?.resultVersion ?? "")}"${locked ? ` disabled title="${escapeAttribute(locked)}"` : ""}>${pipelines.some((pipeline) => pipeline.id === selected.pipelineId) ? "" : `<option value="">${escapeHtml(localize("Choose a pipeline"))}</option>`}${pipelines.map((pipeline) => `<option value="${escapeAttribute(pipeline.id)}"${pipeline.id === selected.pipelineId ? " selected" : ""}>${escapeHtml(pipeline.name)}</option>`).join("")}</select></div>`;
+  const detailsOpen = resultDetailsOpen(conversationId);
+  const detailsId = `result-details-${conversationId}`;
+  const detailsPanel = detailsOpen ? `<section class="result-details-panel" id="${escapeAttribute(detailsId)}" role="region" aria-label="${escapeAttribute(localize("Review report"))}">
+    <div class="result-details-scroll execution-content" data-scroll-key="${escapeAttribute(`${conversationId}:result-details-scroll`)}">${resultCenterHtml(conversationId, panel)}</div>
+  </section>` : "";
+  return `<footer class="execution-result-footer${detailsOpen ? " result-details-open" : ""}" role="region" aria-label="${escapeAttribute(localize("Continue from this report"))}" data-scroll-key="${escapeAttribute(`${conversationId}:result-actions`)}"><div class="result-continuation-action">
+    <div class="result-continuation-overview"><div class="result-continuation-summary" id="${escapeAttribute(countId)}" aria-atomic="true" ${liveRegionAttributes(`result-continuation-count:${conversationId}`, "status", count)}><strong class="result-selection-count">${escapeHtml(count)}</strong></div><button class="result-details-toggle" data-action="result-details-toggle" data-conversation="${escapeAttribute(conversationId)}" ${expandedControlAttributes(detailsOpen, detailsId)}>${escapeHtml(detailsOpen ? localize("Hide details") : localize("Review details"))}</button></div>
+    ${detailsPanel}
+    <div class="result-continuation-controls">${selector}<button class="primary" data-action="result-continue" data-conversation="${escapeAttribute(conversationId)}" data-result-version="${escapeAttribute(result.continuation?.resultVersion ?? "")}" aria-describedby="${escapeAttribute(`${helpId} ${countId}`)}"${refusal ? ` aria-disabled="true" aria-description="${escapeAttribute(refusal)}" title="${escapeAttribute(refusal)}"` : ""}>${escapeHtml(localize("Start new pipeline"))}</button></div>
   </div></footer>`;
 };
 

@@ -242,6 +242,7 @@ export type PipelineSummary = {
   scopeKey: string;
   scopeRoot?: string;
   prominentOrder?: number;
+  pickerCategory?: "common" | "specialized" | "compatibility" | "internal" | "custom";
   participantCount?: number;
   participantNames?: string[];
   stepCount?: number;

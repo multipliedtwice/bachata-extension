@@ -42,6 +42,7 @@ export type PipelineAgentOptions = {
   permissionMode?: string | undefined;
   approvalPolicy?: CodexApprovalPolicy | undefined;
   model?: string | undefined;
+  reasoningEffort?: string | undefined;
   managed?: boolean | undefined;
   managedRole?: "worker" | "lead" | undefined;
   managedOptional?: boolean | undefined;
@@ -456,6 +457,7 @@ const participantOptions = (
     // A role's model wins over the agent's, so a Lead and a Worker can run on different
     // models without either agent being edited. Unset falls back to the provider default.
     model: roleDefinition?.model ?? definition.model,
+    reasoningEffort: definition.reasoningEffort,
     managed: roleDefinition?.managed ?? false,
     managedRole: roleDefinition?.managedRole,
     managedOptional: roleDefinition?.managedOptional,

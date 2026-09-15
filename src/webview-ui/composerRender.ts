@@ -139,9 +139,98 @@ const selectPipeline = (pipelineId: string): void => {
   scheduleRender();
 };
 
-const pipelinePickerEntries = (panel: PanelState): PipelineSummary[] => panel.pipelines
-  .filter((pipeline) => pipelinePickerShowAll || pipeline.editable || pipeline.prominentOrder !== undefined || pipeline.id === panel.selectedPipelineId)
-  .sort((left, right) => (left.prominentOrder ?? Number.MAX_SAFE_INTEGER) - (right.prominentOrder ?? Number.MAX_SAFE_INTEGER) || left.name.localeCompare(right.name));
+const pipelineCategory = (pipeline: PipelineSummary): Exclude<PipelinePickerFilter, "all"> => {
+  if (pipeline.pickerCategory === "common" || pipeline.pickerCategory === "specialized" ||
+      pipeline.pickerCategory === "compatibility" || pipeline.pickerCategory === "internal" ||
+      pipeline.pickerCategory === "custom") {
+    return pipeline.pickerCategory;
+  }
+  if (pipeline.editable) return "custom";
+  return pipeline.prominentOrder === undefined ? "specialized" : "common";
+};
+
+const pipelineFilterLabels: Record<PipelinePickerFilter, string> = {
+  all: "All",
+  common: "Common",
+  specialized: "Specialized",
+  compatibility: "Compatibility",
+  internal: "Internal",
+  custom: "Custom",
+};
+
+const pipelineCategoryOrder: Record<Exclude<PipelinePickerFilter, "all">, number> = {
+  common: 0,
+  specialized: 1,
+  compatibility: 2,
+  internal: 3,
+  custom: 4,
+};
+
+const pipelinePickerFilters = (panel: PanelState): PipelinePickerFilter[] => {
+  const categories = (["common", "specialized", "compatibility", "internal", "custom"] as const)
+    .filter((category) => panel.pipelines.some((pipeline) => pipelineCategory(pipeline) === category));
+  return categories.includes("custom") ? ["all", ...categories] : categories;
+};
+
+const effectivePipelinePickerFilter = (panel: PanelState): PipelinePickerFilter => {
+  const filters = pipelinePickerFilters(panel);
+  if (filters.includes(state.pipelinePickerFilter)) return state.pipelinePickerFilter;
+  if (filters.includes("common")) return "common";
+  return filters[0] ?? "common";
+};
+
+const pipelinePickerEntries = (panel: PanelState): PipelineSummary[] => {
+  const filter = effectivePipelinePickerFilter(panel);
+  const query = state.pipelinePickerQuery.trim().toLocaleLowerCase();
+  return panel.pipelines
+    .filter((pipeline) => filter === "all" || pipelineCategory(pipeline) === filter)
+    .filter((pipeline) => query.length === 0 || [
+      pipeline.id,
+      pipeline.name,
+      pipeline.description ?? "",
+      ...(pipeline.participantNames ?? []),
+    ].some((value) => value.toLocaleLowerCase().includes(query)))
+    .sort((left, right) => {
+      const categoryDifference = pipelineCategoryOrder[pipelineCategory(left)] -
+        pipelineCategoryOrder[pipelineCategory(right)];
+      return categoryDifference ||
+        (left.prominentOrder ?? Number.MAX_SAFE_INTEGER) - (right.prominentOrder ?? Number.MAX_SAFE_INTEGER) ||
+        left.name.localeCompare(right.name);
+    });
+};
+
+const reconcilePipelinePickerActive = (): void => {
+  const panel = activePanel();
+  const entries = pipelinePickerEntries(panel);
+  if (entries.some((pipeline) => pipeline.id === state.pipelinePickerActiveId)) return;
+  const nextId = entries.find((pipeline) => pipeline.id === panel.selectedPipelineId)?.id ?? entries[0]?.id;
+  setOptionalProperty(state, "pipelinePickerActiveId", nextId);
+};
+
+const rememberPipelinePickerFilter = (filter: PipelinePickerFilter): void => {
+  state.pipelinePickerFilter = filter;
+  vscode.setState?.({ ...(vscode.getState?.() ?? {}), pipelinePickerFilter: filter });
+};
+
+const setPipelinePickerFilter = (filter: string): void => {
+  if (filter !== "all" && filter !== "common" && filter !== "specialized" &&
+      filter !== "compatibility" && filter !== "internal" && filter !== "custom") return;
+  if (!pipelinePickerFilters(activePanel()).includes(filter)) return;
+  rememberPipelinePickerFilter(filter);
+  reconcilePipelinePickerActive();
+  scheduleRender();
+  focusAfterRender(() => document.querySelector<HTMLElement>(`[data-action="pipeline-picker-filter"][data-pipeline-filter="${filter}"]`)?.focus({ preventScroll: true }));
+};
+
+const setPipelinePickerQuery = (query: string): void => {
+  state.pipelinePickerQuery = query;
+  reconcilePipelinePickerActive();
+  scheduleRender();
+  focusAfterRender(() => {
+    document.getElementById("pipeline-picker-search")?.focus({ preventScroll: true });
+    scrollPickerActiveOptionIntoView();
+  });
+};
 
 const openPipelinePicker = (): void => {
   const panel = activePanel();
@@ -149,13 +238,15 @@ const openPipelinePicker = (): void => {
     return;
   }
   state.pipelinePickerOpen = true;
+  rememberPipelinePickerFilter(effectivePipelinePickerFilter(panel));
   const activeId = panel.selectedPipelineId ?? pipelinePickerEntries(panel)[0]?.id;
-  if (activeId !== undefined) {
-    state.pipelinePickerActiveId = activeId;
-  }
+  const entries = pipelinePickerEntries(panel);
+  setOptionalProperty(state, "pipelinePickerActiveId", entries.some((pipeline) => pipeline.id === activeId)
+    ? activeId
+    : entries[0]?.id);
   scheduleRender();
   focusAfterRender(() => {
-    document.getElementById("pipeline-picker-button")?.focus({ preventScroll: true });
+    document.getElementById("pipeline-picker-search")?.focus({ preventScroll: true });
     scrollPickerActiveOptionIntoView();
   });
 };
@@ -165,6 +256,7 @@ const closePipelinePicker = (restoreFocus = true): void => {
     return;
   }
   state.pipelinePickerOpen = false;
+  state.pipelinePickerQuery = "";
   delete state.pipelinePickerActiveId;
   scheduleRender();
   if (restoreFocus) {
@@ -192,20 +284,9 @@ const movePipelinePickerActive = (key: string): void => {
   }
   scheduleRender();
   focusAfterRender(() => {
-    document.getElementById("pipeline-picker-button")?.focus({ preventScroll: true });
+    document.getElementById("pipeline-picker-search")?.focus({ preventScroll: true });
     scrollPickerActiveOptionIntoView();
   });
-};
-
-const togglePipelinePickerMore = (): void => {
-  pipelinePickerShowAll = !pipelinePickerShowAll;
-  const entries = pipelinePickerEntries(activePanel());
-  if (!entries.some((pipeline) => pipeline.id === state.pipelinePickerActiveId)) {
-    const nextId = entries.find((pipeline) => pipeline.id === activePanel().selectedPipelineId)?.id ?? entries[0]?.id;
-    setOptionalProperty(state, "pipelinePickerActiveId", nextId);
-  }
-  scheduleRender();
-  focusAfterRender(() => document.getElementById("pipeline-picker-more")?.focus());
 };
 
 const commitPipelinePickerActive = (): void => {
@@ -268,10 +349,13 @@ const pipelinePickerHtml = (panel: PanelState): string => {
     ? localize("Switching to {0}…", selected?.name ?? localize("selected pipeline"))
     : panel.pipelineMutationReason ?? localize("Choose the pipeline this run uses");
   const open = pipelinePickerOpenState(panel, conversationId);
+  const filter = effectivePipelinePickerFilter(panel);
+  const entries = pipelinePickerEntries(panel);
+  const filters = pipelinePickerFilters(panel);
   const activeOptionId = state.pipelinePickerActiveId ?? selectedId;
   const button = `<button id="pipeline-picker-button" data-action="pipeline-picker-toggle" class="pipeline-picker-button" role="combobox" aria-haspopup="listbox" aria-label="${escapeAttribute(localize("Pipeline"))}" ${expandedControlAttributes(open, PIPELINE_PICKER_LIST_ID)}${open && activeOptionId ? ` aria-activedescendant="${escapeAttribute(pipelineOptionDomId(activeOptionId))}"` : ""} ${disabled ? "disabled" : ""}${selection ? ' aria-busy="true"' : ""} title="${escapeAttribute(title)}"><span class="pipeline-picker-name">${escapeHtml(label)}</span><i class="codicon ${selection ? "codicon-loading codicon-modifier-spin" : "codicon-chevron-down"} pipeline-picker-caret" aria-hidden="true"></i></button>`;
   const list = open
-    ? `<div class="pipeline-picker-popover"><p class="pipeline-picker-guidance">${escapeHtml(localize("Choose the work here. Choose providers in Agents."))}</p><div id="${PIPELINE_PICKER_LIST_ID}" role="listbox" aria-label="${escapeAttribute(localize("Pipeline"))}" tabindex="-1">${pipelinePickerEntries(panel).map((pipeline) => {
+    ? `<div class="pipeline-picker-popover"><div class="pipeline-picker-header"><p class="pipeline-picker-guidance">${escapeHtml(localize("Choose the work here. Choose providers in Agents."))}</p><label class="pipeline-picker-search" for="pipeline-picker-search"><i class="codicon codicon-search" aria-hidden="true"></i><input id="pipeline-picker-search" type="search" value="${escapeAttribute(state.pipelinePickerQuery)}" placeholder="${escapeAttribute(localize("Search pipelines"))}" aria-label="${escapeAttribute(localize("Search pipelines"))}" aria-controls="${PIPELINE_PICKER_LIST_ID}"${activeOptionId ? ` aria-activedescendant="${escapeAttribute(pipelineOptionDomId(activeOptionId))}"` : ""}></label><div class="pipeline-picker-filters" role="group" aria-label="${escapeAttribute(localize("Pipeline categories"))}">${filters.map((candidate) => `<button type="button" data-action="pipeline-picker-filter" data-pipeline-filter="${candidate}" aria-pressed="${candidate === filter ? "true" : "false"}">${escapeHtml(localize(pipelineFilterLabels[candidate]))}</button>`).join("")}</div></div><div id="${PIPELINE_PICKER_LIST_ID}" class="pipeline-picker-list" role="listbox" aria-label="${escapeAttribute(localize("Pipeline"))}" tabindex="-1">${entries.map((pipeline) => {
         const steps = pipelineStepCount(pipeline, panel);
         const count = pipelineParticipantCount(pipeline, panel);
         const shape = [
@@ -280,8 +364,8 @@ const pipelinePickerHtml = (panel: PanelState): string => {
         ].filter((part) => part !== undefined).join(" · ");
         const isSelected = pipeline.id === selectedId;
         const isActive = pipeline.id === activeOptionId;
-        return `<div id="${escapeAttribute(pipelineOptionDomId(pipeline.id))}" role="option" class="pipeline-picker-option${isActive ? " active" : ""}${isSelected ? " selected" : ""}" data-action="pipeline-picker-select" data-pipeline-id="${escapeAttribute(pipeline.id)}" aria-selected="${isSelected ? "true" : "false"}"><span class="pipeline-picker-option-head"><span class="pipeline-picker-option-name">${escapeHtml(pipeline.name)}</span>${isSelected ? `<i class="codicon codicon-check" aria-hidden="true"></i>` : ""}</span>${shape ? `<span class="pipeline-picker-option-meta">${escapeHtml(shape)}</span>` : ""}${pipeline.description ? `<span class="pipeline-picker-option-desc">${escapeHtml(pipeline.description)}</span>` : ""}</div>`;
-      }).join("")}</div>${panel.pipelines.some((pipeline) => !pipeline.editable && pipeline.prominentOrder === undefined) ? `<button id="pipeline-picker-more" data-action="pipeline-picker-more" class="pipeline-picker-more">${escapeHtml(pipelinePickerShowAll ? localize("Show common workflows") : localize("More workflows and compatibility presets"))}</button>` : ""}</div>`
+        return `<div id="${escapeAttribute(pipelineOptionDomId(pipeline.id))}" role="option" class="pipeline-picker-option" data-active="${isActive ? "true" : "false"}" data-action="pipeline-picker-select" data-pipeline-id="${escapeAttribute(pipeline.id)}" aria-selected="${isSelected ? "true" : "false"}"><span class="pipeline-picker-option-head"><span class="pipeline-picker-option-name">${escapeHtml(pipeline.name)}</span>${isSelected ? `<i class="codicon codicon-check" aria-hidden="true"></i>` : ""}</span>${shape ? `<span class="pipeline-picker-option-meta">${escapeHtml(shape)}</span>` : ""}${pipeline.description ? `<span class="pipeline-picker-option-desc">${escapeHtml(pipeline.description)}</span>` : ""}</div>`;
+      }).join("") || `<p class="pipeline-picker-empty" role="status">${escapeHtml(localize("No pipelines found"))}</p>`}</div></div>`
     : "";
   return `<div class="pipeline-picker" data-pipeline-picker>${button}${list}</div>`;
 };
@@ -404,7 +488,7 @@ const agentSlotSessionsHtml = (slot: AgentAssignmentSlot, panel: PanelState): st
     const adapter = browserAdapterForProvider(session.provider);
     const selected = slot.browserSessionId === session.id && slot.assignedAdapter === adapter;
     const disabled = session.status !== "ready";
-    return `<button type="button" role="option" id="agents-session-${escapeAttribute(slot.agentId)}-${escapeAttribute(session.id)}" class="agents-session-option${selected ? " selected" : ""}" data-action="agents-session" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}" data-session="${escapeAttribute(session.id)}" aria-selected="${selected ? "true" : "false"}"${disabled ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(browserProviderName(session.provider))} · ${escapeHtml(session.title ?? session.conversationUrl)}</span><span class="agents-session-meta">${escapeHtml(browserSessionCapabilityLabel(session))}</span></button>`;
+    return `<button type="button" role="option" id="agents-session-${escapeAttribute(slot.agentId)}-${escapeAttribute(session.id)}" class="agents-session-option" data-action="agents-session" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}" data-session="${escapeAttribute(session.id)}" aria-selected="${selected ? "true" : "false"}"${disabled ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(browserProviderName(session.provider))} · ${escapeHtml(session.title ?? session.conversationUrl)}</span><span class="agents-session-meta">${escapeHtml(browserSessionCapabilityLabel(session))}</span></button>`;
   });
   return `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("Browser conversation for {0}", slot.responsibility))}">${options.join("")}</div>`;
 };
@@ -499,9 +583,9 @@ const localInterpreterHtml = (panel: PanelState, locked: boolean): string => {
   // override is refused for exactly as long as reassignment is: while a run holds it.
   const options = local.availableModels.map((model) => {
     const selected = model.id === chosen;
-    return `<button type="button" role="option" class="agents-session-option${selected ? " selected" : ""}" data-action="local-model-select" data-model="${escapeAttribute(model.id)}" aria-selected="${selected ? "true" : "false"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(model.id)}</span><span class="agents-session-meta">${escapeHtml(model.backend)} · ${escapeHtml(model.availability)}</span></button>`;
+    return `<button type="button" role="option" class="agents-session-option" data-action="local-model-select" data-model="${escapeAttribute(model.id)}" aria-selected="${selected ? "true" : "false"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(model.id)}</span><span class="agents-session-meta">${escapeHtml(model.backend)} · ${escapeHtml(model.availability)}</span></button>`;
   });
-  const automatic = `<button type="button" role="option" class="agents-session-option${local.explicit ? "" : " selected"}" data-action="local-model-select" aria-selected="${local.explicit ? "false" : "true"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(localize("Choose automatically"))}</span><span class="agents-session-meta">${escapeHtml(localize("checked against the interpreter contract"))}</span></button>`;
+  const automatic = `<button type="button" role="option" class="agents-session-option" data-action="local-model-select" aria-selected="${local.explicit ? "false" : "true"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(localize("Choose automatically"))}</span><span class="agents-session-meta">${escapeHtml(localize("checked against the interpreter contract"))}</span></button>`;
   const list = options.length > 0
     ? `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("Local interpreter model"))}">${automatic}${options.join("")}</div>`
     : "";
@@ -528,7 +612,7 @@ const agentsPickerHtml = (panel: PanelState): string => {
     : overrides > 0
       ? localize("Agents · {0} reassigned", String(overrides))
       : localize("Agents");
-  const button = `<button id="agents-picker-button" data-action="agents-picker-toggle" class="agents-picker-button${overrides > 0 ? " has-overrides" : ""}" aria-haspopup="dialog" aria-label="${escapeAttribute(label)}" ${expandedControlAttributes(open, AGENTS_POPOVER_ID)}${disabled ? " disabled" : ""} title="${escapeAttribute(title)}"><i class="codicon codicon-organization" aria-hidden="true"></i><span class="agents-picker-label">${escapeHtml(label)}</span></button>`;
+  const button = `<button id="agents-picker-button" data-action="agents-picker-toggle" class="icon-button agents-picker-button" aria-haspopup="dialog" aria-label="${escapeAttribute(label)}" ${expandedControlAttributes(open, AGENTS_POPOVER_ID)}${disabled ? " disabled" : ""} title="${escapeAttribute(title)}"><i class="codicon codicon-organization" aria-hidden="true"></i><span class="agents-picker-label">${escapeHtml(label)}</span></button>`;
   if (!open) {
     return `<div class="agents-picker" data-agents-picker>${button}</div>`;
   }
@@ -588,12 +672,12 @@ const composerPrimaryActionHtml = (panel: PanelState, draft: ConversationDraft):
   const pending = pendingInterrupts.has(activeId());
   if ((runPhaseOf(panel) === "running" || waiting) && draft.prompt.trim().length === 0 && draft.selectedAttachmentIds.size === 0 && draft.pendingAttachments.size === 0) {
     const label = waiting ? localize("Cancel wait") : localize("Stop");
-    return `<button data-action="interrupt-run" class="send-button icon-send composer-stop" aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}"${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>${pending ? `<span class="sr-only" role="status">${escapeHtml(localize("Stopping…"))}</span>` : ""}`;
+    return `<button data-action="interrupt-run" class="icon-button send-button icon-send composer-stop" aria-label="${escapeAttribute(label)}" title="${escapeAttribute(label)}"${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-stop-circle" aria-hidden="true"></i></button>${pending ? `<span class="sr-only" role="status">${escapeHtml(localize("Stopping…"))}</span>` : ""}`;
   }
   const blockers = sendBlockers(activeId(), panel, draft);
   const label = draft.delivery === "queue" ? localize("Queue") : draft.delivery === "interrupt" ? localize("Interrupt and send") : localize("Send");
   const title = blockers.length > 0 ? localize("{0} unavailable · {1}", label, sendRequirementsDescription(blockers)) : `${label} · ${submitShortcutLabel}`;
-  return `<button class="send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(title)}" aria-label="${escapeAttribute(label)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(blockers.length === 0 && !pending, blockers)}${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>`;
+  return `<button class="icon-button send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(draft.delivery)}" title="${escapeAttribute(title)}" aria-label="${escapeAttribute(label)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(blockers.length === 0 && !pending, blockers)}${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>`;
 };
 
 const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
@@ -622,7 +706,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>
         ${pipelinePickerHtml(panel)}
         ${agentsPickerHtml(panel)}
-        <button data-action="composer-settings-toggle" class="icon-button composer-settings-button${state.composerSettingsOpen ? " open" : ""}${optionChips.length > 0 ? " has-chips" : ""}" title="${escapeAttribute(settingsLabel)}" aria-label="${escapeAttribute(settingsLabel)}" ${expandedControlAttributes(state.composerSettingsOpen, "composer-settings")}><i class="codicon codicon-settings-gear" aria-hidden="true"></i></button>
+        <button data-action="composer-settings-toggle" class="icon-button composer-settings-button${optionChips.length > 0 ? " has-chips" : ""}" title="${escapeAttribute(settingsLabel)}" aria-label="${escapeAttribute(settingsLabel)}" ${expandedControlAttributes(state.composerSettingsOpen, "composer-settings")}><i class="codicon codicon-settings-gear" aria-hidden="true"></i></button>
         <div class="composer-send">
           ${composerPrimaryActionHtml(panel, draft)}
         </div>

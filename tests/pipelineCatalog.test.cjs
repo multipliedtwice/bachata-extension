@@ -93,6 +93,7 @@ test("pipeline summaries preserve picker, participant, step, and workspace scope
     hash: "built-in-hash",
     scopeKey: "builtin",
     prominentOrder: 3,
+    pickerCategory: "common",
     participantCount: 2,
     participantNames: ["UX", "Accessibility"],
     stepCount: 1,
@@ -108,6 +109,7 @@ test("pipeline summaries preserve picker, participant, step, and workspace scope
     editable: true,
     hash: "workspace-hash",
     scopeKey: "workspace:/project",
+    pickerCategory: "custom",
     participantCount: 1,
     participantNames: ["Codex"],
     stepCount: 1,
@@ -304,15 +306,15 @@ test("the validator refuses on schema errors and on adapter errors, naming the s
   assert.equal(createPipelineValidator(() => [])(definition("fine"), "ok").id, "fine");
 });
 
-test("catalog owns the five prominent workflow positions without promoting custom or unfamiliar workflows", () => {
+test("catalog owns picker order and categories without classifying from display text", () => {
   const { pipelinePickerMetadata } = require("../dist/pipeline/pipelineCatalog.js");
   const ordered = ["codex-fix", "codex-review", "codex-plan", "ui-ux-review", "code-review-refine"];
   for (const [position, id] of ordered.entries()) {
-    assert.deepEqual(pipelinePickerMetadata(id, false), { prominentOrder: position });
-    assert.deepEqual(pipelinePickerMetadata(id, true), {});
+    assert.deepEqual(pipelinePickerMetadata(id, false), { pickerCategory: "common", prominentOrder: position });
+    assert.deepEqual(pipelinePickerMetadata(id, true), { pickerCategory: "custom" });
   }
-  for (const id of ["new-specialized-workflow", "claude-review", "todo-master", "custom-review"]) {
-    assert.deepEqual(pipelinePickerMetadata(id, false), {});
-    assert.deepEqual(pipelinePickerMetadata(id, true), {});
-  }
+  assert.deepEqual(pipelinePickerMetadata("new-specialized-workflow", false), { pickerCategory: "specialized" });
+  assert.deepEqual(pipelinePickerMetadata("claude-review", false), { pickerCategory: "compatibility" });
+  assert.deepEqual(pipelinePickerMetadata("todo-master", false), { pickerCategory: "internal" });
+  assert.deepEqual(pipelinePickerMetadata("custom-review", true), { pickerCategory: "custom" });
 });

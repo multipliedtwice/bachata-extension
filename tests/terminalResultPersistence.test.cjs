@@ -206,6 +206,22 @@ test("bounded terminal merge preserves saved assessment and omissions when reloa
   assert.deepEqual(mergeRunResults(persisted, newer), newer);
 });
 
+test("an omitted terminal result remains authoritative over a divergent reconstruction of the same execution", () => {
+  const persisted = assertStable(resultFixture());
+  const live = resultHandoffFixture();
+  live.executionRef = persisted.executionRef;
+  live.finalDecisionEventId = persisted.finalDecisionEventId;
+  live.finalDecision = {
+    stepId: "reconstructed-decision",
+    status: "accepted",
+    participants: [],
+    objections: [],
+    unresolvedRisks: [],
+  };
+  live.finalRuling = "A reconstructed ruling that was never persisted";
+  assert.deepEqual(mergeRunResults(persisted, live), persisted);
+});
+
 test("bounded terminal merge updates newer verification and keeps saved omission semantics", () => {
   const persisted = assertStable(resultFixture());
   const live = resultHandoffFixture();

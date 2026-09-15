@@ -25,6 +25,7 @@ const load = ({ events = [], interactions = [], panel = {}, roomView = "chat" } 
   };
   const context = vm.createContext({
     state, escapeHtml: escape, escapeAttribute: escape, renderMarkdown: escape,
+    localize: (message, ...values) => values.reduce((text, value, index) => text.replaceAll(`{${String(index)}}`, String(value)), message),
     jsonRecord: (value) => value && typeof value === "object" && !Array.isArray(value) ? value : undefined,
     jsonString: (value) => typeof value === "string" ? value : undefined,
     formatDateTime: (value) => value, disclosureAttributes: () => "",
@@ -33,12 +34,14 @@ const load = ({ events = [], interactions = [], panel = {}, roomView = "chat" } 
     conversationById: (id) => state.manager.conversations.find((conversation) => conversation.id === id),
     pendingInterrupts: new Set(), hasOrchestrationState: () => false, orchestrationStartButtonHtml: () => "",
     agentsAssignable: () => true,
-    liveRegionAttributes: () => "", notificationBellHtml: () => "", runTabLabel: (value) => value.title,
+    liveRegionAttributes: () => "", notificationBellHtml: () => '<button data-action="notification-settings">Settings</button>', runTabLabel: (value) => value.title,
+    activeConversation: () => state.manager.conversations[0], emptyPanel: () => currentPanel,
+    childConversationsFor: () => [], interactionIsOpen: (value) => value.status === "pending" || value.status === "paused",
     bachataWebviewBehavior: { runRecovery: () => undefined, runPhase: () => "idle", runStatusPresentation: () => ({ label: "Ready", spinning: false }) },
   });
   const source = ["executionRender.ts", "roomRender.ts"].map((file) => fs.readFileSync(path.join(__dirname, "../src/webview-ui", file), "utf8")).join("\n");
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
-  const api = vm.runInContext(`${code}\n;({ disagreementEventFor, finalRulingHtml, readableResultHtml, blockingDecisionCount, roomHeaderHtml, gateDraftKey, rememberGateDraft, workflowHtml });`, context);
+  const api = vm.runInContext(`${code}\n;({ disagreementEventFor, finalRulingHtml, readableResultHtml, blockingDecisionCount, selectedRunTabToolsHtml, gateDraftKey, rememberGateDraft, workflowHtml });`, context);
   return { api, state, panel: currentPanel };
 };
 
@@ -55,7 +58,7 @@ test("disagreement follows the exact current gate, completed round and attempt",
   assert.equal(api.disagreementEventFor(interaction()), undefined);
 });
 
-test("structured review conclusions are readable and expanded without internal identities", () => {
+test("structured review conclusions are readable behind a disclosure without internal identities", () => {
   const { api, panel } = load({ panel: { agents: { reviewer: { name: "Reviewer" } } } });
   const html = api.finalRulingHtml(decision(2, "pending", {
     candidateId: "candidate-hidden",
@@ -66,7 +69,8 @@ test("structured review conclusions are readable and expanded without internal i
   assert.match(html, /Keyboard navigation/);
   assert.match(html, /Focus escapes the dialog/);
   assert.match(html, /Press Tab at the final field/);
-  assert.doesNotMatch(html, /<details|candidate-hidden|hash-hidden|finding-hidden|No selected result|Raised no objection|No objections/);
+  assert.match(html, /<details class="ruling-compare"/u);
+  assert.doesNotMatch(html, /candidate-hidden|hash-hidden|finding-hidden|No selected result|Raised no objection|No objections/);
   assert.match(api.readableResultHtml({ summary: "<img onerror=alert(1)>" }), /&lt;img/);
 });
 
@@ -98,8 +102,8 @@ test("participant consent is distinct from the conclusion selected by a person",
   assert.match(html, /data-agent="first"><span>First reviewer<\/span><small>Selected conclusion/);
   assert.match(html, /data-agent="second"><span>Second reviewer<\/span><small>Supports own conclusion/);
   assert.doesNotMatch(html, /<small>Agreed/);
-  assert.match(html, /compare-column accepted">\s*<header><strong>First reviewer/);
-  assert.doesNotMatch(html, /compare-column accepted">\s*<header><strong>Second reviewer/);
+  assert.match(html, /compare-column accepted"[^>]*>\s*<header><strong>First reviewer/);
+  assert.doesNotMatch(html, /compare-column accepted"[^>]*>\s*<header><strong>Second reviewer/);
 });
 
 test("resuming a deferred gate reuses the recorded conclusions from its existing attempt", () => {
@@ -116,9 +120,9 @@ test("blocking count deduplicates the matching gate while keeping unrelated appr
   assert.equal(api.blockingDecisionCount(panel, "run-1"), 2);
 });
 
-test("Direction always offers a route back to Chat and notification settings stay reachable", () => {
-  const { api, panel } = load({ roomView: "direction" });
-  const html = api.roomHeaderHtml(panel, { id: "run-1", title: "New run", archived: false }, { direction: false, execution: false });
+test("the selected run tab always offers a route back to Chat and notification settings", () => {
+  const { api } = load({ roomView: "direction" });
+  const html = api.selectedRunTabToolsHtml({ id: "run-1", title: "New run", archived: false });
   assert.match(html, /data-view="chat"/);
   assert.doesNotMatch(html, /data-view="execution"/);
   assert.match(html, /data-action="notification-settings"/);

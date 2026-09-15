@@ -591,6 +591,9 @@ export const createClaudeCodeAdapter = (
       if (model) {
         args.push("--model", model);
       }
+      if (requestData.reasoningEffort) {
+        args.push("--effort", requestData.reasoningEffort);
+      }
 
       if (requestData.sessionId) {
         args.push("--resume", requestData.sessionId);

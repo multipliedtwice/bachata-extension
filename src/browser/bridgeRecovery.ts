@@ -38,6 +38,7 @@ export type BrowserBridgeRecoveryOptions = {
   probeEndpoint?: typeof probeBrowserBridgeEndpoint;
   reserveEndpoint?: (endpoint: string, signal?: AbortSignal) => Promise<Reservation>;
   createSharedClient?: typeof createSharedBrowserBridgeClient;
+  legacyEndpoint?: string;
   now?: () => number;
   schedule?: (callback: () => void, delayMs: number) => Timer;
   cancelSchedule?: (timer: Timer) => void;
@@ -56,7 +57,7 @@ export type BrowserBridgeRecovery = BrowserBridgeServer & {
 };
 
 const sharedTokenKey = "bachata.browserBridge.sharedToken.v1";
-const legacyEndpoint = "ws://127.0.0.1:43127/bachata-browser-bridge-v9";
+const defaultLegacyEndpoint = "ws://127.0.0.1:43127/bachata-browser-bridge-v9";
 const unavailable = (): Error => new Error("Browser unavailable — retrying.");
 const endpointOrigin = (endpoint: string): string => new URL(endpoint).origin;
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -90,6 +91,7 @@ export const createBrowserBridgeRecovery = (
   const probe = options.probeEndpoint ?? probeBrowserBridgeEndpoint;
   const reserveEndpoint = options.reserveEndpoint ?? reserveBrowserBridgeEndpoint;
   const createSharedClient = options.createSharedClient ?? createSharedBrowserBridgeClient;
+  const legacyEndpoint = options.legacyEndpoint ?? defaultLegacyEndpoint;
   const retryBaseMs = Math.max(1, options.retryBaseMs ?? 500);
   const retryMaxMs = Math.max(retryBaseMs, options.retryMaxMs ?? 15_000);
   const healthCheckMs = Math.max(1, options.healthCheckMs ?? 5_000);

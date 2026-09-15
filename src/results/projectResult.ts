@@ -563,8 +563,8 @@ const withVerificationState = (
   };
 };
 
-const evidenceGapsFrom = (evidence: EvidenceEntry[]): string[] =>
-  evidence.filter((item) => item.state === "missing").map((item) => item.detail);
+const evidenceGapsFrom = (evidence: readonly EvidenceEntry[] | undefined): string[] =>
+  (evidence ?? []).filter((item) => item.state === "missing").map((item) => item.detail);
 
 const failedCheck = (check: VerificationResult): boolean =>
   check.status === "failed" || check.status === "timedOut";
@@ -809,6 +809,10 @@ export const mergeRunResults = (
       (live.finalDecisionEventId === undefined || live.finalDecisionEventId === persisted.finalDecisionEventId)) {
     const bounded = boundedTerminalResult(live);
     const same = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+    const sameExecution = live.executionRef === undefined || live.executionRef === persisted.executionRef;
+    const newerVerification = bounded.verificationProvenance?.source === "recheck" &&
+      !same(bounded.verificationProvenance, persisted.verificationProvenance);
+    if (persisted.persistence.omitted && sameExecution && !newerVerification) return persisted;
     const subset = (values: readonly unknown[], recorded: readonly unknown[]): boolean => {
       const known = new Set(recorded.map((value) => JSON.stringify(value)));
       return values.every((value) => known.has(JSON.stringify(value)));

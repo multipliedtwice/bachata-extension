@@ -38,5 +38,5 @@ playwright-report/
 *.rej
 *~
 Thumbs.db
-cypress
+/cypress/
 !tests/cypress/

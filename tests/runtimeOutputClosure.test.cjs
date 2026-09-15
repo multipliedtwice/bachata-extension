@@ -85,19 +85,20 @@ test("provider API assignments cannot escape through transcript messages or rest
   }
 });
 
-test("bridge discovery starts the local endpoint and preserves serialized refresh requests", async () => {
+test("bridge discovery preserves the local endpoint and forwards every refresh request", async () => {
   let starts = 0;
-  let release;
-  const wait = new Promise((resolve) => { release = resolve; });
-  const harness = loadRuntimeHarness({ bridgeStart: async () => { starts += 1; if (starts > 1) await wait; } });
+  let discoveries = 0;
+  const harness = loadRuntimeHarness({
+    bridgeStart: async () => { starts += 1; },
+    bridgeDiscover: () => { discoveries += 1; },
+  });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const first = harness.runtime.handleMessage({ type: "bridge.discover" });
-    const second = harness.runtime.handleMessage({ type: "bridge.discover" });
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(starts, 2);
-    release();
-    await Promise.all([first, second]);
-    assert.equal(starts, 3);
-  } finally { release(); await harness.runtime.dispose(); harness.cleanup(); }
+    await Promise.all([
+      harness.runtime.handleMessage({ type: "bridge.discover" }),
+      harness.runtime.handleMessage({ type: "bridge.discover" }),
+    ]);
+    assert.equal(starts, 1);
+    assert.equal(discoveries, 2);
+  } finally { await harness.runtime.dispose(); harness.cleanup(); }
 });

@@ -48,6 +48,7 @@ const listScreenshots = async () => {
 };
 
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+const packageNls = JSON.parse(await readFile(path.join(root, "package.nls.json"), "utf8"));
 const pinnedBridge = bindsArtifacts ? await resolvePinnedBridgeArchive(root) : undefined;
 if (vsixOverride && path.basename(vsixOverride) !== `bachata-vscode-${packageJson.version}.vsix`) {
   throw new Error(
@@ -104,6 +105,7 @@ const artifacts = !bindsArtifacts ? {} : {
 
 const findings = releaseMetadataFindings({
   packageJson,
+  packageNls,
   readme: (await readOptional("README.md")) ?? "",
   screenshotFiles: await listScreenshots(),
   bridgeInstallDocument: await readOptional("docs/BROWSER_BRIDGE_INSTALL.md"),
