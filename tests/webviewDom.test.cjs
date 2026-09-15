@@ -2371,13 +2371,13 @@ for (
     {
       name: "pipeline",
       toggle: '[data-action="pipeline-picker-toggle"]',
-      button: "pipeline-picker-button",
+      focus: "pipeline-picker-search",
       drawn: '[data-action="pipeline-picker-select"]',
     },
     {
       name: "agents",
       toggle: '[data-action="agents-picker-toggle"]',
-      button: "agents-picker-button",
+      focus: "agents-picker-button",
       drawn: '[data-agents-provider-for]',
     },
   ]
@@ -2403,7 +2403,7 @@ for (
       );
       assert.equal(
         harness.document.activeElement.id,
-        popover.button,
+        popover.focus,
         `the ${popover.name} popover left focus outside itself`,
       );
     } finally {
@@ -8227,11 +8227,17 @@ test("unfamiliar built-in workflows remain discoverable in Specialized", () => {
   const harness = bootWebview(managerState(), panel);
   try {
     harness.document.getElementById("pipeline-picker-button").click();
-    assert.equal(harness.document.root.querySelector(`[data-pipeline-id="${unfamiliar.id}"]`), null);
+    assert.ok(
+      harness.document.root.querySelector(`[data-pipeline-id="${unfamiliar.id}"]`),
+      "All omitted an unfamiliar built-in pipeline",
+    );
     const specialized = harness.document.root.querySelector('[data-action="pipeline-picker-filter"][data-pipeline-filter="specialized"]');
     assert.ok(specialized);
     specialized.click();
-    assert.ok(harness.document.root.innerHTML.includes("Concurrency audit"));
+    assert.ok(
+      harness.document.root.querySelector(`[data-pipeline-id="${unfamiliar.id}"]`),
+      "Specialized omitted an unfamiliar built-in pipeline",
+    );
   } finally { harness.restore(); }
 });
 
