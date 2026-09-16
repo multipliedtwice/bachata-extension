@@ -64,13 +64,19 @@ jobs:
       - name: No telemetry
         run: npm run check:no-telemetry
 
-      # Windows held an hour per test file and two hours per coverage command because the unit lane
-      # opened a Windows Job Object per test file, and each one cost a powershell.exe launch and a
-      # runtime C# compile. The lane now opens one scope for every file, so Windows keeps the same
-      # bounds as the other platforms and a hang surfaces as a failure instead of a four hour job.
+      # BACHATA_TEST_FILE_TIMEOUT_MS bounds a whole file, not one case: the test runner isolates
+      # each file in its own process and represents it as a test, so a file that outlasts this is
+      # cancelled and every case behind it is reported as cancelledByParent and never runs. Windows
+      # therefore keeps the hour it has always had, because its process-heavy files are far slower
+      # than the same files elsewhere. Cutting it to the Linux bound cancelled whole files.
+      #
+      # What stops a hang from running for hours is the lane cap, not the file bound. The unit lane
+      # opens one process scope for all files now rather than one per file, so this cap is what the
+      # four hour Windows job actually needed.
       - name: Tests
         env:
-          BACHATA_TEST_FILE_TIMEOUT_MS: "600000"
+          BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
+          BACHATA_TEST_RUN_TIMEOUT_MS: "5400000"
         run: npm test
 
       - name: Coverage gates

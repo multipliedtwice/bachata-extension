@@ -35,10 +35,12 @@ if (files.length === 0) {
 // over. That overhead, not the tests, was the difference between a 36 minute Linux lane and a four
 // hour Windows one.
 //
-// The bound splits in two as a result. BACHATA_TEST_FILE_TIMEOUT_MS now caps a single test through
-// --test-timeout, which names the test that hung rather than only the file holding it, and
-// BACHATA_TEST_RUN_TIMEOUT_MS caps the lane so a runner that stops making progress between tests
-// is still killed.
+// The bound splits in two as a result. BACHATA_TEST_FILE_TIMEOUT_MS still bounds a whole file: the
+// runner isolates each file in its own process and represents it as a test, so --test-timeout cuts
+// the file off and reports every case behind it as cancelledByParent rather than running it. It has
+// to hold the slowest file on the slowest platform, not the slowest single case. The lane is capped
+// separately by BACHATA_TEST_RUN_TIMEOUT_MS, and that cap, not the file bound, is what keeps a hang
+// from occupying a runner for hours.
 const timeoutMs = Math.max(10_000, Number(process.env.BACHATA_TEST_FILE_TIMEOUT_MS ?? 600_000));
 const runTimeoutMs = Math.max(
   timeoutMs,
