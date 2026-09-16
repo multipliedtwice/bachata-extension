@@ -1,7 +1,7 @@
 import type { BrowserSession, BrowserSessionCapabilities } from "../browser/protocol";
 import type { PipelineDefinition } from "../pipeline/types";
 import { describeCapabilities } from "../pipeline/capabilities";
-import { relativePathWithinDirectory } from "./paths";
+import { absolutePathWithinDirectory, relativePathWithinDirectory } from "./paths";
 import type { CodexWorkspaceScope } from "../adapters/codexWire";
 
 export type ReadinessStatus = "ready" | "blocked" | "needsSetup" | "unsupported";
@@ -155,14 +155,8 @@ const finding = (
  * root to be an open root exactly refused that remedy: the reader picked the repository, and
  * readiness answered that the repository was not open.
  */
-const selectedRootIsOpen = (selectedRoot: string, roots: readonly string[]): boolean => {
-  const trimmed = selectedRoot.replace(/[\\/]+$/u, "");
-  return roots.some((root) => {
-    const base = root.replace(/[\\/]+$/u, "");
-    if (base.length === 0) return false;
-    return trimmed === base || trimmed.startsWith(`${base}/`) || trimmed.startsWith(`${base}\\`);
-  });
-};
+const selectedRootIsOpen = (selectedRoot: string, roots: readonly string[]): boolean =>
+  roots.some((root) => absolutePathWithinDirectory(root, selectedRoot));
 
 export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
   const findings: ReadinessFinding[] = [];

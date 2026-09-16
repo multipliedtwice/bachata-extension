@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const fs = require("node:fs");
@@ -18,7 +19,7 @@ const { EventEmitter } = require("node:events");
 // says what happened, and nothing was left behind.
 const root = path.join(__dirname, "..");
 const sessionModule = path.join(root, "scripts", "lib", "chromeSession.mjs");
-const loadSession = () => import(`file://${sessionModule}`);
+const loadSession = () => import(pathToFileURL(sessionModule).href);
 
 // A real timer, with the tiny bounds below. A wait that resolved on the microtask queue would
 // always beat the child's own exit event and turn every polite termination into a SIGKILL.

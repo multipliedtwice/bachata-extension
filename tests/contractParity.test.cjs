@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -6,7 +7,7 @@ const test = require("node:test");
 const root = path.join(__dirname, "..");
 const parityModule = path.join(root, "scripts", "verify-contract-parity.mjs");
 
-const load = () => import(`file://${parityModule}`);
+const load = () => import(pathToFileURL(parityModule).href);
 
 const compatibility = JSON.parse(
   fs.readFileSync(path.join(root, "protocol", "browser-bridge.compatibility.json"), "utf8"),

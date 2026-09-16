@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
@@ -146,7 +147,7 @@ test("every contributed timeout setting declares a bound its default satisfies",
 // being written differently or by living somewhere the list did not name.
 test("no timeout setting is read without the shared clamp", async () => {
   const { findUnguardedTimeoutReads } = await import(
-    `file://${require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")}`
+    pathToFileURL(require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")).href
   );
   const findings = await findUnguardedTimeoutReads();
   assert.deepEqual(
@@ -160,7 +161,7 @@ test("no timeout setting is read without the shared clamp", async () => {
 
 test("the scanner detects a read written without a type argument", async () => {
   const { findUnguardedTimeoutReads } = await import(
-    `file://${require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")}`
+    pathToFileURL(require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")).href
   );
   const os = require("node:os");
   const fsp = require("node:fs/promises");
@@ -189,7 +190,7 @@ test("the scanner detects a read written without a type argument", async () => {
 
 test("a read wrapped in the shared reader is not reported", async () => {
   const { findUnguardedTimeoutReads, findGuardedTimeoutReads } = await import(
-    `file://${require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")}`
+    pathToFileURL(require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")).href
   );
   const os = require("node:os");
   const fsp = require("node:fs/promises");
@@ -212,7 +213,7 @@ test("a read wrapped in the shared reader is not reported", async () => {
 
 test("every timeout setting read in this repository is accounted for", async () => {
   const { findGuardedTimeoutReads } = await import(
-    `file://${require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")}`
+    pathToFileURL(require("node:path").join(__dirname, "..", "scripts", "check-timeout-reads.mjs")).href
   );
   const guarded = await findGuardedTimeoutReads();
   // Not pinned to an exact number: a new guarded read is correct and must not fail this.

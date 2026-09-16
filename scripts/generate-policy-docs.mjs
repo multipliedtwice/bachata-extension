@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { policyBlocks, renderGeneratedRegions } from "./lib/policyDocs.mjs";
 import { withWorktreeLock } from "./lib/worktreeLock.mjs";
@@ -13,8 +13,8 @@ const check = process.argv.includes("--check");
 // chain must take the lock for its own read or import a module mid-delete. `withWorktreeLock`
 // reuses an inherited token, so nesting under a caller that already holds it is free.
 const { policy, registry } = await withWorktreeLock({ label: "policy documentation" }, async () => ({
-  policy: await import(`file://${path.join(root, "dist", "orchestrator", "verificationPolicy.js")}`),
-  registry: await import(`file://${path.join(root, "dist", "orchestrator", "verifierRegistry.js")}`),
+  policy: await import(pathToFileURL(path.join(root, "dist", "orchestrator", "verificationPolicy.js")).href),
+  registry: await import(pathToFileURL(path.join(root, "dist", "orchestrator", "verifierRegistry.js")).href),
 }));
 
 const blocks = policyBlocks({

@@ -1,10 +1,11 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
 const root = path.join(__dirname, "..");
-const load = () => import(`file://${path.join(root, "scripts", "lib", "releaseMetadata.mjs")}`);
+const load = () => import(pathToFileURL(path.join(root, "scripts", "lib", "releaseMetadata.mjs")).href);
 
 const VSIX_HASH = "a".repeat(64);
 const BRIDGE_HASH = "b".repeat(64);

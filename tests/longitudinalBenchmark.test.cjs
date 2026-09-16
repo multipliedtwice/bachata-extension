@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -7,7 +8,7 @@ const { findingIdentity, foldFindingsIntoHistory } = require("../dist/longitudin
 
 const root = path.join(__dirname, "..");
 const home = path.join(root, "benchmarks", "longitudinal");
-const load = () => import(`file://${path.join(root, "scripts", "lib", "longitudinalBenchmark.mjs")}`);
+const load = () => import(pathToFileURL(path.join(root, "scripts", "lib", "longitudinalBenchmark.mjs")).href);
 
 const tasks = fs.readdirSync(path.join(home, "tasks"))
   .filter((name) => name.endsWith(".json"))

@@ -1,8 +1,9 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const test = require("node:test");
 
-const moduleUrl = `file://${path.join(__dirname, "..", "scripts", "verify-bridge-run.mjs")}`;
+const moduleUrl = pathToFileURL(path.join(__dirname, "..", "scripts", "verify-bridge-run.mjs")).href;
 const load = () => import(moduleUrl);
 
 const EXPECTED_WORKFLOW_PATH = ".github/workflows/release-artifact.yml";

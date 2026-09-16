@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const { execFile } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
@@ -25,7 +26,7 @@ const doesNotExist = async (candidate) => {
 
 test("custom pipeline definitions are source; Bachata run state is excluded", async () => {
   const source = await mkdtemp(path.join(os.tmpdir(), "bachata-pipeline-source-"));
-  const { collectMaintainedSourceFiles } = await import(`file://${exporter}`);
+  const { collectMaintainedSourceFiles } = await import(pathToFileURL(exporter).href);
   try {
     await mkdir(path.join(source, ".bachata", "pipelines", "backup"), { recursive: true });
     for (const file of ["package.json", "UI-ITERATION.md", ".bachata/session.json", ".bachata/pipelines/ui.pipeline.json", ".bachata/pipelines/catalog.lock", ".bachata/pipelines/backup/old.pipeline.json"]) {
@@ -41,7 +42,7 @@ test("custom pipeline definitions are source; Bachata run state is excluded", as
 
 test("source collection includes English and regional localization catalogs", async () => {
   const source = await mkdtemp(path.join(os.tmpdir(), "bachata-localized-source-"));
-  const { collectMaintainedSourceFiles } = await import(`file://${exporter}`);
+  const { collectMaintainedSourceFiles } = await import(pathToFileURL(exporter).href);
   const catalogs = [
     "l10n/bundle.l10n.json",
     "l10n/bundle.l10n.pt-br.json",
@@ -233,7 +234,7 @@ test("the exported extension source installs with npm ci", async () => {
 // an archive whose assembly is unknown proves nothing about this checkout's export contract.
 test("a fresh source export carries every file the mandatory suite reads", async () => {
   const { collectMaintainedSourceFiles } = await import(
-    `file://${path.join(root, "scripts", "source-distribution.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "source-distribution.mjs")).href
   );
   const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-vscode-source-suite-inputs-"));
   const output = path.join(parent, "export");
@@ -272,7 +273,7 @@ test("a fresh source export carries every file the mandatory suite reads", async
 
 test("the recorded maintained source count matches what the exporter carries", async () => {
   const { collectMaintainedSourceFiles } = await import(
-    `file://${path.join(root, "scripts", "source-distribution.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "source-distribution.mjs")).href
   );
   const files = await collectMaintainedSourceFiles(root);
   const facts = await readFile(path.join(root, "BUILD_FACTS.md"), "utf8");
@@ -365,7 +366,7 @@ test("this exporter declares only the package it belongs to", async () => {
 
 test("generated facts enumerate tracked paths and exclude untracked files", async () => {
   const module = await import(
-    `file://${path.join(root, "scripts", "source-distribution.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "source-distribution.mjs")).href
   );
   const tracked = await module.collectTrackedMaintainedSourceFiles(root);
   const workingTree = await module.collectMaintainedSourceFiles(root);
@@ -424,7 +425,7 @@ test("generated facts enumerate tracked paths and exclude untracked files", asyn
 
 test("an excluded name is skipped before it is stat-ed, even as a broken symbolic link", async () => {
   const { collectMaintainedSourceFiles } = await import(
-    `file://${path.join(root, "scripts", "source-distribution.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "source-distribution.mjs")).href
   );
   const link = path.join(root, "node_modules-probe-link");
   const excluded = path.join(root, "node_modules");
@@ -449,7 +450,7 @@ test("an excluded name is skipped before it is stat-ed, even as a broken symboli
 
 test("a symbolic link the manifest carries is still refused", async () => {
   const { collectMaintainedSourceFiles } = await import(
-    `file://${path.join(root, "scripts", "source-distribution.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "source-distribution.mjs")).href
   );
   const link = path.join(root, "src", `bachata-link-probe-${randomUUID()}.ts`);
   await symlink(path.join(root, "package.json"), link);
@@ -510,7 +511,7 @@ const buildExportCaseTree = async (base, outside, testCase) => {
 };
 
 test("the exporter applies every shared exclusion case by name before type", async () => {
-  const { collectMaintainedSourceFiles } = await import(`file://${exporter}`);
+  const { collectMaintainedSourceFiles } = await import(pathToFileURL(exporter).href);
   for (const testCase of sharedExportFixtures().cases) {
     const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-extension-export-case-"));
     const source = path.join(parent, "package");

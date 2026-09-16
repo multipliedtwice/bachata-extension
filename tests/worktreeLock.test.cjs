@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -7,7 +8,7 @@ const { spawn, spawnSync } = require("node:child_process");
 
 const root = path.join(__dirname, "..");
 const lockModule = path.join(root, "scripts", "lib", "worktreeLock.mjs");
-const loadLock = () => import(`file://${lockModule}`);
+const loadLock = () => import(pathToFileURL(lockModule).href);
 
 const temporaryLockPath = (name) =>
   path.join(
@@ -356,7 +357,7 @@ test("separate processes never both own the worktree", async () => {
   const lockPath = temporaryLockPath("multi-process");
   const script = `
     const lockPath = process.argv[1];
-    import(${JSON.stringify(`file://${lockModule}`)}).then(async ({ acquireWorktreeLock }) => {
+    import(${JSON.stringify(pathToFileURL(lockModule).href)}).then(async ({ acquireWorktreeLock }) => {
       try {
         const lock = await acquireWorktreeLock({
           lockPath,
@@ -513,7 +514,7 @@ test("a run that gives up while waiting out a fence removes the lock it publishe
 // is used to hold a lock with a real, separately schedulable process.
 const OWNER_CHILD_SCRIPT = (lockModulePath) => `
   const lockPath = process.argv[1];
-  import(${JSON.stringify("file://LOCK_MODULE")}.replace("LOCK_MODULE", ${JSON.stringify(lockModulePath)}))
+  import(${JSON.stringify(pathToFileURL(lockModulePath).href)})
     .then(async ({ acquireWorktreeLock }) => {
       const lock = await acquireWorktreeLock({
         lockPath,
@@ -545,7 +546,14 @@ const ageBeyondEveryDeadline = (target) => {
   fs.utimesSync(target, ancient, ancient);
 };
 
-test("a stopped owner keeps the worktree, and its death does not hand the worktree on", async () => {
+// SIGSTOP and SIGCONT are POSIX. Windows has no signal that suspends a process and resumes it,
+// so the state this test puts an owner into cannot be reached there and the test is skipped
+// rather than rewritten into a different scenario wearing the same name.
+test("a stopped owner keeps the worktree, and its death does not hand the worktree on", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("SIGSTOP has no Windows equivalent");
+    return;
+  }
   const { acquireWorktreeLock } = await loadLock();
   const lockPath = temporaryLockPath("live-owner");
   const owned = await startOwnerChild(lockPath);
@@ -1075,7 +1083,7 @@ test("a filesystem with no usable inode identifies files by their recorded token
     const result = await runInChild(`
       import fs from "node:fs";
       ${ZERO_INODE_PRELUDE(lockModule)}
-      const { acquireWorktreeLock } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lockPath = ${JSON.stringify(lockPath)};
       const owner = await acquireWorktreeLock({ lockPath, environment: {}, label: "owner", waitMs: 2000, pollMs: 10, log: () => undefined });
       const ownsBeforeRelease = await owner.ownsWorktree();
@@ -1103,7 +1111,7 @@ test("without inodes, a release whose file was replaced still deletes nothing", 
     const result = await runInChild(`
       import fs from "node:fs";
       ${ZERO_INODE_PRELUDE(lockModule)}
-      const { acquireWorktreeLock } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lockPath = ${JSON.stringify(lockPath)};
       const owner = await acquireWorktreeLock({ lockPath, environment: {}, label: "owner", waitMs: 2000, pollMs: 10, log: () => undefined });
       fs.rmSync(lockPath, { force: true });
@@ -1168,7 +1176,7 @@ test("a forced process.exit leaves the lock for an operator rather than releasin
   const lockPath = temporaryLockPath("forced-exit");
   try {
     const child = spawn(process.execPath, ["--input-type=module", "-e", `
-      const { acquireWorktreeLock } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lock = await acquireWorktreeLock({ lockPath: ${JSON.stringify(lockPath)}, environment: {}, label: "exiting run", log: () => undefined });
       process.stdout.write(JSON.stringify({ token: lock.token }) + String.fromCharCode(10));
       process.exit(0);
@@ -1203,7 +1211,7 @@ test("a kill between claim sync and publication leaves only a sweepable claim", 
   const directory = path.dirname(lockPath);
   try {
     const child = spawn(process.execPath, ["--input-type=module", "-e", `
-      const { acquireWorktreeLock } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       await acquireWorktreeLock({
         lockPath: ${JSON.stringify(lockPath)},
         environment: {},
@@ -1317,7 +1325,7 @@ test("without inodes, a fence replaced between proof and retirement survives", a
       import fs from "node:fs";
       import os from "node:os";
       ${ZERO_INODE_PRELUDE(lockModule)}
-      const { acquireWorktreeLock, fencePathFor } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock, fencePathFor } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lockPath = ${JSON.stringify(lockPath)};
       const fencePath = fencePathFor(lockPath);
 
@@ -1369,7 +1377,7 @@ test("the validation runner releases its isolated lock when the configuration is
     // The gate is invoked through its functional entry point with an isolated lock, which
     // is the only way a caller may choose one. The command line has no such option.
     const child = spawn(process.execPath, ["--input-type=module", "-e", `
-      const { runLocalValidation } = await import(${JSON.stringify(`file://${path.join(root, "scripts", "lib", "localValidationRun.mjs")}`)});
+      const { runLocalValidation } = await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "localValidationRun.mjs")).href)});
       const findings = await runLocalValidation({
         target: ${JSON.stringify(target)},
         lockPath: ${JSON.stringify(lockPath)},
@@ -1399,7 +1407,7 @@ test("the legacy environment variable redirects neither the canonical lock nor t
   const target = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-decoy-target-"));
   try {
     const redirected = await runInChild(`
-      const { defaultWorktreeLockPath } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { defaultWorktreeLockPath } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       process.stdout.write(JSON.stringify({ path: defaultWorktreeLockPath() }));
     `, { BACHATA_WORKTREE_LOCK_PATH: decoy });
     assert.equal(redirected.path, canonical, "the canonical path must ignore the environment");
@@ -1504,7 +1512,7 @@ test("a reused inode does not let a dead fence's retirement delete a live replac
       import fs from "node:fs";
       import os from "node:os";
       ${REUSED_INODE_PRELUDE(lockModule)}
-      const { acquireWorktreeLock, fencePathFor } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock, fencePathFor } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lockPath = ${JSON.stringify(lockPath)};
       const fencePath = fencePathFor(lockPath);
       fs.writeFileSync(fencePath, JSON.stringify({ token: "dead-fence", pid: 999999, host: os.hostname(), label: "gone" }));
@@ -1550,7 +1558,7 @@ test("a reused inode does not let a release delete the lock that replaced its ow
       import fs from "node:fs";
       import os from "node:os";
       ${REUSED_INODE_PRELUDE(lockModule)}
-      const { acquireWorktreeLock } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { acquireWorktreeLock } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lockPath = ${JSON.stringify(lockPath)};
       const replacement = JSON.stringify({ token: "replacement", pid: process.pid, host: os.hostname(), label: "replacement" });
       // The owner's file is replaced between its validation and its removal, and the
@@ -1596,7 +1604,7 @@ test("a reused inode does not let recovery delete a replacement at the removal s
       import fs from "node:fs";
       import os from "node:os";
       ${REUSED_INODE_PRELUDE(lockModule)}
-      const { recoverWorktreeLock } = await import(${JSON.stringify(`file://${lockModule}`)});
+      const { recoverWorktreeLock } = await import(${JSON.stringify(pathToFileURL(lockModule).href)});
       const lockPath = ${JSON.stringify(lockPath)};
       fs.writeFileSync(lockPath, JSON.stringify({ token: "abandoned", pid: 999999, host: os.hostname(), label: "crashed run" }));
       const replacement = JSON.stringify({ token: "replacement", pid: process.pid, host: os.hostname(), label: "replacement" });
@@ -1867,7 +1875,7 @@ test("an unreadable lock rewritten in place, keeping its inode, is not removed",
 // build-facts walked it recursively. Both windows must now contend for the same lock.
 test("every dist consumer in the composite chain takes the worktree lock", async () => {
   const { acquireWorktreeLock } = await import(
-    `file://${path.join(root, "scripts", "lib", "worktreeLock.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "worktreeLock.mjs")).href
   );
   // build-facts runs in write mode into a scratch file: `--check` would couple this
   // regression to whether BUILD_FACTS.md happens to be current, which is a different gate.

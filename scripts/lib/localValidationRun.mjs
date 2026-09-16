@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile as readFileFromDisk, readdir as readdirFromDisk } from "node:fs/promises";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   formatFindings,
@@ -55,7 +55,7 @@ export const runLocalValidation = async ({
     const load = async (relative) => {
       const target_ = path.join(root, "dist", relative);
       try {
-        return await import(`file://${target_}`);
+        return await import(pathToFileURL(target_).href);
       } catch (error) {
         // Only the module this gate asked for being absent means "not built". A missing
         // dependency reached from inside an existing build is a different failure and must

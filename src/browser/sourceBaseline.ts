@@ -4,6 +4,7 @@ import { lstat, open, opendir, readlink, realpath } from "node:fs/promises";
 import * as path from "node:path";
 import { isBrowserSourcePath } from "./sourceTransferPolicy";
 import { isRestrictedWorkspacePath } from "./mutationPolicy";
+import { sameFileIdentity } from "../process/fileIdentity";
 
 export const captureSourceBaseline = async (workspaceRoot: string, signal: AbortSignal): Promise<Array<{ path: string; fingerprint: string }>> => {
   const root = await realpath(workspaceRoot);
@@ -49,7 +50,7 @@ export const captureSourceBaseline = async (workspaceRoot: string, signal: Abort
           hash.update(buffer.subarray(0, read.bytesRead));
         }
         const after = await file.stat();
-        if (size !== before.size || after.ino !== before.ino || after.dev !== before.dev || after.mtimeMs !== before.mtimeMs) {
+        if (size !== before.size || !sameFileIdentity(after, before) || after.mtimeMs !== before.mtimeMs) {
           throw new Error("Source baseline changed during inspection");
         }
         totalBytes += size;

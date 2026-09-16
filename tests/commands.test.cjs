@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const test = require("node:test");
@@ -13,7 +14,7 @@ const injectModule = (filename, exports) => {
   require.cache[filename] = module;
 };
 
-const uriOf = (fsPath) => ({ fsPath, toString: () => `file://${fsPath}` });
+const uriOf = (fsPath) => ({ fsPath, toString: () => pathToFileURL(fsPath).href });
 
 const loadCommands = (snapshot, options = {}) => {
   const commands = new Map();

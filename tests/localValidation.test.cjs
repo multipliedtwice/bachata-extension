@@ -1,10 +1,11 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
 const root = path.join(__dirname, "..");
-const load = () => import(`file://${path.join(root, "scripts", "lib", "localValidation.mjs")}`);
+const load = () => import(pathToFileURL(path.join(root, "scripts", "lib", "localValidation.mjs")).href);
 
 const { parseTodoDocument } = require("../dist/orchestrator/todoParser.js");
 const { parseVerifierRegistry } = require("../dist/orchestrator/verifierRegistry.js");
@@ -128,7 +129,7 @@ test("the headless validator is exposed as an npm script", () => {
 const os = require("node:os");
 
 const runnerModule = path.join(root, "scripts", "lib", "localValidationRun.mjs");
-const loadRunner = () => import(`file://${runnerModule}`);
+const loadRunner = () => import(pathToFileURL(runnerModule).href);
 
 const failingWith = (code) => {
   const error = new Error(`${code}: injected filesystem failure`);
@@ -238,7 +239,7 @@ test("an absent optional file is still nothing to validate", async () => {
 
 test("an unbuilt tree earns one instruction, not a module-resolution stack", async () => {
   const { runLocalValidation } = await import(
-    `file://${path.join(root, "scripts", "lib", "localValidationRun.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "localValidationRun.mjs")).href
   );
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-unbuilt-")));
   const lockPath = path.join(target, ".bachata-worktree.lock");
@@ -344,7 +345,7 @@ test("an unreadable repository policy is reported once and never bypasses the in
 
 test("a dependency missing from inside a built tree is not relabelled as an unbuilt tree", async () => {
   const { runLocalValidation } = await import(
-    `file://${path.join(root, "scripts", "lib", "localValidationRun.mjs")}`
+    pathToFileURL(path.join(root, "scripts", "lib", "localValidationRun.mjs")).href
   );
   const fakeRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-halfbuilt-")));
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-halfbuilt-target-")));

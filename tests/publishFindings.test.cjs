@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const test = require("node:test");
@@ -6,7 +7,7 @@ const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
   if (request === "vscode") {
     return {
-      Uri: { file: (value) => ({ fsPath: value, toString: () => `file://${value}` }) },
+      Uri: { file: (value) => ({ fsPath: value, toString: () => pathToFileURL(value).href }) },
       Range: class Range {
         constructor(startLine, startCharacter, endLine, endCharacter) {
           this.start = { line: startLine, character: startCharacter };

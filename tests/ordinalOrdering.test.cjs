@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const path = require("node:path");
@@ -9,7 +10,7 @@ const root = path.resolve(__dirname, "..");
 // on two machines and produce two different identities for one tree.
 test("the canonical comparator orders by code unit, not by locale", async () => {
   const { byCodeUnit, byCodeUnitOn } = await import(
-    `file://${path.join(root, "dist", "security", "ordinal.js")}`
+    pathToFileURL(path.join(root, "dist", "security", "ordinal.js")).href
   );
 
   // Locale collation ignores or reorders punctuation and case; code-unit order does not.
@@ -30,7 +31,7 @@ test("the canonical comparator orders by code unit, not by locale", async () => 
 });
 
 test("canonical ordering is stable across locales", async () => {
-  const { byCodeUnit } = await import(`file://${path.join(root, "dist", "security", "ordinal.js")}`);
+  const { byCodeUnit } = await import(pathToFileURL(path.join(root, "dist", "security", "ordinal.js")).href);
   const inputs = ["résumé", "resume", "Resume", "RESUME", "rest"];
   const first = [...inputs].sort(byCodeUnit);
   // Code-unit order depends on the strings alone, so repeating under any host locale agrees.

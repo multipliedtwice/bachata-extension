@@ -577,10 +577,10 @@ test("execution identity rotates on every run.started and survives reopen", asyn
     catalog.appendEvent({ runRef: run.runRef, type: "run.started", status: "running" });
     const second = catalog.latestExecutionRef(run.runRef);
     assert.notEqual(second, first);
-    catalog.dispose?.();
+    catalog.close();
     const reopened = createStateCatalog(root);
     assert.equal(reopened.latestExecutionRef(run.runRef), second);
-    reopened.dispose?.();
+    reopened.close();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

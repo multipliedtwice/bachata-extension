@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const Module = require("node:module");
@@ -6,7 +7,7 @@ const test = require("node:test");
 
 const root = path.join(__dirname, "..");
 
-const uri = (fsPath) => ({ fsPath, toString: () => `file://${fsPath}` });
+const uri = (fsPath) => ({ fsPath, toString: () => pathToFileURL(fsPath).href });
 
 const panelHarness = () => {
   let messageHandler;

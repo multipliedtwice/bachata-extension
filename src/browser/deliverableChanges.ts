@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { deliverableLimits, deliverablePath, type DeliverableFile } from "./deliverableArchive";
 import { assertWorkspacePathAllowed, extractPatchPaths, isRestrictedWorkspacePath, type MutationPolicyContext } from "./mutationPolicy";
 import { isBrowserSourcePath } from "./sourceTransferPolicy";
+import { sameFileIdentity } from "../process/fileIdentity";
 
 export type DeliverableChangeOptions = {
   workingDirectory: string;
@@ -53,7 +54,7 @@ const existingFile = async (relative: string, options: DeliverableChangeOptions)
       size += read.bytesRead;
     }
     const after = await handle.stat();
-    if (size !== info.size || after.size !== info.size || after.ino !== info.ino || after.dev !== info.dev || after.mtimeMs !== info.mtimeMs) {
+    if (size !== info.size || after.size !== info.size || !sameFileIdentity(after, info) || after.mtimeMs !== info.mtimeMs) {
       throw new Error(`Deliverable target changed during inspection: ${relative}`);
     }
     return { data: data.subarray(0, size), mode: info.mode & 0o111 ? 0o100755 : 0o100644 };

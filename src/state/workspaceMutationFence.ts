@@ -146,7 +146,15 @@ export const createWorkspaceMutationFence = async (
     }
   });
 
-  await activate();
+  // Activation refuses a stale writer by throwing, and the database is already open by then. A
+  // refusal that walks past this handle leaks it: POSIX unlinks an open file without complaint, so
+  // the leak was invisible until Windows refused to remove the fence's own files with EBUSY.
+  try {
+    await activate();
+  } catch (error) {
+    database.close();
+    throw error;
+  }
 
   const run: WorkspaceMutationRunner = <T>(operation: () => Promise<T>): Promise<T> =>
     enqueue(async () => {

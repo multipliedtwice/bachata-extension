@@ -147,6 +147,43 @@ test("catalog errors and stale selected roots block", () => {
   assert.equal(result.findings.filter((item) => item.status === "blocked").length, 2);
 });
 
+// A Windows filesystem is case-insensitive and takes either separator, so one directory has many
+// spellings. Comparing them byte for byte reported an open root as closed, which blocked readiness
+// for every run on Windows whose selected root was spelled differently from the open root.
+test("a selected root spelled differently from the open root is still open on Windows", () => {
+  const definition = pipeline("codex-review", "codex-app-server");
+  for (const [root, selected] of [
+    ["C:\\Work\\repo", "c:/work/repo"],
+    ["C:/Work/repo", "C:\\Work\\repo\\packages\\inner"],
+    ["C:\\Work\\repo\\", "C:\\Work\\repo"],
+  ]) {
+    const input = base("codex-review", [definition], [{ type: "codex-app-server", available: true }]);
+    input.workspace.roots = [root];
+    input.selectedRoot = selected;
+    assert.equal(
+      evaluateReadiness(input).findings.some((item) => item.id === "workspace.selectedRoot"),
+      false,
+      `${selected} names the same directory as ${root}`,
+    );
+  }
+});
+
+// The case fold is chosen by the shape of the path, not by the host, so a POSIX path keeps its
+// case and a genuinely different directory is still refused.
+test("a POSIX selected root outside the open root stays refused, case intact", () => {
+  const definition = pipeline("codex-review", "codex-app-server");
+  for (const [root, selected] of [["/work", "/Work"], ["/work", "/workshop"], ["/work", "/closed"]]) {
+    const input = base("codex-review", [definition], [{ type: "codex-app-server", available: true }]);
+    input.workspace.roots = [root];
+    input.selectedRoot = selected;
+    assert.equal(
+      evaluateReadiness(input).findings.some((item) => item.id === "workspace.selectedRoot"),
+      true,
+      `${selected} is not inside ${root}`,
+    );
+  }
+});
+
 test("Git is optional for a local review but required for managed workflows", () => {
   const review = pipeline("review", "codex-app-server");
   const reviewInput = base("review", [review], [{ type: "codex-app-server", available: true }]);

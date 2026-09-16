@@ -3,6 +3,7 @@ import type { FileHandle } from "node:fs/promises";
 import * as path from "node:path";
 
 import { isPathInsideRoot } from "../process/pathBoundary";
+import { sameFileIdentity, describeFileIdentity } from "../process/fileIdentity";
 
 export type AttachmentMetadata = {
   id: string;
@@ -187,9 +188,10 @@ export const createAttachmentStore = (
         // The descriptor, not the pathname, is what the ownership decision rests on: a
         // directory swapped for a symbolic link between the lstat above and this open
         // resolves to a different inode and is refused here.
-        if (!opened.isDirectory() || opened.dev !== link.dev || opened.ino !== link.ino) {
+        if (!opened.isDirectory() || !sameFileIdentity(opened, link)) {
           throw new Error(
-            `${label} changed while Bachata was validating ${current}, so Bachata refuses to read or write through it`,
+            `${label} changed while Bachata was validating ${current} (${describeFileIdentity(link)} became `
+            + `${describeFileIdentity(opened)}), so Bachata refuses to read or write through it`,
           );
         }
       }
@@ -281,7 +283,7 @@ export const createAttachmentStore = (
         throw new Error(`Attachment file is invalid: ${attachment.id}`);
       }
       const link = await lstat(filePath);
-      if (link.dev !== details.dev || link.ino !== details.ino) {
+      if (!sameFileIdentity(link, details)) {
         throw new Error(`Attachment file was replaced while it was being read: ${attachment.id}`);
       }
       const data = await handle.readFile();

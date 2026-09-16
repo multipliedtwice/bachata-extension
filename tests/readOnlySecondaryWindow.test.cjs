@@ -1,3 +1,4 @@
+const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const Module = require("node:module");
@@ -22,7 +23,7 @@ const uriOf = (fsPath) => ({
   fsPath,
   path: fsPath,
   scheme: "file",
-  toString: () => `file://${fsPath}`,
+  toString: () => pathToFileURL(fsPath).href,
 });
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

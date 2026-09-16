@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, constants } from "node:fs";
 import { open, lstat } from "node:fs/promises";
+import { sameFileIdentity } from "../process/fileIdentity";
 
 export const sha256FilePath = async (
   absolutePath: string,
@@ -44,7 +45,7 @@ export const sha256EvidenceCopy = async (absolutePath: string): Promise<string> 
   try {
     const before = await file.stat();
     const limit = 4 * 1024 * 1024;
-    if (before.dev !== named.dev || before.ino !== named.ino) throw new Error("Evidence copy changed during inspection");
+    if (!sameFileIdentity(before, named)) throw new Error("Evidence copy changed during inspection");
     if (!before.isFile() || before.size > limit) throw new Error("Evidence copies must be regular local files of at most 4 MiB");
     const hash = createHash("sha256");
     const buffer = Buffer.alloc(65_536);
