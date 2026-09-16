@@ -295,9 +295,41 @@ public static class BachataProcessJob
 }
 '@
 
+# Windows PowerShell compiles `Add-Type -TypeDefinition` through csc.exe on every run, and this
+# script runs once per spawned process scope. Paying a C# compile to launch a child process cost
+# CI hours and costs a Windows user latency on every command the extension runs, so the assembly
+# is built once and cached under the temporary directory, keyed by a hash of the source above. A
+# source edit lands on a new key, so a stale cache cannot be loaded.
+#
+# Every step of the cache is allowed to fail. A denied temporary directory, a racing writer that
+# holds the destination open, a policy that refuses to load an assembly from disk: each falls
+# through to compiling from source, which is what this script did before the cache existed. The
+# worst case is the old speed, never a scope that fails to start.
 $status = @{ cleanupConfirmed = $false }
 try {
-  Add-Type -TypeDefinition $source -Language CSharp
+  try {
+    $digest = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($source))
+    $stamp = -join ($digest | ForEach-Object { $_.ToString('x2') })
+    $cachePath = Join-Path ([IO.Path]::GetTempPath()) "bachata-process-job-$stamp.dll"
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+      # Compiled to a private name and renamed, so a second runner never reads a half-written file.
+      $stagingPath = "$cachePath.$PID.tmp"
+      Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $stagingPath -OutputType Library
+      try {
+        Move-Item -LiteralPath $stagingPath -Destination $cachePath -Force -ErrorAction Stop
+      } catch {
+        Remove-Item -LiteralPath $stagingPath -Force -ErrorAction SilentlyContinue
+      }
+    }
+    if (-not ('BachataProcessJob' -as [type])) {
+      Add-Type -Path $cachePath
+    }
+  } catch {
+    # Surfaced only by the fallback below. A cache miss is not a failure worth reporting.
+  }
+  if (-not ('BachataProcessJob' -as [type])) {
+    Add-Type -TypeDefinition $source -Language CSharp
+  }
   $cleanupConfirmed = $false
   $errorText = $null
   $hostArguments = @($HostScript, $PayloadPath, $TargetStatusPath)

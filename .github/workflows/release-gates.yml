@@ -64,14 +64,18 @@ jobs:
       - name: No telemetry
         run: npm run check:no-telemetry
 
+      # Windows held an hour per test file and two hours per coverage command because the unit lane
+      # opened a Windows Job Object per test file, and each one cost a powershell.exe launch and a
+      # runtime C# compile. The lane now opens one scope for every file, so Windows keeps the same
+      # bounds as the other platforms and a hang surfaces as a failure instead of a four hour job.
       - name: Tests
         env:
-          BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
+          BACHATA_TEST_FILE_TIMEOUT_MS: "600000"
         run: npm test
 
       - name: Coverage gates
         env:
-          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '7200000' || '' }}
+          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '1200000' || '' }}
         run: npm run test:coverage
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact

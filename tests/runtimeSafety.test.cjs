@@ -650,6 +650,18 @@ test("coverage gates source files and critical modules separately", async () => 
   assert.match(windowsJobSource, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/u);
   assert.match(windowsJobSource, /CREATE_SUSPENDED/u);
   assert.match(windowsJobSource, /AssignProcessToJobObject/u);
+  // The lane opens one scope for every test file rather than one per file. A scope per file paid a
+  // powershell.exe launch and a csc.exe compile 232 times on Windows, which is what made that lane
+  // run for hours while Linux finished in minutes.
+  assert.match(isolatedRunnerSource, /--test-concurrency=1/u);
+  assert.match(isolatedRunnerSource, /BACHATA_TEST_RUN_TIMEOUT_MS/u);
+  assert.match(isolatedRunnerSource, /--test-timeout=\$\{String\(timeoutMs\)\}/u);
+  // The Job Object helper is compiled once and cached by a hash of its own source, because a scope
+  // is opened per spawned command and not only per test file. A cache that cannot be written or
+  // loaded falls back to compiling from source, so the worst case is the old speed.
+  assert.match(windowsJobSource, /-OutputAssembly \$stagingPath -OutputType Library/u);
+  assert.match(windowsJobSource, /Add-Type -Path \$cachePath/u);
+  assert.match(windowsJobSource, /^\s*Add-Type -TypeDefinition \$source -Language CSharp$/mu);
   assert.match(isolatedRunnerSource, /endsWith\("\.test\.cjs"\)/u);
   assert.match(packageJson.scripts["test:coverage:source"], /--test-concurrency=2/u);
   for (const script of ["test:coverage:source", "test:coverage:critical"]) {
