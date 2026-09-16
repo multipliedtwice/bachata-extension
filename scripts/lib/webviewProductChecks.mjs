@@ -394,8 +394,10 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       await frame(session);
       assert.deepEqual(await dispatched(), [{ type: "notifications.setMode", mode: "off" }]);
       await key(session, "Escape", "Escape", 27);
+      await frame(session);
       assert.equal(await session.evaluate("document.querySelector('.app-dialog') === null"), true);
       await key(session, "Escape", "Escape", 27);
+      await frame(session);
       assert.equal(await isOpen(".notification-center"), false);
       assert.equal(await session.evaluate("document.activeElement === document.querySelector('.notification-center > summary')"), true);
       await activate(bell, "pointer"); await activate(menu, "pointer");

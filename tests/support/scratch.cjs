@@ -161,7 +161,10 @@ const makeScratchChild = async (root, ...segments) => {
  * module created before the remover is called even once, and the remover is a parameter so the
  * refusal path can be proved without a filesystem behind it.
  */
-const removeScratch = async (target, remove = (entry) => rm(entry, { recursive: true, force: true })) => {
+const removeScratch = async (
+  target,
+  remove = (entry) => rm(entry, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+) => {
   const base = await scratchBase();
   const problem = scratchContainmentProblem(target, base);
   if (problem) throw new Error(problem);
@@ -183,7 +186,10 @@ const scratchRootSync = (prefix) => {
   return root;
 };
 
-const removeScratchSync = (target, remove = (entry) => rmSync(entry, { recursive: true, force: true })) => {
+const removeScratchSync = (
+  target,
+  remove = (entry) => rmSync(entry, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+) => {
   const problem = scratchContainmentProblem(target, scratchBaseSync());
   if (problem) throw new Error(problem);
   remove(target);
