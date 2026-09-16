@@ -9,7 +9,7 @@ const step = "Inspect the interface independently";
 const prompt = "Review the supplied interface for usability, accessibility and focus.\n\nreview extension/";
 const failure = "The provider refused this request.";
 const refusal = "Choose a Git project folder. /Users/reviewer/workspace is not inside a Git worktree, and Builder in “Implement” may change files, so Bachata needs Git to validate those changes. No participant was started.";
-const recoveryActions = '[data-action="workflow-restart"], [data-action="workflow-resume"], [data-action="workflow-discard"]';
+const recoveryActions = '[data-action="recovery-change-model"], [data-action="workflow-restart"], [data-action="workflow-resume"], [data-action="workflow-discard"]';
 
 const debuggerCommand = (command, params) =>
   Cypress.automation("remote:debugger:protocol", { command, params });
@@ -177,7 +177,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
           cy.get(".run-outcome strong").should("contain.text", "Stopped by you");
           cy.get('.run-outcome [data-action="workflow-resume"]').should("have.text", "Resume stopped step");
           cy.get(".run-outcome").should("not.contain.text", "Retry failed step").and("not.contain.text", "Failed");
-          expectRecoveryRow(width, ["workflow-resume"]);
+          expectRecoveryRow(width, ["recovery-change-model", "workflow-resume"]);
           expectNoHorizontalScroll();
         });
 
@@ -185,7 +185,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
           boot("failedStep");
           cy.get(".run-tab.selected .room-status").should("have.text", "Failed");
           cy.get('.run-outcome [data-action="workflow-resume"]').should("have.text", "Retry failed step");
-          expectRecoveryRow(width, ["workflow-resume", "room-view"]);
+          expectRecoveryRow(width, ["recovery-change-model", "workflow-resume", "room-view"]);
           cy.get(".run-outcome .recovery-menu > summary").click();
           cy.get('.run-outcome [data-action="workflow-discard"]').click();
           cy.focused().should("have.attr", "data-dialog-default", "cancel");
@@ -232,7 +232,7 @@ describe("run state matrix", { browser: "chrome" }, () => {
           cy.get(".run-preflight-failure .preflight-details").should("not.have.attr", "open");
           cy.get('[data-action="workflow-resume"]').should("not.exist");
           cy.get(".run-outcome p").should("have.text", `Could not start step 1 of 4 · ${step}`);
-          expectRecoveryRow(width, ["workflow-restart"]);
+          expectRecoveryRow(width, ["recovery-change-model", "workflow-restart"]);
           cy.get(".conversation-scroll").should("not.contain.text", "null");
           expectNoHorizontalScroll();
         });

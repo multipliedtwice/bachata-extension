@@ -219,7 +219,7 @@ const checkpoint = (assignments) => ({
   },
 });
 
-test("recovery pins the provider and the model, so a resumed run is the run that was interrupted", () => {
+test("recovery pins the provider while allowing the next turn to change model and thinking effort", () => {
   const snapshot = {
     definition: pipeline([{ id: "codex", name: "Codex", adapter: "codex-app-server" }]),
     hash: "hash",
@@ -227,14 +227,14 @@ test("recovery pins the provider and the model, so a resumed run is the run that
   };
   const usable = (currentAssignments) =>
     recoveryCheckpointIsUsable({
-      checkpoint: checkpoint({ codex: { adapter: "claude-code", model: "claude-opus-5" } }),
+      checkpoint: checkpoint({ codex: { adapter: "claude-code", model: "claude-opus-5", reasoningEffort: "high" } }),
       selectedSnapshot: snapshot,
       availableAttachmentIds: new Set(),
       currentAssignments,
     });
-  assert.equal(usable({ codex: { adapter: "claude-code", model: "claude-opus-5" } }), true);
-  assert.equal(usable({ codex: { adapter: "claude-code", model: "claude-opus-4" } }), false);
-  assert.equal(usable({ codex: { adapter: "claude-code" } }), false);
+  assert.equal(usable({ codex: { adapter: "claude-code", model: "claude-opus-5", reasoningEffort: "high" } }), true);
+  assert.equal(usable({ codex: { adapter: "claude-code", model: "claude-opus-4", reasoningEffort: "medium" } }), true);
+  assert.equal(usable({ codex: { adapter: "claude-code" } }), true);
   assert.equal(usable({ codex: { adapter: "codex-app-server", model: "claude-opus-5" } }), false);
 });
 

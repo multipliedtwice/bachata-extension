@@ -150,7 +150,11 @@ const runStateMatrixChecks = async (session, key, label) => {
   assert.equal(await session.evaluate(`document.activeElement?.dataset.messageId`), "error-codex", `${label}: participant prompt did not restore focus`);
   const failedRow = await session.evaluate(recoveryRowMeasure);
   assert.equal(failedRow.present, true, `${label}: failed run has no outcome row`);
-  assert.equal(failedRow.actions, "workflow-resume|room-view", `${label}: failed run actions`);
+  assert.equal(
+    failedRow.actions,
+    "recovery-change-model|workflow-resume|room-view",
+    `${label}: failed run actions`,
+  );
   expectAll(Object.fromEntries(Object.entries(failedRow).filter(([name]) => name !== "actions")), `${label} failed recovery row`);
   assert.equal(await session.evaluate(`document.querySelector('.run-outcome [data-action="workflow-resume"]').textContent.trim()`), "Retry failed step", `${label}: failure maps to Retry`);
 
@@ -185,7 +189,7 @@ const runStateMatrixChecks = async (session, key, label) => {
     };
   })()`), `${label} preflight`);
   const refusedRow = await session.evaluate(recoveryRowMeasure);
-  assert.equal(refusedRow.actions, "workflow-restart", `${label}: refused run actions`);
+  assert.equal(refusedRow.actions, "recovery-change-model|workflow-restart", `${label}: refused run actions`);
   expectAll(Object.fromEntries(Object.entries(refusedRow).filter(([name]) => name !== "actions")), `${label} refused recovery row`);
 };
 
