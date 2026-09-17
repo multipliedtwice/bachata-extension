@@ -24,6 +24,11 @@ const {
 // and tested against a recorder rather than against the filesystem: a test that disabled the
 // guard and then called the real remover would be the escape it claims to forbid.
 
+// Windows needs the kind of link stated when it is created, and refuses a plain directory
+// symlink without privileges. A junction is the unprivileged equivalent and is what an ordinary
+// developer machine can make there.
+const directoryLinkType = process.platform === "win32" ? "junction" : undefined;
+
 const recorder = () => {
   const removed = [];
   return { removed, record: (target) => removed.push(target) };
@@ -103,7 +108,7 @@ test("a symlink inside a run's directory is removed as a link, not followed out 
   try {
     await writeFile(path.join(outside, "kept.txt"), "not this test's to delete", "utf8");
     const link = scratchChild(root, "link");
-    await symlink(outside, link);
+    await symlink(outside, link, directoryLinkType);
     await removeScratch(link);
     assert.equal(existsSync(link), false);
     assert.equal(existsSync(path.join(outside, "kept.txt")), true, "removal followed a symlink out");
@@ -111,7 +116,7 @@ test("a symlink inside a run's directory is removed as a link, not followed out 
     // And a path that reaches outside through a lexical climb is refused, which is the case the
     // string half of the guard answers. The symlink-ancestor case it cannot answer is below.
     const bridge = scratchChild(root, "bridge");
-    await symlink(outside, bridge);
+    await symlink(outside, bridge, directoryLinkType);
     await assert.rejects(() => removeScratch(path.join(bridge, "..", "..", "elsewhere")), /scratch target/u);
   } finally {
     await removeScratch(outside);
@@ -133,7 +138,7 @@ test("a descendant reached through a symlink ancestor is refused before any remo
     const before = await readFile(sentinel);
 
     const link = scratchChild(root, "link");
-    await symlink(outside, link);
+    await symlink(outside, link, directoryLinkType);
 
     // The lexical half accepts it: this is exactly what made the escape reachable.
     const base = await scratchBase();
@@ -169,7 +174,7 @@ test("a symlink ancestor cannot redirect where a scratch child is created", asyn
   const outside = await scratchRoot("bachata-scratch-write-outside-");
   try {
     const link = scratchChild(root, "link");
-    await symlink(outside, link);
+    await symlink(outside, link, directoryLinkType);
     await assert.rejects(() => makeScratchChild(root, "link", "storage"), /reached through a symlink/u);
     assert.equal(existsSync(path.join(outside, "storage")), false, "a scratch child was written outside its root");
     // A child under a real directory is still created, and under a directory that does not exist
@@ -327,7 +332,7 @@ test("a symlink is removable as itself while a descendant reached through it is 
     const sentinel = path.join(outside, "sentinel.txt");
     await writeFile(sentinel, "not this run's to delete\n", "utf8");
     const link = scratchChild(root, "link");
-    await symlink(outside, link);
+    await symlink(outside, link, directoryLinkType);
 
     assert.equal(scratchTraversalProblem(link, new Set([root])), undefined, "the link itself was refused");
     assert.equal(

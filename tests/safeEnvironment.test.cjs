@@ -55,7 +55,11 @@ test("GUI-launched providers find user-installed CLIs without changing other pro
   const path = require("node:path");
   const os = require("node:os");
   const originalPath = process.platform === "win32" ? "C:\\Windows\\System32" : "/usr/bin:/bin";
-  await withEnvironment({ PATH: originalPath, Path: undefined }, async () => {
+  // Windows names one variable, so `PATH` and `Path` are the same entry: clearing `Path` there
+  // removes the value this test has just set, and the provider environment is then built from
+  // nothing at all.
+  const cleared = process.platform === "win32" ? {} : { Path: undefined };
+  await withEnvironment({ PATH: originalPath, ...cleared }, async () => {
     const localBin = path.join(os.homedir(), ".local", "bin");
     const provider = providerProcessEnvironment(path.join(os.tmpdir(), "bachata-workspace"));
     assert.ok(provider.PATH.split(path.delimiter).includes(localBin));

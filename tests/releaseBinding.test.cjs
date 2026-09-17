@@ -321,7 +321,7 @@ test("an unbindable recorded row refuses the whole binding instead of being rewr
   try {
     const script = path.join(root, "scripts", "bind-release-artifacts.mjs");
     const probe = [
-      "import { planDocumentBinding } from " + JSON.stringify(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")) + ";",
+      "import { planDocumentBinding } from " + JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")).href) + ";",
       "const artifacts = { vsix: { label: 'Bachata VSIX', sha256: 'a'.repeat(64), version: '1' }, bridge: { label: 'Browser Bridge ZIP', sha256: 'b'.repeat(64), version: '1' } };",
       "const original = ['# R', '', 'Artifacts under test: Bachata VSIX `' + 'c'.repeat(64) + '`, Browser Bridge ZIP `' + 'd'.repeat(64) + '`.', '', '| Step | Date | Result | Notes |', '| --- | --- | --- | --- |', '| Install | 2026-08-01 | pass | none |', ''].join('\\n');",
       "const plan = planDocumentBinding({ relative: 'docs/PROVIDER_TERMS.md', original, artifacts });",
@@ -1608,7 +1608,7 @@ test("a binder killed between renames is recovered by the next run", async () =>
   try {
     const probe = path.join(directory, "crash.mjs");
     fs.writeFileSync(probe, [
-      `import { bindDocuments } from ${JSON.stringify(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs"))};`,
+      `import { bindDocuments } from ${JSON.stringify(pathToFileURL(path.join(root, "scripts", "lib", "documentBindingTransaction.mjs")).href)};`,
       `const plans = ${JSON.stringify(plans)};`,
       `await bindDocuments({`,
       `  docsDirectory: ${JSON.stringify(directory)},`,

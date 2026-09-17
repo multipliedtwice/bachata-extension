@@ -2581,9 +2581,19 @@ test("generated checklist execution enforces explicit checks, ids, and user-owne
       controller.startChecklist({
         ...request,
         allowNoChecks: true,
-        issues: [{ ...request.issues[0], paths: ["C:\\outside"] }],
+        // A relative path outside the authored scope, because a drive-qualified one is refused
+        // earlier as an absolute path on Windows and the scope check would never be reached.
+        issues: [{ ...request.issues[0], paths: ["outside"] }],
       }),
       /exceeds the user-authored scope/u,
+    );
+    await assert.rejects(
+      controller.startChecklist({
+        ...request,
+        allowNoChecks: true,
+        issues: [{ ...request.issues[0], paths: [process.platform === "win32" ? "C:\\outside" : "/outside"] }],
+      }),
+      /Invalid generated task path/u,
     );
     await assert.rejects(
       controller.startChecklist({ ...request, allowNoChecks: true, allowedPaths: [] }),
@@ -3803,7 +3813,15 @@ test("applying a sealed run refuses a target that no longer holds the sealed inp
 // not compares equal — and the exported patch deliberately excludes sealed input, so the mode
 // never reaches the receiving branch either. The applied program is then a text file the shell
 // refuses with exit 126. What has to match is the whole tree entry: mode, type and presence.
-test("applying a sealed run refuses a target whose sealed input lost its executable mode", gitWorktreeSkip, async () => {
+// Windows Git reports no file mode, so an executable bit cannot be set, cannot be committed and
+// cannot go missing from a target. The case this proves does not exist there.
+const executableModeSkip = {
+  skip: process.platform === "win32"
+    ? "Git on Windows records no executable mode"
+    : gitWorktreeSkip.skip,
+};
+
+test("applying a sealed run refuses a target whose sealed input lost its executable mode", executableModeSkip, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-controller-sealed-mode-"));
   try {
     const repository = await createRepository(root, [

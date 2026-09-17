@@ -7062,7 +7062,7 @@ const gitRepository = (root) => {
 };
 
 test("nested and symlinked paths to one repository share the initiative, separate repositories do not", async () => {
-  const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), "bachata-canonical-")));
+  const base = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "bachata-canonical-")));
   const repository = gitRepository(path.join(base, "repo"));
   const nested = path.join(repository, "package");
   mkdirSync(nested, { recursive: true });
@@ -7221,7 +7221,7 @@ test("a workflow that changes after validation cannot execute in a fresh review"
 });
 
 test("a linked worktree shares the initiative of its main worktree", async () => {
-  const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), "bachata-worktree-")));
+  const base = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "bachata-worktree-")));
   const repository = gitRepository(path.join(base, "repo"));
   writeFileSync(path.join(repository, "a.txt"), "a\n");
   execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "add", "-A"], { cwd: repository });

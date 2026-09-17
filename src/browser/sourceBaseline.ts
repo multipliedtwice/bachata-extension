@@ -37,6 +37,14 @@ export const captureSourceBaseline = async (workspaceRoot: string, signal: Abort
       const file = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         if (await realpath(absolute) !== absolute) throw new Error("Source baseline file moved outside its directory");
+        // The file this descriptor holds is what the read below hashes, so the reading it is
+        // compared against comes from the descriptor too. Windows answers a path stat and a
+        // handle stat of one unchanged file with different device numbers and modification
+        // times, and comparing across the two reported every file as changed mid-inspection.
+        const opened = await file.stat();
+        if (!sameFileIdentity(opened, before) || opened.size !== before.size) {
+          throw new Error("Source baseline changed during inspection");
+        }
         const hash = createHash("sha256");
         const buffer = Buffer.alloc(65536);
         let size = 0;
@@ -46,11 +54,11 @@ export const captureSourceBaseline = async (workspaceRoot: string, signal: Abort
           const read = await file.read(buffer, 0, buffer.length, size);
           if (!read.bytesRead) break;
           size += read.bytesRead;
-          if (size > before.size) throw new Error("Source baseline file grew during inspection");
+          if (size > opened.size) throw new Error("Source baseline file grew during inspection");
           hash.update(buffer.subarray(0, read.bytesRead));
         }
         const after = await file.stat();
-        if (size !== before.size || !sameFileIdentity(after, before) || after.mtimeMs !== before.mtimeMs) {
+        if (size !== opened.size || !sameFileIdentity(after, opened) || after.mtimeMs !== opened.mtimeMs) {
           throw new Error("Source baseline changed during inspection");
         }
         totalBytes += size;

@@ -297,8 +297,14 @@ const terminatePosixScope = async (child, token, graceMs) => {
   return drained && (close === undefined || await close.wait(graceMs));
 };
 
+// The scope launcher is the extension's own tooling, so it is located from the host's Windows
+// installation. A child's environment may legitimately carry neither SystemRoot nor WINDIR — a
+// provider probe runs on a restricted set — and reading only that set refused to start the scope
+// at all. The host value is used only when the child's carries nothing, and both are still
+// required to be absolute.
 const powershellPath = (environment) => {
-  const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT ?? environment.WINDIR;
+  const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT ?? environment.WINDIR
+    ?? process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR;
   if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
     throw new Error("Windows SystemRoot is unavailable or invalid");
   }

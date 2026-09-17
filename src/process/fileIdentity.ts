@@ -18,9 +18,20 @@ import type { Stats } from "node:fs";
 export const usableFileIdentity = (value: Stats): boolean =>
   Number.isFinite(Number(value.ino)) && Number(value.ino) > 0;
 
+/**
+ * Whether both stats carry a device number worth comparing.
+ *
+ * Windows answers `lstat` on a path with `dev` 0 while `fstat` on a handle to that same file
+ * reports the real volume, so comparing the pair reported one file as two and refused every
+ * directory validated through a handle. An absent device is unknown, not different; the file
+ * index still decides, and it is the stronger half of the pair.
+ */
+const comparableDevice = (left: Stats, right: Stats): boolean =>
+  Number(left.dev) > 0 && Number(right.dev) > 0;
+
 export const sameFileIdentity = (left: Stats, right: Stats): boolean =>
   usableFileIdentity(left) && usableFileIdentity(right)
-    ? left.dev === right.dev && left.ino === right.ino
+    ? left.ino === right.ino && (!comparableDevice(left, right) || left.dev === right.dev)
     : true;
 
 /**

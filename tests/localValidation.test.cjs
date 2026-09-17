@@ -241,7 +241,7 @@ test("an unbuilt tree earns one instruction, not a module-resolution stack", asy
   const { runLocalValidation } = await import(
     pathToFileURL(path.join(root, "scripts", "lib", "localValidationRun.mjs")).href
   );
-  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-unbuilt-")));
+  const target = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-unbuilt-")));
   const lockPath = path.join(target, ".bachata-worktree.lock");
   try {
     const failure = await runLocalValidation({ target, root: target, lockPath }).then(
@@ -347,8 +347,8 @@ test("a dependency missing from inside a built tree is not relabelled as an unbu
   const { runLocalValidation } = await import(
     pathToFileURL(path.join(root, "scripts", "lib", "localValidationRun.mjs")).href
   );
-  const fakeRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-halfbuilt-")));
-  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-halfbuilt-target-")));
+  const fakeRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-halfbuilt-")));
+  const target = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-halfbuilt-target-")));
   const moduleDirectory = path.join(fakeRoot, "dist", "orchestrator");
   fs.mkdirSync(moduleDirectory, { recursive: true });
   // The module this gate asks for exists; what it imports does not.

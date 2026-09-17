@@ -45,6 +45,13 @@ const existingFile = async (relative: string, options: DeliverableChangeOptions)
   if (resolved !== absolute) throw new Error(`Deliverable target crosses a symbolic link: ${relative}`);
   const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
+    // The descriptor's own reading is the baseline the read below is compared against. Windows
+    // answers a path stat and a handle stat of one unchanged file with different device numbers
+    // and modification times, so comparing across the two called every file changed.
+    const opened = await handle.stat();
+    if (!sameFileIdentity(opened, info) || opened.size !== info.size) {
+      throw new Error(`Deliverable target changed during inspection: ${relative}`);
+    }
     const data = Buffer.alloc(Math.min(info.size + 1, deliverableLimits.fileBytes + 1));
     let size = 0;
     while (size < data.length) {
@@ -54,7 +61,7 @@ const existingFile = async (relative: string, options: DeliverableChangeOptions)
       size += read.bytesRead;
     }
     const after = await handle.stat();
-    if (size !== info.size || after.size !== info.size || !sameFileIdentity(after, info) || after.mtimeMs !== info.mtimeMs) {
+    if (size !== opened.size || after.size !== opened.size || !sameFileIdentity(after, opened) || after.mtimeMs !== opened.mtimeMs) {
       throw new Error(`Deliverable target changed during inspection: ${relative}`);
     }
     return { data: data.subarray(0, size), mode: info.mode & 0o111 ? 0o100755 : 0o100644 };

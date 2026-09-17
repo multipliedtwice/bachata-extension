@@ -1,4 +1,4 @@
-const { mkdtemp, mkdir, rm, realpath } = require("node:fs/promises");
+const { mkdtemp, mkdir, rm } = require("node:fs/promises");
 const { lstatSync, mkdtempSync, realpathSync, rmSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -37,7 +37,7 @@ const { nonCanonicalTarget, symlinkAncestorProblem } = require("./containment.cj
 
 const owned = new Set();
 
-const scratchBase = async () => await realpath(os.tmpdir());
+const scratchBase = async () => realpathSync.native(os.tmpdir());
 
 /**
  * SAFETY. `mkdtemp` appends six characters to whatever it is handed and creates the result. A
@@ -176,7 +176,7 @@ const removeScratch = async (
  * SAFETY. The synchronous counterpart, for suites whose fixtures are built synchronously. Same
  * rules, same owned set: a synchronous cleanup is exactly as destructive as an asynchronous one.
  */
-const scratchBaseSync = () => realpathSync(os.tmpdir());
+const scratchBaseSync = () => realpathSync.native(os.tmpdir());
 
 const scratchRootSync = (prefix) => {
   const prefixProblem = scratchPrefixProblem(prefix);

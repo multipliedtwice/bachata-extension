@@ -13,7 +13,7 @@ const fixtures = path.join(__dirname, "fixtures");
 const mockCodex = path.join(fixtures, "mock-codex.cjs");
 const mockClaude = path.join(fixtures, "mock-claude.cjs");
 const mockClaudePersistent = path.join(fixtures, "mock-claude-persistent.cjs");
-const canonicalTmpdir = fs.realpathSync(os.tmpdir());
+const canonicalTmpdir = fs.realpathSync.native(os.tmpdir());
 
 const collect = async (iterable) => {
   const events = [];
@@ -62,7 +62,7 @@ const request = (prompt, sessionId, attachments = [], sessionName) => ({
 });
 
 const fileApprovalTurn = async (data, scoped, onApproval) => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-file-approval-")));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-file-approval-")));
   fs.mkdirSync(path.join(root, "src", "nested"), { recursive: true });
   fs.writeFileSync(path.join(root, "src", "app.ts"), "export const value = 1;\n");
   fs.writeFileSync(path.join(root, "src", "nested", "app.ts"), "export const value = 1;\n");

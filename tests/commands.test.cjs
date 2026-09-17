@@ -1756,7 +1756,7 @@ const verifierRepository = (...verifiers) => {
   const fs = require("node:fs");
   const os = require("node:os");
   const nodePath = require("node:path");
-  const root = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "bachata-improve-approval-")));
+  const root = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), "bachata-improve-approval-")));
   writeVerifierRegistry(root, ...verifiers);
   return root;
 };

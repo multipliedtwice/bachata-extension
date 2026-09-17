@@ -12,7 +12,7 @@ const loadLock = () => import(pathToFileURL(lockModule).href);
 
 const temporaryLockPath = (name) =>
   path.join(
-    fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `bachata-worktree-lock-${name}-`))),
+    fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), `bachata-worktree-lock-${name}-`))),
     ".bachata-worktree.lock",
   );
 
@@ -838,12 +838,12 @@ test("the sweep clears ownerless residue of both families and keeps residue with
 const PROTECTED_TREE_SCRIPT = (lockModulePath, reentrant) => `
   const lockPath = process.argv[1];
   const { spawn } = require("node:child_process");
-  import(${JSON.stringify("LOCK")}.replace("LOCK", ${JSON.stringify(lockModulePath)}))
+  import(${JSON.stringify("LOCK")}.replace("LOCK", ${JSON.stringify(pathToFileURL(lockModulePath).href)}))
     .then(async ({ acquireWorktreeLock, WORKTREE_LOCK_OWNER_ENVIRONMENT }) => {
       const environment = {};
       const lock = await acquireWorktreeLock({ lockPath, environment, label: "parent", log: () => undefined });
       const childScript = ${reentrant
-        ? `'import(' + JSON.stringify(${JSON.stringify(lockModulePath)}) + ').then(async ({ acquireWorktreeLock }) => { const inner = await acquireWorktreeLock({ lockPath: process.argv[1], environment: { BACHATA_WORKTREE_LOCK_OWNER: process.env.BACHATA_WORKTREE_LOCK_OWNER }, label: "child", log: () => undefined }); process.stdout.write(JSON.stringify({ reentrant: inner.reentrant, pid: process.pid }) + String.fromCharCode(10)); setInterval(() => undefined, 1000); });'`
+        ? `'import(' + JSON.stringify(${JSON.stringify(pathToFileURL(lockModulePath).href)}) + ').then(async ({ acquireWorktreeLock }) => { const inner = await acquireWorktreeLock({ lockPath: process.argv[1], environment: { BACHATA_WORKTREE_LOCK_OWNER: process.env.BACHATA_WORKTREE_LOCK_OWNER }, label: "child", log: () => undefined }); process.stdout.write(JSON.stringify({ reentrant: inner.reentrant, pid: process.pid }) + String.fromCharCode(10)); setInterval(() => undefined, 1000); });'`
         : `'process.stdout.write(JSON.stringify({ reentrant: false, pid: process.pid }) + String.fromCharCode(10)); setInterval(() => undefined, 1000);'`};
       const child = spawn(process.execPath, ["-e", childScript, lockPath], {
         stdio: ["ignore", "inherit", "ignore"],
@@ -1040,7 +1040,7 @@ test("a failed record write publishes nothing and leaves no permanent empty lock
 // that reports no usable inode is reproduced in a real child process against the real
 // module rather than by patching bindings this module never reads.
 const ZERO_INODE_PRELUDE = (lockModulePath) => `
-  const { setFileIdentityReaderForTests } = await import(${JSON.stringify("LOCK")}.replace("LOCK", ${JSON.stringify(lockModulePath)}));
+  const { setFileIdentityReaderForTests } = await import(${JSON.stringify("LOCK")}.replace("LOCK", ${JSON.stringify(pathToFileURL(lockModulePath).href)}));
   const { promises: fsp } = await import("node:fs");
   setFileIdentityReaderForTests(async (candidate) => {
     const details = await fsp.lstat(candidate).catch((error) => {
@@ -1402,7 +1402,7 @@ test("the validation runner releases its isolated lock when the configuration is
 test("the legacy environment variable redirects neither the canonical lock nor the CLI", async () => {
   const { defaultWorktreeLockPath, fencePathFor } = await loadLock();
   const canonical = defaultWorktreeLockPath();
-  const decoyDirectory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-decoy-lock-")));
+  const decoyDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-decoy-lock-")));
   const decoy = path.join(decoyDirectory, ".bachata-worktree.lock");
   const target = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-decoy-target-"));
   try {
@@ -1490,7 +1490,7 @@ test("recovery instructions carry no shell metacharacters", async () => {
 // Every file reports the same inode number, which is what a caller sees when an inode is
 // reused after a delete and a create. Only the recorded token can tell the files apart.
 const REUSED_INODE_PRELUDE = (lockModulePath) => `
-  const { setFileIdentityReaderForTests } = await import(${JSON.stringify("LOCK")}.replace("LOCK", ${JSON.stringify(lockModulePath)}));
+  const { setFileIdentityReaderForTests } = await import(${JSON.stringify("LOCK")}.replace("LOCK", ${JSON.stringify(pathToFileURL(lockModulePath).href)}));
   const { promises: fsp } = await import("node:fs");
   setFileIdentityReaderForTests(async (candidate) => {
     const details = await fsp.lstat(candidate).catch((error) => {
