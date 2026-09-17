@@ -16,10 +16,11 @@ export const browserControllerEvidence = (
 
 export const composeAgentPrompt = (input: {
   task: string;
+  continuity?: string | undefined;
   managedHandoff?: string | undefined;
   controllerContract?: string | undefined;
   workspaceProtocol?: string | undefined;
-}): string => [input.managedHandoff ?? input.task, input.controllerContract, input.workspaceProtocol]
+}): string => [input.continuity, input.managedHandoff ?? input.task, input.controllerContract, input.workspaceProtocol]
   .filter((part): part is string => typeof part === "string" && part.length > 0)
   .join("\n\n");
 

@@ -57,11 +57,15 @@ test("remote browser provider is unsupported", () => {
   assert.equal(evaluateReadiness(input).status, "unsupported");
 });
 
-test("connected Bridge without a selected session needs setup", () => {
-  const catalog = [pipeline("browser", "claude-browser")];
-  const input = base("browser", catalog);
+test("connected Bridge without a selected session opens a built-in conversation on demand", () => {
+  const input = base("browser", [pipeline("browser", "claude-browser")]);
   input.bridge.connected = true;
-  assert.equal(evaluateReadiness(input).status, "needsSetup");
+  const readiness = evaluateReadiness(input);
+  assert.equal(readiness.status, "ready");
+  assert.ok(readiness.findings.some((entry) => entry.detail === "Opens a claude conversation when this participant runs"));
+  const generic = base("generic", [pipeline("generic", "generic-browser")]);
+  generic.bridge.connected = true;
+  assert.equal(evaluateReadiness(generic).status, "needsSetup");
 });
 
 test("ready Bridge session satisfies browser pipeline", () => {
@@ -120,6 +124,9 @@ test("each browser agent uses its own bound session", () => {
   input.browserBindings = { worker: "one", lead: "two" };
   assert.equal(evaluateReadiness(input).status, "ready");
   input.browserBindings.lead = undefined;
+  assert.equal(evaluateReadiness(input).status, "ready");
+  input.browserBindings.lead = "two";
+  input.bridge.sessions[1].status = "notAuthenticated";
   assert.equal(evaluateReadiness(input).status, "needsSetup");
 });
 
@@ -611,7 +618,7 @@ for (const writeScope of ["workspace", "configured", "readOnly"]) {
 }
 
 /**
- * Browser Bridge is not a local-model consumer. Its readiness is connection, a selected session of
+ * Browser Bridge is not a local-model consumer. Its readiness is connection, a signed-in session of
  * the right provider, and that session's reported capabilities — nothing else. A reader who selects
  * Bridge and has no local model installed, or has turned local interpretation off, is ready.
  */
@@ -633,9 +640,14 @@ test("Bridge readiness turns on connection, session and capabilities, and nothin
     return evaluateReadiness(input);
   };
 
-  // The three things that do decide it, each failing on its own.
+  // The three things that do decide it, each failing on its own. A built-in provider with no
+  // selected session is not one of them: the run opens that conversation when the participant runs.
   assert.equal(withBridge({ enabled: true, connected: false, sessions: [] }).status, "needsSetup");
-  assert.equal(withBridge({ enabled: true, connected: true, sessions: [session()] }).status, "needsSetup");
+  assert.equal(withBridge({ enabled: true, connected: true, sessions: [session()] }).status, "ready");
+  assert.equal(
+    withBridge({ enabled: true, connected: true, selectedSessionId: "s1", sessions: [session({ status: "notAuthenticated" })] }).status,
+    "needsSetup",
+  );
   assert.equal(
     withBridge({ enabled: true, connected: true, selectedSessionId: "s1", sessions: [session({ capabilities: undefined })] }).status,
     "needsSetup",

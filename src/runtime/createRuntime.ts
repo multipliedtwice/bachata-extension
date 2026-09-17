@@ -1,4 +1,12 @@
 import { browserCandidateReference, browserControllerEvidence, browserControllerText, composeAgentPrompt } from "./browserPromptContracts";
+import {
+  BrowserSessionOrigin,
+  RESUMED_STEP_NOTICE,
+  continuityHandoffPrompt,
+  promptEntryData,
+  resumedIntoPromptedStep,
+  roleAnswers,
+} from "./browserContinuity";
 import { prepareBrowserDeliverable } from "../browser/deliverables";
 import { BrowserContextReferences } from "../browser/contextReferences";
 import { assertBrowserAttachmentSource } from "../browser/sourceTransferPolicy";
@@ -217,6 +225,7 @@ import {
 } from "../browser/actions";
 import {
   BrowserConversationBinding,
+  BrowserSession,
   CapturedAsset,
   CapturedResponse,
   isCanonicalHttpOrigin,
@@ -4541,7 +4550,7 @@ export const createRuntime = (
     let browserOperationDeadlineExpired = false;
 
     try {
-      await ensureProgrammaticBrowserSession(agentId, controller.signal);
+      const browserSessionOrigin = await ensureBrowserSession(agentId, controller.signal);
       const workingDirectory = await requireAgentWorkingDirectory(agentId);
       const turnPolicy = turnExecutionPolicy({
         ...options,
@@ -4993,7 +5002,7 @@ export const createRuntime = (
             agentId,
             step,
             promptEventType,
-            undefined,
+            promptEntryData(options.roleId),
             stepId,
           ),
         );
@@ -5120,8 +5129,12 @@ export const createRuntime = (
               evidence: browserControllerEvidence(pendingLeadRevision.evidence, workingDirectory),
             } : pendingLeadRevision)
           : undefined;
+      const continuity = isBrowserAgent && !managedBrowserTurn && stepId !== undefined
+        ? await browserContinuityBlock(agentId, stepId, options, browserSessionOrigin)
+        : undefined;
       const initialPrompt = composeAgentPrompt({
         task: prompt,
+        continuity,
         managedHandoff: managedBrowserTurn?.prompt,
         controllerContract: managedControllerBlock,
         workspaceProtocol: isBrowserAgent && structuredTurnToken
@@ -10991,20 +11004,37 @@ export const createRuntime = (
     await persistNow();
   };
 
-  const ensureProgrammaticBrowserSession = async (
+  const browserContinuityBlock = async (
+    agentId: string,
+    stepId: string,
+    options: PipelineAgentOptions,
+    origin: BrowserSessionOrigin,
+  ): Promise<string | undefined> => {
+    const entries = await transcriptStore.load();
+    const resumed = resumedIntoPromptedStep(entries, agentId, stepId);
+    if (origin !== "opened") return resumed ? RESUMED_STEP_NOTICE : undefined;
+    return continuityHandoffPrompt({
+      roleName: options.roleName,
+      answers: roleAnswers(entries, { agentId, roleId: options.roleId }),
+      participantName: (id) => (id === undefined ? undefined : state.agents[id]?.name) ?? id ?? "an earlier participant",
+      resumed,
+    }) ?? (resumed ? RESUMED_STEP_NOTICE : undefined);
+  };
+
+  const ensureBrowserSession = async (
     agentId: string,
     signal: AbortSignal,
-  ): Promise<void> => {
-    if (!programmaticAutoProvisioning) return;
+  ): Promise<BrowserSessionOrigin> => {
+    if (!programmaticAutoProvisioning) return "existing";
     const agent = state.agents[agentId];
     const provider = agent ? browserProviderForAdapterType(agent.adapterType) : undefined;
-    if (!agent || !provider) return;
+    if (!agent || !provider) return "existing";
     const ownerId = `${runtimeOwnerId}:${agentId}`;
     try {
       const current = bridge.resolveBoundSession(ownerId, agent.browserBinding, agent.sessionId);
       if (current?.status === "ready") {
         programmaticResetBindings.delete(agentId);
-        return;
+        return "existing";
       }
     } catch {
       // EX-AUD-13. Resolution failing is not proof of a ready session, and only a ready
@@ -11012,15 +11042,21 @@ export const createRuntime = (
     }
     const resetBinding = programmaticResetBindings.get(agentId);
     const preferredBinding = agent.browserBinding ?? resetBinding;
-    const opened = await bridge.openConversation(
-      provider,
-      signal,
-      preferredBinding,
-      provider === "generic" || Boolean(resetBinding),
-    );
+    const fresh = provider === "generic" || Boolean(resetBinding);
+    let opened: BrowserSession | undefined;
+    if (!fresh && preferredBinding) {
+      try {
+        opened = await bridge.openConversation(provider, signal, preferredBinding, false);
+      } catch (error) {
+        if (signal.aborted) throw error;
+      }
+    }
+    const reopened = opened !== undefined && opened.conversationIdentity === preferredBinding?.conversationIdentity;
+    opened ??= await bridge.openConversation(provider, signal, fresh ? preferredBinding : undefined, fresh);
     if (signal.aborted) throw new Error("Browser fallback provisioning was interrupted");
     await selectBrowserSession(agentId, opened.id, { allowDuringActiveWorkflow: true });
     programmaticResetBindings.delete(agentId);
+    return reopened ? "reopened" : "opened";
   };
 
   const ensureFreshManagedBrowserSession = async (

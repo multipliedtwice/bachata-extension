@@ -325,6 +325,11 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
     const selected = input.bridge.sessions.find((session) =>
       session.id === bindingId && session.provider === provider,
     );
+    const opensOnDemand = provider !== "generic" && selected?.status !== "notAuthenticated";
+    if (opensOnDemand && selected?.status !== "ready") {
+      findings.push(finding(`bridge.${agent.id}`, agent.name, "ready", `Opens a ${provider} conversation when this participant runs`));
+      return;
+    }
     if (!selected) {
       findings.push(finding(`bridge.${agent.id}`, agent.name, "needsSetup", `Select a ready ${provider} browser session`, "bridge.selectSession"));
       return;

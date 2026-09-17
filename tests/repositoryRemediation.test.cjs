@@ -172,7 +172,7 @@ const readySession = (capabilities) => ({
   ...(capabilities === undefined ? {} : { capabilities }),
 });
 
-test("a browser pipeline cannot start without its bridge, its session, or its capabilities", () => {
+test("a browser pipeline cannot start without its bridge, a signed-in provider, or its capabilities", () => {
   const disconnected = evaluateReadiness(browserInput({ connected: false, sessions: [] }));
   assert.deepEqual(
     runBlockingFindings(disconnected.findings).map((entry) => entry.detail),
@@ -181,10 +181,36 @@ test("a browser pipeline cannot start without its bridge, its session, or its ca
   );
 
   const noSession = evaluateReadiness(browserInput({ connected: true, sessions: [readySession()] }));
+  assert.deepEqual(runBlockingFindings(noSession.findings), [], "a conversation the run opens itself still refused");
+  assert.ok(
+    noSession.findings.some((entry) => entry.detail === "Opens a chatgpt conversation when this participant runs"),
+    "the reader was not told the conversation opens when the participant runs",
+  );
+
+  const closedSession = evaluateReadiness(browserInput({
+    connected: true,
+    selectedSessionId: "session-1",
+    sessions: [{ ...readySession(), status: "streaming" }],
+  }));
+  assert.deepEqual(runBlockingFindings(closedSession.findings), [], "a selected conversation that is not ready still refused");
+
+  const signedOut = evaluateReadiness(browserInput({
+    connected: true,
+    selectedSessionId: "session-1",
+    sessions: [{
+      ...readySession({
+        submission: "verifiedSend",
+        completion: "verifiedLifecycle",
+        interruption: "confirmed",
+        conversationState: "confirmed",
+      }),
+      status: "notAuthenticated",
+    }],
+  }));
   assert.deepEqual(
-    runBlockingFindings(noSession.findings).map((entry) => entry.detail),
-    ["Select a ready chatgpt browser session"],
-    "a run started with no session selected",
+    runBlockingFindings(signedOut.findings).map((entry) => entry.detail),
+    ["Selected browser session is not ready"],
+    "a signed-out provider did not stop the run",
   );
 
   const weakSession = evaluateReadiness(browserInput({

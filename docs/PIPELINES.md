@@ -224,6 +224,8 @@ Consensus rounds exchange structured claims until agreement or configured limit.
 
 Browser Bridge is an agent transport selected in **Agents**. It is not a workflow category. A browser conversation uses the model selected by its website. Bachata does not invent or persist a browser model override.
 
+Runs, resumes and restarts open ChatGPT and Claude conversations when a browser participant needs one, so a connected Bridge with no selected session does not block the run; a signed-out provider still does, and a Generic participant still needs a validated bound tab. A participant whose conversation is gone first returns to that same conversation, keeping the provider's history. When that fails, or when a browser participant takes over a role another participant held earlier in the run, the new conversation first receives a bounded context handoff: the role's earlier recorded answers, newest kept first within 32 KiB, presented oldest first as earlier work rather than instructions. The first turn after a resume into a step that participant was already asked is told that its earlier reply may be incomplete or lost, and answers the step in full.
+
 ### Verification
 
 Regression coverage validates every shipped definition, rejects provider or transport names in bundled workflow identity, and rebinds every participant slot across every supported adapter without assignment refusal. Provider doubles prove scheduling and request formation; authenticated provider acceptance remains a separate external gate.
