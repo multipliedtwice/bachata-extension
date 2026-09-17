@@ -16,7 +16,7 @@ runs, summed, with the contributing commands named beside the number. A count fo
 alone is not comparable and must not be recorded here.
 
 Artifacts under test: Bachata VSIX `b747d340d83db77354b8eeeca9ce2a6475ab9ee39c0f529a4666fea009fa2b5b`, Browser Bridge ZIP `b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd`.
-Browser Bridge ZIP `bachata-browser-bridge-0.6.7.zip` remains pinned and unbound. Only
+Browser Bridge ZIP `bachata-browser-bridge-0.6.8.zip` remains pinned and unbound. Only
 `npm run release:bind` may write final artifact hashes onto this line after the human evidence is
 complete.
 

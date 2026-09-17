@@ -379,11 +379,11 @@ export const RECORD_SCHEMAS = {
       headers: ["Extension", "VS Code version", "Bridge", "Provider", "Browser", "OS", "Checklist", "Date", "VSIX SHA-256", "Bridge SHA-256", "Result", "Known limitations"],
       requires: ["vsix", "bridge"],
       rows: [
-        {"Extension": "0.7.0", "Bridge": "0.6.7", "Provider": "ChatGPT", "Browser": "Chrome", "OS": "macOS", "Checklist": "LIVE_SMOKE_TEST"},
-        {"Extension": "0.7.0", "Bridge": "0.6.7", "Provider": "ChatGPT", "Browser": "Edge", "OS": "Windows", "Checklist": "LIVE_SMOKE_TEST"},
-        {"Extension": "0.7.0", "Bridge": "0.6.7", "Provider": "Claude", "Browser": "Chrome", "OS": "macOS", "Checklist": "LIVE_SMOKE_TEST"},
-        {"Extension": "0.7.0", "Bridge": "0.6.7", "Provider": "Claude", "Browser": "Edge", "OS": "Windows", "Checklist": "LIVE_SMOKE_TEST"},
-        {"Extension": "0.7.0", "Bridge": "0.6.7", "Provider": "Generic target", "Browser": "Chrome", "OS": "macOS", "Checklist": "LIVE_SMOKE_TEST"},
+        {"Extension": "0.7.0", "Bridge": "0.6.8", "Provider": "ChatGPT", "Browser": "Chrome", "OS": "macOS", "Checklist": "LIVE_SMOKE_TEST"},
+        {"Extension": "0.7.0", "Bridge": "0.6.8", "Provider": "ChatGPT", "Browser": "Edge", "OS": "Windows", "Checklist": "LIVE_SMOKE_TEST"},
+        {"Extension": "0.7.0", "Bridge": "0.6.8", "Provider": "Claude", "Browser": "Chrome", "OS": "macOS", "Checklist": "LIVE_SMOKE_TEST"},
+        {"Extension": "0.7.0", "Bridge": "0.6.8", "Provider": "Claude", "Browser": "Edge", "OS": "Windows", "Checklist": "LIVE_SMOKE_TEST"},
+        {"Extension": "0.7.0", "Bridge": "0.6.8", "Provider": "Generic target", "Browser": "Chrome", "OS": "macOS", "Checklist": "LIVE_SMOKE_TEST"},
       ],
     },
     {

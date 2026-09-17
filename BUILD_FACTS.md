@@ -12,10 +12,10 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Fact | Value |
 | --- | --- |
 | Extension version | 0.7.1 |
-| Pinned Browser Bridge version | 0.6.7 |
+| Pinned Browser Bridge version | 0.6.8 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 730 |
-| Maintained source manifest SHA-256 (Git-tracked) | 7df24dc556fbe5c5c420fedd46cbe3398dd731bc2e503559fed3cf38ad584f95 |
+| Maintained source manifest SHA-256 (Git-tracked) | 5d980a6fb39234f08514c4f04896e1ebbc8056a85c44be9bcf52d7d463f4b6c4 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -38,11 +38,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit ae0654523a4908f99734d9ca1f40448c41802234.
+The working tree was modified, so these values describe the working tree and not commit 24eee7c8dafdca665816194f341ad00815c34c03.
 
 | Observation | Value |
 | --- | --- |
-| Revision | ae0654523a4908f99734d9ca1f40448c41802234 |
+| Revision | 24eee7c8dafdca665816194f341ad00815c34c03 |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 730 |
 | Platform | Darwin 24.5.0 arm64 |
@@ -57,6 +57,6 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
 | Staged VSIX | bachata-vscode-0.7.1.vsix, 12.44 MB, SHA-256 b747d340d83db77354b8eeeca9ce2a6475ab9ee39c0f529a4666fea009fa2b5b |
-| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.7.zip, 1.05 MB, SHA-256 b0f2d7d9a2a4d9dab78a7bfd447fb8dc2ca12ca64cfbebbba8b2bdcc40f182bd |
+| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.8.zip, 1.05 MB, SHA-256 311dfdd0d2dc4df6e700302856130fe0269a57138eae8685226d524f03a45fcf |
 | Test run | not collected in this generation |
 

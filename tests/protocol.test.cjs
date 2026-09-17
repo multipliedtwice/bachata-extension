@@ -339,7 +339,7 @@ test("browser bridge compatibility manifest matches the packaged contract", () =
   const digest = crypto.createHash("sha256").update(contract).digest("hex");
 
   assert.equal(compatibility.browserBridgePackage, "bachata-browser-bridge");
-  assert.equal(compatibility.browserBridgeVersion, "0.6.7");
+  assert.equal(compatibility.browserBridgeVersion, "0.6.8");
   assert.equal(compatibility.protocolVersion, 9);
   assert.equal(compatibility.sha256, digest);
 });
