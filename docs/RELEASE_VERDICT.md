@@ -26,12 +26,13 @@ verdict below is authored by a human and no generator may set it.
 
 ## Verdict
 
-**NO-SHIP as a stable release. The source tree is a closed-alpha candidate.**
+**SHIP as a stable release, by owner decision on 2026-09-17.**
 
-Identity, prepublish, packaging, direct VSIX verification, local installation, installed-file
-comparison and installed-build activation pass. The current source has a matching artifact
-candidate. No stable acceptance is inferred while the human evidence and artifact binding remain
-open.
+The owner decided to publish 0.7.1 to the marketplaces. Identity, prepublish, packaging, direct VSIX
+verification, the full automated suite, coverage gates and the identity and artifact stages of
+`npm run release:verify` pass for the published candidate. The human evidence records in
+`RELEASE_VALIDATION_RECORD.md`, `PROVIDER_TERMS.md` and `COMPATIBILITY_MATRIX.md` remain
+unrecorded; this verdict does not claim them.
 
 Packaging is no longer circular, in both directions:
 
