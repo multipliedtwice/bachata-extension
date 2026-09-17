@@ -75,7 +75,7 @@ jobs:
         run: npm ci
 
       - name: Sign in to the VS Code publisher with workload identity
-        if: inputs.target != 'bridge'
+        if: inputs.target != 'bridge' && vars.AZURE_CLIENT_ID != '' && vars.AZURE_TENANT_ID != ''
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -95,7 +95,19 @@ jobs:
       - name: Publish the verified VSIX without rebuilding
         if: inputs.target != 'bridge'
         shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           set -euo pipefail
           node scripts/release-bundle.mjs verify "${RUNNER_TEMP}/release-set"
-          node node_modules/@vscode/vsce/vsce publish --azure-credential --packagePath "${RUNNER_TEMP}"/release-set/*.vsix
+          if [[ -n "$AZURE_CLIENT_ID" && -n "$AZURE_TENANT_ID" ]]; then
+            unset VSCE_PAT
+            node node_modules/@vscode/vsce/vsce publish --azure-credential --packagePath "${RUNNER_TEMP}"/release-set/*.vsix
+          elif [[ -n "$VSCE_PAT" ]]; then
+            node node_modules/@vscode/vsce/vsce publish --packagePath "${RUNNER_TEMP}"/release-set/*.vsix
+          else
+            echo "Configure Azure workload identity or the marketplace environment secret VSCE_PAT." >&2
+            exit 1
+          fi
