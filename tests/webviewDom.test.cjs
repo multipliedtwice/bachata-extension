@@ -601,6 +601,33 @@ test("run tabs omit a pristine New run draft until it becomes meaningful", () =>
   } finally { harness.restore(); }
 });
 
+test("a pristine draft beside another run keeps its tab and its drawer entry", () => {
+  const draft = (id, runRef) => ({
+    ...conversationSummary(),
+    id,
+    runRef,
+    title: `[${runRef}] New run`,
+    input: undefined,
+    preparedDraft: undefined,
+  });
+  const first = draft("draft-1", "RNEW00001");
+  const second = draft("draft-2", "RNEW00002");
+  const archived = { ...draft("draft-3", "RNEW00003"), archived: true };
+  const harness = bootWebview(managerState({ conversations: [first, archived], activeConversationId: first.id }), panelState());
+  try {
+    const root = harness.document.root;
+    assert.equal(root.querySelector(".run-tab"), null, "an archived run turned the first-open draft into a tab");
+
+    harness.sendWindowMessage({ type: "manager.snapshot", state: managerState({ conversations: [first, second], activeConversationId: second.id }) });
+    assert.deepEqual(
+      root.querySelectorAll(".run-tab-select").map((tab) => tab.getAttribute("data-conversation")),
+      ["draft-1", "draft-2"],
+    );
+    root.querySelector('[data-action="run-drawer-toggle"]').click();
+    assert.equal(root.querySelectorAll(".run-drawer-item").length, 2);
+  } finally { harness.restore(); }
+});
+
 test("run tabs omit their own reference while preserving readable bracketed titles", () => {
   const runs = [
     { ...conversationSummary(), id: "first", runRef: "R8HYQPMZ6", title: "[R8HYQPMZ6] Fix the tab order" },
@@ -9201,6 +9228,27 @@ test("run labels strip internal prefixes in drawer and destructive dialogs", () 
     assert.doesNotMatch(harness.document.root.querySelector('.run-action-menu summary').getAttribute("aria-label"), /\[run-1\]/u);
     harness.document.root.querySelector('.run-drawer [data-action="run-archive"]').click();
     assert.doesNotMatch(harness.document.root.innerHTML.slice(harness.document.root.innerHTML.indexOf('class="app-dialog"')), /\[run-1\]/u);
+  } finally { harness.restore(); }
+});
+
+test("archiving or deleting an empty run asks nothing, while a run with content still confirms", () => {
+  const draft = { ...conversationSummary(), id: "draft-1", runRef: "RNEW00001", title: "[RNEW00001] New run", input: undefined, preparedDraft: undefined };
+  const used = { ...conversationSummary(), id: "used-1", title: "[run-1] Review interface" };
+  const harness = bootWebview(managerState({ conversations: [draft, used], activeConversationId: used.id }));
+  try {
+    const root = harness.document.root;
+    root.querySelector('[data-action="run-drawer-toggle"]').click();
+    root.querySelector('.run-drawer [data-action="run-archive"][data-conversation="draft-1"]').click();
+    assert.equal(root.querySelector(".app-dialog"), null);
+    assert.deepEqual(harness.messages.at(-1), { type: "conversation.archive", conversationId: "draft-1", archived: true });
+    root.querySelector('.run-drawer [data-action="run-delete"][data-conversation="draft-1"]').click();
+    assert.equal(root.querySelector(".app-dialog"), null);
+    assert.deepEqual(harness.messages.at(-1), { type: "conversation.close", conversationId: "draft-1" });
+
+    const before = harness.messages.length;
+    root.querySelector('.run-drawer [data-action="run-archive"][data-conversation="used-1"]').click();
+    assert.ok(root.querySelector(".app-dialog"));
+    assert.equal(harness.messages.length, before);
   } finally { harness.restore(); }
 });
 

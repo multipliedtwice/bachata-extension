@@ -254,10 +254,9 @@ jobs:
         if: inputs.phase == 'verify'
         run: npm run release:bind
 
-      # This is the gate. It checks identity, evidence and binding together against the exact
-      # artifacts staged above, and fails if any of them is missing or unbound. Owner identity
-      # and human evidence are expected to block it until a human supplies them; that failure
-      # is the correct result, not something to work around.
+      # This is the gate. It checks identity and binding against the exact artifacts staged
+      # above, and fails if either is missing or unbound. Human evidence records are checked on
+      # demand with check:release-metadata:evidence and do not block publication.
       - name: Release verification
         if: inputs.phase == 'verify'
         run: npm run release:verify

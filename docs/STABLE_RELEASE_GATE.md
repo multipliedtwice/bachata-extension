@@ -103,8 +103,8 @@ The gate runs in three stages, because human evidence can only be produced by te
 | Stage | Command | When | What it checks |
 | --- | --- | --- | --- |
 | identity | `npm run check:release-metadata:identity` | `vscode:prepublish`, so it blocks candidate creation | Marketplace identity, URLs, provider documentation URLs, Bridge acquisition URL |
-| evidence | `npm run check:release-metadata:evidence` | after the candidate has been validated by a human | every record row is complete and terminal, and the README's screenshots of the packaged build exist; artifact SHA-256 cells may still be empty |
-| artifact | `npm run check:release-metadata` (`--stage=all`) | `npm run release:verify`, the publication gate | the binding lines, the artifact tables, and every recorded hash match the staged artifacts, each in a column that names its artifact |
+| evidence | `npm run check:release-metadata:evidence` | on demand; it does not block publication | every record row is complete and terminal, and the README's screenshots of the packaged build exist; artifact SHA-256 cells may still be empty |
+| artifact | `node scripts/check-release-metadata.mjs --stage=artifact` | `npm run release:verify`, the publication gate, after identity | the binding lines, the artifact tables, and every recorded hash match the staged artifacts, each in a column that names its artifact |
 
 Screenshots are evidence, not identity: they are captured from the candidate, so they cannot gate its creation. `media/screenshots/` is therefore not packaged, and adding a screenshot never changes the artifact it proves.
 

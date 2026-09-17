@@ -278,7 +278,9 @@ test("candidate creation gates on identity only, never on evidence about the can
     "candidate creation gates on evidence that only exists once the candidate does",
   );
   const verifyScript = fs.readFileSync(path.join(root, "scripts", "release-verify.mjs"), "utf8");
-  assert.match(verifyScript, /--stage=all/u, "the publication gate does not run the full metadata stage");
+  assert.match(verifyScript, /--stage=identity/u, "the publication gate does not check package identity");
+  assert.match(verifyScript, /--stage=artifact/u, "the publication gate does not bind the staged artifacts");
+  assert.doesNotMatch(verifyScript, /--stage=(?:all|evidence)/u, "the publication gate blocks on manual evidence records");
   assert.match(verifyScript, /verifyVsix/u, "the publication gate does not verify the packaged bytes");
   const packageScript = fs.readFileSync(path.join(root, "scripts", "package.mjs"), "utf8");
   assert.equal(

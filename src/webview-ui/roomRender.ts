@@ -117,13 +117,17 @@ const isPristineRunDraft = (conversation: ConversationSummary): boolean => {
     !conversation.preparedDraft?.trim() && (title === "New run" || title === "New conversation");
 };
 
+const isFirstOpenDraft = (conversation: ConversationSummary): boolean =>
+  isPristineRunDraft(conversation) &&
+  rootRuns().every((candidate) => candidate.archived || candidate.id === conversation.id);
+
 const tabsHtml = (): string => {
   const active = activeConversation();
   const selectedRootId = active ? rootConversationFor(active).id : activeId();
-  // An open archived run keeps its tab, so the strip still says where the reader is. A pristine
-  // draft is the empty composer itself, not a run the user can return to.
+  // An open archived run keeps its tab, so the strip still says where the reader is. The lone
+  // pristine draft of a first open is the splash screen, not a run the user can return to.
   const runs = stableRunTabs().filter((conversation) =>
-    !isPristineRunDraft(conversation) && (!conversation.archived || conversation.id === selectedRootId)
+    !isFirstOpenDraft(conversation) && (!conversation.archived || conversation.id === selectedRootId)
   );
   const archivedCount = rootRuns().filter((conversation) => conversation.archived).length;
   const archivedLabel = archivedCount > 0 ? localize("{0} archived", archivedCount) : "";
@@ -196,7 +200,7 @@ const runDrawerHtml = (): string => {
   const query = state.roomSearch.trim().toLowerCase();
   const families = runFamilies(state.manager.conversations);
   const runs = rootRuns().filter((conversation) => {
-    if (isPristineRunDraft(conversation)) {
+    if (isFirstOpenDraft(conversation)) {
       return false;
     }
     if (!state.showArchived && conversation.archived) {

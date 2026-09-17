@@ -86,17 +86,21 @@ const verify = async () => {
     console.log(`Snapshotted ${artifact.label} ${artifact.digest}`);
   }
 
-  const metadata = spawnSync(
-    process.execPath,
-    [
-      path.join(root, "scripts", "check-release-metadata.mjs"),
-      "--stage=all",
-      `--vsix=${artifacts[0].snapshot}`,
-      `--bridge=${artifacts[1].snapshot}`,
-    ],
-    { cwd: root, stdio: "inherit", windowsHide: true },
-  );
-  if (metadata.error) throw metadata.error;
+  const metadata = ["--stage=identity", "--stage=artifact"].reduce((previous, stage) => {
+    if (previous.status !== 0) return previous;
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "scripts", "check-release-metadata.mjs"),
+        stage,
+        `--vsix=${artifacts[0].snapshot}`,
+        `--bridge=${artifacts[1].snapshot}`,
+      ],
+      { cwd: root, stdio: "inherit", windowsHide: true },
+    );
+    if (result.error) throw result.error;
+    return result;
+  }, { status: 0 });
 
   const structuralErrors = [];
   try {

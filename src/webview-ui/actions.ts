@@ -360,6 +360,10 @@ root.addEventListener("click", (event) => {
     const conversation = conversationFromTarget(target);
     if (conversation) {
       const descendants = state.manager.conversations.filter((candidate) => candidate.id !== conversation.id && rootConversationFor(candidate).id === conversation.id).length;
+      if (descendants === 0 && isPristineRunDraft(conversation)) {
+        vscode.postMessage({ type: "conversation.archive", conversationId: conversation.id, archived: true });
+        return;
+      }
       openDialog({
         kind: "archiveRun",
         title: localize("Archive run?"),
@@ -379,6 +383,10 @@ root.addEventListener("click", (event) => {
     const conversation = conversationFromTarget(target);
     if (conversation) {
       const descendants = state.manager.conversations.filter((candidate) => candidate.id !== conversation.id && rootConversationFor(candidate).id === conversation.id).length;
+      if (descendants === 0 && isPristineRunDraft(conversation)) {
+        vscode.postMessage({ type: "conversation.close", conversationId: conversation.id });
+        return;
+      }
       openDialog({
         kind: "deleteRun",
         title: localize("Delete run permanently?"),
