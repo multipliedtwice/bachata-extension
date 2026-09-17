@@ -182,9 +182,9 @@ const combinedRun = async (root, options = {}) => {
   };
 };
 
-const workspaceState = (repository) => ({
+const workspaceState = async (repository) => ({
   feature: fs.readFileSync(path.join(repository, "src/feature.mjs"), "utf8"),
-  status: git(repository, "status", "--porcelain"),
+  status: await repositoryStatusAfterTransientCatalogLock(repository),
   head: git(repository, "rev-parse", "HEAD"),
 });
 
@@ -239,8 +239,8 @@ test("one run through the real chain, from the Worker's own worktree to Apply", 
       assert.notEqual(taskWorktree, repository);
     });
 
-    await t.test("the selected workspace is untouched, and the work is retained instead", () => {
-      const state = workspaceState(repository);
+    await t.test("the selected workspace is untouched, and the work is retained instead", async () => {
+      const state = await workspaceState(repository);
       assert.equal(state.feature, "export const feature = 1;\n", "the run wrote the selected workspace");
       assert.equal(state.status, "", "the run left the selected workspace dirty");
       assert.equal(fs.existsSync(session.run.integrationWorktree), true);
@@ -321,12 +321,12 @@ test("one run through the real chain, from the Worker's own worktree to Apply", 
       // The run's checks ran against a task worktree that no longer exists, so the candidate a
       // person would apply has no complete evidence yet. That is missing evidence, not an absence
       // of bad news.
-      const before = workspaceState(repository);
+      const before = await workspaceState(repository);
       await assert.rejects(
         session.controller.applyRetained(runId),
         /Required verification: bachata:workspace-integrity: not run/u,
       );
-      assert.deepEqual(workspaceState(repository), before, "a refused Apply changed the workspace");
+      assert.deepEqual(await workspaceState(repository), before, "a refused Apply changed the workspace");
       assert.equal(fs.existsSync(session.run.integrationWorktree), true);
     });
 
@@ -365,7 +365,7 @@ test("one run through the real chain, from the Worker's own worktree to Apply", 
     });
 
     await t.test("passing evidence authorizes an Apply that stages and never commits", async () => {
-      const before = workspaceState(repository);
+      const before = await workspaceState(repository);
       const applied = await reloaded.applyRetained(runId);
       assert.equal(applied.applied, true, applied.reason ?? "");
       assert.equal(

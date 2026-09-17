@@ -9,16 +9,30 @@ export const publishChromeStore = async ({ bytes, version, env, request = fetch,
   }
   if (!/^[a-p]{32}$/u.test(env.CWS_EXTENSION_ID)
     || !/^[A-Za-z0-9_-]+$/u.test(env.CWS_PUBLISHER_ID)) throw new Error("Invalid Chrome Web Store identity.");
-  const json = async (url, options) => {
+  const secrets = ["CWS_CLIENT_ID", "CWS_CLIENT_SECRET", "CWS_REFRESH_TOKEN"].map((key) => env[key]);
+  const providerReason = async (response) => {
+    const body = await response.json().catch(() => undefined);
+    const error = body?.error;
+    const reason = typeof error === "string"
+      ? [error, body.error_description]
+      : [error?.status, error?.message];
+    const text = reason.filter((part) => typeof part === "string" && part.trim()).join(": ");
+    const redacted = secrets.reduce((value, secret) => value.split(secret).join("[redacted]"), text)
+      .replace(/ya29\.[\w.-]+/gu, "[redacted]").replace(/\s+/gu, " ").slice(0, 300);
+    return redacted ? ` (${redacted})` : "";
+  };
+  const json = async (stage, url, options) => {
     const response = await request(url, { ...options, signal: AbortSignal.timeout(120_000), redirect: "error" });
-    if (!response.ok) throw new Error(`Chrome Web Store request failed: HTTP ${response.status}. Check the store dashboard before retrying.`);
+    if (!response.ok) {
+      throw new Error(`Chrome Web Store ${stage} request failed: HTTP ${response.status}${await providerReason(response)}. Check the store dashboard before retrying.`);
+    }
     const result = await response.json();
     if (!result || typeof result !== "object" || Array.isArray(result) || result.error) {
       throw new Error("Chrome Web Store returned an invalid response. Check the store dashboard before retrying.");
     }
     return result;
   };
-  const token = await json("https://oauth2.googleapis.com/token", {
+  const token = await json("token", "https://oauth2.googleapis.com/token", {
     method: "POST",
     body: new URLSearchParams({
       client_id: env.CWS_CLIENT_ID, client_secret: env.CWS_CLIENT_SECRET,
@@ -32,7 +46,7 @@ export const publishChromeStore = async ({ bytes, version, env, request = fetch,
   const checkIdentity = (result) => {
     if (result.name !== name || result.itemId !== env.CWS_EXTENSION_ID) throw new Error("Chrome Web Store returned another item identity.");
   };
-  const uploaded = await json(`https://chromewebstore.googleapis.com/upload/v2/${name}:upload`, {
+  const uploaded = await json("upload", `https://chromewebstore.googleapis.com/upload/v2/${name}:upload`, {
     method: "POST", headers: { ...headers, "Content-Type": "application/zip" }, body: bytes,
   });
   checkIdentity(uploaded);
@@ -40,12 +54,12 @@ export const publishChromeStore = async ({ bytes, version, env, request = fetch,
   if (state === "SUCCEEDED" && uploaded.crxVersion !== version) throw new Error("Chrome Web Store uploaded version mismatch.");
   for (let attempt = 0; ["IN_PROGRESS", "UPLOAD_IN_PROGRESS"].includes(state) && attempt < 30; attempt += 1) {
     await wait(10_000);
-    const status = await json(`${base}:fetchStatus`, { headers });
+    const status = await json("upload status", `${base}:fetchStatus`, { headers });
     checkIdentity(status);
     state = status.lastAsyncUploadState;
   }
   if (state !== "SUCCEEDED") throw new Error("Chrome Web Store upload did not succeed. Nothing was submitted for review.");
-  const published = await json(`${base}:publish`, {
+  const published = await json("publish", `${base}:publish`, {
     method: "POST", headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ publishType: "DEFAULT_PUBLISH", skipReview: false, blockOnWarnings: true }),
   });

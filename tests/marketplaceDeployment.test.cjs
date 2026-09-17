@@ -118,12 +118,35 @@ test("Chrome upload polling is bounded and never submits a timed-out upload", as
   assert.equal(calls.some((call) => call.url.endsWith(":publish")), false);
 });
 
-test("Chrome errors do not echo credentials or provider error bodies", async () => {
+test("Chrome errors never echo credentials or access tokens", async () => {
   const { publishChromeStore } = await import("../scripts/publish-chrome-store.mjs");
   await assert.rejects(publishChromeStore({
     bytes: Buffer.from("zip"), version: "0.7.0", env,
     request: async () => ({ ok: false, status: 403, json: async () => ({ error: env.CWS_CLIENT_SECRET }) }),
   }), (error) => /HTTP 403/u.test(error.message) && !error.message.includes(env.CWS_CLIENT_SECRET));
+  await assert.rejects(publishChromeStore({
+    bytes: Buffer.from("zip"), version: "0.7.0", env,
+    request: async () => ({ ok: false, status: 400, json: async () => ({ error: "invalid_grant", error_description: `Bad ${env.CWS_REFRESH_TOKEN} ya29.leaked-access` }) }),
+  }), (error) => !error.message.includes(env.CWS_REFRESH_TOKEN) && !error.message.includes("ya29.leaked"));
+});
+
+test("Chrome errors name the failing request and the provider's own reason", async () => {
+  const { publishChromeStore } = await import("../scripts/publish-chrome-store.mjs");
+  await assert.rejects(publishChromeStore({
+    bytes: Buffer.from("zip"), version: "0.7.0", env,
+    request: async () => ({ ok: false, status: 400, json: async () => ({ error: "invalid_grant", error_description: "Token has been expired or revoked." }) }),
+  }), /Chrome Web Store token request failed: HTTP 400 \(invalid_grant: Token has been expired or revoked\.\)/u);
+  let calls = 0;
+  await assert.rejects(publishChromeStore({
+    bytes: Buffer.from("zip"), version: "0.7.0", env,
+    request: async () => (calls++ === 0
+      ? { ok: true, json: async () => ({ access_token: "fixture-access" }) }
+      : { ok: false, status: 400, json: async () => ({ error: { status: "FAILED_PRECONDITION", message: "Version must be greater" } }) }),
+  }), /Chrome Web Store upload request failed: HTTP 400 \(FAILED_PRECONDITION: Version must be greater\)/u);
+  await assert.rejects(publishChromeStore({
+    bytes: Buffer.from("zip"), version: "0.7.0", env,
+    request: async () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError("html"); } }),
+  }), /token request failed: HTTP 502\. Check/u);
 });
 
 test("deployment provenance rejects a different commit, attempt or event", async () => {
