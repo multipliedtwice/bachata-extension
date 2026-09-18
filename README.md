@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode"><img src="https://img.shields.io/badge/VS_Code_Marketplace-Bachata-007ACC?style=flat-square" alt="Bachata on the Visual Studio Marketplace"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/VS_Code-1.101%2B-007ACC?style=flat-square" alt="Requires VS Code 1.101 or newer"></a>
   <a href="docs/RELEASE_VERDICT.md"><img src="https://img.shields.io/badge/status-alpha_candidate-C46A3A?style=flat-square" alt="Status: alpha candidate"></a>
   <a href="docs/DEVELOPMENT.md"><img src="https://img.shields.io/badge/coverage-enforced_floors-586069?style=flat-square" alt="Coverage: enforced thresholds; see development checks"></a>
@@ -75,7 +76,8 @@ separate Browser Bridge and a local VS Code Extension Host. See
 
 ## Install and run a first review
 
-1. Install the supplied `.vsix` with **Extensions: Install from VSIX...**.
+1. Install [Bachata from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode), or install a
+   supplied `.vsix` with **Extensions: Install from VSIX...**.
 2. Open a trusted Git repository in a local VS Code window.
 3. Install and sign in to Codex or Claude Code. Install both to use a pair.
 4. Run **Bachata: Setup**.
