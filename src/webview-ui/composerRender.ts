@@ -375,14 +375,19 @@ const pipelinePickerHtml = (panel: PanelState): string => {
   const disabled = !panel.pipelineMutable || selection !== undefined;
   const selectedId = selection?.pipelineId ?? panel.selectedPipelineId;
   const selected = panel.pipelines.find((pipeline) => pipeline.id === selectedId);
-  const label = selected?.name ?? (state.panels.has(conversationId)
+  const recorded = selected === undefined && panel.selectedPipelineRemoved === true && panel.selectedPipelineDefinition?.id === selectedId
+    ? panel.selectedPipelineDefinition
+    : undefined;
+  const label = selected?.name ?? (recorded ? localize("{0} · removed", recorded.name) : state.panels.has(conversationId)
     ? localize("No pipeline available")
     : state.manager.readOnly
       ? localize("Pipeline unavailable")
       : localize("Loading pipelines…"));
   const title = selection
     ? localize("Switching to {0}…", selected?.name ?? localize("selected pipeline"))
-    : panel.pipelineMutationReason ?? localize("Choose the pipeline this run uses");
+    : recorded
+      ? localize("{0} is no longer in the pipeline catalog. This run keeps its recorded copy.", recorded.name)
+      : panel.pipelineMutationReason ?? localize("Choose the pipeline this run uses");
   const open = pipelinePickerOpenState(panel, conversationId);
   const filter = effectivePipelinePickerFilter(panel);
   const entries = pipelinePickerEntries(panel);
@@ -954,7 +959,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const visibleBlockers = blockers.filter((blocker) => blocker.quiet !== true);
   const firstBlocker = visibleBlockers[0];
   const blockerNoteHtml = firstBlocker
-    ? `<div class="composer-blockers"><i class="codicon codicon-warning" aria-hidden="true"></i><span>${escapeHtml(firstBlocker.requirement)}</span>${firstBlocker.action ? `<button type="button" ${firstBlocker.action.attributes}>${escapeHtml(firstBlocker.action.label)}</button>` : ""}${visibleBlockers.length > 1 ? `<button type="button" data-action="run-requirements" data-conversation="${escapeAttribute(activeId())}">${escapeHtml(localize("{0} more", String(visibleBlockers.length - 1)))}</button>` : ""}</div>`
+    ? `<div class="composer-blockers"><i class="codicon codicon-warning" aria-hidden="true"></i><span${firstBlocker.conditionFirst === true ? ` title="${escapeAttribute(firstBlocker.requirement)}"` : ""}>${escapeHtml(firstBlocker.conditionFirst === true ? firstBlocker.condition : firstBlocker.requirement)}</span>${firstBlocker.action ? `<button type="button" ${firstBlocker.action.attributes}>${escapeHtml(firstBlocker.action.label)}</button>` : ""}${visibleBlockers.length > 1 ? `<button type="button" data-action="run-requirements" data-conversation="${escapeAttribute(activeId())}">${escapeHtml(localize("{0} more", String(visibleBlockers.length - 1)))}</button>` : ""}</div>`
     : "";
   // One rounded surface holds the attachments, the borderless prompt and the compact toolbar; the
   // send control is an arrow icon carrying its Send/Queue/Interrupt name for assistive tech.

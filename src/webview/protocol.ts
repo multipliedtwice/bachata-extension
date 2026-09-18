@@ -298,6 +298,8 @@ export type PanelState = {
    */
   executionParticipants?: RunParticipant[];
   selectedPipelineHash?: string;
+  // The selected pipeline is no longer in the catalog; the run keeps the copy it recorded.
+  selectedPipelineRemoved?: boolean;
   readiness: PipelineReadiness;
   executionContract?: ExecutionContract;
   pipelineScopeKey: string;

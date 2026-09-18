@@ -2056,6 +2056,16 @@ export const createRuntime = (
         )
       : createPipelineSnapshot(pipeline, "builtin");
 
+  // A pipeline removed from the catalog after a run recorded it is still that run's pipeline: the
+  // run keeps its own copy, so it can be resumed or restarted, and readiness is judged against it.
+  const recordedOnlyPipeline = (pipelineId?: string): PipelineDefinition | undefined =>
+    pipelineId !== undefined && !pipelines.has(pipelineId) && selectedPipelineSnapshot?.definition.id === pipelineId
+      ? selectedPipelineSnapshot.definition
+      : undefined;
+
+  const catalogOrRecordedPipeline = (pipelineId?: string): PipelineDefinition | undefined =>
+    (pipelineId === undefined ? undefined : pipelines.get(pipelineId)) ?? recordedOnlyPipeline(pipelineId);
+
   const refreshPipelineState = (): void => {
     state.pipelines = Array.from(pipelines.values()).map((pipeline) =>
       pipelineSummary(
@@ -2074,6 +2084,11 @@ export const createRuntime = (
         : undefined,
     );
     setOptionalProperty(state, "selectedPipelineHash", selectedPipelineSnapshot?.hash);
+    setOptionalProperty(
+      state,
+      "selectedPipelineRemoved",
+      recordedOnlyPipeline(selectedPipelineSnapshot?.definition.id) === undefined ? undefined : true,
+    );
     state.pipelineScopeKey = activePipelineScope.key;
     setOptionalProperty(state, "pipelineScopeRoot", activePipelineScope.root);
   };
@@ -2402,7 +2417,7 @@ export const createRuntime = (
       browserBindings: Object.fromEntries(
         Object.entries(state.agents).map(([agentId, agent]) => [agentId, agent.sessionId]),
       ),
-      catalog: Array.from(pipelines.values()).map(
+      catalog: [...pipelines.values(), ...[recordedOnlyPipeline(pipelineId)].filter((pipeline) => pipeline !== undefined)].map(
         (pipeline) => withAssignments(pipeline) ?? pipeline,
       ),
       selectedPipelineId: pipelineId,
@@ -2425,9 +2440,7 @@ export const createRuntime = (
   };
 
   const currentExecutionContract = (): ExecutionContract | undefined => {
-    const catalogPipeline = state.selectedPipelineId
-      ? pipelines.get(state.selectedPipelineId)
-      : undefined;
+    const catalogPipeline = catalogOrRecordedPipeline(state.selectedPipelineId);
     if (!catalogPipeline) return undefined;
     const pipeline = withAssignments(catalogPipeline) ?? catalogPipeline;
     const config = configuration();
@@ -8345,9 +8358,7 @@ export const createRuntime = (
     // Every concrete missing requirement of the selected pipeline, not only the ones drawn as
     // "blocked": a browser pipeline with no bridge and no session reports `needsSetup`, which is
     // the remedy's name and was never a statement that the run could proceed without it.
-    const selected = state.selectedPipelineId
-      ? pipelines.get(state.selectedPipelineId)
-      : undefined;
+    const selected = catalogOrRecordedPipeline(state.selectedPipelineId);
     const executed = selected ? withAssignments(selected) ?? selected : undefined;
     const blocking = runBlockingFindings(
       evaluatePipelineReadiness(state.selectedPipelineId).findings,

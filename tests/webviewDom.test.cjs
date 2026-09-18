@@ -11481,3 +11481,46 @@ test("focus presentation follows pointer and keyboard input without changing act
     assert.equal(root.querySelector('.run-tab-tools [data-view="chat"]').getAttribute("aria-pressed"), "true");
   } finally { harness.restore(); }
 });
+
+const removedPipelinePanel = (overrides = {}) => {
+  const base = panelState();
+  return panelState({
+    selectedPipelineId: "retired-review",
+    selectedPipelineRemoved: true,
+    selectedPipelineDefinition: { ...base.selectedPipelineDefinition, id: "retired-review", name: "Retired review" },
+    ...overrides,
+  });
+};
+
+test("a run whose pipeline left the catalog names it and offers a new run when locked", () => {
+  const harness = bootWebview(managerState(), removedPipelinePanel({
+    pipelineMutable: false,
+    pipelineMutationReason: "Reset this run before changing pipelines",
+  }));
+  try {
+    const html = harness.document.root.innerHTML;
+    assert.match(html, /<span class="pipeline-picker-name">Retired review · removed<\/span>/u);
+    assert.match(html, /title="Retired review is no longer in the pipeline catalog\. This run keeps its recorded copy\."/u);
+    assert.doesNotMatch(html, /No pipeline available/u);
+    assert.match(html, /class="composer-blockers"><i class="codicon codicon-warning" aria-hidden="true"><\/i><span title="This run can still restart or resume from its recorded copy\. Start a new run for a new request\.">“Retired review” is no longer in the pipeline catalog\.<\/span><button type="button" data-action="create-conversation">New run<\/button>/u);
+  } finally { harness.restore(); }
+});
+
+test("a removed pipeline in a run that may change pipelines offers the picker instead", () => {
+  const harness = bootWebview(managerState(), removedPipelinePanel({ pipelineMutable: true }));
+  try {
+    assert.match(harness.document.root.innerHTML, /class="composer-blockers">[\s\S]*?<button type="button" data-action="pipeline-picker-toggle">Choose pipeline<\/button>/u);
+  } finally { harness.restore(); }
+});
+
+test("a readiness blocker names its problem in the composer rather than the generic requirement", () => {
+  const harness = bootWebview(managerState(), panelState({
+    readiness: {
+      status: "needsSetup",
+      findings: [{ id: "adapter.codex", label: "Codex", status: "needsSetup", detail: "codex unavailable", remediationId: "provider.install.codex" }],
+    },
+  }));
+  try {
+    assert.match(harness.document.root.innerHTML, /<span title="Resolve this before the run can start\.">Codex: codex unavailable<\/span><button type="button" data-action="readiness-remediate"/u);
+  } finally { harness.restore(); }
+});

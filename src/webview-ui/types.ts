@@ -488,6 +488,7 @@ type PanelState = {
   selectedPipelineDefinition?: PipelineDefinition;
   executionParticipants?: RunParticipant[];
   selectedPipelineHash?: string;
+  selectedPipelineRemoved?: boolean;
   readiness?: {
     status: "ready" | "blocked" | "needsSetup" | "unsupported";
     findings: Array<{

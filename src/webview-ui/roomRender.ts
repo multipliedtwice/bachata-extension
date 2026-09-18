@@ -443,6 +443,8 @@ type SendBlocker = {
   action?: { label: string; attributes: string };
   /** EX-UI-02. Still refuses Send; not drawn, because the composer already says it. */
   quiet?: boolean;
+  /** The requirement is generic, so the composer names the condition instead. */
+  conditionFirst?: boolean;
 };
 
 const sendBlockers = (
@@ -525,6 +527,19 @@ const sendBlockers = (
           : { label: localize("Restart pipeline"), attributes: `data-action="workflow-restart"` },
     });
   }
+  if (panel.selectedPipelineRemoved === true) {
+    const name = panel.selectedPipelineDefinition?.name ?? panel.selectedPipelineId ?? localize("The selected pipeline");
+    blockers.push({
+      condition: localize("“{0}” is no longer in the pipeline catalog.", name),
+      requirement: panel.pipelineMutable
+        ? localize("Choose a current pipeline for a new request.")
+        : localize("This run can still restart or resume from its recorded copy. Start a new run for a new request."),
+      action: panel.pipelineMutable
+        ? { label: localize("Choose pipeline"), attributes: `data-action="pipeline-picker-toggle"` }
+        : { label: localize("New run"), attributes: `data-action="create-conversation"` },
+      conditionFirst: true,
+    });
+  }
   if (draft.prompt.trim().length === 0) {
     // EX-UI-02. Still a blocker, so Send stays refused and says why when asked; not drawn in the
     // list, because the field's own placeholder and the room's intro card already say it and a
@@ -542,6 +557,7 @@ const sendBlockers = (
       requirement: finding.status === "unsupported"
         ? localize("This pipeline cannot run in this window.")
         : localize("Resolve this before the run can start."),
+      conditionFirst: true,
       ...(finding.remediationId
         ? {
             action: {
