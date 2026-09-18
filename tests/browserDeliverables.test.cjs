@@ -48,7 +48,13 @@ const workspace = async () => {
   references.fileVersion("src/retry.ts", hash(original));
   return { root, original, references, options: { workingDirectory: root, references, hasControlActions: false, signal: new AbortController().signal, mutationContext: { scopeMode: "workspace", readOnly: false, commitMode: "never" } } };
 };
-const execute = (prepared, root, extra = {}) => executeBrowserAction(prepared.action, { workingDirectory: root, signal: new AbortController().signal, timeoutMs: 5000, terminateGraceMs: 100, maxOutputBytes: 65536, maxReadBytes: 65536, maxSearchResults: 100, ...extra });
+// Windows runs every child through a Job Object host, so a git call that takes milliseconds
+// elsewhere costs the better part of a second there. The budget is a fixture value, not the
+// behaviour under test, so it is scaled rather than letting the platform's process cost decide
+// whether an action was refused.
+const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
+
+const execute = (prepared, root, extra = {}) => executeBrowserAction(prepared.action, { workingDirectory: root, signal: new AbortController().signal, timeoutMs: 5000 * slowPlatformFactor, terminateGraceMs: 100, maxOutputBytes: 65536, maxReadBytes: 65536, maxSearchResults: 100, ...extra });
 
 for (const variant of ["partial", "full", "wrapped", "missing-final-newline", "empty-new-file"]) {
   test(`imports ${variant} source archive through the existing patch executor and preserves omitted files`, async () => {
@@ -183,7 +189,7 @@ test("managed artifact execution retains the Bachata mutation lease and invalida
   const state = await workspace();
   try {
     let leases = 0;
-    const options = { taskId: "retry-repair", originalTask: "Fix the retry limit in src/retry.ts", role: "worker", workingDirectory: state.root, writeScope: "workspace", allowedPaths: [], commitMode: "never", readOnly: false, verificationChecks: [], maxRevisionCycles: 2, deadlineAt: Date.now() + 30000, continuationMaxBytes: 65536, handoffTotalBudgetBytes: 262144, dependencyDepth: 1, promotionMaxBytes: 65536, signal: state.options.signal, executor: { timeoutMs: 5000, terminateGraceMs: 100, maxOutputBytes: 65536, maxReadBytes: 65536, maxSearchResults: 100 }, contextIndex: { maxInventoryFiles: 100, inventoryTimeoutMs: 5000, indexingTimeoutMs: 5000 }, contextSearch: { maxFiles: 100, maxBytes: 65536, maxFileBytes: 65536, timeoutMs: 5000 }, withWorkspaceMutation: async (operation) => { leases++; return await operation(); } };
+    const options = { taskId: "retry-repair", originalTask: "Fix the retry limit in src/retry.ts", role: "worker", workingDirectory: state.root, writeScope: "workspace", allowedPaths: [], commitMode: "never", readOnly: false, verificationChecks: [], maxRevisionCycles: 2, deadlineAt: Date.now() + 30000 * slowPlatformFactor, continuationMaxBytes: 65536, handoffTotalBudgetBytes: 262144, dependencyDepth: 1, promotionMaxBytes: 65536, signal: state.options.signal, executor: { timeoutMs: 5000 * slowPlatformFactor, terminateGraceMs: 100, maxOutputBytes: 65536, maxReadBytes: 65536, maxSearchResults: 100 }, contextIndex: { maxInventoryFiles: 100, inventoryTimeoutMs: 5000, indexingTimeoutMs: 5000 }, contextSearch: { maxFiles: 100, maxBytes: 65536, maxFileBytes: 65536, timeoutMs: 5000 * slowPlatformFactor }, withWorkspaceMutation: async (operation) => { leases++; return await operation(); } };
     const turn = await prepareManagedBrowserTurn(options);
     turn.contextReferences.fileVersion("src/retry.ts", hash(state.original));
     const data = zip([{ name: "src/retry.ts", text: "export const retryCount = 3;\n" }]);

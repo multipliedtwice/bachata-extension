@@ -19,9 +19,13 @@ const collect = async (iterable) => {
   return events;
 };
 
+// The platform's own temporary directory, canonical: `/tmp` names nothing on Windows, where a
+// bare absolute path resolves against the current drive.
+const temporaryRoot = require("node:fs").realpathSync.native(os.tmpdir());
+
 const request = (overrides = {}) => ({
   prompt: "exact prompt",
-  workingDirectory: "/tmp",
+  workingDirectory: temporaryRoot,
   attachments: [],
   ...overrides,
 });

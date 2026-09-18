@@ -18,7 +18,11 @@ const uriOf = (fsPath) => ({
   toString: () => pathToFileURL(fsPath).href,
 });
 
-const waitFor = async (predicate, description, timeoutMs = 15_000) => {
+// Windows starts every child through a Job Object host, so activation and the bounded contract
+// check take several times as long there. The wait is a fixture budget, not the behaviour.
+const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
+
+const waitFor = async (predicate, description, timeoutMs = 15_000 * slowPlatformFactor) => {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = predicate();
@@ -376,7 +380,7 @@ const activateWriterWindow = async (settings) => {
       globalThis.fetch = originalFetch;
       delete require.cache[require.resolve("../dist/providers/localModelService.js")];
       [storageRoot, globalStorageRoot, repositoryRoot].forEach((directory) =>
-        fs.rmSync(directory, { recursive: true, force: true }));
+        fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
     },
   };
 };

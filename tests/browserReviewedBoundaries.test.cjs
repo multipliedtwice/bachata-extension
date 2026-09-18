@@ -11,15 +11,20 @@ const { assertBrowserAttachmentSource, browserAttachmentPath, isBrowserSourcePat
 const { isSupportedBrowserAttachmentPath } = require("../dist/adapters/browserProvider.js");
 const { MANAGED_WORKSPACE_INTEGRITY_COMMAND } = require("../dist/orchestrator/verificationPolicy.js");
 
+// Windows runs every child through a Job Object host, so a git call that takes milliseconds
+// elsewhere costs the better part of a second there. These budgets are fixture values, not the
+// behaviour under test.
+const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
+
 const optionsFor = (root) => ({
   taskId: "review-browser-boundaries", originalTask: "Repair the retry count in src/retry.ts and preserve unrelated changes.",
   role: "worker", workingDirectory: root, writeScope: "configured", allowedPaths: ["src"], readPaths: ["src"], protectedPaths: [],
   commitMode: "never", readOnly: false, verificationChecks: [{ id: "integrity", command: MANAGED_WORKSPACE_INTEGRITY_COMMAND }],
-  maxRevisionCycles: 1, deadlineAt: Date.now() + 60000, continuationMaxBytes: 65536, handoffTotalBudgetBytes: 262144,
+  maxRevisionCycles: 1, deadlineAt: Date.now() + 60000 * slowPlatformFactor, continuationMaxBytes: 65536, handoffTotalBudgetBytes: 262144,
   dependencyDepth: 1, promotionMaxBytes: 786432, signal: new AbortController().signal,
-  executor: { timeoutMs: 10000, terminateGraceMs: 1000, maxOutputBytes: 1048576, maxReadBytes: 1048576, maxSearchResults: 100 },
+  executor: { timeoutMs: 10000 * slowPlatformFactor, terminateGraceMs: 1000, maxOutputBytes: 1048576, maxReadBytes: 1048576, maxSearchResults: 100 },
   contextIndex: { maxInventoryFiles: 10000, inventoryTimeoutMs: 10000, indexingTimeoutMs: 10000 },
-  contextSearch: { maxFiles: 100, maxBytes: 1048576, maxFileBytes: 1048576, timeoutMs: 10000 },
+  contextSearch: { maxFiles: 100, maxBytes: 1048576, maxFileBytes: 1048576, timeoutMs: 10000 * slowPlatformFactor },
 });
 const envelope = (actions, status = "needContext") => ({ protocol: "bachata-browser-turn-v1", status, actions, summary: "Inspect retry recovery", objections: [], unresolved: [] });
 const git = (root, ...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();

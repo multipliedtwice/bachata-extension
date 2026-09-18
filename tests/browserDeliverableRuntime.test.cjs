@@ -24,7 +24,13 @@ const definition = (lead = false) => ({
 });
 
 for (const variant of ["issued", "unissued", "stale", "unresolved-deliverable", "source-deliverable"]) {
-  test(`runtime programmatic browser ${variant} preserves contracts and terminal classification`, { timeout: 15000 }, async () => {
+// Windows runs every child through a Job Object host, so a git call that takes milliseconds
+// elsewhere costs the better part of a second there. The budget is a fixture value, not the
+// behaviour under test, so it is scaled rather than letting the platform's process cost decide
+// whether an action was refused.
+const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
+
+  test(`runtime programmatic browser ${variant} preserves contracts and terminal classification`, { timeout: 15000 * slowPlatformFactor }, async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "bachata-browser-runtime-"));
     await fs.mkdir(path.join(root, "presets"));
     await fs.mkdir(path.join(root, "src"));

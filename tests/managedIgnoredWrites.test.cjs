@@ -96,6 +96,12 @@ const createTurn = (root) => ({
   prompt: "",
 });
 
+// Windows runs every child through a Job Object host, so a git call that takes milliseconds
+// elsewhere costs the better part of a second there. The budget is a fixture value, not the
+// behaviour under test, so it is scaled rather than letting the platform's process cost decide
+// whether an action was refused.
+const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
+
 const options = (root, baseline) => ({
   taskId: "ignored-writes",
   originalTask: "edit the workspace",
@@ -108,14 +114,14 @@ const options = (root, baseline) => ({
   readOnly: false,
   verificationChecks: [{ id: "integrity", command: MANAGED_WORKSPACE_INTEGRITY_COMMAND }],
   maxRevisionCycles: 1,
-  deadlineAt: Date.now() + 60000,
+  deadlineAt: Date.now() + 60000 * slowPlatformFactor,
   continuationMaxBytes: 65536,
   handoffTotalBudgetBytes: 262144,
   dependencyDepth: 2,
   promotionMaxBytes: 786432,
   repositoryBaseline: baseline,
   signal: new AbortController().signal,
-  executor: { timeoutMs: 5000, terminateGraceMs: 1000, maxOutputBytes: 1048576, maxReadBytes: 1048576, maxSearchResults: 100 },
+  executor: { timeoutMs: 5000 * slowPlatformFactor, terminateGraceMs: 1000, maxOutputBytes: 1048576, maxReadBytes: 1048576, maxSearchResults: 100 },
   contextIndex: { maxInventoryFiles: 100000, inventoryTimeoutMs: 30000, indexingTimeoutMs: 30000 },
   contextSearch: { maxFiles: 2000, maxBytes: 67108864, maxFileBytes: 8388608, timeoutMs: 15000 },
 });

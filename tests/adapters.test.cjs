@@ -26,16 +26,21 @@ const collect = async (iterable) => {
 const completion = (events) => events.find((event) => event.type === "complete");
 const session = (events) => events.find((event) => event.type === "session");
 
+// Windows starts every child through a Job Object host, so a `--version` probe that answers in
+// milliseconds elsewhere can take seconds there. These budgets are fixture values; what the
+// tests assert is the answer, not how fast the platform can start a process.
+const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
+
 const createCodex = (
   requestApproval = async () => "accept",
   overrides = {},
 ) =>
   createCodexAppServerAdapter({
     command: mockCodex,
-    commandCheckTimeoutMs: 5000,
-    requestTimeoutMs: 5000,
-    turnTimeoutMs: 5000,
-    interruptGraceMs: 500,
+    commandCheckTimeoutMs: 5000 * slowPlatformFactor,
+    requestTimeoutMs: 5000 * slowPlatformFactor,
+    turnTimeoutMs: 5000 * slowPlatformFactor,
+    interruptGraceMs: 500 * slowPlatformFactor,
     requestApproval,
     log: () => undefined,
     ...overrides,
@@ -45,8 +50,8 @@ const createClaude = (overrides = {}) =>
   createClaudeCodeAdapter({
     command: mockClaude,
     commandTimeoutMs: 5000,
-    turnTimeoutMs: 5000,
-    interruptGraceMs: 500,
+    turnTimeoutMs: 5000 * slowPlatformFactor,
+    interruptGraceMs: 500 * slowPlatformFactor,
     log: () => undefined,
     ...overrides,
   });

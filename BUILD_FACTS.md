@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.6.8 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 733 |
-| Maintained source manifest SHA-256 (Git-tracked) | 8bf4cb0685ac5979f2c5e6c5a950ce93ae4af7b4f76ac87ef6b062f12bbd93fb |
+| Maintained source manifest SHA-256 (Git-tracked) | 4eaaaa1a64602c6930343a5ae241fa870160f6a48295a8393e3993f1880969d4 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |

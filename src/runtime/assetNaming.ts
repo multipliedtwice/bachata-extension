@@ -1,5 +1,4 @@
 import { formatMessage, type Localize } from "../localization/message";
-import { basename } from "node:path";
 
 /*
  * Lifted out of createRuntime as one slice of EX-3.
@@ -32,8 +31,16 @@ const UNSAFE_NAME_CHARACTERS = /[\\/:*?"<>|\u0000-\u001F\u007F]/gu;
 
 const MAXIMUM_ASSET_NAME_LENGTH = 180;
 
+// The directory part is dropped by the rule this transform states, not by the host platform's
+// own path parsing: `path.basename` reads `a:b` as a drive-qualified path on Windows and returns
+// `b`, so one name produced two results and the table shared with the Browser Bridge could not
+// hold on both. Both separators are stripped everywhere, and a drive-like prefix stays in the
+// name, where the unsafe-character rule replaces its colon.
+const nameWithoutDirectories = (value: string): string =>
+  value.slice(Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\")) + 1);
+
 export const safeBrowserAssetName = (value: string): string => {
-  const cleaned = basename(value.normalize("NFKC"))
+  const cleaned = nameWithoutDirectories(value.normalize("NFKC"))
     .replace(BIDI_CONTROL, "")
     .replace(UNSAFE_NAME_CHARACTERS, "_")
     .replace(/^\.+/u, "")

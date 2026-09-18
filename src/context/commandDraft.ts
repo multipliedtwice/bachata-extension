@@ -53,10 +53,15 @@ export const gitReviewCommand = (scope: GitReviewScope): string => {
 
 export type CommandDraft = { title: string; prompt: string };
 
+// A workspace-relative path is written the way every other prompt and control message writes it:
+// with forward slashes. Windows answers `path.relative` with backslashes, and a draft that says
+// `src\\a.ts` neither matches the repository's own spelling nor the paths a participant is asked
+// to cite. An absolute fallback keeps the platform's own spelling, because it names a location on
+// that machine rather than a position inside the repository.
 const normalizedPath = (filePath: string, workspaceRoot?: string): string => {
   if (!workspaceRoot) return path.normalize(filePath);
   const relative = pathInsideRelative(workspaceRoot, filePath);
-  return relative ? relative : path.normalize(filePath);
+  return relative ? relative.split(path.sep).join("/") : path.normalize(filePath);
 };
 
 const gitScopeLabels: Record<GitReviewScope["scope"], (git: Omit<GitReviewScope, "scope">) => string> = {

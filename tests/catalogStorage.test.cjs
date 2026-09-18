@@ -27,10 +27,10 @@ const remove = (...values) => {
 };
 
 test("pipeline scope matches canonical multi-root paths while preserving the display root", async () => {
-  const realRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-real-"));
-  const linkParent = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-link-parent-"));
-  const secondRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-second-"));
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-extension-"));
+  const realRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-real-")));
+  const linkParent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-link-parent-")));
+  const secondRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-second-")));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-extension-")));
   const linkedRoot = path.join(linkParent, "linked-root");
   fs.symlinkSync(realRoot, linkedRoot, process.platform === "win32" ? "junction" : "dir");
   try {
@@ -52,10 +52,10 @@ test("pipeline scope matches canonical multi-root paths while preserving the dis
 });
 
 test("pipeline scope ignores a configured root that is no longer in the workspace", async () => {
-  const removedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-removed-"));
-  const remainingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-remaining-"));
-  const anotherRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-another-"));
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-extension-"));
+  const removedRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-removed-")));
+  const remainingRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-remaining-")));
+  const anotherRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-another-")));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-extension-")));
   try {
     const single = await resolvePipelineScope({
       workspaceRoots: [remainingRoot],
@@ -80,9 +80,9 @@ test("pipeline scope ignores a configured root that is no longer in the workspac
 });
 
 test("pipeline scope rejects a workspace catalog redirected outside the canonical root", async () => {
-  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-root-"));
-  const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-external-"));
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-extension-"));
+  const workspaceRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-root-")));
+  const externalRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-external-")));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-extension-")));
   fs.symlinkSync(externalRoot, path.join(workspaceRoot, ".bachata"), process.platform === "win32" ? "junction" : "dir");
   try {
     await assert.rejects(
@@ -99,7 +99,7 @@ test("pipeline scope rejects a workspace catalog redirected outside the canonica
 });
 
 test("physical catalog file locks serialize independent mutation coordinators", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-lock-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-lock-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -131,7 +131,7 @@ test("physical catalog file locks serialize independent mutation coordinators", 
 });
 
 test("catalog writes reject stale expected content", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-cas-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-cas-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -154,7 +154,7 @@ test("catalog writes reject stale expected content", async () => {
 });
 
 test("a stale-looking lock owned by a live local process is not reclaimed", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-live-lock-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-live-lock-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -189,7 +189,7 @@ test("a stale-looking lock owned by a live local process is not reclaimed", asyn
 });
 
 test("an abandoned stale lock from a dead local process is reclaimed", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-dead-lock-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-dead-lock-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -219,7 +219,7 @@ test("an abandoned stale lock from a dead local process is reclaimed", async () 
 
 
 test("an active reclaim intent blocks new catalog lock ownership", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-reclaim-live-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-reclaim-live-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -252,7 +252,7 @@ test("an active reclaim intent blocks new catalog lock ownership", async () => {
 });
 
 test("an abandoned reclaim intent is removed before catalog lock acquisition", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-reclaim-dead-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-reclaim-dead-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -281,7 +281,7 @@ test("an abandoned reclaim intent is removed before catalog lock acquisition", a
 });
 
 test("concurrent stale-lock reclaimers never overlap catalog ownership", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-reclaim-race-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-reclaim-race-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -324,7 +324,7 @@ test("concurrent stale-lock reclaimers never overlap catalog ownership", async (
 });
 
 test("catalog updates publish only when the exact previous content is still current", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-update-cas-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-update-cas-")));
   const scope = await resolvePipelineScope({
     workspaceRoots: [],
     extensionDirectory,
@@ -351,7 +351,7 @@ test("catalog updates publish only when the exact previous content is still curr
 
 
 test("catalog recovery restores a staged previous version when publication did not commit", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-recovery-before-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-recovery-before-")));
   const scope = await resolvePipelineScope({ workspaceRoots: [], extensionDirectory });
   const target = path.join(scope.directory, "sample.pipeline.json");
   const transaction = "00000000-0000-4000-8000-000000000001";
@@ -372,7 +372,7 @@ test("catalog recovery restores a staged previous version when publication did n
 });
 
 test("catalog recovery finalizes a replacement that already published", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-recovery-after-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-recovery-after-")));
   const scope = await resolvePipelineScope({ workspaceRoots: [], extensionDirectory });
   const target = path.join(scope.directory, "sample.pipeline.json");
   const transaction = "00000000-0000-4000-8000-000000000002";
@@ -393,7 +393,7 @@ test("catalog recovery finalizes a replacement that already published", async ()
 });
 
 test("catalog recovery preserves ambiguous concurrent content", async () => {
-  const extensionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-recovery-conflict-"));
+  const extensionDirectory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "bachata-catalog-recovery-conflict-")));
   const scope = await resolvePipelineScope({ workspaceRoots: [], extensionDirectory });
   const target = path.join(scope.directory, "sample.pipeline.json");
   const transaction = "00000000-0000-4000-8000-000000000003";

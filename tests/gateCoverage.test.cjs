@@ -67,6 +67,10 @@ const runGate = (repository, script) => {
   return { status: result.status, output: `${result.stdout ?? ""}${result.stderr ?? ""}` };
 };
 
+const unusualName = process.platform === "win32"
+  ? "src/naïve-'quoted'.mjs"
+  : "src/naïve-\"quoted\".mjs";
+
 test("both gates cover tracked and unignored untracked files, and no ignored ones", gitWorktreeSkip, async () => {
   const root = await scratchRoot("bachata-gate-coverage-");
   try {
@@ -79,7 +83,10 @@ test("both gates cover tracked and unignored untracked files, and no ignored one
     // re-encode — the files a gate that parsed quoted output would silently skip.
     write(repository, "src/untracked.mjs", "export const untracked = 1;\n");
     write(repository, "src/with space.mjs", "export const spaced = 1;\n");
-    write(repository, "src/naïve-\"quoted\".mjs", "export const unusual = 1;\n");
+    // Windows forbids a quote in a file name, so the awkward name is spelled with the most
+    // awkward character that platform accepts. What is under test is the quoting a listing
+    // applies, not the specific character.
+    write(repository, unusualName, "export const unusual = 1;\n");
     // Ignored generated output, carrying both violations.
     write(repository, "generated/ignored.mjs", "// @ts-ignore  \nexport const ignored = 1;\n");
 
@@ -88,7 +95,7 @@ test("both gates cover tracked and unignored untracked files, and no ignored one
     assert.ok(enumerated.includes("src/tracked.mjs"), JSON.stringify(enumerated));
     assert.ok(enumerated.includes("src/untracked.mjs"), JSON.stringify(enumerated));
     assert.ok(enumerated.includes("src/with space.mjs"), JSON.stringify(enumerated));
-    assert.ok(enumerated.includes('src/naïve-"quoted".mjs'), JSON.stringify(enumerated));
+    assert.ok(enumerated.includes(unusualName), JSON.stringify(enumerated));
     assert.equal(enumerated.includes("generated/ignored.mjs"), false, "an ignored file was enumerated");
     // Deterministic: the same tree enumerates the same files in the same order.
     assert.deepEqual(candidateFiles(repository), enumerated);
@@ -511,8 +518,13 @@ test("an eligible candidate that is not a regular file is refused, not silently 
 
     // A FIFO is the case that would otherwise hang rather than fail: opening one for reading
     // blocks until a writer arrives. `O_NONBLOCK` is what turns that into a refusal.
+    // Windows has no FIFO. A `mkfifo` from a bundled MSYS toolchain reports success there and
+    // leaves behind something the platform's own `lstat` cannot see at all, so the case is not
+    // exercised rather than asserted against a file that does not exist.
     const fifo = path.join(repository, "src/pipe.mjs");
-    const made = spawnSync("mkfifo", [fifo], { encoding: "utf8" });
+    const made = process.platform === "win32"
+      ? { status: 1 }
+      : spawnSync("mkfifo", [fifo], { encoding: "utf8" });
     if (made.status === 0) {
       await assert.rejects(() => read("src/pipe.mjs"), /is a FIFO, and a gate reads regular files/u);
     }

@@ -838,7 +838,7 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
       await originalDispose();
     } finally {
       if (removeStorageOnDispose) {
-        rmSync(storageRoot, { recursive: true, force: true });
+        rmSync(storageRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   };
@@ -1034,7 +1034,7 @@ test("the repository export policy filters every bundle section, not only change
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(repositoryRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1148,7 +1148,12 @@ test("attachment snapshots include webview-safe preview URIs without mutating ru
       message.message.state.attachments.length === 1,
     );
     assert.match(snapshot.message.state.attachments[0].previewUri, /^webview:/u);
-    assert.equal(snapshot.message.state.attachments[0].previewUri.endsWith("attachments/image-1.png"), true);
+    // The fake webview echoes the platform's own file path, so the separator is the platform's.
+    assert.equal(
+      snapshot.message.state.attachments[0].previewUri.split(path.sep).join("/").endsWith("attachments/image-1.png"),
+      true,
+      snapshot.message.state.attachments[0].previewUri,
+    );
     assert.equal(harness.runtimeInstances[0].state.attachments[0].previewUri, undefined);
   } finally {
     harness.subscription.dispose();
@@ -1263,7 +1268,10 @@ test("conversation tabs use isolated runtime storage and one shared bridge", asy
     );
     assert.match(
       harness.runtimeInstances[1].options.storageDirectory,
-      new RegExp(`conversations[\\/]${active}$`),
+      // A character class written as `[\\/]` in a template literal reaches the regular
+      // expression as `[\/]`, which is one forward slash. Windows storage paths separate with a
+      // backslash, so both separators are spelled out.
+      new RegExp(`conversations[\\\\/]${active}$`),
     );
     assert.equal(harness.runtimeInstances[1].options.bridge, harness.runtimeInstances[0].options.bridge);
     assert.equal(harness.bridge.startCount, 1);
@@ -1371,7 +1379,7 @@ test("separate managers serialize ordinary sessions over one codebase and share 
     await second.manager.dispose().catch(() => undefined);
     await firstBroker.dispose().catch(() => undefined);
     await secondBroker.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1441,7 +1449,7 @@ test("a replaced workspace owner cannot mutate manager or runtime state", async 
     await secondLease?.release().catch(() => undefined);
     await firstBroker.dispose().catch(() => undefined);
     await secondBroker.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1558,7 +1566,7 @@ test("sequential Codex then Claude steps reserve both overlapping provider proce
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
     await value.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1679,7 +1687,7 @@ test("a waiting conversation can be cancelled and never starts after capacity re
     await harness.manager.dispose().catch(() => undefined);
     await holderBroker.dispose().catch(() => undefined);
     await managerBroker.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1763,7 +1771,7 @@ test("activation heals only stale Browser Bridge quarantine without a message or
     harness.subscription.dispose();
     await harness.manager.dispose();
     await broker.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1816,7 +1824,7 @@ test("automatic activation preserves a reachable Browser Bridge even with stale 
     harness.subscription.dispose();
     await harness.manager.dispose();
     await broker.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1849,7 +1857,7 @@ test("automatic startup failure releases ownership and retries without user reco
     harness.subscription.dispose();
     await harness.manager.dispose();
     await broker.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -1928,7 +1936,7 @@ test("reload heals Browser Bridge automatically while retaining a stopped workfl
     await second?.manager.dispose();
     await firstBroker.dispose();
     await secondBroker?.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -2021,7 +2029,7 @@ test("a surviving manager can acquire Browser Bridge ownership without reloading
     await second.manager.dispose().catch(() => undefined);
     await firstBroker.dispose().catch(() => undefined);
     await secondBroker.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -2102,7 +2110,7 @@ test("provider cleanup failure quarantines physical codebase resources but relea
     await harness.manager.dispose().catch(() => undefined);
     await broker.dispose().catch(() => undefined);
     await observer.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -2141,7 +2149,7 @@ test("Browser Bridge close failure quarantines cross-window ownership", async ()
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
     await broker.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -3104,7 +3112,7 @@ test("completed checklist work does not reacquire the released parent capacity l
     await harness.manager.dispose().catch(() => undefined);
     await managerBroker.dispose().catch(() => undefined);
     await observer.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -3828,8 +3836,8 @@ test("duplicate drops a pipeline scope whose workspace root was removed", async 
     harness.runtimeInstances.forEach((instance) => instance.run.resolve());
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(currentRoot, { recursive: true, force: true });
-    rmSync(removedRoot, { recursive: true, force: true });
+    rmSync(currentRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    rmSync(removedRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -4525,7 +4533,7 @@ test("transient supplemental local-agent capacity is released while the parent r
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
     await broker.dispose().catch(() => undefined);
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -4787,7 +4795,7 @@ test("startup reconciliation restores staged deletion data when catalog rows sti
       second.subscription.dispose();
       await second.manager.dispose();
     } else {
-      rmSync(first.storageRoot, { recursive: true, force: true });
+      rmSync(first.storageRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }
 });
@@ -4811,7 +4819,7 @@ test("external custom-pipeline file events refresh every open runtime", async ()
     harness.subscription.dispose();
     await harness.manager.dispose();
     assert.equal(harness.fileSystemWatchers.every((watcher) => watcher.disposed), true);
-    rmSync(workspaceRoot, { recursive: true, force: true });
+    rmSync(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -4849,7 +4857,7 @@ test("manager disposal waits for an in-flight pipeline catalog refresh", async (
     releaseRefresh.resolve();
     harness.subscription.dispose();
     await (disposal ?? harness.manager.dispose()).catch(() => undefined);
-    rmSync(workspaceRoot, { recursive: true, force: true });
+    rmSync(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -5190,7 +5198,7 @@ test("a pipeline that declares controller verification records its checks as run
     harness.runtimeInstances.forEach((instance) => instance.run.resolve());
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(repositoryRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -7115,7 +7123,7 @@ test("nested and symlinked paths to one repository share the initiative, separat
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -7258,7 +7266,7 @@ test("a linked worktree shares the initiative of its main worktree", async () =>
     harness.subscription.dispose();
     await harness.manager.dispose();
     execFileSync("git", ["worktree", "remove", "--force", linked], { cwd: repository });
-    rmSync(base, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -8376,7 +8384,7 @@ test("a run bundle redacted by the repository policy still verifies against its 
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(repositoryRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -8413,7 +8421,7 @@ test("a literal that redaction would break the bundle with is refused, not writt
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(repositoryRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -8446,7 +8454,7 @@ test("redaction that removes the bundle's own integrity record is refused", asyn
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(repositoryRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -8862,8 +8870,8 @@ test("finding evidence is bound locally, refuses concurrent activity and drift, 
   } finally {
     harness.subscription.dispose();
     await harness.manager.dispose();
-    rmSync(repository, { recursive: true, force: true });
-    rmSync(storageRoot, { recursive: true, force: true });
+    rmSync(repository, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    rmSync(storageRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -8907,7 +8915,7 @@ test("late provider shutdown restores resume without clearing unconfirmed cleanu
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
     await broker.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -8953,7 +8961,7 @@ test("late interruption keeps quarantine until workflow and provider shutdown ar
     harness.subscription.dispose();
     await harness.manager.dispose().catch(() => undefined);
     await broker.dispose();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
@@ -9319,7 +9327,7 @@ test("large multibyte and escaped terminal results survive restart disposal and 
     assert.deepEqual(source, before);
   } finally {
     await assert.doesNotReject(disposeContinuationHarness(harness));
-    rmSync(storageRoot, { recursive: true, force: true });
+    rmSync(storageRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
 
