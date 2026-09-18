@@ -849,6 +849,8 @@ root.addEventListener("click", (event) => {
       adapter: target.dataset.adapter,
       ...(target.dataset.session ? { browserSessionId: target.dataset.session } : {}),
     });
+  } else if (action === "agents-model-menu" && target.dataset.agent) {
+    toggleAgentModelMenu(target.dataset.agent);
   } else if (action === "agents-model" && target.dataset.agent) {
     // No model attribute means the reader chose the provider's own default, which clears theirs.
     postRuntime({
@@ -856,12 +858,18 @@ root.addEventListener("click", (event) => {
       agentId: target.dataset.agent,
       ...(target.dataset.model ? { model: target.dataset.model } : {}),
     });
-  } else if (action === "agents-model-apply" && target.dataset.agent) {
+    closeAgentModelMenu();
+  } else if (action === "agents-effort" && target.dataset.agent) {
     const agentId = target.dataset.agent;
-    const typed = (state.agentsModelDrafts[agentId] ?? "").trim();
-    if (typed) {
-      postRuntime({ type: "agents.model.select", agentId, model: typed });
-    }
+    const effort = target.dataset.effort;
+    postRuntime({ type: "agents.effort.select", agentId, ...(effort ? { reasoningEffort: effort } : {}) });
+    focusAfterRender(() => document.getElementById(agentModelMenuId(agentId))
+      ?.querySelector<HTMLElement>(effort ? `[data-action="agents-effort"][data-effort="${effort}"]` : ".agents-effort-reset")
+      ?.focus());
+  } else if (action === "agents-bridge-toggle") {
+    state.agentsBridgeOpen = state.agentsBridgeOpen !== true;
+    scheduleRender();
+    focusAfterRender(() => document.getElementById("agents-bridge-chip")?.focus());
   } else if (action === "agents-model-discover" && target.dataset.agent) {
     postRuntime({ type: "agents.model.discover", agentId: target.dataset.agent });
   } else if (action === "agents-reset-all") {
@@ -1342,10 +1350,7 @@ root.addEventListener("input", (event) => {
     queueHistorySearch();
     scheduleRender();
   } else if (target.dataset.agentsModelFor) {
-    state.agentsModelDrafts[target.dataset.agentsModelFor] = target.value;
-    // Re-rendered so the apply control follows what has been typed; the popover is small and the
-    // field keeps its own focus through the render's focus-return path.
-    scheduleRender();
+    setAgentModelDraft(target.dataset.agentsModelFor, target.value);
   } else if (target.dataset.interactionText) {
     vscode.postMessage({ type: "interaction.update", interactionRef: target.dataset.interactionText, freeText: target.value });
     refreshInteractionSubmitState(target.dataset.interactionText);

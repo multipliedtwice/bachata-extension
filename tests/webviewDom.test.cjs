@@ -1994,6 +1994,7 @@ test("browser conversation binding lives inside the Agents popover", () => {
     // fixture's participant is called "Browser Lead", so the exact markup is what separates them.
     assert.match(harness.document.root.innerHTML, /<strong>Lead<\/strong>/u);
     assert.doesNotMatch(harness.document.root.innerHTML, /<strong>Browser Lead<\/strong>/u);
+    openModelMenu(harness, "browser");
     const option = harness.document.root.querySelector(
       '[data-action="agents-session"][data-agent="browser"][data-session="session-1"]',
     );
@@ -2130,7 +2131,32 @@ const chooseAgentOption = (harness, id, value) => {
   harness.document.root.dispatch("change", { target: select });
 };
 
-test("a CLI slot offers every provider-reported model through a labeled selector", () => {
+const openModelMenu = (harness, agentId = "builder") => {
+  const chip = harness.document.getElementById(`agents-model-chip-${agentId}`);
+  assert.ok(chip, `no model control for ${agentId}`);
+  chip.click();
+  return harness.document.getElementById(`agents-model-input-${agentId}`);
+};
+
+const typeModel = (harness, value, agentId = "builder") => {
+  const input = harness.document.getElementById(`agents-model-input-${agentId}`);
+  assert.ok(input);
+  input.value = value;
+  harness.document.root.dispatch("input", { target: input });
+  return harness.document.getElementById(`agents-model-input-${agentId}`);
+};
+
+const modelKey = (harness, key, agentId = "builder") => {
+  harness.document.root.dispatch("keydown", {
+    key,
+    target: harness.document.getElementById(`agents-model-input-${agentId}`),
+    preventDefault: () => undefined,
+  });
+};
+
+const modelOptions = (harness) => Array.from(harness.document.root.querySelectorAll('[data-action="agents-model"]'));
+
+test("a CLI slot lists every provider-reported model in its model menu", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel({
     adapterModels: {
       "codex-app-server": { status: "listed", models: [
@@ -2141,23 +2167,27 @@ test("a CLI slot offers every provider-reported model through a labeled selector
   }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const select = harness.document.getElementById("agents-model-select-builder");
-    assert.equal(select.getAttribute("aria-label"), "Model for Builder");
-    const options = harness.document.root.innerHTML.match(/<select id="agents-model-select-builder"[^>]*>([\s\S]*?)<\/select>/u)?.[1] ?? "";
-    assert.equal(options.match(/<option /gu)?.length, 4);
-    assert.match(options, /Provider default · Model one/u);
-    assert.equal(harness.document.root.querySelector("details.agents-slot-settings"), null);
-    assert.equal(harness.document.root.querySelector(".agents-model-explicit"), null);
+    const chip = harness.document.getElementById("agents-model-chip-builder");
+    assert.equal(chip.getAttribute("aria-label"), "Model and thinking effort for Builder: Model one");
+    assert.equal(chip.getAttribute("aria-expanded"), "false");
+    assert.equal(harness.document.getElementById("agents-model-input-builder"), null);
+    const input = openModelMenu(harness);
+    assert.equal(input.getAttribute("aria-label"), "Model for Builder");
+    assert.equal(input.getAttribute("role"), "combobox");
+    assert.equal(harness.document.activeElement, input);
+    assert.equal(modelOptions(harness).length, 3);
+    assert.match(harness.document.root.innerHTML, /Provider default · Model one/u);
     assert.equal(harness.messages.some((entry) => entry.message?.type === "agents.model.discover"), false);
-    chooseAgentOption(harness, "agents-model-select-builder", "provider-model-two");
+    harness.document.root.querySelector('[data-action="agents-model"][data-model="provider-model-two"]').click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime", conversationId: "run-1",
       message: { type: "agents.model.select", agentId: "builder", model: "provider-model-two" },
     });
+    assert.equal(harness.document.getElementById("agents-model-input-builder"), null);
   } finally { harness.restore(); }
 });
 
-test("a CLI slot offers the selected model's thinking efforts and sends the choice", () => {
+test("a CLI slot offers the selected model's thinking efforts as a slider and sends the choice", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel({
     adapterModels: {
       "codex-app-server": { status: "listed", models: [{
@@ -2167,6 +2197,7 @@ test("a CLI slot offers the selected model's thinking efforts and sends the choi
         defaultReasoningEffort: "medium",
         reasoningEfforts: [
           { id: "low", description: "Faster" },
+          { id: "medium", description: "Balanced" },
           { id: "high", description: "More reasoning" },
         ],
       }] },
@@ -2174,15 +2205,21 @@ test("a CLI slot offers the selected model's thinking efforts and sends the choi
   }, { assignedModel: "gpt-6-astra" }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const effort = harness.document.getElementById("agents-effort-builder");
-    assert.equal(effort.getAttribute("aria-label"), "Thinking effort for Builder");
-    assert.match(harness.document.root.innerHTML, /Provider default · medium/u);
-    chooseAgentOption(harness, "agents-effort-builder", "high");
+    assert.match(harness.document.getElementById("agents-model-chip-builder").getAttribute("aria-label"), /Medium · GPT-6-Astra$/u);
+    openModelMenu(harness);
+    const group = harness.document.root.querySelector(".agents-effort-stops");
+    assert.equal(group.getAttribute("role"), "radiogroup");
+    assert.equal(group.getAttribute("aria-label"), "Thinking effort for Builder");
+    assert.match(harness.document.root.innerHTML, /<strong>Medium · default<\/strong>/u);
+    assert.match(harness.document.root.innerHTML, /data-effort="medium" data-reached="true" data-thumb="true" aria-checked="false"/u);
+    harness.document.root.querySelector('[data-action="agents-effort"][data-effort="high"]').click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
       conversationId: "run-1",
       message: { type: "agents.effort.select", agentId: "builder", reasoningEffort: "high" },
     });
+    harness.document.root.querySelector(".agents-effort-reset").click();
+    assert.deepEqual(harness.messages.at(-1).message, { type: "agents.effort.select", agentId: "builder" });
   } finally { harness.restore(); }
 });
 
@@ -2192,7 +2229,8 @@ test("choosing the provider default clears the selected model", () => {
   }, { assignedModel: "provider-model" }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    chooseAgentOption(harness, "agents-model-select-builder", "");
+    openModelMenu(harness);
+    harness.document.root.querySelector('[data-action="agents-model"][data-kind="default"]').click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime", conversationId: "run-1",
       message: { type: "agents.model.select", agentId: "builder" },
@@ -2212,23 +2250,24 @@ test("opening Agents loads unknown catalogs once per provider without starting a
     assert.equal(requests.length, 1);
     assert.equal(requests[0].message.agentId, "builder");
     assert.equal(harness.messages.some((entry) => ["pipeline.run", "message.send"].includes(entry.message?.type)), false);
+    openModelMenu(harness);
     assert.ok(harness.document.root.querySelector('[data-action="agents-model-discover"]'));
   } finally { harness.restore(); }
 });
 
-test("a provider without a catalog exposes exact model entry without a disclosure", () => {
+test("a provider without a catalog accepts a typed model ID from the same field", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel({
     adapterModels: { "codex-app-server": { status: "unsupported", models: [], detail: "No listing method" } },
   }));
   try {
     harness.document.getElementById("agents-picker-button").click();
+    const input = openModelMenu(harness);
     assert.match(harness.document.root.innerHTML, /Model list unavailable/u);
-    const input = harness.document.getElementById("agents-model-input-builder");
-    assert.ok(input);
     assert.equal(input.closest("details"), null);
-    input.value = "provider-exact-alias";
-    harness.document.root.dispatch("input", { target: input });
-    harness.document.root.querySelector('[data-action="agents-model-apply"][data-agent="builder"]').click();
+    typeModel(harness, "provider-exact-alias");
+    const custom = harness.document.root.querySelector('[data-action="agents-model"][data-kind="custom"]');
+    assert.equal(custom.dataset.model, "provider-exact-alias");
+    modelKey(harness, "Enter");
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime", conversationId: "run-1",
       message: { type: "agents.model.select", agentId: "builder", model: "provider-exact-alias" },
@@ -2236,22 +2275,28 @@ test("a provider without a catalog exposes exact model entry without a disclosur
   } finally { harness.restore(); }
 });
 
-test("entering a custom model from a known catalog opens a field without changing the assignment", () => {
+test("typing filters known models and offers the typed ID without changing the assignment", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel({
-    adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "reported-model", label: "Reported model" }] } },
+    adapterModels: { "codex-app-server": { status: "listed", models: [
+      { id: "reported-model", label: "Reported model" },
+      { id: "other-model", label: "Other model" },
+    ] } },
   }));
   try {
     harness.document.getElementById("agents-picker-button").click();
+    openModelMenu(harness);
     const before = harness.messages.length;
-    chooseAgentOption(harness, "agents-model-select-builder", "__bachata_custom_model__");
-    assert.equal(harness.messages.length, before);
-    const input = harness.document.getElementById("agents-model-input-builder");
-    assert.ok(input);
+    const input = typeModel(harness, "report");
     assert.equal(harness.document.activeElement, input);
-    input.value = "provider-exact-alias";
-    harness.document.root.dispatch("input", { target: input });
-    harness.document.root.querySelector('[data-action="agents-model-apply"]').click();
-    assert.deepEqual(harness.messages.at(-1).message, { type: "agents.model.select", agentId: "builder", model: "provider-exact-alias" });
+    assert.deepEqual(modelOptions(harness).map((option) => option.dataset.model), ["reported-model", "report"]);
+    assert.equal(harness.messages.length, before);
+    modelKey(harness, "ArrowDown");
+    const active = modelOptions(harness).find((option) => option.dataset.active === "true");
+    assert.equal(active.dataset.kind, "custom");
+    assert.equal(harness.document.getElementById("agents-model-input-builder").getAttribute("aria-activedescendant"), active.id);
+    modelKey(harness, "ArrowUp");
+    modelKey(harness, "Enter");
+    assert.deepEqual(harness.messages.at(-1).message, { type: "agents.model.select", agentId: "builder", model: "reported-model" });
   } finally { harness.restore(); }
 });
 
@@ -2261,9 +2306,11 @@ test("a model no longer listed stays selected and is identified as unlisted", ()
   }, { assignedModel: "provider-previous" }));
   try {
     harness.document.getElementById("agents-picker-button").click();
-    assert.ok(harness.document.getElementById("agents-model-select-builder"));
-    const options = harness.document.root.innerHTML.match(/<select id="agents-model-select-builder"[^>]*>([\s\S]*?)<\/select>/u)?.[1] ?? "";
-    assert.match(options, /<option value="provider-previous" selected>provider-previous · not listed<\/option>/u);
+    assert.match(harness.document.getElementById("agents-model-chip-builder").getAttribute("aria-label"), /provider-previous$/u);
+    openModelMenu(harness);
+    const previous = harness.document.root.querySelector('[data-action="agents-model"][data-model="provider-previous"]');
+    assert.equal(previous.getAttribute("aria-selected"), "true");
+    assert.match(harness.document.root.innerHTML, /data-model="provider-previous"[^>]*><span class="agents-model-option-name">provider-previous<\/span><span class="agents-model-option-meta">not listed<\/span>/u);
   } finally { harness.restore(); }
 });
 
@@ -2271,8 +2318,9 @@ test("a browser slot leaves model selection in the connected website", () => {
   const harness = bootWebview(managerState(), assignmentPanel());
   try {
     harness.document.getElementById("agents-picker-button").click();
+    openModelMenu(harness);
     assert.match(harness.document.root.innerHTML, /Choose the model in the connected browser conversation/u);
-    assert.equal(harness.document.root.querySelector(".agents-model-select"), null);
+    assert.equal(harness.document.root.querySelector(".agents-model-input"), null);
     assert.equal(harness.messages.some((entry) => entry.message?.type === "agents.model.discover"), false);
   } finally { harness.restore(); }
 });
@@ -2314,13 +2362,14 @@ test("an interrupted run keeps its provider but can change model before resume",
   try {
     harness.document.getElementById("agents-picker-button").click();
     assert.equal(harness.document.getElementById("agents-provider-builder").disabled, true);
-    assert.equal(harness.document.getElementById("agents-model-select-builder").disabled, false);
+    assert.equal(harness.document.getElementById("agents-model-chip-builder").disabled, false);
+    openModelMenu(harness);
     const refresh = harness.document.root.querySelector('[data-action="agents-model-discover"]');
     assert.equal(refresh.disabled, false);
     assert.ok(harness.document.root.querySelector(".agents-locked"));
     assert.match(harness.document.root.innerHTML, /Model and thinking effort changes apply when you resume/u);
     assert.equal(harness.document.root.querySelector('.agents-locked [data-action="create-conversation"]'), null);
-    chooseAgentOption(harness, "agents-model-select-builder", "next-model");
+    harness.document.root.querySelector('[data-action="agents-model"][data-model="next-model"]').click();
     assert.deepEqual(harness.messages.at(-1).message, {
       type: "agents.model.select",
       agentId: "builder",
@@ -2334,9 +2383,9 @@ test("archived runs expose no provider or model mutation controls", () => {
   try {
     assert.equal(harness.document.getElementById("agents-picker-button"), null);
     assert.equal(harness.document.getElementById("agents-provider-builder"), null);
-    assert.equal(harness.document.getElementById("agents-model-select-builder"), null);
+    assert.equal(harness.document.getElementById("agents-model-chip-builder"), null);
     assert.equal(harness.document.root.querySelector('[data-action="agents-model-discover"]'), null);
-    assert.equal(harness.document.root.querySelector(".agents-model-explicit"), null);
+    assert.equal(harness.document.root.querySelector(".agents-model-input"), null);
     assert.equal(harness.messages.some((entry) => entry.message?.type === "agents.model.discover"), false);
   } finally { harness.restore(); }
 });
@@ -2368,7 +2417,7 @@ test("a locked assignment states why and offers no control", () => {
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
     assert.match(harness.document.root.innerHTML, /Clear the queue before reassigning agents/u);
-    const selectors = Array.from(harness.document.root.querySelectorAll('.agents-provider-select, .agents-model-select'));
+    const selectors = Array.from(harness.document.root.querySelectorAll('.agents-provider-select, .agents-model-chip'));
     assert.ok(selectors.length > 0);
     assert.equal(selectors.every((select) => select.disabled === true), true);
     assert.equal(harness.document.root.querySelector('[data-action="agents-reset-all"]'), null);
@@ -7947,7 +7996,7 @@ test("a failed result states the error once and offers retry as the primary way 
     assert.equal(restart.disabled, false);
     changeModels.click();
     assert.ok(harness.document.root.querySelector(".agents-popover"));
-    assert.equal(harness.document.activeElement?.id, "agents-model-select-lead");
+    assert.equal(harness.document.activeElement?.id, "agents-model-input-lead");
     restart.click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
@@ -8687,28 +8736,81 @@ test("pipeline picker ranks multi-participant writers first and single-participa
   } finally { harness.restore(); }
 });
 
-test("Browser Bridge activation starts discovery and keeps pairing steps beside the role", () => {
+test("Browser Bridge activation starts discovery and shows pairing under the header status", () => {
   const panel = cliAssignmentPanel();
   panel.browserBridge = { enabled: true, connected: false, sessions: [], endpoint: "ws://127.0.0.1:43127", pairingToken: "PAIRING_FIXTURE" };
   const harness = bootWebview(managerState(), panel);
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.equal(harness.document.getElementById("agents-bridge-chip"), null);
     chooseAgentOption(harness, "agents-provider-builder", "browser");
     assert.equal(harness.messages.at(-1).message.type, "bridge.discover");
+    const chip = harness.document.getElementById("agents-bridge-chip");
+    assert.equal(chip.dataset.bridgeState, "pairing");
+    assert.equal(chip.getAttribute("aria-expanded"), "true");
+    assert.ok(harness.document.getElementById("agents-bridge-panel"));
     assert.match(harness.document.root.innerHTML, /Connect Browser Bridge/u);
-    assert.ok(harness.document.root.querySelector('[data-action="bridge-copy-token"]'));
+    assert.ok(harness.document.root.querySelector('#agents-bridge-panel [data-action="bridge-copy-token"]'));
+    assert.ok(harness.document.getElementById("agents-model-menu-builder"));
     assert.equal(harness.document.root.querySelector('[data-action="agents-model-apply"]'), null);
+    chip.click();
+    assert.equal(harness.document.getElementById("agents-bridge-panel"), null);
   } finally { harness.restore(); }
 });
 
-test("manual model selection is visible beside provider choices", () => {
+test("a model ID is typed in the model menu rather than a separate field", () => {
   const harness = bootWebview(managerState(), cliAssignmentPanel());
   try {
     harness.document.getElementById("agents-picker-button").click();
-    assert.equal(harness.document.root.querySelector('.agents-model-advanced'), null);
-    assert.ok(harness.document.root.querySelector('.agents-model-explicit'));
-    assert.match(harness.document.root.innerHTML, /Provider model ID or alias/u);
-    assert.match(harness.document.root.innerHTML, /Use model/u);
+    openModelMenu(harness);
+    assert.match(harness.document.root.innerHTML, /Search or type a model ID/u);
+    assert.doesNotMatch(harness.document.root.innerHTML, /Use model/u);
+    assert.equal(harness.document.root.querySelector(".agents-model-explicit"), null);
+  } finally { harness.restore(); }
+});
+
+test("the Agents header keeps its title left and its actions, ending with close, right", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel());
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    const html = harness.document.root.innerHTML;
+    const head = html.slice(html.indexOf('<div class="agents-popover-head">'), html.indexOf("</div></div>", html.indexOf('<div class="agents-popover-head">')) + "</div></div>".length);
+    assert.match(head, /^<div class="agents-popover-head"><h2>Agents<\/h2><div class="agents-head-actions">/u);
+    assert.ok(head.indexOf("agents-reset-all") < head.indexOf("agents-close"));
+    assert.match(head, /agents-close[^>]*><i class="codicon codicon-close"[^>]*><\/i><\/button><\/div><\/div>$/u);
+    assert.equal(harness.document.getElementById("agents-bridge-chip"), null);
+  } finally { harness.restore(); }
+});
+
+test("a connected Bridge is reported in the header whenever a role uses the browser", () => {
+  const panel = assignmentPanel();
+  panel.browserBridge = { enabled: true, connected: true, sessions: [] };
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    const chip = harness.document.getElementById("agents-bridge-chip");
+    assert.equal(chip.dataset.bridgeState, "connected");
+    assert.match(harness.document.root.innerHTML, /id="agents-bridge-chip"[^>]*>[\s\S]*?Bridge connected/u);
+    assert.equal(harness.document.getElementById("agents-bridge-panel"), null);
+    chip.click();
+    assert.ok(harness.document.getElementById("agents-bridge-panel"));
+    assert.ok(harness.document.root.querySelector('#agents-bridge-panel [data-action="bridge-discover"]'));
+    assert.ok(harness.document.root.querySelector('#agents-bridge-panel [data-action="bridge-reset"]'));
+    assert.equal(harness.document.root.querySelector('#agents-bridge-panel [data-action="bridge-copy-token"]'), null);
+  } finally { harness.restore(); }
+});
+
+test("Escape inside a model menu closes only that menu and returns to its control", () => {
+  const harness = bootWebview(managerState(), cliAssignmentPanel({
+    adapterModels: { "codex-app-server": { status: "listed", models: [{ id: "provider-model", label: "Model" }] } },
+  }));
+  try {
+    harness.document.getElementById("agents-picker-button").click();
+    openModelMenu(harness);
+    modelKey(harness, "Escape");
+    assert.equal(harness.document.getElementById("agents-model-menu-builder"), null);
+    assert.ok(harness.document.getElementById("agents-popover"));
+    assert.equal(harness.document.activeElement?.id, "agents-model-chip-builder");
   } finally { harness.restore(); }
 });
 
@@ -9505,12 +9607,12 @@ test("live snapshots do not replace a focused selector inside a composer panel",
   try {
     const root = harness.document.root;
     root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const select = harness.document.getElementById("agents-model-select-builder");
+    const select = harness.document.getElementById("agents-provider-builder");
     select.focus();
     harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
-    assert.equal(harness.document.getElementById("agents-model-select-builder"), select);
+    assert.equal(harness.document.getElementById("agents-provider-builder"), select);
     root.querySelector('[data-action="agents-picker-toggle"]').focus();
-    assert.notEqual(harness.document.getElementById("agents-model-select-builder"), select);
+    assert.notEqual(harness.document.getElementById("agents-provider-builder"), select);
   } finally { harness.restore(); }
 });
 

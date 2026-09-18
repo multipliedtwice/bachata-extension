@@ -154,28 +154,38 @@ const producingRunHtml = (runRef: string | undefined): string =>
     ? ""
     : `<button data-action="open-producing-run" data-run="${escapeAttribute(runRef)}">${escapeHtml(localize("Open the run that produced this"))}</button>`;
 
-const browserBridgePresentation = (bridge: BrowserBridgeStatus, scope: string) => {
-  const reasons = {
-    portUnavailable: localize("Another application is using the browser connection. Close that application to reconnect."),
-    localWindowRequired: localize("Open this workspace in a local VS Code window to connect your browser."),
-    browserUpdateRequired: localize("Update the Bachata Browser Bridge extension, then reconnect your browser."),
-    pairingExpired: localize("Pairing has expired. Reset pairing and pair the browser again."),
-    accessDenied: localize("Your computer denied permission to open the browser connection. Check your security settings."),
-  };
+const browserBridgeReasons = (): Record<string, string> => ({
+  portUnavailable: localize("Another application is using the browser connection. Close that application to reconnect."),
+  localWindowRequired: localize("Open this workspace in a local VS Code window to connect your browser."),
+  browserUpdateRequired: localize("Update the Bachata Browser Bridge extension, then reconnect your browser."),
+  pairingExpired: localize("Pairing has expired. Reset pairing and pair the browser again."),
+  accessDenied: localize("Your computer denied permission to open the browser connection. Check your security settings."),
+});
+
+type BrowserBridgeDisplayState = "connecting" | "retrying" | "connected" | "blocked" | "disconnected";
+
+const browserBridgeDisplay = (bridge: BrowserBridgeStatus): { state: BrowserBridgeDisplayState; reason?: string; message?: string } => {
+  const reasons = browserBridgeReasons();
   const reason = !bridge.enabled ? "localWindowRequired" : bridge.connectionState === "blocked" ? bridge.blockedReason : undefined;
   const message = reason && Object.hasOwn(reasons, reason) ? reasons[reason] : undefined;
   const requestedState = !bridge.enabled ? "blocked"
     : bridge.connected ? "connected"
       : bridge.connectionState === "blocked" && !message ? "retrying"
         : bridge.connectionState ?? (bridge.error ? "retrying" : "connecting");
-  const labels = {
+  const known: readonly BrowserBridgeDisplayState[] = ["connecting", "retrying", "connected", "blocked", "disconnected"];
+  const state = known.find((entry) => entry === requestedState) ?? "retrying";
+  return { state, ...(reason === undefined ? {} : { reason }), ...(message === undefined ? {} : { message }) };
+};
+
+const browserBridgePresentation = (bridge: BrowserBridgeStatus, scope: string) => {
+  const labels: Record<BrowserBridgeDisplayState, string> = {
     connecting: localize("Connecting…"),
     retrying: localize("Browser unavailable — retrying"),
     connected: localize("Connected"),
     blocked: localize("Browser unavailable"),
     disconnected: localize("Disconnected"),
   };
-  const state = typeof requestedState === "string" && Object.hasOwn(labels, requestedState) ? requestedState : "retrying";
+  const { state, reason, message } = browserBridgeDisplay(bridge);
   return {
     statusHtml: `<span data-bridge-state="${escapeAttribute(state)}" ${liveRegionAttributes(`${scope}:status`, "status", labels[state])} aria-atomic="true">${escapeHtml(labels[state])}</span>`,
     reasonHtml: state === "blocked" && message ? `<p class="error" data-bridge-reason="${escapeAttribute(reason ?? "")}" ${liveRegionAttributes(`${scope}:reason`, "status", message)}>${escapeHtml(message)}</p>` : "",

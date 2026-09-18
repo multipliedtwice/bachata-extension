@@ -2659,7 +2659,6 @@ input.interaction-text {
     grid-template-columns: minmax(0, 1fr);
   }
 
-
 }
 
 .run-tab-all {
@@ -3204,7 +3203,6 @@ select[multiple] option {
   font-size: var(--bachata-font-title);
 }
 
-
 @media (max-width: 900px) {
   /* The panel is too narrow for a column, so the inspector reads as a sheet over the room body.
      It is anchored below the selected run tab, where run navigation and actions remain reachable. */
@@ -3685,18 +3683,13 @@ select[multiple] option {
   background: var(--vscode-input-background, var(--vscode-editor-background, #fff));
 }
 
-.pipeline-picker-search:focus-within {
-  outline: var(--bachata-focus-width) solid var(--bachata-focus-ring);
-  outline-offset: var(--bachata-focus-offset);
-}
-
 .pipeline-picker-search input {
   flex: 1 1 auto;
   min-width: 0;
   height: 34px;
   padding: 0;
   border: 0;
-  outline: 0;
+  --bachata-focus-offset: 0px;
   background: transparent;
 }
 
@@ -3925,47 +3918,10 @@ select[multiple] option {
   font-size: var(--bachata-font-xs);
 }
 
-/* The model section sits under the provider choices, because the model belongs to whichever
-   provider is now assigned and reads as a property of it rather than as a fourth provider. */
-.agents-model {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 0;
-}
-
-.agents-model-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.agents-model-title {
-  font-size: var(--bachata-font-sm);
-}
-
 .agents-model-check {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: var(--bachata-font-xs);
-}
-
-.agents-model-explicit {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.agents-model-explicit label {
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-xs);
-}
-
-.agents-model-input {
-  flex: 1 1 160px;
-  min-width: 0;
 }
 
 .agents-model-detail,
@@ -4178,7 +4134,6 @@ details[open] > summary .disclosure-chevron {
     opacity: 1;
   }
 }
-
 
 .run-contract {
   margin-bottom: 8px;
@@ -5678,13 +5633,6 @@ details.direction-evidence > ul,
 .agents-bridge-setup h3 { margin: 0 0 8px; font-size: var(--bachata-font-heading); }
 .agents-bridge-setup ol { padding-left: 20px; margin: 12px 0; }
 .agents-bridge-setup li + li { margin-top: 12px; }
-.agents-model-advanced { margin-top: 12px; }
-.agents-model-advanced summary { min-height: 32px; cursor: pointer; font-size: var(--bachata-font-sm); }
-.agents-model-advanced p { font-size: var(--bachata-font-sm); line-height: 1.5; }
-@media (max-width: 480px) {
-  .agents-model-explicit { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
-  .agents-model-explicit input { width: 100%; min-width: 0; }
-}
 
 .execution-content .result-center > header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
 .execution-content .result-center > header h2 { margin: 0; text-align: left; }
@@ -6402,8 +6350,7 @@ details.direction-evidence > ul,
   flex: 0 0 auto;
 }
 
-.agents-slot-settings,
-.agents-provider-field {
+.agents-slot-settings {
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -6413,39 +6360,7 @@ details.direction-evidence > ul,
   gap: 12px;
 }
 
-.agents-provider-field > span,
-.agents-model-title,
-.agents-model-explicit > label {
-  color: var(--bachata-muted);
-  font-size: var(--bachata-font-sm);
-}
-
-.agents-provider-select,
-.agents-model-select {
-  width: 100%;
-  min-width: 0;
-}
-
-.agents-model-select-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
-  align-items: center;
-  gap: 6px;
-}
-
-.agents-model-explicit {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.agents-model-explicit > label {
-  grid-column: 1 / -1;
-}
-
-.agents-model-explicit .agents-model-input {
+.agents-provider-select {
   width: 100%;
   min-width: 0;
 }
@@ -7070,12 +6985,6 @@ details.direction-evidence > ul,
   flex: 0 0 auto;
 }
 
-@media (max-width: 480px) {
-  .agents-model-explicit {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* Composer panels stay compact enough to inspect without pushing their lower controls below the
    viewport. Their own scroll surface is stable while background snapshots arrive. */
 .composer > .composer-settings,
@@ -7130,11 +7039,7 @@ details.direction-evidence > ul,
   min-width: 0;
 }
 
-.composer-advanced label > span,
-.agents-provider-field > span,
-.agents-model-title,
-.agents-effort-field > span,
-.agents-model-explicit > label {
+.composer-advanced label > span {
   color: var(--bachata-muted);
   font-size: var(--bachata-font-xs);
   font-weight: 500;
@@ -7188,40 +7093,12 @@ details.direction-evidence > ul,
   gap: 10px 12px;
 }
 
-.agents-provider-field,
-.agents-model,
 .agents-bridge-setup,
 .agents-session-list {
   grid-column: 1 / -1;
 }
 
-.agents-model {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.55fr);
-  gap: 5px 12px;
-  align-items: end;
-}
-
-.agents-model-title {
-  grid-column: 1;
-}
-
-.agents-model-select-row {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.agents-effort-field {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  display: grid;
-  align-content: end;
-  gap: 5px;
-  min-width: 0;
-}
-
 .agents-model-detail,
-.agents-model-explicit,
 .agents-model-note {
   grid-column: 1 / -1;
 }
@@ -7231,19 +7108,287 @@ details.direction-evidence > ul,
 }
 
 @media (max-width: 420px) {
-  .composer-advanced,
-  .agents-model {
+  .composer-advanced {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .agents-effort-field,
   .agents-model-detail,
-  .agents-model-explicit,
   .agents-model-note {
     grid-column: 1;
   }
+}
 
-  .agents-effort-field {
-    grid-row: auto;
+/* Agents panel: the header carries the Browser Bridge status, and each role is one row whose
+   model control opens a menu with the thinking-effort slider, a model field and the known models. */
+.agents-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agents-popover-head h2 {
+  margin: 0;
+}
+
+.agents-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.agents-bridge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 999px;
+  font-size: var(--bachata-font-xs);
+  white-space: nowrap;
+}
+
+.agents-bridge-dot {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.agents-bridge-chip[data-bridge-state="connected"] .agents-bridge-dot {
+  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+
+.agents-bridge-chip[data-bridge-state="pairing"] .agents-bridge-dot,
+.agents-bridge-chip[data-bridge-state="connecting"] .agents-bridge-dot {
+  color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+}
+
+.agents-bridge-chip[data-bridge-state="retrying"] .agents-bridge-dot,
+.agents-bridge-chip[data-bridge-state="blocked"] .agents-bridge-dot,
+.agents-bridge-chip[data-bridge-state="disconnected"] .agents-bridge-dot {
+  color: var(--vscode-errorForeground, var(--vscode-charts-red));
+}
+
+.agents-popover > .agents-bridge-setup {
+  margin-top: 0;
+  padding: 12px;
+}
+
+.agents-slot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.agents-model-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 7px;
+  font-size: var(--bachata-font-sm);
+  text-align: left;
+}
+
+.agents-model-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-model-chip[aria-expanded="true"] .codicon-chevron-down {
+  transform: rotate(180deg);
+}
+
+.agents-model-menu {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--vscode-widget-border, var(--bachata-border));
+  border-radius: 10px;
+  background: var(--vscode-editorWidget-background, var(--bachata-card));
+  box-shadow: 0 6px 18px var(--vscode-widget-shadow, rgb(0 0 0 / 0.2));
+}
+
+.agents-effort {
+  display: grid;
+  gap: 6px;
+}
+
+.agents-effort-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-effort-head strong {
+  margin-inline-end: auto;
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.agents-effort-stops {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  height: 30px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 999px;
+  background: var(--vscode-input-background, var(--bachata-card));
+}
+
+#root .agents-popover .agents-effort .agents-effort-stops .agents-effort-stop[role="radio"] {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  --bachata-focus-offset: -3px;
+}
+
+.agents-effort-stop::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 4px;
+  transform: translateY(-50%);
+  background: var(--vscode-input-border, var(--bachata-border));
+}
+
+.agents-effort-stop:first-child::after {
+  left: 50%;
+}
+
+.agents-effort-stop:last-child::after {
+  right: 50%;
+}
+
+.agents-effort-stop[data-reached="true"]::after {
+  background: var(--vscode-button-background);
+}
+
+.agents-effort-stop[data-thumb="true"]:not(:last-child)::after {
+  background: linear-gradient(to right, var(--vscode-button-background) 50%, var(--vscode-input-border, var(--bachata-border)) 50%);
+}
+
+.agents-effort-stop::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+}
+
+.agents-effort-stop[data-reached="true"]::before {
+  background: var(--vscode-button-foreground);
+  opacity: 0.85;
+}
+
+.agents-effort-stop[data-thumb="true"]::before {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  background: var(--vscode-editor-background, var(--bachata-card));
+  opacity: 1;
+  box-shadow: 0 1px 4px var(--vscode-widget-shadow, rgb(0 0 0 / 0.25));
+}
+
+.agents-model-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--vscode-input-border, var(--bachata-border));
+  border-radius: 7px;
+  background: var(--vscode-input-background, var(--bachata-card));
+}
+
+.agents-popover .agents-model-search input[type="text"] {
+  min-height: 32px;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  --bachata-focus-offset: 0px;
+}
+
+.agents-model-list {
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.agents-model-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1px 8px;
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: var(--bachata-font-sm);
+}
+
+.agents-model-option-name,
+.agents-model-option-meta {
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-model-option-meta {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-model-option .codicon-check {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.agents-model-option[data-kind="custom"] .agents-model-option-name {
+  color: var(--vscode-textLink-foreground);
+}
+
+.agents-model-empty {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-model-menu .agents-session-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+@media (max-width: 420px) {
+  .agents-slot-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

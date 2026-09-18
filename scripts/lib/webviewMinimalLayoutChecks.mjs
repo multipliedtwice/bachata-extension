@@ -85,9 +85,15 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
           const slots = [...document.querySelectorAll('.agents-slot')];
           return slots.length > 0 && slots.every(slot =>
             slot.querySelector('.agents-provider-select')?.checkVisibility() &&
-            (slot.querySelector('.agents-model-select')?.checkVisibility() || slot.querySelector('.agents-model-note')?.checkVisibility())
+            slot.querySelector('.agents-model-chip')?.checkVisibility()
           );
         })()`), true, `${label}: provider and model settings are visible`);
+        await press(session, '.agents-model-chip');
+        await frame(session);
+        await readable(`${label} Agents model menu`);
+        assert.equal(await session.evaluate("Boolean(document.querySelector('.agents-model-menu')?.checkVisibility())"), true, `${label}: model menu opens`);
+        await key(session, "Escape", "Escape", 27);
+        await frame(session);
         await key(session, "Escape", "Escape", 27);
         await frame(session);
         await session.evaluate(`window.__managerState.direction = ${JSON.stringify(direction)}; window.__boot()`);

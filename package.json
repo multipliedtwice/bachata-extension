@@ -2,7 +2,7 @@
   "name": "bachata-vscode",
   "displayName": "Bachata",
   "description": "%extension.description%",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "publisher": "Rememo",
   "license": "MIT",
   "repository": {

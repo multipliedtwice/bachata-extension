@@ -169,9 +169,13 @@ const state: {
   agentsPickerOpen: boolean;
   // The slot whose Browser Bridge conversation list is expanded, if any.
   agentsBrowserFor?: string;
-  // What the reader has typed into a slot's explicit model field, before they apply it. Kept per
-  // slot so an unapplied name is not carried from one participant to another.
+  // What the reader has typed into a slot's model field, before they choose. Kept per slot so an
+  // unapplied name is not carried from one participant to another.
   agentsModelDrafts: Record<string, string>;
+  // The slot whose model menu is open, and the option the keyboard is on inside it.
+  agentsModelMenuFor?: string;
+  agentsModelActive?: number;
+  agentsBridgeOpen?: boolean;
   roomView: "chat" | "execution" | "direction";
   historyFilter: string;
   directionRationale: string;
@@ -465,6 +469,9 @@ const resetViewState = (): void => {
   delete state.pipelinePickerActiveId;
   state.agentsPickerOpen = false;
   delete state.agentsBrowserFor;
+  delete state.agentsModelMenuFor;
+  delete state.agentsModelActive;
+  delete state.agentsBridgeOpen;
   state.agentsModelDrafts = {};
   state.roomSearch = "";
   state.historyFilter = "";

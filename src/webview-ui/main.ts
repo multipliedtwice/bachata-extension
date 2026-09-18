@@ -1467,6 +1467,8 @@ const dismissTransientMenus = (origin: Element | null): void => {
   ) {
     state.agentsPickerOpen = false;
     delete state.agentsBrowserFor;
+    delete state.agentsModelMenuFor;
+    delete state.agentsModelActive;
     scheduleRender();
   }
 };
@@ -1511,6 +1513,8 @@ document.addEventListener("focusin", (event) => {
     if (!insideAgents) {
       state.agentsPickerOpen = false;
       delete state.agentsBrowserFor;
+      delete state.agentsModelMenuFor;
+      delete state.agentsModelActive;
       scheduleRender();
     }
   }
@@ -1531,7 +1535,7 @@ document.addEventListener("focusin", (event) => {
 // an arrow key — so the reader arrows to a choice and presses Enter or Space, which the buttons
 // already answer natively.
 const moveAgentsChoiceFocus = (current: HTMLElement, key: string): boolean => {
-  const group = current.closest(".agents-choices");
+  const group = current.closest(".agents-choices, .agents-effort-stops");
   if (!group) {
     return false;
   }
@@ -1581,6 +1585,24 @@ document.addEventListener("keydown", (event) => {
   // The combobox keyboard is scoped to the picker's own focus. If focus has moved on — Tab into the
   // prompt, say — these keys are the prompt's again, so Enter there can never select a pipeline
   // because a popover was left open.
+  if (state.agentsModelMenuFor !== undefined && event.target instanceof HTMLElement) {
+    const onModelInput = event.target instanceof HTMLInputElement && event.target.dataset.agentsModelFor !== undefined;
+    if (onModelInput && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      moveAgentModelActive(event.key);
+      return;
+    }
+    if (onModelInput && event.key === "Enter") {
+      event.preventDefault();
+      commitAgentModelActive();
+      return;
+    }
+    if (event.key === "Escape" && event.target.closest(".agents-model-menu, .agents-model-chip") !== null) {
+      event.preventDefault();
+      closeAgentModelMenu();
+      return;
+    }
+  }
   const onPickerButton = event.target instanceof HTMLElement && event.target.id === "pipeline-picker-button";
   const onPickerSearch = event.target instanceof HTMLElement && event.target.id === "pipeline-picker-search";
   const insidePipelinePicker = event.target instanceof HTMLElement && event.target.closest(".pipeline-picker") !== null;

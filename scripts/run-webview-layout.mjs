@@ -449,6 +449,10 @@ const run = async () => {
         }
         await press(session, "#agents-picker-button");
         await delay(200);
+        // A browser role lists its conversations in its own menu, so one is opened before measuring:
+        // the open menu is also what has to stay inside the popover without clipping.
+        await press(session, '.agents-model-chip[data-browser="true"]');
+        await delay(200);
         const agents = await session.evaluate(agentsMeasure);
         if (!agents.present) {
           failures.push(`${String(width)}px: the Agents popover did not open above the toolbar`);
@@ -461,7 +465,10 @@ const run = async () => {
           if (!agents.slotsContained || !agents.choicesContained) failures.push(`${String(width)}px: an assignment row escaped the Agents popover`);
           if (!agents.rovingTabStops) failures.push(`${String(width)}px: a provider radiogroup is not a single tab stop`);
           if (agents.sessionsListed < 2) failures.push(`${String(width)}px: the browser conversations were not offered inside the Agents popover`);
-          // Escape closes it and hands focus back to the control that opened it.
+          // Escape closes the open menu first, then the popover, and hands focus back to the
+          // control that opened it.
+          await pressKey(session, "Escape", "Escape", 27);
+          await delay(160);
           await pressKey(session, "Escape", "Escape", 27);
           await delay(160);
           const dismissedAgents = await session.evaluate(agentsDismissed);
