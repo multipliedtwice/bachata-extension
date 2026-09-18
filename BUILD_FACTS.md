@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.6.9 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 761 |
-| Maintained source manifest SHA-256 (Git-tracked) | 7233bcfa495b6cbfad3d90dd31341e6171bae5f277283eb9c515e26b66244ad1 |
+| Maintained source manifest SHA-256 (Git-tracked) | 49215a7fca3245b671a439187a46e92a47bf0b02250a2288d8977039a7c602b7 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -38,12 +38,12 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was clean, so these values also describe commit 9612a7bb28cba0ce9b1c5a55a99e6957bd860484.
+The working tree was modified, so these values describe the working tree and not commit 3efd3ae681d5d7241143a5e445bea64ec211eb87.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 9612a7bb28cba0ce9b1c5a55a99e6957bd860484 |
-| Working tree | clean |
+| Revision | 3efd3ae681d5d7241143a5e445bea64ec211eb87 |
+| Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 761 |
 | Platform | Darwin 24.5.0 arm64 |
 | Node | v23.6.1 |
