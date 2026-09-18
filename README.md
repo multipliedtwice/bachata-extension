@@ -46,11 +46,6 @@ You can:
 - **Follow the result:** return to saved goals, decisions, findings, and changes;
   see which checks actually ran and which results remain unverified.
 
-<p align="center">
-  <br>
-  <sub>Pipeline selection, role assignment, and a run in the Bachata panel. The messages are sample data, not a recorded provider session.</sub>
-</p>
-
 Bachata uses AI tools you install and sign in to separately. It does not include
 an AI service or subscription. The optional
 [Browser Bridge](docs/BROWSER_BRIDGE_INSTALL.md) lets pipelines use conversations
