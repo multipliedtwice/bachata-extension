@@ -58,6 +58,12 @@ test("a run whose pipeline left the catalog keeps its recorded copy and says so"
       false,
       "readiness asked for a pipeline the run already has",
     );
+    assert.deepEqual(
+      state.readiness.findings.filter((finding) => /has not been checked yet/u.test(finding.detail)),
+      [],
+      "the recorded pipeline's providers were never probed",
+    );
+    assert.equal(state.readiness.findings.find((finding) => finding.id === "adapter.codex")?.status, "ready");
   } finally {
     await harness.runtime.dispose();
     harness.cleanup();

@@ -2351,7 +2351,7 @@ export const createRuntime = (
         ? { detail: agent.version ?? "Provider availability has not been checked yet" }
         : { detail: agent.error }),
     }));
-    const pipelineProbes = (withAssignments(pipelines.get(pipelineId ?? ""))?.agents ?? []).flatMap((agent) => {
+    const pipelineProbes = (withAssignments(catalogOrRecordedPipeline(pipelineId))?.agents ?? []).flatMap((agent) => {
       const probe = providerProbeFor(agent)?.readiness;
       if (!probe) return [];
       const current = agentReadiness.find((entry) => entry.agentId === agent.id && entry.type === agent.adapter);
@@ -3620,9 +3620,10 @@ export const createRuntime = (
     // therefore asks for identities rather than running probes: the ones this machine is configured
     // to offer, plus any a requested pipeline resolves to after its assignments are applied. An
     // identity already answered costs nothing here, which is what makes this safe to call often.
-    const requested = requestedPipelineIds(pipelineIds, pipelines.keys());
+    const recordedId = recordedOnlyPipeline(state.selectedPipelineId)?.id;
+    const requested = requestedPipelineIds(pipelineIds, [...pipelines.keys(), ...(recordedId === undefined ? [] : [recordedId])]);
     const pipelineIdentities = requested.flatMap((pipelineId) =>
-      (withAssignments(pipelines.get(pipelineId))?.agents ?? [])
+      (withAssignments(catalogOrRecordedPipeline(pipelineId))?.agents ?? [])
         .flatMap((agent) => {
           const identity = providerIdentityFor(agent);
           return identity ? [identity] : [];
@@ -3651,7 +3652,7 @@ export const createRuntime = (
     const maxIterations = Math.max(1, configuration().get<number>("maxPipelineIterations", 10));
     const pipelineFacts = requested.map((pipelineId) => {
       const readiness = evaluatePipelineReadiness(pipelineId);
-      const pipeline = pipelines.get(pipelineId);
+      const pipeline = catalogOrRecordedPipeline(pipelineId);
       if (!pipeline) return { pipelineId, readiness };
       return {
         pipelineId,
