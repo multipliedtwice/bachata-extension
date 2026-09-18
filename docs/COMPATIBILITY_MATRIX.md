@@ -2,7 +2,7 @@
 
 Public, versioned record of what has actually been exercised against the exact packaged artifacts. Every row is one dated test of one combination. `Not tested` means no run exists; it is never inferred from a similar row.
 
-Extension: Bachata 0.7.0. Browser protocol: v9. Bridge: bachata-browser-bridge 0.6.8.
+Extension: Bachata 0.7.0. Browser protocol: v9. Bridge: bachata-browser-bridge 0.6.9.
 
 Every row names the exact VS Code build it was exercised on, reported by `Code > About` as the `Version` field, for example `1.101.2`. `engines.vscode` declares the floor Bachata claims to support; a row is evidence only for the build it names. A recorded row with no exact version is not evidence and the release metadata gate refuses it.
 
@@ -38,11 +38,11 @@ A provider website can change on any day. A passing row is evidence for its date
 
 | Extension | VS Code version | Bridge | Provider | Browser | OS | Checklist | Date | VSIX SHA-256 | Bridge SHA-256 | Result | Known limitations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.7.0 | — | 0.6.8 | ChatGPT | Chrome | macOS | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
-| 0.7.0 | — | 0.6.8 | ChatGPT | Edge | Windows | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
-| 0.7.0 | — | 0.6.8 | Claude | Chrome | macOS | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
-| 0.7.0 | — | 0.6.8 | Claude | Edge | Windows | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
-| 0.7.0 | — | 0.6.8 | Generic target | Chrome | macOS | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
+| 0.7.0 | — | 0.6.9 | ChatGPT | Chrome | macOS | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
+| 0.7.0 | — | 0.6.9 | ChatGPT | Edge | Windows | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
+| 0.7.0 | — | 0.6.9 | Claude | Chrome | macOS | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
+| 0.7.0 | — | 0.6.9 | Claude | Edge | Windows | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
+| 0.7.0 | — | 0.6.9 | Generic target | Chrome | macOS | LIVE_SMOKE_TEST | — | — | — | Not tested | — |
 
 ## Local model endpoint rows
 
