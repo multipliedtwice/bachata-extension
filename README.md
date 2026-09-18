@@ -1,7 +1,7 @@
 # Bachata
 
 <p align="center">
-  <img src="media/readme-header.png" alt="Configurable steps connect planning, coding, review, and revision into one workflow" width="960">
+  <img src="media/readme-demo.gif" alt="Choosing the Code review and refinement pipeline, assigning a model to each role, and following the Implementer and Independent reviewer as they exchange findings, a fix, and a review" width="720">
 </p>
 
 <p align="center">
@@ -44,6 +44,11 @@ You can:
 - **Reuse and adapt:** start from built-in pipelines, edit them, or create your own.
 - **Follow the result:** return to saved goals, decisions, findings, and changes;
   see which checks actually ran and which results remain unverified.
+
+<p align="center">
+  <br>
+  <sub>Pipeline selection, role assignment, and a run in the Bachata panel. The messages are sample data, not a recorded provider session.</sub>
+</p>
 
 Bachata uses AI tools you install and sign in to separately. It does not include
 an AI service or subscription. The optional
