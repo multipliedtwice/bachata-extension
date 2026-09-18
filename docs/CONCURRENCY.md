@@ -39,7 +39,7 @@ The broker provides:
 - quarantine for physical resources whose cleanup is not confirmed;
 - explicit operator-controlled quarantine clearing.
 
-The current owner renews itself before stale cleanup and is excluded from its own cleanup query. A whole-machine timing gap starts a local cleanup grace period when that host resumes. A selectively paused or unhealthy owner can still be replaced by a live peer. On resume, persisted lease validation invalidates its local lease objects and protected work fails closed.
+The current owner renews itself before stale cleanup and is excluded from its own cleanup query. A whole-machine timing gap starts a local cleanup grace period when that host resumes. Each owner records its process id and host with every heartbeat. A silent owner on the same host whose process still runs is treated as busy, not gone: its leases survive the stale threshold and are reclaimed only after a five-minute live-owner grace. An owner whose process has exited, one on another host, and one recorded by an older build keep the stale-threshold rule. A selectively paused or unhealthy owner can therefore still be replaced by a live peer. On resume, persisted lease validation invalidates its local lease objects and protected work fails closed.
 
 A heartbeat or lease-validation failure aborts local lease signals. Owners must stop the protected operation rather than continue with unverified authority.
 
@@ -178,4 +178,4 @@ The owning window can release ownership when no orchestration run is executing. 
 
 A window that does not own the state sees whether another window holds the lease, how long ago that window last reported, and whether that is past the stale threshold. It can request ownership again or reload.
 
-Bachata never takes a live lease from another window. A lease is reclaimed only after its owner stops reporting for longer than the stale threshold.
+Bachata never takes a live lease from another window. A lease is reclaimed only after its owner stops reporting for longer than the stale threshold and its process is gone, or, while its process still runs, after the five-minute live-owner grace.

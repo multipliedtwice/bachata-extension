@@ -1860,12 +1860,18 @@ export const createRuntime = (
     };
   };
 
+  // One line per distinct failure until a post succeeds again: a lost lease failed every post and
+  // wrote thousands of identical lines.
+  let lastPostFailure: string | undefined;
   const post = (message: ExtensionToWebviewMessage): void => {
     webviews.forEach((webview) => {
-      void webview.postMessage(message).then(undefined, (error: unknown) => {
-        logOutput(
-          `Failed to post webview message: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      void webview.postMessage(message).then(() => {
+        lastPostFailure = undefined;
+      }, (error: unknown) => {
+        const failure = error instanceof Error ? error.message : String(error);
+        if (failure === lastPostFailure) return;
+        lastPostFailure = failure;
+        logOutput(`Failed to post webview message: ${failure}`);
       });
     });
   };

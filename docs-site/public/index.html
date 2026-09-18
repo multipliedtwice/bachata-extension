@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bachata Docs</title>
+<meta name="description" content="How to use Bachata for VS Code and the Bachata Browser Bridge: set up providers, run pipelines, read results, and connect browser chats.">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#top" aria-label="Bachata documentation home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8.75 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11M15.25 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11"/></svg>
+    <span>Bachata</span>
+  </a>
+  <nav aria-label="Primary">
+    <a href="#getting-started">Get started</a>
+    <a href="#pipelines">Pipelines</a>
+    <a href="#results">Results</a>
+    <a href="#browser-bridge">Browser Bridge</a>
+    <a href="#reference">Reference</a>
+    <a href="https://github.com/multipliedtwice/bachata-extension">GitHub</a>
+  </nav>
+</header>
+
+<div class="layout" id="top">
+  <aside class="toc" aria-label="On this page">
+    <ol>
+      <li class="group">Overview</li>
+      <li><a href="#what-it-is">What Bachata is</a></li>
+      <li><a href="#requirements">Requirements</a></li>
+      <li class="group">Get started</li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#doctor">Check readiness</a></li>
+      <li><a href="#first-review">Run a first review</a></li>
+      <li class="group">Use Bachata</li>
+      <li><a href="#workspace">The Bachata panel</a></li>
+      <li><a href="#pipelines">Choose a pipeline</a></li>
+      <li><a href="#agents">Assign agents</a></li>
+      <li><a href="#run-contract">Read the run contract</a></li>
+      <li><a href="#results">Read the result</a></li>
+      <li><a href="#direction">Direction view</a></li>
+      <li><a href="#fix-and-apply">Fix and apply</a></li>
+      <li><a href="#fresh-review">Fresh review rounds</a></li>
+      <li><a href="#editor">Edit pipelines</a></li>
+      <li class="group">Browser Bridge</li>
+      <li><a href="#browser-bridge">What it does</a></li>
+      <li><a href="#bridge-install">Install the Bridge</a></li>
+      <li><a href="#bridge-pair">Pair with VS Code</a></li>
+      <li><a href="#bridge-chat">Choose a chat</a></li>
+      <li><a href="#bridge-other">Other websites</a></li>
+      <li><a href="#bridge-limits">Limits</a></li>
+      <li class="group">Reference</li>
+      <li><a href="#reference">Commands</a></li>
+      <li><a href="#builtin-pipelines">Built-in pipelines</a></li>
+      <li><a href="#settings">Common settings</a></li>
+      <li><a href="#privacy">Privacy</a></li>
+      <li><a href="#about-screenshots">About the screenshots</a></li>
+    </ol>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <h1>Build your own AI workflow for software work</h1>
+      <p class="lead">Bachata is a VS Code extension that lets AI assistants work together in steps you arrange: one plans, another challenges, they review and revise, and you decide what matters.</p>
+      <div class="buttons">
+        <a class="button primary" href="#getting-started">Get started</a>
+        <a class="button" href="#browser-bridge">Browser Bridge</a>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <strong>Alpha candidate</strong>
+      Bachata is a closed-alpha candidate, not a stable release. Provider, platform and browser validation is still incomplete.
+    </div>
+
+    <section class="part" id="what-it-is">
+      <p class="eyebrow">Overview</p>
+      <h2>What Bachata is</h2>
+      <p>An AI assistant is a tool you ask, in everyday language, to help with tasks such as planning a feature, writing code, or finding bugs. Bachata runs inside Visual Studio Code and coordinates assistants you already have, such as <strong>Codex</strong> and <strong>Claude Code</strong>.</p>
+      <p>You arrange the work as a <strong>pipeline</strong>: a sequence of steps, each with a role, instructions, and the assistant that performs it. For example, two reviewers read the code independently, then challenge each other's findings until they agree or hand the disagreement to you.</p>
+      <div class="cards">
+        <div class="card"><h4>Shape the workflow</h4><p>Roles, instructions, step order and review rounds.</p></div>
+        <div class="card"><h4>Choose who does the work</h4><p>Assign Codex, Claude Code or a browser chat to each role.</p></div>
+        <div class="card"><h4>Reuse and adapt</h4><p>Start from a built-in pipeline, edit it, or create your own.</p></div>
+        <div class="card"><h4>Follow the result</h4><p>Findings, decisions and changes, with the checks that actually ran.</p></div>
+      </div>
+      <p>Bachata does not include an AI service or subscription. It never creates a Git commit. AI can make mistakes even when assistants agree, and a finished run is not proof that the code is correct.</p>
+    </section>
+
+    <section class="part" id="requirements">
+      <h2>Requirements</h2>
+      <ul>
+        <li>VS Code 1.101.0 or newer.</li>
+        <li>A local Git repository, opened in a trusted VS Code window. Git 2.32 or newer.</li>
+        <li>Codex or Claude Code, installed and signed in separately. Install both if you want two assistants to cross-check each other.</li>
+        <li>Optional: the <a href="#browser-bridge">Browser Bridge</a> Chrome extension, to use ChatGPT, Claude or another chat website as a participant.</li>
+      </ul>
+    </section>
+
+    <section class="part" id="getting-started">
+      <p class="eyebrow">Get started</p>
+      <h2 id="install">Install</h2>
+      <ol class="steps">
+        <li>In VS Code, open the Command Palette and run <strong>Extensions: Install from VSIX…</strong>, then select the Bachata <code>.vsix</code> file.</li>
+        <li>Open a trusted Git repository in a local VS Code window.</li>
+        <li>Install and sign in to Codex or Claude Code using their own CLI login flow.</li>
+      </ol>
+      <p>Bachata adds a <strong>Bachata</strong> icon to the Activity Bar and a <strong>Get started with Bachata</strong> walkthrough to the VS Code Welcome page.</p>
+
+      <h3 id="doctor">Check readiness with Doctor</h3>
+      <p>Run <strong>Bachata: Doctor</strong>. Doctor separates blockers for the selected pipeline from optional providers that are unavailable, and each failing check offers direct actions and a targeted recheck.</p>
+      <ul>
+        <li>Codex is probed with an app-server handshake. No thread is created and no model is called.</li>
+        <li>Claude Code is probed with <code>claude --version</code>.</li>
+        <li>Probes run in the workspace root with a restricted environment. A CLI that exists only in your interactive shell <code>PATH</code> is invisible: set <code>bachata.codexCommand</code> or <code>bachata.claudeCommand</code> to its absolute path.</li>
+      </ul>
+
+      <h3 id="first-review">Run a first review</h3>
+      <ol class="steps">
+        <li>Run <strong>Bachata: Setup</strong>. Choose <strong>Review code</strong>. The default journey also offers <em>Plan change</em> and <em>Fix bug</em>; TODO orchestration, browser providers and custom pipelines are under <em>Advanced workflows</em>.</li>
+        <li>Choose <strong>Fast single agent</strong> (one provider does the work) or <strong>Cross-checked pair</strong> (two participants work separately and cross-check one pass). Setup lists the ready providers and what a missing one needs.</li>
+        <li>Describe what you want reviewed in the composer. You can also start from the editor: <strong>Bachata: Review File</strong>, <strong>Review Selection</strong>, <strong>Review Uncommitted Changes</strong> and similar commands prepare a draft without sending it.</li>
+        <li>Open the run settings and read the run contract: what the run may read and write, which providers take part, and which checks run.</li>
+        <li>Send. When the run finishes, open the result.</li>
+      </ol>
+      <figure>
+        <a href="img/composer.png"><img src="img/composer.png" width="2560" height="1600" alt="The Bachata panel with a new run. The composer holds the request 'Review src/checkout for bugs in how discounts and totals are calculated.' The selected pipeline is 'Code review — reconcile findings', 3 steps and 2 participants. Recent runs are listed above the composer." loading="lazy"></a>
+        <figcaption>A new run. The pipeline picker, <strong>Agents</strong>, run settings and Send sit under the request. Demo data.</figcaption>
+      </figure>
+      <div class="note">
+        <strong>A review is read-only.</strong>
+        It cannot change your repository. One pass cannot prove your code is correct: after you accept the fixes it leads to, run another fresh review against the updated code.
+      </div>
+    </section>
+
+    <section class="part" id="workspace">
+      <p class="eyebrow">Use Bachata</p>
+      <h2>The Bachata panel</h2>
+      <p>Open it with <strong>Bachata: Open</strong> or the Activity Bar icon. Each run is a tab across the top. A run has three views:</p>
+      <ul>
+        <li><strong>Chat</strong>: your request and each participant's answers, in order.</li>
+        <li><strong>Execution</strong>: pipeline steps with their status, and the run result.</li>
+        <li><strong>Direction</strong>: the project goal, decisions waiting for you, and accepted findings still to fix, across runs.</li>
+      </ul>
+      <figure>
+        <a href="img/run-transcript.png"><img src="img/run-transcript.png" width="2560" height="1600" alt="Chat view of a completed run. Reviewer 1 reports two problems, a discount applied twice on retry and currency rounding before tax, and suggests archiving expired carts. Reviewer 2 agrees with both problems and disagrees about archiving carts. In round 2 Reviewer 1 marks the cart question unresolved for the user. A completion card says both reviewers reached the same finding set in round 2 of 10, with an Open the result button." loading="lazy"></a>
+        <figcaption>Chat view of a finished cross-checked review. Demo data.</figcaption>
+      </figure>
+      <p><strong>Runs</strong> opens the run drawer: search runs and prompts, show archived runs, and open <strong>Direction</strong>. Each run's <strong>…</strong> menu renames, duplicates, archives or deletes it.</p>
+      <figure>
+        <a href="img/run-drawer.png"><img src="img/run-drawer.png" width="2560" height="1600" alt="The Runs drawer open on the left, with a search field, a Show archived runs checkbox, three runs with their status, and a Direction link at the bottom." loading="lazy"></a>
+        <figcaption>The run drawer. Demo data.</figcaption>
+      </figure>
+    </section>
+
+    <section class="part" id="pipelines">
+      <h2>Choose a pipeline</h2>
+      <p>The pipeline picker sits under the composer. Search covers names, IDs, descriptions and participant roles. Filters separate common, specialized and internal workflows; custom pipelines add <em>Custom</em> and <em>All</em>. The picker chooses the <em>work</em>; <strong>Agents</strong> chooses the <em>providers</em>.</p>
+      <figure>
+        <a href="img/pipeline-picker.png"><img src="img/pipeline-picker.png" width="2560" height="1600" alt="The pipeline picker open above the composer, with a search field and a list: Code review — reconcile findings (selected), Code review and refinement, UI/UX review, Code review, Fix a bug, Implementation plan, each with step and participant counts." loading="lazy"></a>
+        <figcaption>The pipeline picker. The list shows built-in pipelines. Demo data.</figcaption>
+      </figure>
+      <p>Each step in a pipeline is one of:</p>
+      <ul>
+        <li><code>agent</code>: one or more participants take a turn, optionally in parallel or until they reach consensus;</li>
+        <li><code>assignRoles</code>: bind roles you defined to agents;</li>
+        <li><code>checklist</code>: turn accepted findings into strict issues;</li>
+        <li><code>executeChecklist</code>: run the selected issues through the controller. It must be the last enabled step.</li>
+      </ul>
+      <p>Consensus rounds are bounded. When the round limit is reached, the pipeline states what happens: a human decision, failure, or a Lead ruling. Agreement selects one run's output; it does not prove the output is true. See the <a href="#builtin-pipelines">built-in pipeline list</a>.</p>
+    </section>
+
+    <section class="part" id="agents">
+      <h2>Assign agents</h2>
+      <p><strong>Agents</strong> lists every role the selected pipeline needs. For each role, pick the provider and, where the provider reports one, the model. Changes apply to this run and are marked as reassigned; <strong>Reset to defaults</strong> restores the pipeline's own choices.</p>
+      <figure>
+        <a href="img/agents.png"><img src="img/agents.png" width="2560" height="1600" alt="The Agents popover with two roles. Reviewer 1 uses Default · Codex CLI with the default model. Reviewer 2 uses Default · Claude CLI with the default model. A Local interpreter settings disclosure is at the bottom." loading="lazy"></a>
+        <figcaption>Each role gets a provider and a model. Demo data.</figcaption>
+      </figure>
+      <p>Bachata ships no model catalog. When Codex can list its models, Bachata shows that list and refuses a model the installed Codex does not offer. When a provider cannot list models, the name you type is sent as written. Bachata never switches the provider or model for you. To stop a provider from ever running, add it to <code>bachata.disabledProviders</code>.</p>
+    </section>
+
+    <section class="part" id="run-contract">
+      <h2>Read the run contract</h2>
+      <p>The gear button next to Send opens <strong>Run settings</strong>. <em>Run options</em> (iterations, fixed or until-clean mode, delivery) apply to this run only. <strong>Run details</strong> is the contract Bachata resolved for this exact run:</p>
+      <ul>
+        <li><strong>Assurance</strong>: what kind of result this run can produce, for example <em>Read-only</em>;</li>
+        <li><strong>Providers</strong> and their readiness;</li>
+        <li><strong>Scope and commits</strong>: working directory, writable, readable and protected paths. Bachata never creates commits;</li>
+        <li><strong>Verification</strong>: which controller checks run, if any;</li>
+        <li><strong>Run limits</strong>, <strong>Human decisions</strong>, <strong>Fallback</strong>, <strong>Completion</strong>;</li>
+        <li><strong>What each provider receives</strong>: the outbound context, exclusions and redactions per provider.</li>
+      </ul>
+      <figure>
+        <a href="img/run-contract.png"><img src="img/run-contract.png" width="2560" height="1600" alt="Run settings panel with Run details expanded for 'Code review — reconcile findings', labelled Review · read-only. Assurance: this run can read the selected scope and cannot change files. Providers: Reviewer 1 on Codex and Reviewer 2 on Claude Code, both ready. Scope: no repository writes, readable path src/checkout, protected paths .env and .git, no commits. Verification: no controller verification runs. Run limits: 1 iteration, at most 10 consensus rounds before a human decision." loading="lazy"></a>
+        <figcaption>The run contract for a read-only, two-reviewer run. Demo data.</figcaption>
+      </figure>
+      <p>If anything blocks the run, such as a provider that is not ready or a repository policy that refuses it, the contract lists it and Send stays disabled until it is resolved.</p>
+    </section>
+
+    <section class="part" id="results">
+      <h2>Read the result</h2>
+      <p>Open <strong>Execution</strong> (the list icon on the run tab) or select <strong>Open the result</strong> in Chat. The top lists each pipeline step and its status. The bottom bar shows how many findings are selected and offers the next pipeline.</p>
+      <figure>
+        <a href="img/execution-view.png"><img src="img/execution-view.png" width="2560" height="1600" alt="Execution view. Pipeline steps: 1 Independent review with 2 participant results, 2 Cross-reference findings, 3 Surface material decisions, all completed. The bottom bar says 3 of 3 issues selected, with Review details, a Next pipeline selector set to Fix a bug, and Start new pipeline." loading="lazy"></a>
+        <figcaption>Execution view: steps and the next pipeline. Demo data.</figcaption>
+      </figure>
+      <p><strong>Review details</strong> opens the run result:</p>
+      <ul>
+        <li><strong>Assessment</strong>, for example <em>Completed · model-reviewed · unverified</em>. It describes how this run concluded, not whether the software is correct.</li>
+        <li><strong>Final ruling</strong> and who produced it, for example unanimous consensus of both reviewers.</li>
+        <li><strong>Findings</strong>, split into <em>converged</em> findings (accepted after challenge) and findings <em>not converged</em> that need your confirmation. Each has its location, evidence and the challenges raised against it.</li>
+        <li><strong>Assessment details</strong>: unresolved risks, evidence gaps, and the evidence ledger (changed files, checks, ruling provenance).</li>
+      </ul>
+      <figure>
+        <a href="img/result-center.png"><img src="img/result-center.png" width="2560" height="1600" alt="Run result: Completed · model-reviewed · unverified. 'Review the findings below. This run has nothing to apply.' Final ruling: two findings accepted after challenge, one disagreement needs your decision, by unanimous consensus of Reviewer 1 (codex-app-server) and Reviewer 2 (claude-code). Findings: 2 actionable, 1 needs human. Converged findings: 'Discount applied twice on retry' at src/checkout/applyCoupon.ts:42 and 'Currency rounding before tax' at src/checkout/totals.ts:18, each with evidence and challenges." loading="lazy"></a>
+        <figcaption>Run result with converged findings, evidence and challenges. Demo data.</figcaption>
+      </figure>
+      <div class="note">
+        <strong>What counts as verified</strong>
+        A model saying “the tests pass” is never recorded as a passing check. Only checks the controller ran are shown as checks, and each names what it ran. Missing evidence stays missing.
+      </div>
+      <p><strong>Copy result</strong> copies a readable summary. <strong>More</strong> publishes findings to the Problems panel, opens Source Control, and exports the run as a JSON bundle, a Markdown evidence report or SARIF findings. Exports carry no provider conversation URL or session identifier.</p>
+    </section>
+
+    <section class="part" id="direction">
+      <h2>Direction view</h2>
+      <p>Direction keeps what matters across runs, so you do not have to read transcripts. Open it from the bottom of the run drawer. It shows the goal, the next useful action, and what needs you:</p>
+      <ul>
+        <li><strong>Decisions to resolve</strong>: questions a pipeline raised that change direction, with trade-offs and evidence;</li>
+        <li><strong>Findings to resolve</strong>: findings the participants did not converge on;</li>
+        <li><strong>Accepted findings to fix</strong>, the accepted direction and acceptance criteria, review progress, artifacts, and repository checks.</li>
+      </ul>
+      <figure>
+        <a href="img/direction.png"><img src="img/direction.png" width="2560" height="1600" alt="Direction view titled 'Checkout totals are always correct', with a Resolve decisions button. Decisions to resolve: Cart retention, proposed, src/checkout, 'Should expired carts be deleted or archived?', with trade-offs and Accept, Reject, Defer, Supersede, Reopen buttons. Findings to resolve: Shipping threshold, unresolved, 'Free shipping threshold ignores discounted total', with the same buttons and Merge into." loading="lazy"></a>
+        <figcaption>Direction: a decision and a finding waiting for you. Demo data.</figcaption>
+      </figure>
+      <p>Resolutions you can record, where the item's state allows them:</p>
+      <table>
+        <thead><tr><th>Resolution</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Accept</strong></td><td>This is real and Bachata should act on it.</td></tr>
+          <tr><td><strong>Reject</strong></td><td>Not real. It leaves the active surface and stays in history.</td></tr>
+          <tr><td><strong>Defer</strong></td><td>Real, but not now.</td></tr>
+          <tr><td><strong>Supersede</strong></td><td>An existing later record replaces this one.</td></tr>
+          <tr><td><strong>Reopen</strong></td><td>A closed item is live again. Requires a written reason and new material evidence.</td></tr>
+        </tbody>
+      </table>
+      <p>You do not need to accept a finding the pipeline already accepted after more than one participant challenged it. You supervise by exception. Nothing is deleted; resolved items move to history.</p>
+    </section>
+
+    <section class="part" id="fix-and-apply">
+      <h2>Fix and apply</h2>
+      <p>A read-only review produces nothing to apply. A fix run produces the change. On an accepted finding, select <strong>Fix finding</strong> in Direction, or pick a write-capable pipeline such as <em>Fix a bug</em> as the next pipeline in Execution.</p>
+      <figure>
+        <a href="img/direction-fix.png"><img src="img/direction-fix.png" width="2560" height="1600" alt="Direction section 'Accepted findings to fix (1)': 'Discount applied twice on retry', accepted, 'Pipeline accepted; no fix has started', with Reject, Defer, Supersede, Reopen, Fix finding and Merge into buttons. Below: accepted direction 'Apply each coupon once per order', acceptance criteria 'Retrying payment never changes the total', constraint 'No change to the public checkout API', and review progress with one regression." loading="lazy"></a>
+        <figcaption>An accepted finding waiting for a fix. Demo data.</figcaption>
+      </figure>
+      <p>The fix run gets a prompt scoped to that one finding: subject, location, evidence and the challenges raised. Bachata picks the fix pipeline from <code>bachata.fixPipelineId</code>, then the pipeline selected in the source run, then the built-in <code>managed-fix</code>. A read-only pipeline is refused.</p>
+      <h4>Applying retained work</h4>
+      <p>Some workflows change the selected folder directly; isolated ones keep changes in a separate Git worktree until you apply them. The run contract says which applies. When you apply:</p>
+      <ul>
+        <li>Bachata stages the work in your working tree on your current branch and creates no commit. You review it in Source Control and commit it yourself.</li>
+        <li>Apply is refused when verification is stale, failed or cancelled. Applying an inconclusive run is an explicit override.</li>
+        <li>Applying a subset reruns the run's checks against exactly the bytes you selected.</li>
+      </ul>
+    </section>
+
+    <section class="part" id="fresh-review">
+      <h2>Fresh review rounds</h2>
+      <p>A fresh review starts an independent review of the current repository state. Provider sessions are reset and no prior conclusion is carried into the prompts. Prior findings are used for comparison after the review, never before it.</p>
+      <p>When a second round lands in the same review cycle, Direction reports what changed: new, repeated, resolved and regressed findings, findings reopened on new evidence, and decision changes. Finding identity does not depend on wording, so a paraphrased repeat is one finding with two occurrences.</p>
+      <p>Bachata reports <strong>saturation</strong> only when several consecutive fresh reviews added nothing material, accepted findings are resolved, core decisions are closed and required checks are current. Saturation means repeated review stopped finding material issues. It is not a correctness proof.</p>
+      <p>A fresh review only runs a read-only pipeline that produces findings. Set <code>bachata.freshReviewPipelineId</code> to choose one when the selected pipeline does not qualify.</p>
+    </section>
+
+    <section class="part" id="editor">
+      <h2>Edit pipelines</h2>
+      <p>In Run settings, choose <strong>Edit pipeline</strong>, <strong>New pipeline</strong> or <strong>Fork selected</strong>. Editing a built-in pipeline creates a copy. The editor has a <em>Structured</em> form and a <em>JSON</em> mode for exact definitions. Steps can be reordered, duplicated and disabled; <em>Guardrails</em>, <em>Agents</em> and <em>Roles</em> are separate sections.</p>
+      <figure>
+        <a href="img/pipeline-editor.png"><img src="img/pipeline-editor.png" width="2560" height="1600" alt="Pipeline editor for 'Code review — reconcile findings copy' in Structured mode. Steps: 1 Independent review, 2 Cross-reference findings (ask after the step), 3 Surface material decisions, each an agent turn by Reviewer 1 and Reviewer 2. Collapsed sections: Pipeline details, Guardrails (review only · no checks), Agents, Roles. Buttons: More, Cancel, Save and select." loading="lazy"></a>
+        <figcaption>The pipeline editor. Demo data.</figcaption>
+      </figure>
+      <p>Turn on <code>bachata.advancedMode</code> to show the full editor: roles, consensus, typed outputs, human gates, capabilities, permission modes, approval policies, prompt templates and path policies. Pipelines can be exported and imported as JSON (pipeline JSON version <code>1</code>). Runs keep the exact pipeline snapshot they started with.</p>
+    </section>
+
+    <section class="part" id="browser-bridge">
+      <p class="eyebrow">Browser Bridge</p>
+      <h2>Use your browser chats from Bachata</h2>
+      <p>Bachata Browser Bridge is a separate Chrome extension. It connects Bachata in VS Code to AI chat websites such as ChatGPT and Claude, so a conversation in your browser can be a participant in a pipeline. When a browser step runs, the Bridge sends the message to the chat you connected and brings the reply back to VS Code.</p>
+      <p>You only need it for browser participants. Codex and Claude Code do not use it.</p>
+      <div class="note">
+        <strong>What the Bridge cannot do</strong>
+        It cannot read your project files or run commands. Bachata in VS Code decides which project information is sent and which changes are allowed. Messages still go to the chat provider you use. There is no telemetry.
+      </div>
+      <h3>Requirements</h3>
+      <ul>
+        <li>Chrome 116 or newer.</li>
+        <li>A local VS Code window with Bachata. Remote SSH, WSL and Codespaces cannot reach a local browser.</li>
+        <li>A Bridge build whose protocol version matches your Bachata build. A mismatch is refused, not degraded: upgrade both together.</li>
+        <li>A signed-in ChatGPT or Claude tab, or another chat website you set up yourself.</li>
+      </ul>
+
+      <h3 id="bridge-install">Install the Bridge</h3>
+      <ol class="steps">
+        <li>Download the ZIP from the <a href="https://github.com/multipliedtwice/bachata-browser-bridge/releases">official releases page</a>. An empty page means no official download is available yet. Do not install a Bridge build from any other source.</li>
+        <li>Compare its SHA-256 with the checksum published next to the release: <code>shasum -a 256 bachata-browser-bridge-&lt;version&gt;.zip</code></li>
+        <li>Unzip it to a folder you will keep. Chrome loads unpacked extensions from disk on every start.</li>
+        <li>Open <code>chrome://extensions</code>, turn on <strong>Developer mode</strong>, choose <strong>Load unpacked</strong> and select the unzipped folder.</li>
+      </ol>
+      <p>Building from source: run <code>npm ci</code> and <code>npm run build</code> in the Bridge repository, then load the built <code>dist/</code> folder. Loading the repository root fails by design.</p>
+
+      <h3 id="bridge-pair">Pair with VS Code</h3>
+      <ol class="steps">
+        <li>In Bachata, open <strong>Agents</strong> and assign <strong>Browser Bridge</strong> to a role. A Bridge status chip appears at the top of Agents; when the Bridge is not paired it reads <strong>Pair Bridge</strong>. Select it.</li>
+        <li>Select <strong>Copy pairing token</strong>. <strong>Find browser</strong> starts discovery again; <strong>Reset pairing</strong> issues a new token.</li>
+        <li>Open the Bridge popup in Chrome and select <strong>Paste &amp; connect</strong>. If you type or paste the token into the field yourself, select <strong>Connect to VS Code</strong> instead.</li>
+      </ol>
+      <div class="pair">
+        <figure>
+          <a href="img/bridge-pairing-vscode.png"><img src="img/bridge-pairing-vscode.png" width="2560" height="1600" alt="Agents popover in VS Code with the Pair Bridge chip selected. A Connect Browser Bridge section says Disconnected and 'Pair the Bachata Browser Bridge extension using this token.', with Copy pairing token, Find browser and Reset pairing buttons. Reviewer 2 is assigned to Browser Bridge with 'Choose a conversation'." loading="lazy"></a>
+          <figcaption>VS Code side: copy the pairing token. Demo data.</figcaption>
+        </figure>
+        <figure class="narrow">
+          <a href="img/bridge-disconnected.png"><img src="img/bridge-disconnected.png" width="760" height="1240" alt="Bridge popup, Disconnected. 'Copy the pairing token from Bachata’s Browser Bridge settings in VS Code.' A Pairing token field with Paste and Show, a Paste &amp; connect button, and a Connection settings disclosure. Below: Choose a chat, Refresh tabs, and Other websites." loading="lazy"></a>
+          <figcaption>Browser side: paste and connect.</figcaption>
+        </figure>
+      </div>
+      <p>The local address is filled in automatically. Open <strong>Connection settings</strong> only if VS Code shows a different address. The Bridge keeps one connection, so only one VS Code window per user profile owns the Bridge at a time; other windows can still use Codex and Claude Code.</p>
+
+      <h3 id="bridge-chat">Choose a chat</h3>
+      <ol class="steps">
+        <li>Open a ChatGPT or Claude conversation and sign in.</li>
+        <li>In the popup, select <strong>Refresh tabs</strong>. Each row shows the provider, title, readiness and any limitations. <strong>Details</strong> shows the tab and conversation identity.</li>
+        <li>Select <strong>Use this chat</strong> on a ready conversation. Only ready rows offer it, and only while connected.</li>
+        <li>In Bachata's <strong>Agents</strong>, choose that conversation for the browser role.</li>
+      </ol>
+      <div class="pair">
+        <figure class="narrow">
+          <a href="img/bridge-choose-chat.png"><img src="img/bridge-choose-chat.png" width="760" height="1240" alt="Bridge popup, Connected. Choose a chat lists 'Checkout review' on ChatGPT and 'Second opinion' on Claude, both Ready with 'Automatic completion available' and a Use this chat button, and a ChatGPT tab marked Sign-in required." loading="lazy"></a>
+          <figcaption>Ready conversations offer <strong>Use this chat</strong>. Demo tabs.</figcaption>
+        </figure>
+        <figure class="narrow">
+          <a href="img/bridge-selected.png"><img src="img/bridge-selected.png" width="760" height="750" alt="Bridge popup showing Selected chat: 'Checkout review' on ChatGPT, Ready, with Stop using and Details, and a Change conversation link." loading="lazy"></a>
+          <figcaption>Once bound, the popup shows only that chat. <strong>Change conversation</strong> shows the full list.</figcaption>
+        </figure>
+      </div>
+      <figure>
+        <a href="img/agents-browser.png"><img src="img/agents-browser.png" width="2560" height="1600" alt="Agents popover with the chip 'Bridge connected'. Reviewer 1 uses Codex CLI. Reviewer 2 uses Browser Bridge with the conversation 'ChatGPT · Checkout review'. The Agents button reads 'Agents · 1 reassigned'." loading="lazy"></a>
+        <figcaption>A browser conversation assigned to Reviewer 2. Demo data.</figcaption>
+      </figure>
+      <p>The binding survives popup closes and browser worker restarts. You need to bind again only when the tab is closed, navigates to another site, or its conversation is changed by hand.</p>
+
+      <h3 id="bridge-other">Other chat websites</h3>
+      <p>For a website other than ChatGPT and Claude, open <strong>Other websites</strong> in the popup and choose <strong>Set up current website</strong>, then allow the displayed origin. Close the popup and use the setup panel on the page: auto-detect or pick the controls (composer and conversation region are required; send, stop and new-conversation controls are optional), then validate. Validation does not send a chat message.</p>
+      <figure class="narrow">
+        <a href="img/bridge-other-websites.png"><img src="img/bridge-other-websites.png" width="760" height="750" alt="Bridge popup with Other websites expanded: 'Connect another chat website by choosing its controls. Each site needs your permission; supported actions vary. Choose models on the website.' Buttons: Set up current website and Saved bindings." loading="lazy"></a>
+        <figcaption>Other websites in the popup.</figcaption>
+      </figure>
+      <p>Other websites receive text only; images and downloadable assets are not supported. A site without verified Send and Stop controls works for manual workflows but not for unattended managed runs. Sites you have not bound are never discovered, and the Bridge never opens such a tab for you.</p>
+
+      <h3 id="bridge-limits">Limits</h3>
+      <ul>
+        <li>Provider websites change without notice. A working Bridge build is evidence only for the site versions it was tested against.</li>
+        <li>The Bridge does not automate sign-in or CAPTCHAs, and adds no hidden prompt text.</li>
+        <li>After a failure, recovery shows what was recorded and never resends a prompt automatically.</li>
+      </ul>
+    </section>
+
+    <section class="part" id="reference">
+      <p class="eyebrow">Reference</p>
+      <h2>Commands</h2>
+      <p>All commands are in the Command Palette under <strong>Bachata:</strong>.</p>
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Open</td><td>Open the Bachata panel.</td></tr>
+          <tr><td>Setup</td><td>Choose a goal and how many assistants work on it.</td></tr>
+          <tr><td>Doctor</td><td>Check providers, Git and pipeline requirements, with fixes.</td></tr>
+          <tr><td>Review File / Review Selection</td><td>Prepare a review draft for the current file or selection.</td></tr>
+          <tr><td>Review Staged Diff / Review Uncommitted Changes</td><td>Prepare a review draft for local changes.</td></tr>
+          <tr><td>Review Commit / Review Commit Range / Review Branch Against Base</td><td>Prepare a review draft for Git history.</td></tr>
+          <tr><td>Publish Findings to Problems</td><td>Show findings in the Problems panel.</td></tr>
+          <tr><td>Fix Diagnostic</td><td>Prepare a fix draft for a diagnostic from the editor or Problems panel.</td></tr>
+          <tr><td>Explain Pipeline</td><td>Describe what a pipeline does.</td></tr>
+          <tr><td>Repository Verifiers / Bootstrap Verifiers and Repository Policy</td><td>Declare the repository checks a run may execute.</td></tr>
+          <tr><td>Run TODO.md, Preview TODO Plan, Resume / Stop / Abandon TODO Run, Show TODO Run Status</td><td>Orchestrate tasks from a <code>TODO.md</code> file.</td></tr>
+          <tr><td>Improve This Project</td><td>Run the self-improvement workflow.</td></tr>
+          <tr><td>Inspect Run Bundle / Replay Run Bundle</td><td>Open an exported run record.</td></tr>
+          <tr><td>Record External Evidence</td><td>Record evidence produced outside Bachata.</td></tr>
+          <tr><td>Local Data</td><td>Review and delete local run data.</td></tr>
+          <tr><td>Workspace Ownership</td><td>Show which VS Code window may run work in this workspace.</td></tr>
+          <tr><td>Clear Resource Quarantine</td><td>Clear quarantined shared resources.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="builtin-pipelines">Built-in pipelines</h3>
+      <table>
+        <thead><tr><th>Pipeline</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>Code review</td><td>Read-only review by one participant. Findings remain single-source.</td></tr>
+          <tr><td>Code review — reconcile findings</td><td>Read-only review by two participants, with up to 10 rounds to reconcile findings. Requires a Direction.</td></tr>
+          <tr><td>Code review and refinement</td><td>Two participants review and reconcile findings in up to 4 rounds; an implementer then fixes confirmed findings inside the declared scope.</td></tr>
+          <tr><td>UI/UX review</td><td>Read-only review of usability, accessibility and visual hierarchy by two reviewers.</td></tr>
+          <tr><td>Review and prepare tasks</td><td>Two participants reconcile findings, then prepare a selectable task checklist.</td></tr>
+          <tr><td>Identify decisions for you</td><td>Two participants reconcile the choices that require human judgment. Read-only.</td></tr>
+          <tr><td>Implementation plan</td><td>Produce an implementation plan without editing files.</td></tr>
+          <tr><td>Implementation plan — reconcile proposals</td><td>Two planners reconcile a plan in up to 10 rounds. Requires a Direction.</td></tr>
+          <tr><td>Fix a bug</td><td>Diagnose and implement a fix with one participant. Runs declared controller checks; creates no commit.</td></tr>
+          <tr><td>Fix a bug — reviewed tasks</td><td>Two participants reconcile the diagnosis; you select bounded tasks for the controller to implement.</td></tr>
+          <tr><td>Fix within a declared scope</td><td>One worker implements inside configured paths; the controller runs declared checks. Requires a Direction.</td></tr>
+          <tr><td>Diagnose and fix — model review</td><td>Two participants reconcile a diagnosis, implement a fix and review it. Verification is model review.</td></tr>
+          <tr><td>Deliver a feature</td><td>Reconcile requirements and design, then implement and review inside a declared scope with controller checks.</td></tr>
+          <tr><td>Product direction review</td><td>Review product choices and reconcile recommendations. Requires a Direction.</td></tr>
+        </tbody>
+      </table>
+      <p>Pipelines marked <em>Internal</em> in the picker are controller stages for TODO orchestration and self-improvement.</p>
+
+      <h3 id="settings">Common settings</h3>
+      <table>
+        <thead><tr><th>Setting</th><th>Default</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>bachata.codexCommand</code></td><td><code>codex</code></td><td>Executable for the Codex app server.</td></tr>
+          <tr><td><code>bachata.claudeCommand</code></td><td><code>claude</code></td><td>Executable for Claude Code.</td></tr>
+          <tr><td><code>bachata.preferredProvider</code></td><td><code>auto</code></td><td>Provider preferred when a pipeline offers more than one.</td></tr>
+          <tr><td><code>bachata.disabledProviders</code></td><td><code>[]</code></td><td>Providers Bachata must never run.</td></tr>
+          <tr><td><code>bachata.advancedMode</code></td><td><code>false</code></td><td>Show the full pipeline editor.</td></tr>
+          <tr><td><code>bachata.notificationMode</code></td><td><code>material</code></td><td>Which notifications Bachata shows.</td></tr>
+          <tr><td><code>bachata.fixPipelineId</code></td><td>empty</td><td>Pipeline used for <em>Fix finding</em>.</td></tr>
+          <tr><td><code>bachata.freshReviewPipelineId</code></td><td>empty</td><td>Pipeline used for fresh reviews when the selected one does not qualify.</td></tr>
+          <tr><td><code>bachata.maxPipelineIterations</code></td><td><code>10</code></td><td>Maximum sequential iterations for one run.</td></tr>
+          <tr><td><code>bachata.browserBridgePort</code></td><td><code>43127</code></td><td>Loopback port the Browser Bridge connects to.</td></tr>
+          <tr><td><code>bachata.todoFile</code></td><td><code>TODO.md</code></td><td>Task list used by TODO orchestration.</td></tr>
+        </tbody>
+      </table>
+      <p>Settings that widen what a run may do, such as permission modes and external working directories, are read from user or machine settings only, so a repository you open cannot grant itself more authority.</p>
+
+      <h3 id="privacy">Privacy</h3>
+      <p>Bachata runs against your local checkout. There is no Bachata account, hosted service or telemetry. Prompts, selected code and answers go to the providers you choose; the run contract shows what each provider receives before the run starts. Provider credentials stay with the provider's own CLI or browser session.</p>
+
+      <h3 id="about-screenshots">About the screenshots</h3>
+      <p>The screenshots show the real Bachata panel (<code>dist/webview.js</code>) and the real Bridge popup, rendered in Chrome outside VS Code with VS Code's Dark Modern theme colours. The repository <em>demo-shop</em>, its runs, findings, decisions and chat tabs are invented demo data. In VS Code the panel appears inside an editor tab.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  Bachata is MIT licensed. Source: <a href="https://github.com/multipliedtwice/bachata-extension">bachata-extension</a> · <a href="https://github.com/multipliedtwice/bachata-browser-bridge">bachata-browser-bridge</a>
+</footer>
+</body>
+</html>

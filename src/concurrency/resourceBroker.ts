@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
+import { hostname } from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -48,6 +49,11 @@ export type ResourceBrokerOptions = {
   pollIntervalMs?: number;
   heartbeatIntervalMs?: number;
   staleOwnerMs?: number;
+  /** How long a silent owner whose process is still alive keeps its leases. */
+  liveOwnerGraceMs?: number;
+  processId?: number;
+  hostName?: string;
+  processAlive?: (pid: number) => boolean;
 };
 
 export type BrowserBridgeAcquireRequest = {
@@ -245,6 +251,15 @@ const retry = async (operation: () => void): Promise<void> => {
   throw lastError;
 };
 
+const defaultProcessAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+};
+
 export const resourceKey = (namespace: string, identity: string): string => {
   const hash = createHash("sha256").update(identity).digest("hex");
   return `${namespace}:${hash}`;
@@ -328,6 +343,16 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
       if (!quarantineColumns.has("lease_id")) {
         value.exec("ALTER TABLE resource_quarantine ADD COLUMN lease_id TEXT");
       }
+      const ownerColumns = new Set(
+        (value.prepare("PRAGMA table_info(resource_owner)").all() as Array<Record<string, unknown>>)
+          .map((row) => String(row.name)),
+      );
+      if (!ownerColumns.has("pid")) {
+        value.exec("ALTER TABLE resource_owner ADD COLUMN pid INTEGER");
+      }
+      if (!ownerColumns.has("host")) {
+        value.exec("ALTER TABLE resource_owner ADD COLUMN host TEXT");
+      }
       value.exec("DELETE FROM resource_capacity");
     });
   });
@@ -338,6 +363,10 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
   const pollIntervalMs = Math.max(10, options.pollIntervalMs ?? 100);
   const heartbeatIntervalMs = Math.max(50, options.heartbeatIntervalMs ?? 2_000);
   const staleOwnerMs = Math.max(heartbeatIntervalMs * 2, options.staleOwnerMs ?? 15_000);
+  const liveOwnerGraceMs = Math.max(staleOwnerMs, options.liveOwnerGraceMs ?? 300_000);
+  const processId = options.processId ?? process.pid;
+  const hostName = options.hostName ?? hostname();
+  const processAlive = options.processAlive ?? defaultProcessAlive;
   const localLeases = new Map<string, LocalLeaseState>();
   let disposed = false;
   const pendingAcquisitions = new Set<Promise<void>>();
@@ -346,9 +375,9 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
   let staleCleanupBlockedUntil = lastMaintenanceAt + staleOwnerMs;
 
   const heartbeatStatement = database.prepare(`
-    INSERT INTO resource_owner(owner_id, heartbeat_at)
-    VALUES (?, ?)
-    ON CONFLICT(owner_id) DO UPDATE SET heartbeat_at = excluded.heartbeat_at
+    INSERT INTO resource_owner(owner_id, heartbeat_at, pid, host)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(owner_id) DO UPDATE SET heartbeat_at = excluded.heartbeat_at, pid = excluded.pid, host = excluded.host
   `);
   const removeOwnerStatement = database.prepare("DELETE FROM resource_owner WHERE owner_id = ?");
   const removeOwnerRequestsStatement = database.prepare("DELETE FROM resource_request WHERE owner_id = ?");
@@ -420,19 +449,32 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
     }
   };
 
+  // A silent owner on this host whose process still runs is busy, not gone: an overloaded machine
+  // can delay a heartbeat well past the stale threshold. Its leases survive until the longer grace;
+  // an owner whose process has exited, or that another host or an older build recorded, keeps the
+  // heartbeat rule.
+  const silentButAlive = (owner: { pid: number | null; host: string | null; heartbeat_at: number }): boolean =>
+    owner.pid !== null && owner.pid !== processId && owner.host === hostName &&
+    owner.heartbeat_at >= now() - liveOwnerGraceMs && processAlive(owner.pid);
+
   const cleanupStaleOwners = (includeHeartbeatStale: boolean): void => {
     const threshold = now() - staleOwnerMs;
-    const staleOwners = database.prepare(`
-      SELECT owner_id FROM resource_owner
-      WHERE ? = 1 AND owner_id <> ? AND heartbeat_at < ?
-      UNION
+    const silentOwners = includeHeartbeatStale
+      ? (database.prepare(`
+          SELECT owner_id, pid, host, heartbeat_at FROM resource_owner
+          WHERE owner_id <> ? AND heartbeat_at < ?
+        `).all(ownerId, threshold) as Array<{ owner_id: string; pid: number | null; host: string | null; heartbeat_at: number }>)
+        .filter((owner) => !silentButAlive(owner))
+        .map((owner) => ({ owner_id: owner.owner_id }))
+      : [];
+    const orphanOwners = database.prepare(`
       SELECT owner_id FROM resource_lease
       WHERE owner_id <> ? AND owner_id NOT IN (SELECT owner_id FROM resource_owner)
       UNION
       SELECT owner_id FROM resource_request
       WHERE owner_id <> ? AND owner_id NOT IN (SELECT owner_id FROM resource_owner)
-    `).all(includeHeartbeatStale ? 1 : 0, ownerId, threshold, ownerId, ownerId) as Array<{ owner_id: string }>;
-    for (const stale of staleOwners) {
+    `).all(ownerId, ownerId) as Array<{ owner_id: string }>;
+    for (const stale of [...silentOwners, ...orphanOwners]) {
       const leases = database
         .prepare("SELECT lease_id FROM resource_lease WHERE owner_id = ?")
         .all(stale.owner_id) as Array<{ lease_id: string }>;
@@ -476,7 +518,7 @@ export const createResourceBroker = (options: ResourceBrokerOptions): ResourceBr
       );
     }
     beginImmediate(database, () => {
-      heartbeatStatement.run(ownerId, wallTime);
+      heartbeatStatement.run(ownerId, wallTime, processId, hostName);
       cleanupStaleOwners(maintenanceAt >= staleCleanupBlockedUntil);
     });
     validateLocalLeases();

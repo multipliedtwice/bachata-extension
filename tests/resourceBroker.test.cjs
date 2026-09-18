@@ -905,3 +905,64 @@ test("broker migration retains quarantine recorded without cleanup ownership", a
     await rm(temporary.root, { recursive: true, force: true });
   }
 });
+
+// A window whose extension host is alive but too busy to heartbeat is not a crashed window. Its
+// workspace lease survives the stale threshold while its process runs, and is reclaimed only after
+// the longer grace, or at once when the process is gone or lives on another host.
+const silentOwnerScenario = async ({ ownerAlive, ownerHost = "this-host", elapsedMs }) => {
+  const temporary = await tempDatabase();
+  let wallClock = 1_000;
+  let silentMonotonic = 0;
+  let observerMonotonic = 0;
+  const timing = { heartbeatIntervalMs: 1_000, staleOwnerMs: 5_000, liveOwnerGraceMs: 60_000 };
+  const silent = broker(temporary.databasePath, "busy-window", {
+    ...timing,
+    now: () => wallClock,
+    monotonicNow: () => silentMonotonic,
+    processId: 4_242,
+    hostName: ownerHost,
+  });
+  const held = await silent.acquire({
+    resources: [{ key: "workspace-state-writer:busy", capacity: 1 }],
+    deadlineAt: wallClock + 1_000,
+  });
+  const observer = broker(temporary.databasePath, "other-window", {
+    ...timing,
+    now: () => wallClock,
+    monotonicNow: () => observerMonotonic,
+    processId: 7_777,
+    hostName: "this-host",
+    processAlive: (pid) => pid === 4_242 && ownerAlive,
+  });
+  const steps = Math.ceil(elapsedMs / 1_000);
+  for (let step = 1; step <= steps; step += 1) {
+    wallClock += 1_000;
+    observerMonotonic += 1_000;
+    const probe = await observer.acquire({
+      resources: [{ key: `probe:busy:${String(step)}` }],
+      deadlineAt: wallClock + 1_000,
+    });
+    await probe.release();
+  }
+  const valid = held.isValid();
+  await held.release();
+  await Promise.all([silent.dispose(), observer.dispose()]);
+  await rm(temporary.root, { recursive: true, force: true });
+  return valid;
+};
+
+test("a silent owner whose process still runs keeps its lease past the stale threshold", async () => {
+  assert.equal(await silentOwnerScenario({ ownerAlive: true, elapsedMs: 20_000 }), true);
+});
+
+test("a silent owner whose process still runs loses its lease after the live-owner grace", async () => {
+  assert.equal(await silentOwnerScenario({ ownerAlive: true, elapsedMs: 70_000 }), false);
+});
+
+test("a silent owner whose process has exited loses its lease at the stale threshold", async () => {
+  assert.equal(await silentOwnerScenario({ ownerAlive: false, elapsedMs: 20_000 }), false);
+});
+
+test("a silent owner on another host keeps the heartbeat rule", async () => {
+  assert.equal(await silentOwnerScenario({ ownerAlive: true, ownerHost: "other-host", elapsedMs: 20_000 }), false);
+});
