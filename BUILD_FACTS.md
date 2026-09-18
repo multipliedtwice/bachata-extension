@@ -14,8 +14,8 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Extension version | 0.7.2 |
 | Pinned Browser Bridge version | 0.6.9 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 734 |
-| Maintained source manifest SHA-256 (Git-tracked) | 85e4119fbde2001d5dfc33adb16058e17cb5d26d33bed38ed239943041408441 |
+| Maintained source files (Git-tracked) | 761 |
+| Maintained source manifest SHA-256 (Git-tracked) | 7a7408cc5d73ac8abb73b36bff91b63c6fe1730eac4ab79c07c1ade3488c69ab |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -23,7 +23,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Settings in "%configuration.group.4.title%" | 40 |
 | Contributed commands | 28 |
 | Built-in presets (Git-tracked) | 21 |
-| Test files (Git-tracked) | 236 |
+| Test files (Git-tracked) | 237 |
 | Declared artifact promotion types | design, recommendation, requirement |
 | Benchmark tasks (Git-tracked) | 4 |
 | Benchmark arms declared (Git-tracked tasks) | 8 |
@@ -38,13 +38,13 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 77a4b73f86f5a5fb5e672923c891f8cd20db9e95.
+The working tree was modified, so these values describe the working tree and not commit 90481128c894ce38ddd214e4fed10b9cde062112.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 77a4b73f86f5a5fb5e672923c891f8cd20db9e95 |
+| Revision | 90481128c894ce38ddd214e4fed10b9cde062112 |
 | Working tree | modified |
-| Maintained source files (working tree, what source:export carries) | 735 |
+| Maintained source files (working tree, what source:export carries) | 761 |
 | Platform | Darwin 24.5.0 arm64 |
 | Node | v23.6.1 |
 | Git | git version 2.55.0 |
