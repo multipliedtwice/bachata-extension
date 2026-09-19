@@ -24,6 +24,7 @@ export type BrowserConversationBinding = {
   conversationUrl: string;
   conversationIdentity: string;
   preferredTabId?: number;
+  provisionalDocumentToken?: string;
 };
 
 export type BrowserAttachment = {

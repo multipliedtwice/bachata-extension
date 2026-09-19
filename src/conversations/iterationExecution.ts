@@ -1,3 +1,5 @@
+import type { PipelineRunResult } from "../pipeline/runner";
+import type { RunExecutionPlan } from "../runtime/pipelineRunPlan";
 import type { WorkspaceWriteScope } from "../adapters/types";
 import { failedRunWorkflowStatus } from "../runtime/recoveryTransition";
 
@@ -126,4 +128,26 @@ export const iterationFailurePlan = (input: {
     message: input.error instanceof Error ? input.error.message : String(input.error),
     dropPendingWorkingDirectory: !recoverable,
   };
+};
+
+export const executeIterationSequence = async (
+  plan: RunExecutionPlan,
+  execute: (displayIndex: number, iterationPlan: RunExecutionPlan) => Promise<PipelineRunResult>,
+): Promise<PipelineRunResult[]> => {
+  const results: PipelineRunResult[] = [];
+  let cleanPasses = plan.consecutiveCleanPasses ?? 0;
+  for (let index = plan.iterationIndex ?? 1; index <= plan.iterationCount; index += 1) {
+    const result = await execute(index, {
+      ...plan,
+      iterationIndex: index,
+      consecutiveCleanPasses: cleanPasses,
+    });
+    results.push(result);
+    if (result.status !== "completed" || result.completionReason === "humanDecision") break;
+    if (plan.iterationMode === "untilClean") {
+      cleanPasses = result.workspaceChanged === false ? cleanPasses + 1 : 0;
+      if (cleanPasses >= plan.requiredCleanPasses) break;
+    }
+  }
+  return results;
 };

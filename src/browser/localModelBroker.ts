@@ -1,3 +1,4 @@
+import { normalizeLocalModelEndpoint } from "./localModelEndpoint";
 export type LocalModelBackend = "auto" | "lmstudio" | "ollama";
 
 export type LocalModelConfig = {
@@ -143,7 +144,7 @@ const lmStudio = async (
   config: LocalModelConfig,
   signal?: AbortSignal,
 ): Promise<LocalModelAnswer> => {
-  const endpoint = (config.endpoint ?? "http://127.0.0.1:1234").replace(/\/+$/, "");
+  const endpoint = normalizeLocalModelEndpoint(config.endpoint ?? "http://127.0.0.1:1234");
   let model = config.model;
   if (!model) {
     const response = await fetchJson(
@@ -192,7 +193,7 @@ const ollama = async (
   config: LocalModelConfig,
   signal?: AbortSignal,
 ): Promise<LocalModelAnswer> => {
-  const endpoint = (config.endpoint ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const endpoint = normalizeLocalModelEndpoint(config.endpoint ?? "http://127.0.0.1:11434");
   let model = config.model;
   if (!model) {
     const response = await fetchJson(

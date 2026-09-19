@@ -35,6 +35,8 @@ export type RunExecutionPlan = {
   iterationMode: "fixed" | "untilClean";
   requiredCleanPasses: number;
   trackWorkspaceChanges?: boolean | undefined;
+  iterationIndex?: number | undefined;
+  consecutiveCleanPasses?: number | undefined;
 };
 
 export type PersistedResumableWorkflow = Omit<ResumableWorkflow, "outcome" | "stepName"> & {
@@ -42,6 +44,7 @@ export type PersistedResumableWorkflow = Omit<ResumableWorkflow, "outcome" | "st
   checkpoint: PipelineResumeState;
   pipelineSnapshot: PipelineSnapshot;
   executionPlan?: RunExecutionPlan | undefined;
+  workspaceChangeBaseline?: ManagedRepositoryBaseline | undefined;
   // Which provider actually answered for each participant. The snapshot above is the pipeline as
   // the catalog holds it, so on its own it describes a run with the shipped providers — not the
   // reassigned ones this run used. Recorded separately so the executed run stays reproducible and
@@ -110,7 +113,11 @@ export const parseRunExecutionPlan = (
     Number(iterationCount) < 1 ||
     (iterationMode !== "fixed" && iterationMode !== "untilClean") ||
     !Number.isSafeInteger(requiredCleanPasses) ||
-    Number(requiredCleanPasses) < 1
+    Number(requiredCleanPasses) < 1 ||
+    (record.iterationIndex !== undefined && (!Number.isSafeInteger(record.iterationIndex)
+      || Number(record.iterationIndex) < 1 || Number(record.iterationIndex) > Number(iterationCount))) ||
+    (record.consecutiveCleanPasses !== undefined && (!Number.isSafeInteger(record.consecutiveCleanPasses)
+      || Number(record.consecutiveCleanPasses) < 0 || Number(record.consecutiveCleanPasses) >= Number(requiredCleanPasses)))
   ) {
     return undefined;
   }
@@ -118,7 +125,9 @@ export const parseRunExecutionPlan = (
     iterationCount: Number(iterationCount),
     iterationMode,
     requiredCleanPasses: Number(requiredCleanPasses),
-    ...(record.trackWorkspaceChanges === true ? { trackWorkspaceChanges: true } : {}),
+    ...(record.trackWorkspaceChanges === true || iterationMode === "untilClean" ? { trackWorkspaceChanges: true } : {}),
+    ...(record.iterationIndex === undefined ? {} : { iterationIndex: Number(record.iterationIndex) }),
+    ...(record.consecutiveCleanPasses === undefined ? {} : { consecutiveCleanPasses: Number(record.consecutiveCleanPasses) }),
   };
 };
 
@@ -142,6 +151,7 @@ export const resumableWorkflowFrom = (input: {
   constraints: RunConstraints;
   updatedAt: string;
   executionPlan?: RunExecutionPlan | undefined;
+  workspaceChangeBaseline?: ManagedRepositoryBaseline | undefined;
   sourceQueueMessageId?: string | undefined;
   resumeSourceQueueMessageId?: string | undefined;
 }): PersistedResumableWorkflow => ({
@@ -163,6 +173,7 @@ export const resumableWorkflowFrom = (input: {
     : { assignments: structuredClone(input.assignments) }),
   ...input.constraints,
   ...(input.executionPlan === undefined ? {} : { executionPlan: { ...input.executionPlan } }),
+  ...(input.workspaceChangeBaseline === undefined ? {} : { workspaceChangeBaseline: structuredClone(input.workspaceChangeBaseline) }),
   ...(input.sourceQueueMessageId !== undefined
     ? { sourceQueueMessageId: input.sourceQueueMessageId }
     : input.resumeSourceQueueMessageId !== undefined

@@ -1,3 +1,4 @@
+import { browserBindingForSession, browserConversationClaimKey, resolveBrowserSession } from "./conversationOwnership";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { createSharedBridgeRequestHandler } from "./sharedBridgeTransport";
@@ -75,6 +76,11 @@ export type BrowserAssetTransferEvent =
       sha256: string;
     };
 
+export type BrowserBindingChange = {
+  commit: () => Promise<void>;
+  rollback: () => Promise<void>;
+};
+
 export type BrowserBridgeServer = {
   start: () => Promise<void>;
   getStatus: () => BrowserBridgeStatus;
@@ -93,6 +99,10 @@ export type BrowserBridgeServer = {
   bindSession: (ownerId: string, sessionId: string) => BrowserConversationBinding;
   bindConversation: (ownerId: string, binding: BrowserConversationBinding) => void;
   releaseBinding: (ownerId: string) => void;
+  beginBindingChange: (
+    ownerId: string,
+    binding: BrowserConversationBinding | undefined,
+  ) => Promise<BrowserBindingChange>;
   resolveBoundSession: (
     ownerId: string,
     binding: BrowserConversationBinding | undefined,
@@ -105,6 +115,7 @@ export type BrowserBridgeServer = {
     signal: AbortSignal,
     attachments?: BrowserAttachment[],
     deadlineAt?: number,
+    context?: { ownerId: string; requestId?: string },
   ) => AsyncIterable<BrowserConversationEvent>;
   fetchAsset: (
     assetId: string,
@@ -152,14 +163,17 @@ export type BrowserBridgeServerOptions = {
 type PendingConversation = {
   requestId: string;
   agentId: string;
+  ownerId: string;
   session: BrowserSession;
   queue: ReturnType<typeof createAsyncQueue<BrowserConversationEvent>>;
   signal: AbortSignal;
   abortListener: () => void;
   interruptTimer?: NodeJS.Timeout;
+  deadlineTimer?: NodeJS.Timeout;
   interruptRequested: boolean;
   allowSessionTransition: boolean;
   boundSessionIds: Set<string>;
+  reservedConversationKeys: Set<string>;
   transitionSession?: BrowserSession;
 };
 
@@ -266,10 +280,13 @@ export const createBrowserBridgeServer = (
   let blockedReason: BrowserBridgeStatus["blockedReason"];
   const pending = new Map<string, PendingConversation>();
   const pendingBySession = new Map<string, string>();
+  const deferredBindingReleases = new Set<string>();
   const pendingAssetTransfers = new Map<string, PendingAssetTransfer>();
   const pendingAssetReveals = new Map<string, PendingAssetReveal>();
   const pendingProviderOpens = new Map<string, PendingProviderOpen>();
   const bindingOwnerByConversation = new Map<string, string>();
+  const bindingChanges = new Map<string, { previousKey?: string; targetKey?: string }>();
+  const bindingPromotions = new Map<string, { previousKey: string; binding: BrowserConversationBinding }>();
   const conversationByBindingOwner = new Map<string, string>();
   const authenticationTimers = new Map<TextSocket, NodeJS.Timeout>();
   const configuredOriginOverride = options.originOverrideForTests;
@@ -368,22 +385,29 @@ export const createBrowserBridgeServer = (
     } satisfies BridgeServerMessage));
   };
 
-  const conversationClaimKey = (
-    binding: Pick<BrowserConversationBinding, "provider" | "conversationIdentity" | "preferredTabId">,
-  ): string => binding.provider === "generic" && binding.preferredTabId !== undefined
-    ? `${binding.provider}:tab:${String(binding.preferredTabId)}:${binding.conversationIdentity}`
-    : `${binding.provider}:${binding.conversationIdentity}`;
+  const conversationClaimKey = browserConversationClaimKey;
 
   const bindConversation = (
     ownerId: string,
     binding: BrowserConversationBinding,
   ): void => {
+    const promotion = bindingPromotions.get(ownerId);
+    if (promotion && conversationClaimKey(binding) === promotion.previousKey) binding = promotion.binding;
     const key = conversationClaimKey(binding);
+    const changing = bindingChanges.get(ownerId);
+    if (changing) {
+      if (changing.targetKey !== key) throw new Error("Browser ownership is being changed");
+      return;
+    }
     const existingOwner = bindingOwnerByConversation.get(key);
     if (existingOwner && existingOwner !== ownerId) {
       throw new Error("The browser conversation is already bound to another pair participant");
     }
     const previousKey = conversationByBindingOwner.get(ownerId);
+    if (previousKey !== key && [...pending.values()].some((operation) => operation.ownerId === ownerId)) {
+      throw new Error("The participant's previous browser request has not confirmed termination");
+    }
+    deferredBindingReleases.delete(ownerId);
     if (previousKey && previousKey !== key && bindingOwnerByConversation.get(previousKey) === ownerId) {
       bindingOwnerByConversation.delete(previousKey);
     }
@@ -392,6 +416,13 @@ export const createBrowserBridgeServer = (
   };
 
   const releaseBinding = (ownerId: string): void => {
+    if (bindingChanges.has(ownerId)) return;
+    if ([...pending.values()].some((operation) => operation.ownerId === ownerId)) {
+      deferredBindingReleases.add(ownerId);
+      return;
+    }
+    deferredBindingReleases.delete(ownerId);
+    bindingPromotions.delete(ownerId);
     const key = conversationByBindingOwner.get(ownerId);
     conversationByBindingOwner.delete(ownerId);
     if (key && bindingOwnerByConversation.get(key) === ownerId) {
@@ -399,48 +430,89 @@ export const createBrowserBridgeServer = (
     }
   };
 
-  const bindingForSession = (session: BrowserSession): BrowserConversationBinding => ({
-    provider: session.provider,
-    conversationUrl: session.conversationUrl,
-    conversationIdentity: session.conversationIdentity,
-    preferredTabId: session.tabId,
-  });
+  const beginBindingChange = async (
+    ownerId: string,
+    binding: BrowserConversationBinding | undefined,
+  ): Promise<BrowserBindingChange> => {
+    if (bindingChanges.has(ownerId)) throw new Error("Browser ownership is already being changed");
+    if ([...pending.values()].some((operation) => operation.ownerId === ownerId)) {
+      throw new Error("The participant's previous browser request has not confirmed termination");
+    }
+    const previousKey = conversationByBindingOwner.get(ownerId);
+    const targetKey = binding ? conversationClaimKey(binding) : undefined;
+    if (binding) {
+      const session = sessions.find((candidate) => candidate.status === "ready"
+        && candidate.provider === binding.provider
+        && candidate.conversationIdentity === binding.conversationIdentity
+        && (binding.preferredTabId === undefined || candidate.tabId === binding.preferredTabId)
+        && (binding.provisionalDocumentToken === undefined || candidate.documentToken === binding.provisionalDocumentToken));
+      if (!session) throw new Error("The selected browser conversation is unavailable");
+      const targetOwner = bindingOwnerByConversation.get(targetKey!);
+      if (targetOwner && targetOwner !== ownerId) {
+        throw new Error("The browser conversation is already bound to another pair participant");
+      }
+    }
+    const change = {
+      ...(previousKey === undefined ? {} : { previousKey }),
+      ...(targetKey === undefined ? {} : { targetKey }),
+    };
+    bindingChanges.set(ownerId, change);
+    if (targetKey !== undefined) {
+      bindingOwnerByConversation.set(targetKey, ownerId);
+      conversationByBindingOwner.set(ownerId, targetKey);
+    } else {
+      conversationByBindingOwner.delete(ownerId);
+    }
+    let completed: "commit" | "rollback" | undefined;
+    const finish = async (decision: "commit" | "rollback"): Promise<void> => {
+      if (completed === decision) return;
+      if (completed) throw new Error("The browser ownership change has already completed");
+      const keep = decision === "commit" ? targetKey : previousKey;
+      const discard = decision === "commit" ? previousKey : targetKey;
+      if (discard !== undefined && discard !== keep && bindingOwnerByConversation.get(discard) === ownerId) {
+        bindingOwnerByConversation.delete(discard);
+      }
+      if (keep !== undefined) {
+        bindingOwnerByConversation.set(keep, ownerId);
+        conversationByBindingOwner.set(ownerId, keep);
+      } else {
+        conversationByBindingOwner.delete(ownerId);
+      }
+      deferredBindingReleases.delete(ownerId);
+      bindingChanges.delete(ownerId);
+      if (decision === "commit") bindingPromotions.delete(ownerId);
+      completed = decision;
+    };
+    return { commit: () => finish("commit"), rollback: () => finish("rollback") };
+  };
+
+  const bindingForSession = browserBindingForSession;
 
   const resolveBoundSession = (
     ownerId: string,
     binding: BrowserConversationBinding | undefined,
     expectedSessionId?: string,
   ): BrowserSession | undefined => {
-    const exact = expectedSessionId
-      ? sessions.find((session) => session.id === expectedSessionId)
-      : undefined;
-    if (exact) {
-      const exactBinding = bindingForSession(exact);
-      if (binding && (binding.provider !== exactBinding.provider || binding.conversationIdentity !== exactBinding.conversationIdentity)) {
-        throw new Error("The browser session does not match its persisted conversation binding");
-      }
-      bindConversation(ownerId, binding ?? exactBinding);
-      return structuredClone(exact);
+    const promotion = bindingPromotions.get(ownerId);
+    const effective = promotion && binding && conversationClaimKey(binding) === promotion.previousKey
+      ? promotion.binding : binding;
+    const session = resolveBrowserSession(sessions, effective, effective === binding ? expectedSessionId : undefined);
+    if (session) bindConversation(ownerId, bindingForSession(session));
+    else if (effective) bindConversation(ownerId, effective);
+    return session;
+  };
+
+  const promoteOperationBinding = (operation: PendingConversation, binding: BrowserConversationBinding): void => {
+    const previousKey = conversationByBindingOwner.get(operation.ownerId);
+    const nextKey = conversationClaimKey(binding);
+    const occupied = bindingOwnerByConversation.get(nextKey);
+    if (occupied && occupied !== operation.ownerId) throw new Error("The transitioned browser conversation is already owned by another participant");
+    bindingOwnerByConversation.set(nextKey, operation.ownerId);
+    conversationByBindingOwner.set(operation.ownerId, nextKey);
+    if (previousKey !== undefined && previousKey !== nextKey) {
+      bindingPromotions.set(operation.ownerId, { previousKey, binding });
+      if (bindingOwnerByConversation.get(previousKey) === operation.ownerId) bindingOwnerByConversation.delete(previousKey);
     }
-    if (!binding) {
-      return undefined;
-    }
-    bindConversation(ownerId, binding);
-    if (binding.provider === "generic") {
-      return undefined;
-    }
-    const candidates = sessions.filter(
-      (session) =>
-        session.provider === binding.provider &&
-        session.conversationIdentity === binding.conversationIdentity,
-    );
-    const preferred = binding.preferredTabId === undefined
-      ? undefined
-      : candidates.find((session) => session.tabId === binding.preferredTabId);
-    if (preferred) {
-      return structuredClone(preferred);
-    }
-    return candidates.length === 1 ? structuredClone(candidates[0]) : undefined;
   };
 
   const emitStatus = (): void => {
@@ -482,11 +554,28 @@ export const createBrowserBridgeServer = (
     if (operation.interruptTimer) {
       clearTimeout(operation.interruptTimer);
     }
+    if (operation.deadlineTimer) clearTimeout(operation.deadlineTimer);
     pending.delete(requestId);
+    for (const key of operation.reservedConversationKeys) {
+      if (key !== conversationByBindingOwner.get(operation.ownerId) && bindingOwnerByConversation.get(key) === operation.ownerId) {
+        bindingOwnerByConversation.delete(key);
+      }
+    }
     for (const sessionId of operation.boundSessionIds) {
       if (pendingBySession.get(sessionId) === requestId) pendingBySession.delete(sessionId);
     }
+    if (deferredBindingReleases.has(operation.ownerId)) releaseBinding(operation.ownerId);
     return operation;
+  };
+
+  const settleUnconfirmed = (operation: PendingConversation, error: unknown): void => {
+    if (!pending.has(operation.requestId)) return;
+    clearTimeout(operation.interruptTimer);
+    clearTimeout(operation.deadlineTimer);
+    delete operation.interruptTimer;
+    delete operation.deadlineTimer;
+    operation.interruptRequested = false;
+    operation.queue.fail(error);
   };
 
   const rejectPending = (error: Error): void => {
@@ -605,8 +694,8 @@ export const createBrowserBridgeServer = (
     if (reason) {
       lastError = reason;
     }
-    const error = new Error(reason ?? "Browser bridge disconnected");
-    rejectPending(error);
+    const error = new Error(`${reason ?? "Browser bridge disconnected"}; remote termination is unconfirmed`);
+    for (const operation of pending.values()) settleUnconfirmed(operation, error);
     rejectPendingAssetTransfers(error);
     rejectPendingAssetReveals(error);
     rejectPendingProviderOpens(error);
@@ -624,7 +713,7 @@ export const createBrowserBridgeServer = (
     operation.session.id === message.sessionId;
 
   const requestInterrupt = (operation: PendingConversation): void => {
-    if (operation.interruptRequested) {
+    if (!pending.has(operation.requestId) || operation.interruptRequested) {
       return;
     }
     operation.interruptRequested = true;
@@ -646,13 +735,11 @@ export const createBrowserBridgeServer = (
         conversationIdentity: operation.session.conversationIdentity,
       });
     } catch (error) {
-      removePending(operation.requestId)?.queue.fail(error);
+      settleUnconfirmed(operation, error);
       return;
     }
     operation.interruptTimer = setTimeout(() => {
-      removePending(operation.requestId)?.queue.fail(
-        new Error("Browser interruption was not confirmed"),
-      );
+      settleUnconfirmed(operation, new Error("Browser interruption was not confirmed; the conversation remains reserved"));
     }, interruptTimeoutMs);
   };
 
@@ -866,18 +953,27 @@ export const createBrowserBridgeServer = (
         if (transitioned) {
           const owner = pendingBySession.get(transitioned.id);
           if (owner && owner !== operation.requestId) {
-            removePending(operation.requestId)?.queue.fail(
-              new Error("The transitioned browser conversation already has an active request"),
+            settleUnconfirmed(operation,
+              new Error("The transitioned browser conversation already has an active request; remote termination is unconfirmed"),
             );
             return;
           }
+          const targetKey = conversationClaimKey(bindingForSession(transitioned));
+          const targetOwner = bindingOwnerByConversation.get(targetKey);
+          if ((targetOwner && targetOwner !== operation.ownerId)
+            || (operation.transitionSession && operation.transitionSession.conversationIdentity !== transitioned.conversationIdentity)) {
+            settleUnconfirmed(operation, new Error("The transitioned browser conversation is already owned or changed again; remote termination is unconfirmed"));
+            return;
+          }
+          bindingOwnerByConversation.set(targetKey, operation.ownerId);
+          operation.reservedConversationKeys.add(targetKey);
           operation.transitionSession = structuredClone(transitioned);
           operation.boundSessionIds.add(transitioned.id);
           pendingBySession.set(transitioned.id, operation.requestId);
           return;
         }
-        removePending(operation.requestId)?.queue.fail(
-          new Error("The bound browser conversation changed during the active request"),
+        settleUnconfirmed(operation,
+          new Error("The bound browser conversation changed during the active request; remote termination is unconfirmed"),
         );
       });
       lastError = undefined;
@@ -891,8 +987,8 @@ export const createBrowserBridgeServer = (
         return;
       }
       if (!matchesOperation(operation, message)) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser submission does not match the active request"),
+        settleUnconfirmed(operation,
+          new Error("Browser submission does not match the active request; remote termination is unconfirmed"),
         );
         return;
       }
@@ -906,8 +1002,8 @@ export const createBrowserBridgeServer = (
         return;
       }
       if (!matchesOperation(operation, message)) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser stream does not match the active request"),
+        settleUnconfirmed(operation,
+          new Error("Browser stream does not match the active request; remote termination is unconfirmed"),
         );
         return;
       }
@@ -925,15 +1021,25 @@ export const createBrowserBridgeServer = (
         return;
       }
       if (!matchesOperation(operation, message)) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser response does not match the active request"),
+        settleUnconfirmed(operation,
+          new Error("Browser response does not match the active request; remote termination is unconfirmed"),
         );
         return;
       }
       if (!validFinalResponseBinding(operation, message)) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser response final conversation binding is invalid"),
+        settleUnconfirmed(operation,
+          new Error("Browser response final conversation binding is invalid; conversation ownership is unconfirmed"),
         );
+        return;
+      }
+      try {
+        promoteOperationBinding(operation, bindingForSession({
+          ...operation.session,
+          conversationUrl: message.finalConversationUrl,
+          conversationIdentity: message.finalConversationIdentity,
+        }));
+      } catch (error) {
+        removePending(message.requestId)?.queue.fail(error);
         return;
       }
       if (message.finalSessionId !== operation.session.id) {
@@ -954,10 +1060,19 @@ export const createBrowserBridgeServer = (
         return;
       }
       if (!matchesOperation(operation, message)) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser interruption does not match the active request"),
+        settleUnconfirmed(operation,
+          new Error("Browser interruption does not match the active request; remote termination is unconfirmed"),
         );
         return;
+      }
+      if (operation.transitionSession) {
+        try {
+          promoteOperationBinding(operation, bindingForSession(operation.transitionSession));
+        } catch (error) {
+          settleUnconfirmed(operation, error);
+          return;
+        }
+        operation.queue.push({ type: "session", sessionId: operation.transitionSession.id });
       }
       operation.queue.push({ type: "interrupted" });
       operation.queue.end();
@@ -971,8 +1086,8 @@ export const createBrowserBridgeServer = (
         return;
       }
       if (!matchesOperation(operation, message)) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser interruption failure does not match the active request"),
+        settleUnconfirmed(operation,
+          new Error("Browser interruption failure does not match the active request; remote termination is unconfirmed"),
         );
         return;
       }
@@ -997,8 +1112,8 @@ export const createBrowserBridgeServer = (
         (message.agentId && operation.agentId !== message.agentId) ||
         (message.sessionId && operation.session.id !== message.sessionId)
       ) {
-        removePending(message.requestId)?.queue.fail(
-          new Error("Browser error does not match the active request"),
+        settleUnconfirmed(operation,
+          new Error("Browser error does not match the active request; remote termination is unconfirmed"),
         );
         return;
       }
@@ -1429,7 +1544,7 @@ export const createBrowserBridgeServer = (
     getBridge: () => bridge,
     interruptConversation: async (ownerIds, requestId) => {
       const operation = pending.get(requestId);
-      if (operation && ownerIds.includes(operation.agentId)) requestInterrupt(operation);
+      if (operation && ownerIds.includes(operation.ownerId)) requestInterrupt(operation);
     },
   });
   const reserve = (): Promise<BrowserBridgeReservation> => {
@@ -1788,6 +1903,7 @@ export const createBrowserBridgeServer = (
     },
     bindConversation,
     releaseBinding,
+    beginBindingChange,
     resolveBoundSession,
     sendConversation: (
       agentId,
@@ -1796,9 +1912,15 @@ export const createBrowserBridgeServer = (
       signal,
       attachments = [],
       deadlineAt = Date.now() + 2 * 60 * 60_000,
+      context,
     ) => {
       const queue = createAsyncQueue<BrowserConversationEvent>();
-      const requestId = randomUUID();
+      const requestId = context?.requestId ?? randomUUID();
+      const ownerId = context?.ownerId ?? agentId;
+      if (pending.has(requestId) || !Number.isFinite(deadlineAt) || deadlineAt <= Date.now()) {
+        queue.fail(new Error("Browser request identity or deadline is invalid"));
+        return queue.iterable;
+      }
       const selected = sessions.find(
         (session) => session.id === (expectedSessionId ?? selectedSessionId),
       );
@@ -1822,15 +1944,24 @@ export const createBrowserBridgeServer = (
         );
         return queue.iterable;
       }
-      if (pendingBySession.has(selected.id)) {
+      if (pendingBySession.has(selected.id) || [...pending.values()].some((operation) => operation.ownerId === ownerId)) {
         queue.fail(
-          new Error("The bound browser conversation already has an active request"),
+          new Error("The bound browser conversation already has an active request or an unconfirmed request; confirm its termination before sending again"),
         );
         return queue.iterable;
+      }
+      if (context) {
+        try {
+          bindConversation(ownerId, bindingForSession(selected));
+        } catch (error) {
+          queue.fail(error);
+          return queue.iterable;
+        }
       }
       const operation: PendingConversation = {
         requestId,
         agentId,
+        ownerId,
         session: structuredClone(selected),
         queue,
         signal,
@@ -1838,6 +1969,7 @@ export const createBrowserBridgeServer = (
         interruptRequested: false,
         allowSessionTransition: selected.provider === "generic" || isInitialConversationPage(selected.provider, selected.conversationUrl),
         boundSessionIds: new Set([selected.id]),
+        reservedConversationKeys: new Set(),
       };
       operation.abortListener = () => requestInterrupt(operation);
       pending.set(requestId, operation);
@@ -1850,6 +1982,10 @@ export const createBrowserBridgeServer = (
         return queue.iterable;
       }
       signal.addEventListener("abort", operation.abortListener, { once: true });
+      operation.deadlineTimer = setTimeout(() => {
+        requestInterrupt(operation);
+        settleUnconfirmed(operation, new Error("Browser turn deadline expired; remote termination is unconfirmed and the conversation remains reserved"));
+      }, Math.min(2_147_483_647, Math.max(1, deadlineAt - Date.now())));
       queue.push({ type: "session", sessionId: selected.id });
       try {
         send({
@@ -2034,7 +2170,10 @@ export const createBrowserBridgeServer = (
         sessions = [];
         selectedSessionId = undefined;
         bindingOwnerByConversation.clear();
+        bindingChanges.clear();
+        bindingPromotions.clear();
         conversationByBindingOwner.clear();
+        deferredBindingReleases.clear();
         emitStatus();
       })();
       return closeOperation;

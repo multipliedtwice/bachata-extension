@@ -619,7 +619,8 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
             state.resumableWorkflow
               ? {
                   version: 1,
-                  definition: definitionFor(state.resumableWorkflow.pipelineId)
+                  definition: harnessOptions.recoveryPipelineDefinition
+                    ?? definitionFor(state.resumableWorkflow.pipelineId)
                     ?? definitionFor(state.selectedPipelineId),
                   hash: `hash-${state.resumableWorkflow.pipelineId}`,
                   scopeKey: "extension",
@@ -4050,6 +4051,10 @@ test("workflow resume restores catalog context after restart and completes all r
       storageRoot,
       workspaceState,
       runtimeResumableWorkflow: recovery,
+      recoveryPipelineDefinition: {
+        ...firstRuntime.state.selectedPipelineDefinition,
+        id: "cross-reference-development",
+      },
       removeStorageOnDispose: true,
     });
     await second.manager.handleMessage({ type: "manager.ready" });

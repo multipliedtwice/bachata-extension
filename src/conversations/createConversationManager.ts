@@ -259,6 +259,7 @@ import {
   conversationRuntimeShape,
 } from "./conversationRuntimeOptions";
 import {
+  executeIterationSequence,
   impliedWriteScope,
   isPairPipeline,
   iterationEndEvent,
@@ -394,6 +395,7 @@ export type ConversationRunOptions = {
   pipelineSnapshot?: PipelineSnapshot;
   commitMode?: "never" | "allow";
   writeScope?: WorkspaceWriteScope;
+  allowedPaths?: string[];
   iterationMode?: "fixed" | "untilClean";
   requiredCleanPasses?: number;
   composerAuthorized?: boolean;
@@ -3964,7 +3966,8 @@ export const createConversationManager = (
         typeof binding.conversationIdentity !== "string" ||
         !binding.conversationIdentity ||
         (binding.preferredTabId !== undefined &&
-          !Number.isInteger(binding.preferredTabId))
+          !Number.isInteger(binding.preferredTabId)) ||
+        (binding.provisionalDocumentToken !== undefined && (typeof binding.provisionalDocumentToken !== "string" || !binding.provisionalDocumentToken))
       ) {
         return [];
       }
@@ -3977,6 +3980,7 @@ export const createConversationManager = (
           ...(binding.preferredTabId === undefined
             ? {}
             : { preferredTabId: Number(binding.preferredTabId) }),
+          ...(binding.provisionalDocumentToken === undefined ? {} : { provisionalDocumentToken: binding.provisionalDocumentToken }),
         },
       }];
     });
@@ -4990,6 +4994,7 @@ export const createConversationManager = (
     sourceQueueMessageId?: string | undefined;
     pipelineSnapshot?: PipelineSnapshot | undefined;
     requireCurrentCatalog?: boolean | undefined;
+    allowedPaths?: string[] | undefined;
     writeScope?: WorkspaceWriteScope | undefined;
     commitMode?: "never" | "allow" | undefined;
     trackWorkspaceChanges?: boolean | undefined;
@@ -5076,9 +5081,11 @@ export const createConversationManager = (
               ? { pipelineSnapshot: input.pipelineSnapshot }
               : {}),
             ...(input.requireCurrentCatalog === undefined ? {} : { requireCurrentCatalog: input.requireCurrentCatalog }),
-            ...(input.summary.orchestrationPaths?.length
-              ? { allowedPaths: [...input.summary.orchestrationPaths] }
-              : {}),
+            ...(input.allowedPaths !== undefined
+              ? { allowedPaths: [...input.allowedPaths] }
+              : input.summary.orchestrationPaths?.length
+                ? { allowedPaths: [...input.summary.orchestrationPaths] }
+                : {}),
             ...((): { writeScope?: WorkspaceWriteScope } => {
               const writeScope = impliedWriteScope({
                 requested: input.writeScope,
@@ -5386,15 +5393,14 @@ export const createConversationManager = (
       await persist();
       emitSnapshot();
 
-      let cleanPasses = 0;
-      for (let offset = 0; offset < requestedIterations; offset += 1) {
+      iterations.push(...await executeIterationSequence(executionPlan, async (displayIndex, iterationPlan) => {
+        const offset = displayIndex - 1;
         if (offset > 0) {
           await ensureContinuationExecutionLease(conversationId, slot);
         }
-        const displayIndex = offset + 1;
         summary.activeIteration = displayIndex;
         summary.updatedAt = new Date().toISOString();
-        const result = await executeConversationIteration({
+        return await executeConversationIteration({
           conversationId,
           summary,
           slot,
@@ -5410,18 +5416,13 @@ export const createConversationManager = (
           ...(options.restart && offset === 0 ? { restart: true } : {}),
           onAccepted: offset === 0 ? options.onAccepted : undefined,
           onRuntimeAccepted: offset === 0 ? options.onRuntimeAccepted : undefined,
+          ...(options.allowedPaths === undefined ? {} : { allowedPaths: options.allowedPaths }),
           ...(options.writeScope === undefined ? {} : { writeScope: options.writeScope }),
           ...(options.commitMode === undefined ? {} : { commitMode: options.commitMode }),
           trackWorkspaceChanges: iterationMode === "untilClean",
-          executionPlan,
+          executionPlan: iterationPlan,
         });
-        iterations.push(result);
-        if (result.status !== "completed" || result.completionReason === "humanDecision") break;
-        if (iterationMode === "untilClean") {
-          cleanPasses = result.workspaceChanged === false ? cleanPasses + 1 : 0;
-          if (cleanPasses >= requiredCleanPasses) break;
-        }
-      }
+      }));
       return await finishConversationRun(
         conversationId,
         summary,
@@ -5458,7 +5459,7 @@ export const createConversationManager = (
     }
     const slot = await ensureRuntime(conversationId);
     const recovery = slot.runtime.getState().resumableWorkflow;
-    const pipelineSnapshot = runtimePipelineSnapshot(slot.runtime);
+    const pipelineSnapshot = slot.runtime.getRecoveryPipelineSnapshot?.() ?? runtimePipelineSnapshot(slot.runtime);
     const latestIteration = catalog.listIterations(summary.runRef).at(-1);
     const refusal = resumeRefusal({
       archived: summary.archived,
@@ -5472,14 +5473,22 @@ export const createConversationManager = (
       throw new Error(refusal ?? "No recoverable workflow is available");
     }
     const pairRef = catalog.getPairForIteration(latestIteration.iterationRef)?.pairRef;
+    const recordedPlan = slot.runtime.getRecoveryExecutionPlan?.();
+    const recordedConstraints = slot.runtime.getRecoveryRunConstraints?.() ?? {};
     const { requestedIterations, displayIndex: currentDisplayIndex } = resumeIterationWindow({
-      iterationCount: summary.iterationCount,
-      activeIteration: summary.activeIteration,
+      iterationCount: recordedPlan?.iterationCount ?? summary.iterationCount,
+      activeIteration: recordedPlan?.iterationIndex ?? summary.activeIteration,
       maximumIterations: maximumPipelineIterations,
     });
+    const executionPlan: RunExecutionPlan = {
+      ...(recordedPlan ?? { iterationMode: "fixed", requiredCleanPasses: 2 }),
+      iterationCount: requestedIterations,
+      iterationIndex: currentDisplayIndex,
+    };
     const iterations: PipelineRunResult[] = [];
     try {
       summary.input = recovery.userPrompt;
+      summary.iterationCount = requestedIterations;
       summary.activeIteration = currentDisplayIndex;
       summary.running = true;
       summary.workflowStatus = "running";
@@ -5499,51 +5508,32 @@ export const createConversationManager = (
       await persist();
       emitSnapshot();
 
-      const resumed = await executeConversationIteration({
-        conversationId,
-        summary,
-        slot,
-        prompt: recovery.userPrompt,
-        attachmentIds: recovery.attachmentIds,
-        displayIndex: currentDisplayIndex,
-        persistedIndex: latestIteration.index,
-        requestedIterations,
-        iterationRef: latestIteration.iterationRef,
-        pairRef,
-        resume: true,
-        appendPrompt: false,
-        sourceQueueMessageId: recovery.sourceQueueMessageId,
-        pipelineSnapshot,
-      });
-      iterations.push(resumed);
-      if (resumed.status === "completed" && resumed.completionReason !== "humanDecision") {
-        for (
-          let displayIndex = currentDisplayIndex + 1;
-          displayIndex <= requestedIterations;
-          displayIndex += 1
-        ) {
+      iterations.push(...await executeIterationSequence(executionPlan, async (displayIndex, iterationPlan) => {
+        const resuming = displayIndex === currentDisplayIndex;
+        if (!resuming) {
           await ensureContinuationExecutionLease(conversationId, slot);
-          summary.activeIteration = displayIndex;
-          summary.updatedAt = new Date().toISOString();
-          const result = await executeConversationIteration({
-            conversationId,
-            summary,
-            slot,
-            prompt: recovery.userPrompt,
-            attachmentIds: recovery.attachmentIds,
-            displayIndex,
-            persistedIndex: latestIteration.index + (displayIndex - currentDisplayIndex),
-            requestedIterations,
-            appendPrompt: recovery.sourceQueueMessageId ? false : undefined,
-            sourceQueueMessageId: recovery.sourceQueueMessageId,
-            pipelineSnapshot,
-          });
-          iterations.push(result);
-          if (result.status !== "completed" || result.completionReason === "humanDecision") {
-            break;
-          }
         }
-      }
+        summary.activeIteration = displayIndex;
+        summary.updatedAt = new Date().toISOString();
+        return await executeConversationIteration({
+          conversationId,
+          summary,
+          slot,
+          prompt: recovery.userPrompt,
+          attachmentIds: recovery.attachmentIds,
+          displayIndex,
+          persistedIndex: latestIteration.index + (displayIndex - currentDisplayIndex),
+          requestedIterations,
+          ...(resuming ? { iterationRef: latestIteration.iterationRef, pairRef, resume: true } : {}),
+          appendPrompt: resuming || recovery.sourceQueueMessageId ? false : undefined,
+          sourceQueueMessageId: recovery.sourceQueueMessageId,
+          pipelineSnapshot,
+          requireCurrentCatalog: false,
+          ...recordedConstraints,
+          trackWorkspaceChanges: executionPlan.iterationMode === "untilClean" || executionPlan.trackWorkspaceChanges === true,
+          executionPlan: iterationPlan,
+        });
+      }));
       return await finishConversationRun(
         conversationId,
         summary,
@@ -6121,12 +6111,7 @@ export const createConversationManager = (
               iterationMode: recordedPlan.iterationMode,
               requiredCleanPasses: recordedPlan.requiredCleanPasses,
             }),
-        ...(recordedConstraints.writeScope === undefined
-          ? {}
-          : { writeScope: recordedConstraints.writeScope }),
-        ...(recordedConstraints.commitMode === undefined
-          ? {}
-          : { commitMode: recordedConstraints.commitMode }),
+        ...recordedConstraints,
       },
     );
   };

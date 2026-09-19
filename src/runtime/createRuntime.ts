@@ -325,6 +325,7 @@ import {
   createManagedPairCheckpoint,
   ManagedPairCheckpoint,
   parseManagedPairCheckpoint,
+  parseManagedRepositoryBaseline,
   validateManagedCompletion,
 } from "../orchestrator/managedPair";
 import { interpretBrowserActions } from "../browser/semanticInterpreter";
@@ -954,7 +955,8 @@ const parseBrowserBinding = (
     !value.conversationUrl ||
     typeof value.conversationIdentity !== "string" ||
     !value.conversationIdentity ||
-    (value.preferredTabId !== undefined && !Number.isInteger(value.preferredTabId))
+    (value.preferredTabId !== undefined && !Number.isInteger(value.preferredTabId)) ||
+    (value.provisionalDocumentToken !== undefined && (typeof value.provisionalDocumentToken !== "string" || !value.provisionalDocumentToken))
   ) {
     return undefined;
   }
@@ -965,6 +967,7 @@ const parseBrowserBinding = (
     ...(value.preferredTabId === undefined
       ? {}
       : { preferredTabId: Number(value.preferredTabId) }),
+    ...(value.provisionalDocumentToken === undefined ? {} : { provisionalDocumentToken: value.provisionalDocumentToken }),
   };
 };
 
@@ -1273,6 +1276,12 @@ const parsePersistedResumableWorkflow = (
   ) {
     return undefined;
   }
+  const workspaceChangeBaseline = parseManagedRepositoryBaseline(value.workspaceChangeBaseline);
+  if (value.workspaceChangeBaseline !== undefined && !workspaceChangeBaseline) return undefined;
+  const recoveredExecutionPlan = parseRunExecutionPlan(value.executionPlan);
+  if (value.executionPlan !== undefined && !recoveredExecutionPlan) return undefined;
+  if (value.allowedPaths !== undefined && (!Array.isArray(value.allowedPaths)
+    || value.allowedPaths.some((entry) => typeof entry !== "string"))) return undefined;
   const persistedRunSettings = parseRunSettings(value.runSettings);
   const checkpoint = parsePipelineResumeState(value.checkpoint);
   const pipelineSnapshot = parsePipelineSnapshot(value.pipelineSnapshot);
@@ -1302,6 +1311,7 @@ const parsePersistedResumableWorkflow = (
     updatedAt: value.updatedAt,
     checkpoint,
     pipelineSnapshot,
+    ...(workspaceChangeBaseline === undefined ? {} : { workspaceChangeBaseline }),
     ...(persistedRunSettings.snapshot === undefined
       ? {}
       : { runSettings: persistedRunSettings.snapshot }),
@@ -1313,10 +1323,7 @@ const parsePersistedResumableWorkflow = (
       ? { writeScope: value.writeScope as WorkspaceWriteScope }
       : {}),
     ...(value.commitMode === "never" || value.commitMode === "allow" ? { commitMode: value.commitMode } : {}),
-    ...((): { executionPlan?: RunExecutionPlan } => {
-      const executionPlan = parseRunExecutionPlan(value.executionPlan);
-      return executionPlan === undefined ? {} : { executionPlan };
-    })(),
+    ...(recoveredExecutionPlan === undefined ? {} : { executionPlan: recoveredExecutionPlan }),
     ...(typeof value.sourceQueueMessageId === "string"
       ? { sourceQueueMessageId: value.sourceQueueMessageId }
       : {}),
@@ -3403,6 +3410,7 @@ export const createRuntime = (
     persistedAgents: Record<string, PersistedAgentState> = {},
     workingDirectory: string | undefined = state.workingDirectory,
     candidateAssignments?: AgentAssignments,
+    retained?: AdapterTopology,
   ): Promise<AdapterTopology> => {
     const contextValue = adapterFactoryContext(workingDirectory);
     // The one place reassignment reaches adapter construction. Every caller — first build, reset,
@@ -3413,9 +3421,11 @@ export const createRuntime = (
     const assigned = candidateAssignments
       ? assignedPipelineDefinition(pipeline, candidateAssignments)
       : withAssignments(pipeline) ?? pipeline;
-    return await buildTopology(assigned.agents, persistedAgents, {
+    const candidate = await buildTopology(assigned.agents, persistedAgents, {
       effectiveDefinition,
       createAdapter: (definition) => {
+        const existing = retained?.adapters[definition.id];
+        if (existing) return existing;
         const createdAdapter = registry.create(definition, contextValue);
         return definition.resourceId
           ? wrapAdapterWithProviderResource(createdAdapter, {
@@ -3425,11 +3435,20 @@ export const createRuntime = (
           : createdAdapter;
       },
       onCandidateFailure: async (candidate) => {
-        const cleanupFailures = await disposeTopology(candidate);
-        bindBrowserAgents(currentTopology());
+        const cleanupFailures = await disposeTopology({
+          ...candidate,
+          adapters: Object.fromEntries(Object.entries(candidate.adapters).filter(([id, adapter]) => retained?.adapters[id] !== adapter)),
+        });
+        if (!retained) bindBrowserAgents(currentTopology());
         return cleanupFailures;
       },
     });
+    if (retained) {
+      for (const [id, agent] of Object.entries(retained.agents)) {
+        candidate.agents[id] = structuredClone(agent);
+      }
+    }
+    return candidate;
   };
 
   const installTopology = (topology: AdapterTopology): void => {
@@ -4900,13 +4919,17 @@ export const createRuntime = (
           managedPairCheckpoint = advanceManagedPair({
             ...seed,
             repositoryBaseline: currentRepositoryBaseline,
+            workspaceSnapshot: currentRepositoryBaseline,
             workspaceFingerprint: currentWorkspaceFingerprint,
           }, { type: "prepared" });
         } else {
           if (!existing || existing.taskHash !== seed.taskHash) {
             throw new Error("Managed pair checkpoint is missing or does not match this task; restart from the Worker step");
           }
-          if (!existing.repositoryBaseline || existing.workspaceFingerprint !== currentWorkspaceFingerprint) {
+          if (!existing.repositoryBaseline || !existing.workspaceSnapshot) {
+            throw new Error("Managed task-start baseline cannot be verified; restart from the Worker step");
+          }
+          if (existing.workspaceFingerprint !== currentWorkspaceFingerprint) {
             if (managedBrowserOptions.role !== "worker") {
               throw new Error("Managed workspace changed after the Worker handoff; restart from the Worker step before Lead review");
             }
@@ -4915,7 +4938,7 @@ export const createRuntime = (
               state: "WORKER_NEEDS_CONTEXT",
               workspaceRevision: existing.workspaceRevision + 1,
               workspaceFingerprint: currentWorkspaceFingerprint,
-              repositoryBaseline: currentRepositoryBaseline,
+              workspaceSnapshot: currentRepositoryBaseline,
               verification: [],
               unresolved: [...new Set([
                 ...existing.unresolved,
@@ -4925,7 +4948,7 @@ export const createRuntime = (
           } else {
             managedPairCheckpoint = {
               ...existing,
-              repositoryBaseline: currentRepositoryBaseline,
+              workspaceSnapshot: currentRepositoryBaseline,
               workspaceFingerprint: currentWorkspaceFingerprint,
               verification: existing.verification.filter(
                 (record) => record.workspaceFingerprint === currentWorkspaceFingerprint,
@@ -4943,16 +4966,16 @@ export const createRuntime = (
         managedTurnIsRevisionWorker = managedBrowserOptions.role === "worker" && managedPairCheckpoint.revisionCycles > 0;
         await setManagedPairCheckpoint(operationTaskId, managedPairCheckpoint);
         await ensureFreshManagedBrowserSession(agentId, operationTaskId, controller.signal);
-        managedBrowserTurn = await prepareManagedBrowserTurn({
-          ...managedBrowserOptions,
+        Object.assign(managedBrowserOptions, {
           taskHash: seed.taskHash,
           initialVerification: managedPairCheckpoint.verification,
           initialUnresolved: managedPairCheckpoint.unresolved,
           initialWorkspaceRevision: managedPairCheckpoint.workspaceRevision,
           initialChangedFiles: managedPairCheckpoint.changedFiles,
           initialDiff: managedPairCheckpoint.diffSummary,
-          ...(managedPairCheckpoint.repositoryBaseline === undefined ? {} : { repositoryBaseline: managedPairCheckpoint.repositoryBaseline }),
+          repositoryBaseline: managedPairCheckpoint.repositoryBaseline,
         });
+        managedBrowserTurn = await prepareManagedBrowserTurn(managedBrowserOptions);
       }
       if (resultIsStale({ operationTaskId, currentTaskId: state.taskId, aborted: controller.signal.aborted })) {
         return { status: "interrupted", answer: "" };
@@ -5061,6 +5084,7 @@ export const createRuntime = (
               adapterType: agent.adapterType,
               response: action.response,
               preferredTabId: agent.browserBinding?.preferredTabId,
+              provisionalDocumentToken: agent.browserBinding?.provisionalDocumentToken,
             });
             if (browserBinding) {
               bridge.bindConversation(`${runtimeOwnerId}:${agentId}`, browserBinding);
@@ -5562,7 +5586,7 @@ export const createRuntime = (
                   changedFiles: controlled.changedFiles,
                   diffSummary: activeManagedTurn.diff,
                   workspaceFingerprint: activeManagedTurn.workspaceFingerprint,
-                  repositoryBaseline: activeManagedTurn.repositoryBaseline,
+                  workspaceSnapshot: activeManagedTurn.workspaceSnapshot,
                 });
                 continue;
               }
@@ -5580,7 +5604,7 @@ export const createRuntime = (
                   type: "verificationCompleted",
                   verification,
                   workspaceFingerprint: activeManagedTurn.workspaceFingerprint,
-                  repositoryBaseline: activeManagedTurn.repositoryBaseline,
+                  workspaceSnapshot: activeManagedTurn.workspaceSnapshot,
                 });
                 continue;
               }
@@ -7282,8 +7306,15 @@ export const createRuntime = (
           return;
         }
         const workspaceRoot = state.workingDirectory;
-        const workspaceBefore = options.trackWorkspaceChanges && workspaceRoot
-          ? await captureManagedRepositoryBaseline(workspaceRoot, controller.signal)
+        const recordedRun = options.resume ?? options.restartFrom;
+        const executionPlan = options.executionPlan ?? recordedRun?.executionPlan;
+        const trackWorkspaceChanges = options.trackWorkspaceChanges === true
+          || executionPlan?.trackWorkspaceChanges === true
+          || executionPlan?.iterationMode === "untilClean";
+        const workspaceBefore = trackWorkspaceChanges && workspaceRoot
+          ? options.resume
+            ? options.resume.workspaceChangeBaseline
+            : await captureManagedRepositoryBaseline(workspaceRoot, controller.signal)
           : undefined;
         if (options.appendPrompt !== false) {
           await appendTranscript(
@@ -7324,8 +7355,6 @@ export const createRuntime = (
 
         const initialCheckpoint =
           options.resume?.checkpoint ?? emptyPipelineResumeState();
-        // A restart reuses everything the recorded run was executed under except its position.
-        const recordedRun = options.resume ?? options.restartFrom;
         const runSettings = beginRunSettings(recordedRun?.runSettings);
         refreshReadiness();
         const droppedSettings = droppedRunSettings(
@@ -7363,7 +7392,8 @@ export const createRuntime = (
           runSettings,
           constraints: runConstraints,
           updatedAt: new Date().toISOString(),
-          executionPlan: options.executionPlan ?? recordedRun?.executionPlan,
+          executionPlan,
+          workspaceChangeBaseline: workspaceBefore,
           sourceQueueMessageId: options.sourceQueueMessageId,
           resumeSourceQueueMessageId: options.resume?.sourceQueueMessageId,
         });
@@ -9209,51 +9239,21 @@ export const createRuntime = (
     }
 
     const ownerId = `${runtimeOwnerId}:${agentId}`;
-    const previousSessionId = agent.sessionId;
-    const previousBinding = agent.browserBinding
-      ? structuredClone(agent.browserBinding)
-      : undefined;
-    let browserBinding: BrowserConversationBinding | undefined;
+    const browserBinding = session ? bindingFromSession(session) : undefined;
+    const change = await bridge.beginBindingChange(ownerId, browserBinding);
     try {
-      browserBinding = session
-        ? bridge.bindSession(ownerId, session.id)
-        : undefined;
-      if (!session) {
-        bridge.releaseBinding(ownerId);
-      }
       const nextAgents = persistedAgentsFromState();
-      nextAgents[agentId] = {
-        version: agent.version,
-        sessionId,
-        browserBinding,
-      };
-      await persistStatePatch(
-        { agents: nextAgents },
-        () => {
-          Object.assign(agent, {
-            sessionId,
-            browserBinding,
-            status: session ? "idle" : "available",
-            error: undefined,
-          });
-        },
-      );
+      nextAgents[agentId] = { version: agent.version, sessionId, browserBinding };
+      await persistStatePatch({ agents: nextAgents }, () => {
+        Object.assign(agent, { sessionId, browserBinding, status: session ? "idle" : "available", error: undefined });
+      });
     } catch (error) {
-      try {
-        bridge.releaseBinding(ownerId);
-        if (previousBinding) {
-          bridge.bindConversation(ownerId, previousBinding);
-        } else if (previousSessionId) {
-          bridge.bindSession(ownerId, previousSessionId);
-        }
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [error, rollbackError],
-          "Browser conversation selection failed and its previous binding could not be restored",
-        );
+      try { await change.rollback(); } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Browser conversation selection failed and its previous binding could not be restored");
       }
       throw error;
     }
+    await change.commit();
 
     patchAgent(
       agentId,
@@ -9322,81 +9322,100 @@ export const createRuntime = (
    * the overrides that were in force. A slot whose provider did not change keeps its session, so
    * reassigning one participant does not cost the others their conversations.
    */
-  const commitAgentAssignments = async (next: AgentAssignments): Promise<void> => {
+  const commitAgentAssignments = async (
+    next: AgentAssignments,
+    selection?: { agentId: string; sessionId: string },
+  ): Promise<void> => {
     const pipeline = selectedPipelineSnapshot?.definition;
-    if (!pipeline) {
-      throw new Error("No selected pipeline is available");
-    }
+    if (!pipeline) throw new Error("No selected pipeline is available");
     const previousScoped = scopedAssignments ? structuredClone(scopedAssignments) : undefined;
     const previousAssignments = activeAssignments();
-    const agentIds = pipeline.agents.map((agent) => agent.id);
-    const changed = agentIds.filter(
-      (agentId) => next[agentId]?.adapter !== previousAssignments[agentId]?.adapter,
-    );
-    // A model change moves no provider process, but a provider session carries the model it was
-    // opened with — Codex takes one on `thread/start` and none on `thread/resume` — so a resumed
-    // session would keep answering on the old model while the editor showed the new one. Both
-    // kinds of change are committed, and both start the participant's next turn on a fresh
-    // session, which is what makes the chosen model the one that actually runs.
-    const remodelled = agentIds.filter(
-      (agentId) =>
-        !changed.includes(agentId) && (
-          next[agentId]?.model !== previousAssignments[agentId]?.model ||
-          next[agentId]?.reasoningEffort !== previousAssignments[agentId]?.reasoningEffort
-        ),
-    );
-    if (changed.length === 0 && remodelled.length === 0) {
-      return;
-    }
+    const changed = pipeline.agents.filter((agent) =>
+      (next[agent.id]?.adapter ?? agent.adapter) !== (previousAssignments[agent.id]?.adapter ?? agent.adapter)
+      || next[agent.id]?.model !== previousAssignments[agent.id]?.model
+      || next[agent.id]?.reasoningEffort !== previousAssignments[agent.id]?.reasoningEffort,
+    ).map((agent) => agent.id);
+    if (changed.length === 0 && !selection) return;
     const refusals = assignmentRefusals(pipeline, next);
     if (refusals.length > 0) {
-      throw new Error(
-        `This assignment would lose an authority the pipeline declared — ${refusals
-          .map((entry) => `${entry.agentId}: ${entry.reason}`)
-          .join("; ")}`,
-      );
+      throw new Error(`This assignment would lose an authority the pipeline declared — ${refusals.map((entry) => `${entry.agentId}: ${entry.reason}`).join("; ")}`);
     }
-    // A reassigned slot starts with nothing carried over: the old provider's reported version is
-    // not evidence that the new one is installed, and its conversation belongs to the provider it
-    // was opened against.
-    const persistedAgents = persistedAgentsFromState();
-    [...changed, ...remodelled].forEach((agentId) => {
-      persistedAgents[agentId] = {};
-    });
     const previousTopology = currentTopology();
-    const candidate = await buildAdapterTopology(pipeline, persistedAgents, state.workingDirectory, next);
-    const nextScoped: ScopedAgentAssignments | undefined = Object.keys(next).length === 0
-      ? undefined
-      : { scopeKey: activePipelineScope.key, pipelineId: pipeline.id, assignments: next };
-    let committed = false;
+    const persistedAgents = persistedAgentsFromState();
+    for (const id of changed) persistedAgents[id] = {};
+    const selectedSession = selection
+      ? state.browserBridge.sessions.find((session) => session.id === selection.sessionId)
+      : undefined;
+    if (selection) {
+      if (!selectedSession || selectedSession.status !== "ready") throw new Error("The selected browser conversation is unavailable");
+      const base = pipeline.agents.find((agent) => agent.id === selection.agentId);
+      const adapter = next[selection.agentId]?.adapter ?? base?.adapter;
+      if (adapter !== adapterTypeForBrowserProvider(selectedSession.provider)) throw new Error("The browser conversation belongs to another provider");
+      persistedAgents[selection.agentId] = {
+        ...persistedAgents[selection.agentId],
+        sessionId: selectedSession.id,
+        browserBinding: bindingFromSession(selectedSession),
+      };
+    }
+    const retained: AdapterTopology = {
+      adapters: Object.fromEntries(Object.entries(previousTopology.adapters).filter(([id]) => !changed.includes(id))),
+      definitions: Object.fromEntries(Object.entries(previousTopology.definitions).filter(([id]) => !changed.includes(id))),
+      agents: Object.fromEntries(Object.entries(previousTopology.agents).filter(([id]) => !changed.includes(id))),
+    };
+    const changes: Array<{ commit: () => Promise<void>; rollback: () => Promise<void> }> = [];
+    let candidate: AdapterTopology | undefined;
+    let installed = false;
     try {
-      changed.forEach((agentId) => bridge.releaseBinding(`${runtimeOwnerId}:${agentId}`));
-      scopedAssignments = nextScoped;
-      bindBrowserAgents(candidate);
-      installTopology(candidate);
-      committed = true;
-      await persistNow();
-    } catch (error) {
-      scopedAssignments = previousScoped;
-      if (committed) {
-        installTopology({
-          adapters: previousTopology.adapters,
-          definitions: previousTopology.definitions,
-          agents: previousTopology.agents,
+      for (const id of new Set([...changed, ...(selection ? [selection.agentId] : [])])) {
+        const base = pipeline.agents.find((agent) => agent.id === id)!;
+        const nextAdapter = next[id]?.adapter ?? base.adapter;
+        if (nextAdapter.endsWith("-browser") || previousTopology.definitions[id]?.adapter.endsWith("-browser")) {
+          changes.push(await bridge.beginBindingChange(`${runtimeOwnerId}:${id}`, persistedAgents[id]?.browserBinding));
+        }
+      }
+      candidate = await buildAdapterTopology(pipeline, persistedAgents, state.workingDirectory, next, retained);
+      if (selection && selectedSession) {
+        Object.assign(candidate.agents[selection.agentId]!, {
+          sessionId: selectedSession.id,
+          browserBinding: bindingFromSession(selectedSession),
+          status: "idle",
+          error: undefined,
         });
       }
-      bindBrowserAgents(currentTopology());
-      if (!committed) {
-        await disposeTopology(candidate);
+      scopedAssignments = Object.keys(next).length === 0 ? undefined : {
+        scopeKey: activePipelineScope.key,
+        pipelineId: pipeline.id,
+        assignments: next,
+      };
+      bindBrowserAgents(candidate);
+      if (selection && candidate.agents[selection.agentId]?.sessionId !== selectedSession?.id) {
+        throw new Error("The selected browser conversation became unavailable before the selection committed");
       }
+      installTopology(candidate);
+      installed = true;
+      await persistNow();
+    } catch (error) {
+      if (candidate) {
+        await disposeTopology({ ...candidate, adapters: Object.fromEntries(Object.entries(candidate.adapters).filter(([id, adapter]) => retained.adapters[id] !== adapter)) });
+      }
+      const rollbackFailures: unknown[] = [];
+      for (const result of await Promise.allSettled(changes.map((change) => change.rollback()))) {
+        if (result.status === "rejected") rollbackFailures.push(result.reason);
+      }
+      scopedAssignments = previousScoped;
+      if (installed) installTopology(previousTopology);
+      if (installed) {
+        try { await persistNow(); } catch (failure) { rollbackFailures.push(failure); }
+      }
+      if (rollbackFailures.length > 0) throw new AggregateError([error, ...rollbackFailures], "Provider selection failed; restoring its previous state could not be fully confirmed");
       throw error;
     }
-    const cleanupFailures = await disposeTopology(previousTopology);
-    cleanupFailures.forEach((failure) => {
-      logOutput(
-        `Failed to dispose a replaced provider adapter: ${failure instanceof Error ? failure.message : String(failure)}`,
-      );
+    const cleanupFailures = await disposeTopology({
+      ...previousTopology,
+      adapters: Object.fromEntries(Object.entries(previousTopology.adapters).filter(([id]) => changed.includes(id))),
     });
+    for (const change of changes) await change.commit();
+    cleanupFailures.forEach((failure) => logOutput(`Failed to dispose a replaced provider adapter: ${failure instanceof Error ? failure.message : String(failure)}`));
   };
 
   /**
@@ -9467,28 +9486,7 @@ export const createRuntime = (
           : { reasoningEffort: carriedReasoningEffort }),
       };
     }
-    // A no-op when only the conversation changed: the adapter is already the assigned one, so no
-    // topology moves and the binding below is the whole change.
-    await commitAgentAssignments(next);
-    if (browserSessionId !== undefined) {
-      const selectedId = selectedPipelineSnapshot?.definition.id;
-      if (selectedId === undefined) {
-        throw new Error("No selected pipeline is available");
-      }
-      const previousScoped = scopedAssignments ? structuredClone(scopedAssignments) : undefined;
-      scopedAssignments = {
-        scopeKey: activePipelineScope.key,
-        pipelineId: selectedId,
-        assignments: next,
-      };
-      try {
-        await selectBrowserSession(agentId, browserSessionId);
-        await persistNow();
-      } catch (error) {
-        scopedAssignments = previousScoped;
-        throw error;
-      }
-    }
+    await commitAgentAssignments(next, browserSessionId === undefined ? undefined : { agentId, sessionId: browserSessionId });
     await checkSelectedReadiness();
     if (!disposed) {
       emitSnapshot();
@@ -11202,6 +11200,7 @@ export const createRuntime = (
       pipelineSnapshot?: PipelineSnapshot | undefined;
       requireCurrentCatalog?: boolean | undefined;
       allowedPaths?: string[] | undefined;
+      writeScope?: WorkspaceWriteScope | undefined;
       commitMode?: "never" | "allow" | undefined;
       trackWorkspaceChanges?: boolean | undefined;
       executionPlan?: RunExecutionPlan | undefined;
@@ -11213,6 +11212,7 @@ export const createRuntime = (
     await awaitInitialization();
     await ensureAdaptersReady();
     const preflight = await preflightPipeline(prompt, attachmentIds, {
+      ...resolvedRunConstraints(options),
       ...(options.pipelineSnapshot === undefined ? {} : { pipelineSnapshot: options.pipelineSnapshot }),
       ...(options.requireCurrentCatalog === undefined ? {} : { requireCurrentCatalog: options.requireCurrentCatalog }),
     });
@@ -11226,8 +11226,7 @@ export const createRuntime = (
         ...(options.sourceQueueMessageId === undefined ? {} : { sourceQueueMessageId: options.sourceQueueMessageId }),
         ...(preflight.pipelineSnapshot === undefined ? {} : { pipelineSnapshot: preflight.pipelineSnapshot }),
         requireCurrentCatalog: false,
-        ...(options.allowedPaths === undefined ? {} : { allowedPaths: options.allowedPaths }),
-        ...(options.commitMode === undefined ? {} : { commitMode: options.commitMode }),
+        ...resolvedRunConstraints(options),
         ...(options.trackWorkspaceChanges === undefined ? {} : { trackWorkspaceChanges: options.trackWorkspaceChanges }),
         ...(options.executionPlan === undefined ? {} : { executionPlan: options.executionPlan }),
       });
@@ -11287,6 +11286,10 @@ export const createRuntime = (
         ...(recorded.allowedPaths === undefined ? {} : { allowedPaths: recorded.allowedPaths }),
         ...(recorded.writeScope === undefined ? {} : { writeScope: recorded.writeScope }),
         ...(recorded.commitMode === undefined ? {} : { commitMode: recorded.commitMode }),
+        ...(recorded.executionPlan === undefined ? {} : {
+          executionPlan: { ...recorded.executionPlan, iterationIndex: 1, consecutiveCleanPasses: 0 },
+          trackWorkspaceChanges: recorded.executionPlan.trackWorkspaceChanges === true || recorded.executionPlan.iterationMode === "untilClean",
+        }),
       });
     } catch (error) {
       // Belt and braces over the restore the run itself performs: whatever path the failure took,
@@ -11341,8 +11344,11 @@ export const createRuntime = (
         appendPrompt: false,
         ...(recovery.sourceQueueMessageId === undefined ? {} : { sourceQueueMessageId: recovery.sourceQueueMessageId }),
         ...(options.onAccepted === undefined ? {} : { onAccepted: options.onAccepted }),
-        ...(recovery.allowedPaths === undefined ? {} : { allowedPaths: recovery.allowedPaths }),
-        ...(recovery.commitMode === undefined ? {} : { commitMode: recovery.commitMode }),
+        ...resolvedRunConstraints({ resume: recovery }),
+        ...(recovery.executionPlan === undefined ? {} : {
+          executionPlan: recovery.executionPlan,
+          trackWorkspaceChanges: recovery.executionPlan.trackWorkspaceChanges === true || recovery.executionPlan.iterationMode === "untilClean",
+        }),
       });
     } finally {
       programmaticAutoProvisioning = false;

@@ -1,3 +1,4 @@
+import { isProvisionalConversation } from "../browser/conversationOwnership";
 import type {
   AgentEvent,
   AgentRunResult,
@@ -148,6 +149,7 @@ export const capturedBrowserBinding = (input: {
   adapterType: string;
   response: CapturedResponse;
   preferredTabId?: number | undefined;
+  provisionalDocumentToken?: string | undefined;
 }): BrowserConversationBinding | undefined =>
   input.adapterType.endsWith("-browser")
     ? {
@@ -155,6 +157,8 @@ export const capturedBrowserBinding = (input: {
         conversationUrl: input.response.finalConversationUrl,
         conversationIdentity: input.response.finalConversationIdentity,
         ...(input.preferredTabId === undefined ? {} : { preferredTabId: input.preferredTabId }),
+        ...(input.provisionalDocumentToken && isProvisionalConversation({ provider: input.response.provider, conversationUrl: input.response.finalConversationUrl })
+          ? { provisionalDocumentToken: input.provisionalDocumentToken } : {}),
       }
     : undefined;
 

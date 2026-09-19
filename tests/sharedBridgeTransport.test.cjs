@@ -44,6 +44,8 @@ const fixture = async (options = {}) => {
   const calls = [];
   const bindings = new Map();
   const signals = new Map();
+  const pendingStops = new Map();
+  const stopped = new Set();
   const opens = [];
   const sessions = [session("1"), session("2")];
   const bridge = {
@@ -79,15 +81,22 @@ const fixture = async (options = {}) => {
       }
       return sessions.find((item) => item.provider === provider);
     },
-    sendConversation: async function* (owner, text, id, signal) {
-      calls.push({ owner, text, id });
+    sendConversation: async function* (agentId, text, id, signal, _attachments, _deadline, context) {
+      calls.push({ owner: context.ownerId, agentId, text, id });
       signals.set(id, signal);
-      yield { type: "session", sessionId: id };
-      await new Promise((resolve) => {
-        if (signal.aborted) resolve();
-        else signal.addEventListener("abort", resolve, { once: true });
-      });
-      yield { type: "interrupted" };
+      let stop;
+      const stoppedPromise = new Promise((resolve) => { stop = resolve; });
+      pendingStops.set(context.requestId, () => { stopped.add(id); stop(); });
+      signal.addEventListener("abort", stop, { once: true });
+      try {
+        yield { type: "session", sessionId: id };
+        if (signal.aborted) stop();
+        await stoppedPromise;
+        yield { type: "interrupted" };
+      } finally {
+        signal.removeEventListener("abort", stop);
+        pendingStops.delete(context.requestId);
+      }
     },
     fetchAsset: async function* () {
       yield { type: "start", assetId: "asset", name: "report.txt", size: 3 };
@@ -95,7 +104,10 @@ const fixture = async (options = {}) => {
       yield { type: "complete", assetId: "asset", size: 3, sha256: "digest" };
     },
     revealAsset: async (id) => calls.push({ reveal: id }),
-    interrupt: async () => calls.push("global-interrupt"),
+    interrupt: async (requestId) => {
+      if (requestId) pendingStops.get(requestId)?.();
+      else calls.push("global-interrupt");
+    },
     close: async () => calls.push("owner-close"),
   };
   const handler = createSharedBridgeRequestHandler({ getToken: () => token, getBridge: () => bridge });
@@ -103,7 +115,7 @@ const fixture = async (options = {}) => {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const endpoint = `ws://127.0.0.1:${server.address().port}`;
   return {
-    endpoint, calls, bindings, signals, opens,
+    endpoint, calls, bindings, signals, stopped, opens,
     client: () => createSharedBrowserBridgeClient({ endpoint, token }),
     close: async () => { handler.close(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); },
   };
@@ -219,8 +231,8 @@ test("shared bindings and interruption are isolated between windows with identic
     assert.equal(setup.bindings.size, 2);
     await left.interrupt();
     assert.equal((await first.next()).value.type, "interrupted");
-    assert.equal(setup.signals.get("1").aborted, true);
-    assert.equal(setup.signals.get("2").aborted, false);
+    assert.equal(setup.stopped.has("1"), true);
+    assert.equal(setup.stopped.has("2"), false);
     assert.equal(setup.calls.includes("global-interrupt"), false);
     await left.close();
     assert.equal(setup.bindings.size, 1);

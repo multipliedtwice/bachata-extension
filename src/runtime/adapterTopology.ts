@@ -1,8 +1,9 @@
+import { browserBindingForSession } from "../browser/conversationOwnership";
 import { setOptionalProperty } from "../state/optionalProperty";
 import { AgentAdapter } from "../adapters/types";
 import { AgentDefinition } from "../pipeline/types";
 import { AgentPanelState } from "../webview/protocol";
-import { BrowserConversationBinding } from "../browser/protocol";
+import { BrowserConversationBinding, BrowserSession } from "../browser/protocol";
 import { ProviderEnvironmentProfile } from "../process/safeEnvironment";
 import { resolveCodexExecutable } from "../providers/codexExecutable";
 
@@ -129,7 +130,7 @@ export type BrowserBindingHost = {
     ownerId: string,
     binding: BrowserConversationBinding,
     sessionId?: string,
-  ) => { id: string; status: string } | undefined;
+  ) => ({ id: string; status: string } & Partial<BrowserSession>) | undefined;
 };
 
 /**
@@ -160,6 +161,13 @@ export const bindBrowserAgents = (
           agentState.sessionId,
         );
         setOptionalProperty(agentState, "sessionId", liveSession?.id);
+        if (liveSession?.provider && liveSession.conversationUrl && liveSession.conversationIdentity && liveSession.tabId !== undefined) {
+          agentState.browserBinding = browserBindingForSession({
+            provider: liveSession.provider, conversationUrl: liveSession.conversationUrl,
+            conversationIdentity: liveSession.conversationIdentity, tabId: liveSession.tabId,
+            documentToken: liveSession.documentToken,
+          });
+        }
         agentState.status = liveSession?.status === "ready" ? "idle" : "unknown";
         agentState.error = liveSession
           ? undefined
@@ -325,14 +333,4 @@ export const browserAgentBridgeStatus = (input: {
 };
 
 /** The binding a ready session implies: its conversation, and the tab it was seen in. */
-export const bindingFromSession = (session: {
-  provider: BrowserConversationBinding["provider"];
-  conversationUrl: string;
-  conversationIdentity: string;
-  tabId: number;
-}): BrowserConversationBinding => ({
-  provider: session.provider,
-  conversationUrl: session.conversationUrl,
-  conversationIdentity: session.conversationIdentity,
-  preferredTabId: session.tabId,
-});
+export const bindingFromSession = browserBindingForSession;

@@ -269,7 +269,7 @@ test("Ollama requests propagate the configured bearer token", async () => {
     assert.equal(result.actions[0].kind, "workspace.read");
     assert.equal(result.actions[0].path, "src/config.ts");
     assert.equal(authorization, "Bearer test-token");
-    assert.equal(requestPath, "/api/chat");
+    assert.equal(requestPath, "/v1/api/chat");
   } finally {
     await server.close();
   }

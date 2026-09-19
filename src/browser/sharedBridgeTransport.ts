@@ -1,3 +1,4 @@
+import { browserBindingForSession, browserConversationClaimKey, resolveBrowserSession } from "./conversationOwnership";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
 import { IncomingMessage, request, ServerResponse } from "node:http";
@@ -46,6 +47,7 @@ const binding = (value: unknown): BrowserConversationBinding => {
     conversationUrl: string(item.conversationUrl),
     conversationIdentity: string(item.conversationIdentity),
     ...(item.preferredTabId === undefined ? {} : { preferredTabId: Number(item.preferredTabId) }),
+    ...(item.provisionalDocumentToken === undefined ? {} : { provisionalDocumentToken: string(item.provisionalDocumentToken, 1024) }),
   };
 };
 const attachments = (value: unknown): BrowserAttachment[] => {
@@ -81,6 +83,14 @@ type SharedPeer = {
   lastSeen: number;
   bindings: Map<string, BrowserConversationBinding>;
   operations: Map<string, AbortController>;
+  conversationRequests: Map<string, string>;
+  bindingChanges: Map<string, {
+    ownerId: string;
+    previous?: BrowserConversationBinding;
+    target?: BrowserConversationBinding;
+    change: { commit: () => Promise<void>; rollback: () => Promise<void> };
+    completed?: "commit" | "rollback";
+  }>;
 };
 
 export const createSharedBridgeRequestHandler = (options: {
@@ -94,8 +104,18 @@ export const createSharedBridgeRequestHandler = (options: {
     const peer = peers.get(id);
     if (!peer) return;
     peer.operations.forEach((operation) => operation.abort());
-    peer.bindings.forEach((_binding, owner) => options.getBridge().releaseBinding(owner));
+    const owners = [...peer.bindings.keys()];
+    const rollbacks = [...peer.bindingChanges.values()]
+      .filter((entry) => !entry.completed)
+      .map((entry) => entry.change.rollback());
     peers.delete(id);
+    if (rollbacks.length === 0) {
+      owners.forEach((owner) => options.getBridge().releaseBinding(owner));
+      return;
+    }
+    void Promise.allSettled(rollbacks).then(() => {
+      owners.forEach((owner) => options.getBridge().releaseBinding(owner));
+    });
   };
   const execute = async (incoming: IncomingMessage, response: ServerResponse): Promise<void> => {
     const token = options.getToken();
@@ -119,7 +139,7 @@ export const createSharedBridgeRequestHandler = (options: {
     if (!/^[a-f0-9-]{36}$/u.test(clientId)) throw unavailable();
     const method = string(body.method, 40);
     if (!peers.has(clientId) && peers.size >= 64) throw unavailable();
-    const peer = peers.get(clientId) ?? { lastSeen: Date.now(), bindings: new Map<string, BrowserConversationBinding>(), operations: new Map<string, AbortController>() };
+    const peer = peers.get(clientId) ?? { lastSeen: Date.now(), bindings: new Map<string, BrowserConversationBinding>(), operations: new Map<string, AbortController>(), conversationRequests: new Map<string, string>(), bindingChanges: new Map() };
     peer.lastSeen = Date.now();
     peers.set(clientId, peer);
     cleanupTimer ??= setInterval(() => {
@@ -134,6 +154,54 @@ export const createSharedBridgeRequestHandler = (options: {
     if (method === "discover") { bridge.discover(); reply(response, null); return; }
     if (method === "refreshLocalModelConfig") { bridge.refreshLocalModelConfig(); reply(response, null); return; }
     if (method === "resetPairing") { await bridge.resetPairing(); reply(response, null); return; }
+    if (method === "beginBindingChange") {
+      const id = owner();
+      const changeId = string(args.changeId, 64);
+      if (!/^[a-f0-9-]{36}$/u.test(changeId)) throw unavailable();
+      const existing = peer.bindingChanges.get(changeId);
+      if (existing) {
+        if (existing.ownerId !== id || existing.completed) throw unavailable();
+        reply(response, null);
+        return;
+      }
+      if ([...peer.bindingChanges.values()].some((entry) => entry.ownerId === id && !entry.completed)) throw unavailable();
+      if (peer.bindingChanges.size >= 256) {
+        for (const [key, entry] of peer.bindingChanges) {
+          if (entry.completed) peer.bindingChanges.delete(key);
+        }
+        if (peer.bindingChanges.size >= 256) throw unavailable();
+      }
+      const target = args.binding === undefined ? undefined : binding(args.binding);
+      const previous = peer.bindings.get(id);
+      const change = await bridge.beginBindingChange(id, target);
+      peer.bindingChanges.set(changeId, {
+        ownerId: id,
+        ...(previous === undefined ? {} : { previous }),
+        ...(target === undefined ? {} : { target }),
+        change,
+      });
+      if (target) peer.bindings.set(id, target);
+      reply(response, null);
+      return;
+    }
+    if (method === "finishBindingChange") {
+      const entry = peer.bindingChanges.get(string(args.changeId, 64));
+      const decision = args.decision;
+      if (decision !== "commit" && decision !== "rollback") throw unavailable();
+      if (!entry) {
+        if (decision === "commit") throw unavailable();
+        reply(response, null);
+        return;
+      }
+      if (entry.completed && entry.completed !== decision) throw unavailable();
+      await entry.change[decision]();
+      entry.completed = decision;
+      const value = decision === "commit" ? entry.target : entry.previous;
+      if (value) peer.bindings.set(entry.ownerId, value);
+      else peer.bindings.delete(entry.ownerId);
+      reply(response, null);
+      return;
+    }
     if (method === "releaseBinding") {
       const id = owner();
       bridge.releaseBinding(id);
@@ -153,10 +221,18 @@ export const createSharedBridgeRequestHandler = (options: {
     if (method === "interrupt") {
       const id = optionalString(args.requestId);
       if (id) {
+        const conversationRequest = peer.conversationRequests.get(id);
         const operation = peer.operations.get(id);
-        if (operation) operation.abort();
-        else await options.interruptConversation?.([...peer.bindings.keys()], id);
-      } else peer.operations.forEach((operation) => operation.abort());
+        if (conversationRequest) await bridge.interrupt(conversationRequest);
+        else if (operation) operation.abort();
+        else await options.interruptConversation?.([...peer.bindings.keys()], id.startsWith(`${clientId}:`) ? id : `${clientId}:${id}`);
+      } else {
+        for (const [operationId, operation] of peer.operations) {
+          const conversationRequest = peer.conversationRequests.get(operationId);
+          if (conversationRequest) await bridge.interrupt(conversationRequest);
+          else operation.abort();
+        }
+      }
       reply(response, null);
       return;
     }
@@ -185,7 +261,9 @@ export const createSharedBridgeRequestHandler = (options: {
         if (text === undefined) throw unavailable();
         const deadline = args.deadlineAt === undefined ? undefined : Number(args.deadlineAt);
         if (deadline !== undefined && (!Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 24 * 60 * 60_000)) throw unavailable();
-        stream = bridge.sendConversation(id, text, selected.id, controller.signal, attachments(args.attachments), deadline);
+        const requestId = `${clientId}:${operationId}`;
+        peer.conversationRequests.set(operationId, requestId);
+        stream = bridge.sendConversation(optionalString(args.agentId) ?? id, text, selected.id, controller.signal, attachments(args.attachments), deadline, { ownerId: id, requestId });
       } else {
         if (!Number.isSafeInteger(args.maxBytes) || Number(args.maxBytes) <= 0 || Number(args.maxBytes) > 1024 * 1024 * 1024) throw unavailable();
         stream = bridge.fetchAsset(string(args.assetId), Number(args.maxBytes), controller.signal);
@@ -200,6 +278,7 @@ export const createSharedBridgeRequestHandler = (options: {
     } finally {
       response.off("close", abort);
       peer.operations.delete(operationId);
+      peer.conversationRequests.delete(operationId);
     }
   };
   return {
@@ -336,6 +415,7 @@ export const createSharedBrowserBridgeClient = (options: {
   let bindingFailure: unknown;
   const listeners = new Set<(status: BrowserBridgeStatus) => void>();
   const localBindings = new Map<string, BrowserConversationBinding>();
+  const bindingChanges = new Map<string, BrowserConversationBinding | undefined>();
   const operations = new Map<string, AbortController>();
   const pendingOpens = new Set<string>();
   const emit = (): void => {
@@ -372,12 +452,13 @@ export const createSharedBrowserBridgeClient = (options: {
     })().finally(() => { polling = undefined; });
     return polling;
   };
-  const registerOperation = (signal?: AbortSignal, opening = false): {
+  const registerOperation = (signal?: AbortSignal, opening = false, requestedId?: string): {
     operationId: string;
     controller: AbortController;
     dispose: () => void;
   } => {
-    const operationId = randomUUID();
+    const operationId = requestedId ?? randomUUID();
+    if (operations.has(operationId)) throw unavailable();
     const controller = new AbortController();
     const abort = (): void => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
@@ -403,28 +484,48 @@ export const createSharedBrowserBridgeClient = (options: {
       if (!saved) throw unavailable();
       await invoke("bindConversation", { ownerId, binding: saved });
     }
-    const operation = registerOperation(signal);
+    if (signal.aborted) throw unavailable();
+    const conversation = method === "sendConversation";
+    const operation = registerOperation(conversation ? undefined : signal, false, optionalString(args.requestId));
     const { operationId, controller } = operation;
+    const stop = (): void => { void invoke("interrupt", { requestId: operationId }).catch(() => undefined); };
+    if (conversation) signal.addEventListener("abort", stop, { once: true });
+    const deadlineMs = conversation ? Math.max(1, Number(args.deadlineAt ?? Date.now() + 2 * 60 * 60_000) - Date.now()) : undefined;
+    const transportSignal = AbortSignal.any([
+      controller.signal,
+      lifetime.signal,
+      ...(deadlineMs === undefined ? [] : [AbortSignal.timeout(Math.min(2_147_483_647, Math.ceil(deadlineMs)))]),
+    ]);
+    let firstEvent = true;
     try {
-      for await (const item of rpc(options.endpoint, options.token, clientId, method, { ...args, operationId }, controller.signal)) {
+      if (signal.aborted) throw unavailable();
+      for await (const item of rpc(options.endpoint, options.token, clientId, method, { ...args, operationId }, transportSignal)) {
+        if (conversation && firstEvent && signal.aborted) stop();
+        firstEvent = false;
         if (item.complete === true) return;
         const event = object(item.event);
         if (event.type === "chunk") yield { ...event, data: Buffer.from(string(event.data, maxBytes), "base64") } as BrowserAssetTransferEvent;
         else if (event.type === "response") {
           const response = object(event.response);
-          yield { type: "response", response: { ...response, agentId: args.ownerId } } as BrowserConversationEvent;
+          yield { type: "response", response: { ...response, agentId: args.agentId ?? args.ownerId } } as BrowserConversationEvent;
         } else yield event as unknown as BrowserConversationEvent;
       }
       throw unavailable();
     } finally {
+      signal.removeEventListener("abort", stop);
       operation.dispose();
     }
   };
   const bind = (ownerId: string, value: BrowserConversationBinding): void => {
+    if (bindingChanges.has(ownerId)) {
+      const target = bindingChanges.get(ownerId);
+      if (!target || browserConversationClaimKey(target) !== browserConversationClaimKey(value)) throw unavailable();
+      return;
+    }
     localBindings.set(ownerId, value);
     enqueue("bindConversation", { ownerId, binding: value });
   };
-  const fromSession = (session: BrowserSession): BrowserConversationBinding => ({ provider: session.provider, conversationIdentity: session.conversationIdentity, conversationUrl: session.conversationUrl, preferredTabId: session.tabId });
+  const fromSession = browserBindingForSession;
   return {
     start: async () => {
       if (closed) throw unavailable();
@@ -469,22 +570,49 @@ export const createSharedBrowserBridgeClient = (options: {
       return value;
     },
     bindConversation: bind,
-    releaseBinding: (ownerId) => { localBindings.delete(ownerId); enqueue("releaseBinding", { ownerId }); },
-    resolveBoundSession: (ownerId, value, expectedSessionId) => {
-      const exact = expectedSessionId ? current.sessions.find((session) => session.id === expectedSessionId) : undefined;
-      if (exact) {
-        if (value && (value.provider !== exact.provider || value.conversationIdentity !== exact.conversationIdentity)) throw unavailable();
-        bind(ownerId, value ?? fromSession(exact));
-        return structuredClone(exact);
-      }
-      if (!value) return undefined;
-      bind(ownerId, value);
-      if (value.provider === "generic") return undefined;
-      const candidates = current.sessions.filter((session) => session.provider === value.provider && session.conversationIdentity === value.conversationIdentity);
-      const selected = candidates.find((session) => session.tabId === value.preferredTabId) ?? (candidates.length === 1 ? candidates[0] : undefined);
-      return selected ? structuredClone(selected) : undefined;
+    releaseBinding: (ownerId) => {
+      if (bindingChanges.has(ownerId)) return;
+      localBindings.delete(ownerId);
+      enqueue("releaseBinding", { ownerId });
     },
-    sendConversation: (ownerId, text, expectedSessionId, signal, items, deadlineAt) => stream("sendConversation", { ownerId, text, expectedSessionId, attachments: items, deadlineAt }, signal) as AsyncIterable<BrowserConversationEvent>,
+    beginBindingChange: async (ownerId, target) => {
+      await synchronize();
+      if (bindingChanges.has(ownerId)) throw unavailable();
+      const changeId = randomUUID();
+      const previous = localBindings.get(ownerId);
+      bindingChanges.set(ownerId, target);
+      try {
+        await invoke("beginBindingChange", { ownerId, binding: target, changeId });
+      } catch (error) {
+        await invoke("finishBindingChange", { changeId, decision: "rollback" }).catch(() => undefined);
+        bindingChanges.delete(ownerId);
+        throw error;
+      }
+      if (target) localBindings.set(ownerId, target);
+      else localBindings.delete(ownerId);
+      let completed: "commit" | "rollback" | undefined;
+      const finish = async (decision: "commit" | "rollback"): Promise<void> => {
+        if (completed === decision) return;
+        if (completed) throw unavailable();
+        await synchronize();
+        await invoke("finishBindingChange", { changeId, decision }).catch(async () => {
+          await invoke("finishBindingChange", { changeId, decision });
+        });
+        const value = decision === "commit" ? target : previous;
+        if (value) localBindings.set(ownerId, value);
+        else localBindings.delete(ownerId);
+        bindingChanges.delete(ownerId);
+        completed = decision;
+      };
+      return { commit: () => finish("commit"), rollback: () => finish("rollback") };
+    },
+    resolveBoundSession: (ownerId, value, expectedSessionId) => {
+      const session = resolveBrowserSession(current.sessions, value, expectedSessionId);
+      if (session) bind(ownerId, fromSession(session));
+      else if (value) bind(ownerId, value);
+      return session;
+    },
+    sendConversation: (agentId, text, expectedSessionId, signal, items, deadlineAt, context) => stream("sendConversation", { agentId, ownerId: context?.ownerId ?? agentId, requestId: context?.requestId, text, expectedSessionId, attachments: items, deadlineAt }, signal) as AsyncIterable<BrowserConversationEvent>,
     fetchAsset: (assetId, limit, signal) => stream("fetchAsset", { assetId, maxBytes: limit }, signal) as AsyncIterable<BrowserAssetTransferEvent>,
     revealAsset: async (assetId) => { await synchronize(); await invoke("revealAsset", { assetId }); },
     interrupt: async (requestId) => {

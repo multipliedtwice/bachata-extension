@@ -137,7 +137,7 @@ test("explicit task seeds outrank generic task-token matches", () => {
 });
 
 test("managed structured write and delete use the existing guarded filesystem engine", async () => {
-  const { executeManagedBrowserEnvelope } = require("../dist/browser/managedTurn.js");
+  const { captureManagedRepositoryBaseline, executeManagedBrowserEnvelope } = require("../dist/browser/managedTurn.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-managed-write-delete-"));
   try {
     fs.mkdirSync(path.join(root, "talents-backend/src/routes"), { recursive: true });
@@ -180,6 +180,7 @@ test("managed structured write and delete use the existing guarded filesystem en
       contextIndex: { maxInventoryFiles: 100000, inventoryTimeoutMs: 30000, indexingTimeoutMs: 30000 },
       contextSearch: { maxFiles: 2000, maxBytes: 67108864, maxFileBytes: 8388608, timeoutMs: 15000 },
     };
+    options.repositoryBaseline = await captureManagedRepositoryBaseline(root, signal);
 
     const created = await executeManagedBrowserEnvelope({
       protocol: "bachata-browser-turn-v1",
@@ -209,7 +210,7 @@ test("managed structured write and delete use the existing guarded filesystem en
 });
 
 test("managed mutation failures expose typed stale-file errors without changing the target", async () => {
-  const { executeManagedBrowserEnvelope } = require("../dist/browser/managedTurn.js");
+  const { captureManagedRepositoryBaseline, executeManagedBrowserEnvelope } = require("../dist/browser/managedTurn.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-managed-stale-"));
   try {
     const target = "talents-backend/src/routes/jobs.ts";
@@ -254,6 +255,7 @@ test("managed mutation failures expose typed stale-file errors without changing 
       contextIndex: { maxInventoryFiles: 100000, inventoryTimeoutMs: 30000, indexingTimeoutMs: 30000 },
       contextSearch: { maxFiles: 2000, maxBytes: 67108864, maxFileBytes: 8388608, timeoutMs: 15000 },
     };
+    options.repositoryBaseline = await captureManagedRepositoryBaseline(root, signal);
     const result = await executeManagedBrowserEnvelope({
       protocol: "bachata-browser-turn-v1",
       status: "applyPatch",

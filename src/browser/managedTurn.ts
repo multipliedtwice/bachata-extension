@@ -150,6 +150,7 @@ export type ManagedBrowserTurn = {
   taskHash: string;
   workspaceFingerprint: string;
   repositoryBaseline: ManagedRepositoryBaseline;
+  workspaceSnapshot: ManagedRepositoryBaseline;
   workspaceRevision: number;
   changedFiles: string[];
   preexistingChangedFiles: string[];
@@ -310,10 +311,14 @@ const ignoredTargetMessage = (ignored: readonly string[]): string =>
 const mutationIgnoredTargets = async (
   options: ManagedBrowserTurnOptions,
   targets: readonly string[],
-): Promise<string[]> =>
-  options.repositoryBaseline?.isGitRepository === true
+): Promise<string[]> => {
+  if (!options.repositoryBaseline) {
+    throw new Error("Managed repository baseline is missing; restart the managed task before changing files");
+  }
+  return options.repositoryBaseline.isGitRepository
     ? await ignoredMutationTargets(options.workingDirectory, targets, options.signal)
     : [];
+};
 
 // EX-G6-09. The pre-approval guard: a fast rejection before the agent is prompted. The mutation
 // boundary re-checks the same targets inside the fence immediately before the bytes are written, so
@@ -415,7 +420,7 @@ const refreshManagedWorkspaceFingerprint = async (
     taskHash: turn.taskHash,
     repositoryBaseline,
   });
-  turn.repositoryBaseline = repositoryBaseline;
+  turn.workspaceSnapshot = repositoryBaseline;
   turn.workspaceFingerprint = workspaceFingerprint;
   turn.verification = turn.verification.filter((record) => record.workspaceFingerprint === workspaceFingerprint);
   return workspaceFingerprint;
@@ -1394,6 +1399,7 @@ export const prepareManagedBrowserTurn = async (
     taskHash,
     repositoryBaseline: currentRepositoryBaseline,
   });
+  options.repositoryBaseline ??= currentRepositoryBaseline;
   const base = {
     contextReferences: new BrowserContextReferences(options.workingDirectory),
     index,
@@ -1403,7 +1409,8 @@ export const prepareManagedBrowserTurn = async (
       .map((record) => ({ ...record })),
     taskHash,
     workspaceFingerprint,
-    repositoryBaseline: currentRepositoryBaseline,
+    repositoryBaseline: options.repositoryBaseline ?? currentRepositoryBaseline,
+    workspaceSnapshot: currentRepositoryBaseline,
     workspaceRevision: Math.max(index.revision, options.initialWorkspaceRevision ?? 0),
     changedFiles: repository.isGitRepository
       ? repository.changedFiles
@@ -2400,6 +2407,9 @@ export const executeManagedBrowserEnvelope = async (
       }
       turn.verification = [];
       turn.workspaceRevision += 1;
+      if (result.status === "completed") {
+        await refreshManagedWorkspaceFingerprint(turn, options);
+      }
       if (result.status === "failed" && /rollback could not be completed safely/i.test(result.stderr ?? "")) {
         throw new Error("Managed workspace mutation failed and rollback could not be verified; orchestration stopped to avoid continuing from uncertain state");
       }

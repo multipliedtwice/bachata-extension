@@ -1,3 +1,5 @@
+import { requestEvidenceLines, type RequestEvidence } from "./requestEvidence";
+import type { CapturedSegment } from "./protocol";
 import Ajv from "ajv";
 import { jsonrepair } from "jsonrepair";
 import { runLocalModel, type LocalModelConfig } from "./localModelBroker";
@@ -6,7 +8,8 @@ export type InterpretationCandidate = {
   id: string;
   kindHint: "read" | "search" | "list" | "dependencies" | "dependents" | "verify" | "unknown";
   evidence: string;
-  parsedArguments: Record<string, string>;
+  parsedArguments: Readonly<Record<string, string>>;
+  source?: Omit<RequestEvidence, "text" | "eligible">;
 };
 
 export type LocalInterpretation = {
@@ -137,11 +140,10 @@ export const interpretLocalCandidates = async (
   return boundedInterpretation(parseLocalDecision(text), valid);
 };
 
-const quotedOrExample = (line: string): boolean =>
-  /^\s*(?:example|for example|the (?:worker|lead|user|assistant) said|quoted?|note)\s*:/i.test(line)
-  || /\b(?:not|isn['’]t|is not)\s+an?\s+(?:instruction|request|action)\b/i.test(line);
-
-export const createReadOnlyInterpretationCandidates = (text: string): InterpretationCandidate[] => {
+export const createReadOnlyInterpretationCandidates = (
+  text: string,
+  segments: readonly CapturedSegment[] = [],
+): InterpretationCandidate[] => {
   const candidates: InterpretationCandidate[] = [];
   let index = 0;
   const pathLike = (value: string | undefined): string | undefined => {
@@ -152,36 +154,43 @@ export const createReadOnlyInterpretationCandidates = (text: string): Interpreta
       ? normalized
       : undefined;
   };
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || quotedOrExample(trimmed)) continue;
+  for (const evidence of requestEvidenceLines(text, segments)) {
+    if (!evidence.eligible || evidence.text.length > MAX_EVIDENCE) continue;
+    const trimmed = evidence.text;
+    const { text: _text, eligible: _eligible, ...source } = evidence;
     const dependents = /\b(?:dependents|importers)\s+(?:of|for)\s+[`"']?([^`"'\s]{1,512})[`"']?/i.exec(trimmed);
     const dependentPath = pathLike(dependents?.[1]);
     if (dependentPath) {
-      candidates.push({ id: `d${++index}`, kindHint: "dependents", evidence: trimmed, parsedArguments: { path: dependentPath } });
+      candidates.push({ id: `d${++index}`, kindHint: "dependents", evidence: trimmed, source, parsedArguments: { path: dependentPath } });
       continue;
     }
     const dependencies = /\b(?:dependencies|imports)\s+(?:of|for)\s+[`"']?([^`"'\s]{1,512})[`"']?/i.exec(trimmed);
     const dependencyPath = pathLike(dependencies?.[1]);
     if (dependencyPath) {
-      candidates.push({ id: `p${++index}`, kindHint: "dependencies", evidence: trimmed, parsedArguments: { path: dependencyPath } });
+      candidates.push({ id: `p${++index}`, kindHint: "dependencies", evidence: trimmed, source, parsedArguments: { path: dependencyPath } });
       continue;
     }
-    const list = /\b(?:list|tree|show\s+(?:the\s+)?contents\s+of|list\s+(?:the\s+)?contents\s+of)\s+[`"']?([^`"'\s]{1,512})[`"']?/i.exec(trimmed);
+    const list = /\b(?:list|show)(?:\s+the)?\s+files(?:\s+(?:in|under))?\s+[`"']([^`"']{1,512})[`"']/i.exec(trimmed)
+      ?? /\b(?:list|tree|show\s+(?:the\s+)?contents\s+of|list\s+(?:the\s+)?contents\s+of)\s+[`"']?([^`"'\s]{1,512})[`"']?/i.exec(trimmed);
     const listPath = pathLike(list?.[1]);
     if (listPath) {
-      candidates.push({ id: `l${++index}`, kindHint: "list", evidence: trimmed, parsedArguments: { path: listPath } });
+      candidates.push({ id: `l${++index}`, kindHint: "list", evidence: trimmed, source, parsedArguments: { path: listPath } });
       continue;
     }
     const read = /\b(?:read|open|inspect|show)\s+(?:the\s+)?(?:file\s+)?[`"']?([^`"'\s]{1,512})[`"']?/i.exec(trimmed);
     const readPath = pathLike(read?.[1]);
     if (readPath) {
-      candidates.push({ id: `r${++index}`, kindHint: "read", evidence: trimmed, parsedArguments: { path: readPath } });
+      candidates.push({ id: `r${++index}`, kindHint: "read", evidence: trimmed, source, parsedArguments: { path: readPath } });
       continue;
     }
-    const search = /\b(?:search|find|locate)\s+(?:for\s+)?[`"']([^`"']{1,256})[`"']/i.exec(trimmed);
-    const query = search?.[1];
-    if (query) candidates.push({ id: `s${++index}`, kindHint: "search", evidence: trimmed, parsedArguments: { query } });
+    const scopedSearch = /\bsearch\s+[`"']([^`"']{1,512})[`"']\s+for\s+[`"']([^`"']{1,256})[`"']/i.exec(trimmed);
+    const search = /\b(?:search|find|locate)\s+(?:(?:the\s+)?(?:workspace|repository)\s+)?(?:for\s+)?[`"']([^`"']{1,256})[`"']/i.exec(trimmed);
+    const query = scopedSearch?.[2] ?? search?.[1];
+    if (query) candidates.push({ id: `s${++index}`, kindHint: "search", evidence: trimmed, source,
+      parsedArguments: { query, ...(scopedSearch?.[1] ? { path: scopedSearch[1] } : {}) } });
   }
-  return candidates.slice(0, MAX_CANDIDATES);
+  return candidates.slice(0, MAX_CANDIDATES).map((candidate) => ({
+    ...candidate,
+    parsedArguments: Object.freeze({ ...candidate.parsedArguments }),
+  }));
 };

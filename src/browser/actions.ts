@@ -1,3 +1,4 @@
+import { isExecutableEvidence, requestEvidenceLines } from "./requestEvidence";
 import type { BrowserControlReferences } from "./controlProtocol";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -430,7 +431,8 @@ const instructionIsNegated = (text: string, index: number): boolean => {
   return negatedInstructionPattern.test(text.slice(sentenceStart + 1, index));
 };
 
-const naturalWorkspaceActions = (text: string): BrowserActionCandidate[] => {
+const naturalWorkspaceActions = (text: string, segments: CapturedSegment[]): BrowserActionCandidate[] => {
+  const evidence = requestEvidenceLines(text, segments);
   const candidates: BrowserActionCandidate[] = [];
   const add = (
     match: RegExpMatchArray,
@@ -439,7 +441,8 @@ const naturalWorkspaceActions = (text: string): BrowserActionCandidate[] => {
       "id" | "fingerprint" | "source" | "confidence" | "risk" | "origin"
     >,
   ): void => {
-    if (match.index === undefined || instructionIsNegated(text, match.index)) {
+    if (match.index === undefined || instructionIsNegated(text, match.index)
+      || !isExecutableEvidence(evidence, match.index, match.index + match[0].length)) {
       return;
     }
     const sourceText = match[0];
@@ -541,7 +544,7 @@ export const extractBrowserActions = (
     ...explicit,
     ...implicitActions(segments),
     ...inlineShellActions(text, segments),
-    ...naturalWorkspaceActions(text),
+    ...naturalWorkspaceActions(text, segments),
   ]);
 };
 

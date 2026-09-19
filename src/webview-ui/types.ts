@@ -176,6 +176,13 @@ type AgentPanelState = {
   status: AgentStatus;
   version?: string;
   sessionId?: string;
+  browserBinding?: {
+    provider: BrowserSession["provider"];
+    conversationUrl: string;
+    conversationIdentity: string;
+    preferredTabId?: number;
+    provisionalDocumentToken?: string;
+  };
   output: string;
   error?: string;
 };

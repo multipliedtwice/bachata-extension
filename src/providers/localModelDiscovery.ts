@@ -1,3 +1,4 @@
+import { normalizeLocalModelEndpoint } from "../browser/localModelEndpoint";
 import { jsonrepair } from "jsonrepair";
 
 /**
@@ -99,7 +100,7 @@ const stringList = (value: unknown): string[] | undefined => {
   return entries.length > 0 ? entries : undefined;
 };
 
-export const normalizeEndpoint = (value: string): string => value.trim().replace(/\/+$/u, "");
+export const normalizeEndpoint = normalizeLocalModelEndpoint;
 
 /**
  * Models a capability-reporting backend says are unusable for generating text. Named by the

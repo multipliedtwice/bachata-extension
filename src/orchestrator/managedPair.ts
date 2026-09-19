@@ -70,20 +70,21 @@ export type ManagedPairCheckpoint = {
     sideEffects: "none" | "possible" | "confirmed";
   }>;
   repositoryBaseline?: ManagedRepositoryBaseline;
+  workspaceSnapshot?: ManagedRepositoryBaseline;
 };
 
 export type ManagedPairEvent =
   | { type: "prepared" }
   | { type: "workerNeedsContext" }
   | { type: "workerRequestedPatch" }
-  | { type: "patchApplied"; changedFiles: string[]; diffSummary: string; workspaceFingerprint?: string; repositoryBaseline?: ManagedRepositoryBaseline }
+  | { type: "patchApplied"; changedFiles: string[]; diffSummary: string; workspaceFingerprint?: string; repositoryBaseline?: ManagedRepositoryBaseline; workspaceSnapshot?: ManagedRepositoryBaseline }
   | { type: "verificationRequested" }
-  | { type: "verificationCompleted"; verification: VerificationRecord[]; workspaceFingerprint?: string; repositoryBaseline?: ManagedRepositoryBaseline }
+  | { type: "verificationCompleted"; verification: VerificationRecord[]; workspaceFingerprint?: string; repositoryBaseline?: ManagedRepositoryBaseline; workspaceSnapshot?: ManagedRepositoryBaseline }
   | { type: "workerDone" }
   | { type: "leadNeedsContext" }
   | { type: "leadAccepted" }
   | { type: "leadRequestedRevision"; objections: string[] }
-  | { type: "revisionApplied"; changedFiles: string[]; diffSummary: string; workspaceFingerprint?: string; repositoryBaseline?: ManagedRepositoryBaseline }
+  | { type: "revisionApplied"; changedFiles: string[]; diffSummary: string; workspaceFingerprint?: string; repositoryBaseline?: ManagedRepositoryBaseline; workspaceSnapshot?: ManagedRepositoryBaseline }
   | { type: "providerFailed"; agentId: string; code: string; sideEffects: "none" | "possible" | "confirmed" }
   | { type: "blocked"; reason: string };
 
@@ -204,8 +205,10 @@ function withMutation(
   state: ManagedPairState,
   workspaceFingerprint?: string,
   repositoryBaseline?: ManagedRepositoryBaseline,
+  workspaceSnapshot?: ManagedRepositoryBaseline,
 ): ManagedPairCheckpoint {
-  const { workspaceFingerprint: _previousFingerprint, repositoryBaseline: _previousBaseline, ...base } = checkpoint;
+  const { workspaceFingerprint: _previousFingerprint, workspaceSnapshot: _previousSnapshot, ...base } = checkpoint;
+  const currentSnapshot = workspaceSnapshot ?? repositoryBaseline;
   return {
     ...base,
     state,
@@ -214,7 +217,8 @@ function withMutation(
     diffSummary: diffSummary.slice(0, 32_768),
     verification: [],
     ...(workspaceFingerprint ? { workspaceFingerprint } : {}),
-    ...(repositoryBaseline ? { repositoryBaseline } : {}),
+    ...(!checkpoint.repositoryBaseline && repositoryBaseline ? { repositoryBaseline } : {}),
+    ...(workspaceFingerprint && currentSnapshot ? { workspaceSnapshot: currentSnapshot } : {}),
   };
 }
 
@@ -255,10 +259,10 @@ export function advanceManagedPair(
       return { ...checkpoint, state: checkpoint.revisionCycles > 0 ? "WORKER_REVISE" : "WORKER_APPLY_PATCH" };
     case "patchApplied":
       assertTransition(checkpoint, ["WORKER_APPLY_PATCH"], event.type);
-      return withMutation(checkpoint, event.changedFiles, event.diffSummary, "WORKER_VERIFY", event.workspaceFingerprint, event.repositoryBaseline);
+      return withMutation(checkpoint, event.changedFiles, event.diffSummary, "WORKER_VERIFY", event.workspaceFingerprint, event.repositoryBaseline, event.workspaceSnapshot);
     case "revisionApplied":
       assertTransition(checkpoint, ["WORKER_REVISE"], event.type);
-      return withMutation(checkpoint, event.changedFiles, event.diffSummary, "WORKER_VERIFY", event.workspaceFingerprint, event.repositoryBaseline);
+      return withMutation(checkpoint, event.changedFiles, event.diffSummary, "WORKER_VERIFY", event.workspaceFingerprint, event.repositoryBaseline, event.workspaceSnapshot);
     case "verificationRequested":
       assertTransition(checkpoint, ["WORKER_VERIFY"], event.type);
       return checkpoint;
@@ -275,7 +279,10 @@ export function advanceManagedPair(
         verification: event.verification,
         state: "WORKER_VERIFY",
         workspaceFingerprint: event.workspaceFingerprint,
-        ...(event.repositoryBaseline ? { repositoryBaseline: event.repositoryBaseline } : {}),
+        ...(!checkpoint.repositoryBaseline && event.repositoryBaseline ? { repositoryBaseline: event.repositoryBaseline } : {}),
+        ...(event.workspaceSnapshot ?? event.repositoryBaseline
+          ? { workspaceSnapshot: event.workspaceSnapshot ?? event.repositoryBaseline! }
+          : {}),
       };
     case "workerDone":
       assertTransition(checkpoint, ["WORKER_NEEDS_CONTEXT", "WORKER_APPLY_PATCH", "WORKER_VERIFY", "WORKER_REVISE"], event.type);
@@ -367,6 +374,29 @@ const stringArray = (value: unknown): string[] | undefined =>
     ? [...value]
     : undefined;
 
+export function parseManagedRepositoryBaseline(value: unknown): ManagedRepositoryBaseline | undefined {
+  const baseline = recordValue(value);
+  if (!baseline
+    || typeof baseline.isGitRepository !== "boolean"
+    || typeof baseline.head !== "string"
+    || !Array.isArray(baseline.entries)
+    || !baseline.entries.every((entry) => {
+      const item = recordValue(entry);
+      return item
+        && typeof item.path === "string"
+        && item.path.length > 0
+        && typeof item.fingerprint === "string"
+        && /^(?:[0-9a-f]{64}|file:\d+:[0-9a-f]{64}|symlink:[0-9a-f]{64}|(?:directory|other):\d+:\d+|missing)$/u.test(item.fingerprint);
+    })) {
+    return undefined;
+  }
+  const entries = (baseline.entries as ManagedRepositoryBaselineEntry[])
+    .map((entry) => ({ path: normalizeWorkspacePathForBaseline(entry.path), fingerprint: entry.fingerprint }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (new Set(entries.map((entry) => entry.path)).size !== entries.length) return undefined;
+  return { isGitRepository: baseline.isGitRepository, head: baseline.head, entries };
+}
+
 export function parseManagedPairCheckpoint(value: unknown): ManagedPairCheckpoint | undefined {
   const record = recordValue(value);
   const policyRecord = recordValue(record?.policy);
@@ -442,33 +472,12 @@ export function parseManagedPairCheckpoint(value: unknown): ManagedPairCheckpoin
     return undefined;
   }
 
-  let repositoryBaseline: ManagedRepositoryBaseline | undefined;
-  if (record.repositoryBaseline !== undefined) {
-    const baselineRecord = recordValue(record.repositoryBaseline);
-    if (!baselineRecord
-      || typeof baselineRecord.isGitRepository !== "boolean"
-      || typeof baselineRecord.head !== "string"
-      || !Array.isArray(baselineRecord.entries)
-      || !baselineRecord.entries.every((entry) => {
-        const item = recordValue(entry);
-        return item
-          && typeof item.path === "string"
-          && typeof item.fingerprint === "string"
-          && /^[0-9a-f]{64}$/u.test(item.fingerprint);
-      })) {
-      return undefined;
-    }
-    repositoryBaseline = {
-      isGitRepository: baselineRecord.isGitRepository,
-      head: baselineRecord.head,
-      entries: (baselineRecord.entries as ManagedRepositoryBaselineEntry[])
-        .map((entry) => ({
-          path: normalizeWorkspacePathForBaseline(entry.path),
-          fingerprint: entry.fingerprint,
-        }))
-        .filter((entry) => entry.path.length > 0)
-        .sort((left, right) => left.path.localeCompare(right.path)),
-    };
+  const repositoryBaseline = parseManagedRepositoryBaseline(record.repositoryBaseline);
+  const workspaceSnapshot = parseManagedRepositoryBaseline(record.workspaceSnapshot);
+  if ((record.repositoryBaseline !== undefined && !repositoryBaseline)
+    || (record.workspaceSnapshot !== undefined && !workspaceSnapshot)
+    || (workspaceSnapshot && !repositoryBaseline)) {
+    return undefined;
   }
 
   if ((typeof record.workspaceFingerprint === "string") !== Boolean(repositoryBaseline)) {
@@ -495,7 +504,7 @@ export function parseManagedPairCheckpoint(value: unknown): ManagedPairCheckpoin
   if (repositoryBaseline && typeof record.workspaceFingerprint === "string") {
     const expectedWorkspaceFingerprint = computeManagedWorkspaceFingerprint({
       taskHash: currentTaskHash,
-      repositoryBaseline,
+      repositoryBaseline: workspaceSnapshot ?? repositoryBaseline,
     });
     if (expectedWorkspaceFingerprint !== record.workspaceFingerprint) {
       return undefined;
@@ -522,5 +531,6 @@ export function parseManagedPairCheckpoint(value: unknown): ManagedPairCheckpoin
     attemptedAgents: [...new Set(attemptedAgents)],
     providerFailures: (record.providerFailures as ManagedPairCheckpoint["providerFailures"]).map((entry) => ({ ...entry })),
     ...(repositoryBaseline ? { repositoryBaseline } : {}),
+    ...(workspaceSnapshot ? { workspaceSnapshot } : {}),
   };
 }

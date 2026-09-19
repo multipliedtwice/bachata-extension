@@ -1,3 +1,4 @@
+import { browserConversationClaimKey } from "./conversationOwnership";
 import { randomBytes } from "node:crypto";
 
 import type { ResourceBroker, ResourceLease } from "../concurrency/resourceBroker";
@@ -99,6 +100,7 @@ export const createBrowserBridgeRecovery = (
   const cleanupTimeoutMs = Math.max(1, options.cleanupTimeoutMs ?? 2_000);
   const abort = new AbortController();
   const listeners = new Set<(status: BrowserBridgeStatus) => void>();
+  const bindingChanges = new Map<string, BrowserConversationBinding | undefined>();
   const bindings = new Map<string, BrowserConversationBinding>();
   let active: BrowserBridgeServer | undefined;
   let owned: OwnedBrowserBridgeServer | undefined;
@@ -505,12 +507,38 @@ export const createBrowserBridgeRecovery = (
       return binding;
     },
     bindConversation: (ownerId, binding) => {
-      bindings.set(ownerId, binding);
+      if (bindingChanges.has(ownerId)) {
+        const target = bindingChanges.get(ownerId);
+        if (!target || browserConversationClaimKey(target) !== browserConversationClaimKey(binding)) throw unavailable();
+        return;
+      }
       active?.bindConversation(ownerId, binding);
+      bindings.set(ownerId, binding);
     },
     releaseBinding: (ownerId) => {
+      if (bindingChanges.has(ownerId)) return;
       bindings.delete(ownerId);
       active?.releaseBinding(ownerId);
+    },
+    beginBindingChange: async (ownerId, target) => {
+      if (bindingChanges.has(ownerId)) throw unavailable();
+      const previous = bindings.get(ownerId);
+      const host = requireActive();
+      bindingChanges.set(ownerId, target);
+      let change;
+      try { change = await host.beginBindingChange(ownerId, target); }
+      catch (error) { bindingChanges.delete(ownerId); throw error; }
+      if (target) bindings.set(ownerId, target);
+      else bindings.delete(ownerId);
+      const finish = async (decision: "commit" | "rollback"): Promise<void> => {
+        if (decision === "commit" && requireActive() !== host) throw unavailable();
+        await change[decision]();
+        const value = decision === "commit" ? target : previous;
+        if (value) bindings.set(ownerId, value);
+        else bindings.delete(ownerId);
+        bindingChanges.delete(ownerId);
+      };
+      return { commit: () => finish("commit"), rollback: () => finish("rollback") };
     },
     resolveBoundSession: (...args) => active?.resolveBoundSession(...args),
     sendConversation: async function* (...args) { yield* requireActive().sendConversation(...args); },

@@ -716,6 +716,23 @@ const agentBrowserChipLabel = (slot: AgentAssignmentSlot, panel: PanelState): st
   return session ? `${browserProviderName(session.provider)} · ${session.title ?? session.conversationUrl}` : localize("Choose a conversation");
 };
 
+const browserSessionOccupiedLocally = (agentId: string, session: BrowserSession, panel: PanelState): boolean =>
+  Object.values(panel.agents).some((agent) => {
+    if (agent.id === agentId || !agent.adapterType.endsWith("-browser")) return false;
+    if (agent.sessionId === session.id) return true;
+    const binding = agent.browserBinding;
+    if (!binding || binding.provider !== session.provider || binding.conversationIdentity !== session.conversationIdentity) return false;
+    if (session.provider === "generic") return binding.preferredTabId === session.tabId;
+    try {
+      const pathname = new URL(session.conversationUrl).pathname.replace(/\/$/, "") || "/";
+      const provisional = pathname === "/" || (session.provider === "claude" && pathname === "/new");
+      return !provisional || (binding.preferredTabId === session.tabId
+        && (binding.provisionalDocumentToken === undefined || binding.provisionalDocumentToken === session.documentToken));
+    } catch {
+      return false;
+    }
+  });
+
 const agentBrowserMenuHtml = (slot: AgentAssignmentSlot, panel: PanelState): string => {
   const sessions = panel.browserBridge.sessions;
   const body = sessions.length === 0
@@ -725,7 +742,8 @@ const agentBrowserMenuHtml = (slot: AgentAssignmentSlot, panel: PanelState): str
     : `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("Browser conversation for {0}", slot.responsibility))}">${sessions.map((session) => {
       const adapter = browserAdapterForProvider(session.provider);
       const selected = slot.browserSessionId === session.id && slot.assignedAdapter === adapter;
-      return `<button type="button" role="option" id="agents-session-${escapeAttribute(slot.agentId)}-${escapeAttribute(session.id)}" class="agents-session-option" data-action="agents-session" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}" data-session="${escapeAttribute(session.id)}" aria-selected="${selected ? "true" : "false"}"${session.status !== "ready" ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(browserProviderName(session.provider))} · ${escapeHtml(session.title ?? session.conversationUrl)}</span><span class="agents-session-meta">${escapeHtml(browserSessionCapabilityLabel(session))}</span></button>`;
+      const occupied = browserSessionOccupiedLocally(slot.agentId, session, panel);
+      return `<button type="button" role="option" id="agents-session-${escapeAttribute(slot.agentId)}-${escapeAttribute(session.id)}" class="agents-session-option" data-action="agents-session" data-agent="${escapeAttribute(slot.agentId)}" data-adapter="${escapeAttribute(adapter)}" data-session="${escapeAttribute(session.id)}" aria-selected="${selected ? "true" : "false"}"${session.status !== "ready" || occupied ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(browserProviderName(session.provider))} · ${escapeHtml(session.title ?? session.conversationUrl)}</span><span class="agents-session-meta">${escapeHtml(occupied ? localize("In use by another participant") : browserSessionCapabilityLabel(session))}</span></button>`;
     }).join("")}</div>`;
   return `<div class="agents-model-menu is-browser" id="${escapeAttribute(agentModelMenuId(slot.agentId))}" role="group" aria-label="${escapeAttribute(localize("Browser conversation for {0}", slot.responsibility))}">${body}<p class="agents-model-note">${escapeHtml(localize("Choose the model in the connected browser conversation."))}</p></div>`;
 };

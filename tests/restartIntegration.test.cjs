@@ -301,6 +301,8 @@ test("restarting an until-clean run replays its stopping policy, not the fixed d
         iterationMode: "untilClean",
         requiredCleanPasses: 3,
         trackWorkspaceChanges: true,
+        iterationIndex: 1,
+        consecutiveCleanPasses: 0,
       },
       "the recorded run plan is not the plan the run was started under",
     );

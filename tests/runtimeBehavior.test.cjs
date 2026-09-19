@@ -531,10 +531,11 @@ test("one pipeline's assignment never reaches another pipeline that names the sa
 });
 
 test("a failed persistence leaves the previous provider, topology and assignment in place", async () => {
-  let failWrites = false;
+  let remainingWriteFailures = 0;
   const harness = assignmentHarness({
     beforeWorkspaceStateUpdate: ({ key }) => {
-      if (failWrites && key === "bachata.runtimeState.v5") {
+      if (remainingWriteFailures > 0 && key === "bachata.runtimeState.v5") {
+        remainingWriteFailures -= 1;
         throw new Error("workspace state is unavailable");
       }
     },
@@ -542,7 +543,7 @@ test("a failed persistence leaves the previous provider, topology and assignment
   try {
     await harness.runtime.handleMessage({ type: "ready" });
     await harness.runtime.configure({ pipelineId: "review" });
-    failWrites = true;
+    remainingWriteFailures = 1;
     await assert.rejects(
       harness.runtime.handleMessage({
         type: "agents.assign",
@@ -551,7 +552,6 @@ test("a failed persistence leaves the previous provider, topology and assignment
       }),
       /workspace state is unavailable/,
     );
-    failWrites = false;
     assert.equal(harness.runtime.getState().agents.codex.adapterType, "codex-app-server");
     assert.equal(harness.runtime.getState().agentAssignments.slots[0].overridden, false);
   } finally {
@@ -748,6 +748,24 @@ const createTrackedBridge = (sessions, options = {}) => {
       },
       releaseBinding: (ownerId) => {
         bindings.delete(ownerId);
+      },
+      beginBindingChange: async (ownerId, target) => {
+        const previous = bindings.get(ownerId);
+        if (target) bindings.set(ownerId, structuredClone(target));
+        else bindings.delete(ownerId);
+        let completed;
+        const finish = async (decision) => {
+          if (completed === decision) return;
+          if (completed) throw new Error("The browser ownership change has already completed");
+          const binding = decision === "commit" ? target : previous;
+          if (binding) bindings.set(ownerId, structuredClone(binding));
+          else bindings.delete(ownerId);
+          completed = decision;
+        };
+        return {
+          commit: () => finish("commit"),
+          rollback: () => finish("rollback"),
+        };
       },
       resolveBoundSession: (ownerId, binding, sessionId) => {
         const effectiveBinding = binding ?? bindings.get(ownerId);

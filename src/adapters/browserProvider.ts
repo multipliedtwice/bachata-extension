@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { assertBrowserSourcePath, browserAttachmentPath, isBrowserSourcePath } from "../browser/sourceTransferPolicy";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import * as path from "node:path";
@@ -62,6 +63,7 @@ export const createBrowserProviderAdapter = (
   options: BrowserProviderAdapterOptions,
 ): AgentAdapter => {
   let activeController: AbortController | undefined;
+  let activeRequestId: string | undefined;
   const ownerId = options.ownerId || options.id;
 
   const resolveSession = (
@@ -112,6 +114,10 @@ export const createBrowserProviderAdapter = (
 
     const controller = new AbortController();
     activeController = controller;
+    const requestId = randomUUID();
+    const previousRequestId = activeRequestId;
+    activeRequestId = requestId;
+    let acceptedByBridge = false;
     let timedOut = false;
     const deadlineAt = Date.now() + options.turnTimeoutMs;
     const abort = (): void => controller.abort();
@@ -119,6 +125,8 @@ export const createBrowserProviderAdapter = (
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
+      void options.bridge.interrupt(requestId).catch(() => undefined);
+      queue.fail(new Error(`${providerName(options.provider)} Browser turn timed out after ${String(options.turnTimeoutMs)} ms; remote termination is unconfirmed`));
     }, Math.max(1, deadlineAt - Date.now()));
 
     const execute = async (): Promise<void> => {
@@ -141,8 +149,10 @@ export const createBrowserProviderAdapter = (
           controller.signal,
           attachments,
           deadlineAt,
+          { ownerId, requestId },
         )) {
           if (event.type === "session") {
+            acceptedByBridge = true;
             queue.push({ type: "session", sessionId: event.sessionId });
             continue;
           }
@@ -216,6 +226,7 @@ export const createBrowserProviderAdapter = (
       } finally {
         clearTimeout(timeout);
         signal.removeEventListener("abort", abort);
+        if (!acceptedByBridge && activeRequestId === requestId) activeRequestId = previousRequestId;
         if (activeController === controller) {
           activeController = undefined;
         }
@@ -251,11 +262,15 @@ export const createBrowserProviderAdapter = (
     },
     send,
     interrupt: async () => {
-      activeController?.abort();
+      if (activeController && !activeController.signal.aborted) {
+        activeController.abort();
+      } else if (activeRequestId) {
+        await options.bridge.interrupt(activeRequestId);
+      }
     },
     dispose: async () => {
       activeController?.abort();
-      activeController = undefined;
+      if (activeRequestId) await options.bridge.interrupt(activeRequestId);
       options.bridge.releaseBinding(ownerId);
     },
   };
