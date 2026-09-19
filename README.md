@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="#install-and-run-a-first-review"><strong>Get started</strong></a> ·
+  <a href="https://multipliedtwice.github.io/bachata-extension/">Documentation</a> ·
   <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PIPELINES.md">Configure pipelines</a> ·
   <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PROVIDERS.md">Choose assistants</a> ·
   <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/BROWSER_BRIDGE_INSTALL.md">Browser Bridge</a> ·

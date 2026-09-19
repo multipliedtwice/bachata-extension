@@ -3,8 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bachata Docs</title>
-<meta name="description" content="How to use Bachata for VS Code and the Bachata Browser Bridge: set up providers, run pipelines, read results, and connect browser chats.">
+<title>Bachata — AI Workflow Extension for VS Code</title>
+<meta name="description" content="Build repeatable AI workflows in VS Code with Bachata. Coordinate Codex, Claude Code and browser chats across planning, coding and review pipelines.">
+<meta name="theme-color" content="#1f7a4d">
+<link rel="canonical" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="sitemap" type="application/xml" href="sitemap.xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bachata">
+<meta property="og:title" content="Bachata — AI Workflow Extension for VS Code">
+<meta property="og:description" content="Build repeatable AI workflows in VS Code with Codex, Claude Code and browser chats.">
+<meta property="og:url" content="https://multipliedtwice.github.io/bachata-extension/">
+<meta property="og:image" content="https://multipliedtwice.github.io/bachata-extension/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bachata coordinates AI assistants across planning, coding and review steps in VS Code.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Bachata — AI Workflow Extension for VS Code">
+<meta name="twitter:description" content="Build repeatable AI workflows in VS Code with Codex, Claude Code and browser chats.">
+<meta name="twitter:image" content="https://multipliedtwice.github.io/bachata-extension/assets/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Bachata",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "description": "A VS Code extension for coordinating AI assistants through reusable planning, coding and review pipelines.",
+  "url": "https://multipliedtwice.github.io/bachata-extension/",
+  "downloadUrl": "https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode",
+  "sameAs": "https://github.com/multipliedtwice/bachata-extension",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -65,14 +99,15 @@
       <h1>Build your own AI workflow for software work</h1>
       <p class="lead">Bachata is a VS Code extension that lets AI assistants work together in steps you arrange: one plans, another challenges, they review and revise, and you decide what matters.</p>
       <div class="buttons">
-        <a class="button primary" href="#getting-started">Get started</a>
-        <a class="button" href="#browser-bridge">Browser Bridge</a>
+        <a class="button primary" href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode">Install for VS Code</a>
+        <a class="button" href="https://chromewebstore.google.com/detail/bachata-browser-bridge/pkjbokfimenacagphechjmlogogghaip">Install Browser Bridge</a>
+        <a class="button" href="#getting-started">Read setup</a>
       </div>
     </div>
 
     <div class="note warn">
       <strong>Alpha candidate</strong>
-      Bachata is a closed-alpha candidate, not a stable release. Provider, platform and browser validation is still incomplete.
+      Bachata is an alpha candidate, not a stable release. Provider, platform and browser validation is still incomplete.
     </div>
 
     <section class="part" id="what-it-is">
@@ -81,10 +116,10 @@
       <p>An AI assistant is a tool you ask, in everyday language, to help with tasks such as planning a feature, writing code, or finding bugs. Bachata runs inside Visual Studio Code and coordinates assistants you already have, such as <strong>Codex</strong> and <strong>Claude Code</strong>.</p>
       <p>You arrange the work as a <strong>pipeline</strong>: a sequence of steps, each with a role, instructions, and the assistant that performs it. For example, two reviewers read the code independently, then challenge each other's findings until they agree or hand the disagreement to you.</p>
       <div class="cards">
-        <div class="card"><h4>Shape the workflow</h4><p>Roles, instructions, step order and review rounds.</p></div>
-        <div class="card"><h4>Choose who does the work</h4><p>Assign Codex, Claude Code or a browser chat to each role.</p></div>
-        <div class="card"><h4>Reuse and adapt</h4><p>Start from a built-in pipeline, edit it, or create your own.</p></div>
-        <div class="card"><h4>Follow the result</h4><p>Findings, decisions and changes, with the checks that actually ran.</p></div>
+        <div class="card"><h3>Shape the workflow</h3><p>Roles, instructions, step order and review rounds.</p></div>
+        <div class="card"><h3>Choose who does the work</h3><p>Assign Codex, Claude Code or a browser chat to each role.</p></div>
+        <div class="card"><h3>Reuse and adapt</h3><p>Start from a built-in pipeline, edit it, or create your own.</p></div>
+        <div class="card"><h3>Follow the result</h3><p>Findings, decisions and changes, with the checks that actually ran.</p></div>
       </div>
       <p>Bachata does not include an AI service or subscription. It never creates a Git commit. AI can make mistakes even when assistants agree, and a finished run is not proof that the code is correct.</p>
     </section>
@@ -93,7 +128,7 @@
       <h2>Requirements</h2>
       <ul>
         <li>VS Code 1.101.0 or newer.</li>
-        <li>A local Git repository, opened in a trusted VS Code window. Git 2.32 or newer.</li>
+        <li>A folder opened in a trusted local VS Code window. Ordinary pipelines do not require Git. Task-list execution requires a Git repository and Git 2.32 or newer.</li>
         <li>Codex or Claude Code, installed and signed in separately. Install both if you want two assistants to cross-check each other.</li>
         <li>Optional: the <a href="#browser-bridge">Browser Bridge</a> Chrome extension, to use ChatGPT, Claude or another chat website as a participant.</li>
       </ul>
@@ -103,10 +138,11 @@
       <p class="eyebrow">Get started</p>
       <h2 id="install">Install</h2>
       <ol class="steps">
-        <li>In VS Code, open the Command Palette and run <strong>Extensions: Install from VSIX…</strong>, then select the Bachata <code>.vsix</code> file.</li>
-        <li>Open a trusted Git repository in a local VS Code window.</li>
+        <li>Install <a href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode"><strong>Bachata from the Visual Studio Marketplace</strong></a>. For an offline or development build, open the Command Palette, run <strong>Extensions: Install from VSIX…</strong>, and select the supplied Bachata <code>.vsix</code> file.</li>
+        <li>Open the folder you want to work on in a trusted local VS Code window.</li>
         <li>Install and sign in to Codex or Claude Code using their own CLI login flow.</li>
       </ol>
+      <p>Without a Git repository, ordinary pipelines still run, but Git-based change tracking, write-scope verification, patch export and repository-change convergence are unavailable.</p>
       <p>Bachata adds a <strong>Bachata</strong> icon to the Activity Bar and a <strong>Get started with Bachata</strong> walkthrough to the VS Code Welcome page.</p>
 
       <h3 id="doctor">Check readiness with Doctor</h3>
@@ -259,7 +295,7 @@
         <figcaption>An accepted finding waiting for a fix. Demo data.</figcaption>
       </figure>
       <p>The fix run gets a prompt scoped to that one finding: subject, location, evidence and the challenges raised. Bachata picks the fix pipeline from <code>bachata.fixPipelineId</code>, then the pipeline selected in the source run, then the built-in <code>managed-fix</code>. A read-only pipeline is refused.</p>
-      <h4>Applying retained work</h4>
+      <h3>Applying retained work</h3>
       <p>Some workflows change the selected folder directly; isolated ones keep changes in a separate Git worktree until you apply them. The run contract says which applies. When you apply:</p>
       <ul>
         <li>Bachata stages the work in your working tree on your current branch and creates no commit. You review it in Source Control and commit it yourself.</li>
@@ -305,12 +341,11 @@
 
       <h3 id="bridge-install">Install the Bridge</h3>
       <ol class="steps">
-        <li>Download the ZIP from the <a href="https://github.com/multipliedtwice/bachata-browser-bridge/releases">official releases page</a>. An empty page means no official download is available yet. Do not install a Bridge build from any other source.</li>
-        <li>Compare its SHA-256 with the checksum published next to the release: <code>shasum -a 256 bachata-browser-bridge-&lt;version&gt;.zip</code></li>
-        <li>Unzip it to a folder you will keep. Chrome loads unpacked extensions from disk on every start.</li>
-        <li>Open <code>chrome://extensions</code>, turn on <strong>Developer mode</strong>, choose <strong>Load unpacked</strong> and select the unzipped folder.</li>
+        <li>Open <a href="https://chromewebstore.google.com/detail/bachata-browser-bridge/pkjbokfimenacagphechjmlogogghaip"><strong>Bachata Browser Bridge in the Chrome Web Store</strong></a>.</li>
+        <li>Select <strong>Add to Chrome</strong>, then confirm the installation.</li>
+        <li>Keep Bachata for VS Code and the Browser Bridge updated together so their protocol versions match.</li>
       </ol>
-      <p>Building from source: run <code>npm ci</code> and <code>npm run build</code> in the Bridge repository, then load the built <code>dist/</code> folder. Loading the repository root fails by design.</p>
+      <p>For offline or development installation, download a ZIP and its checksum from the <a href="https://github.com/multipliedtwice/bachata-browser-bridge/releases">official releases page</a>, verify it with <code>shasum -a 256 bachata-browser-bridge-&lt;version&gt;.zip</code>, unzip it, then load that folder from <code>chrome://extensions</code> with Developer mode enabled. Building from source produces the loadable <code>dist/</code> folder; the repository root is not loadable.</p>
 
       <h3 id="bridge-pair">Pair with VS Code</h3>
       <ol class="steps">
