@@ -7417,7 +7417,11 @@ test("a queued run refuses a local model change at the runtime, not only in the 
     await executionStarted.promise;
     // The editor disables the control; this proves the host refuses the message regardless.
     await assert.rejects(
-      harness.runtime.handleMessage({ type: "localModel.select", model: "some-model" }),
+      harness.runtime.handleMessage({ type: "localModel.select", consumer: "selectorHealing", model: "some-model" }),
+      /Clear the queue/,
+    );
+    await assert.rejects(
+      harness.runtime.handleMessage({ type: "localModel.enable", consumer: "semanticInterpreter", enabled: true }),
       /Clear the queue/,
     );
     releaseExecution.resolve();
@@ -7442,6 +7446,7 @@ const refusingLocalModelService = () => ({
   resolvedConfig: () => undefined,
   verifySelection: async () => undefined,
   invalidate: () => undefined,
+  subscribe: () => ({ dispose: () => undefined }),
 });
 
 test("a model the host refused is not sent to the bridge under its configured name", async () => {
@@ -7463,6 +7468,133 @@ test("a model the host refused is not sent to the bridge under its configured na
     await harness.runtime.dispose();
     harness.cleanup();
   }
+});
+
+// Each local-model feature has its own settings. The Agents view names which one a change is for,
+// and only that feature's setting is written.
+const perConsumerLocalModelService = () => {
+  const calls = [];
+  const readinessFor = {
+    semanticInterpreter: {
+      enabled: true,
+      discovering: false,
+      probes: [{ backend: "ollama", endpoint: "http://127.0.0.1:11434", reachable: true, models: [{ id: "reader", backend: "ollama", availability: "loaded" }], detail: "" }],
+      selection: { status: "ready", backend: "ollama", endpoint: "http://127.0.0.1:11434", model: { id: "reader", backend: "ollama", availability: "loaded" }, explicit: false },
+    },
+    selectorHealing: {
+      enabled: false,
+      discovering: false,
+      probes: [],
+      selection: { status: "serverUnavailable", detail: "Local interpretation is off" },
+    },
+  };
+  return {
+    calls,
+    service: {
+      discover: async () => { calls.push("discover"); },
+      readiness: (consumer) => readinessFor[consumer ?? "semanticInterpreter"],
+      resolvedConfig: () => undefined,
+      verifySelection: async () => { calls.push("verify"); },
+      invalidate: () => { calls.push("invalidate"); },
+      subscribe: () => ({ dispose: () => undefined }),
+    },
+  };
+};
+
+test("the Agents view is told each local-model feature's own readiness", async () => {
+  const { service } = perConsumerLocalModelService();
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+    runtimeOptions: { localModelService: service },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    const { localModels } = harness.runtime.getState();
+    assert.equal(localModels.semanticInterpreter.status, "ready");
+    assert.equal(localModels.semanticInterpreter.model, "reader");
+    assert.equal(localModels.selectorHealing.status, "disabled");
+    assert.equal(localModels.selectorHealing.enabled, false);
+    assert.match(localModels.selectorHealing.detail, /Saved and deterministic selectors only/u);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a model chosen for one feature is written to that feature's setting only", async () => {
+  const { service, calls } = perConsumerLocalModelService();
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+    configuration: { browserSelectorHealingModel: "healing-choice" },
+    runtimeOptions: { localModelService: service },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.handleMessage({ type: "localModel.select", consumer: "semanticInterpreter", model: "reader" });
+    assert.equal(harness.configuration.get("browserSemanticInterpreterModel"), "reader");
+    assert.equal(harness.configuration.get("browserSelectorHealingModel"), "healing-choice", "the other feature's model was overwritten");
+    await harness.runtime.handleMessage({ type: "localModel.select", consumer: "selectorHealing" });
+    assert.equal(harness.configuration.get("browserSelectorHealingModel"), "");
+    assert.equal(harness.configuration.get("browserSemanticInterpreterModel"), "reader");
+    assert.deepEqual(calls.slice(0, 3), ["invalidate", "discover", "verify"], "a change is resolved again at once");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a local-model feature can be switched on and off from the Agents view", async () => {
+  const { service } = perConsumerLocalModelService();
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+    runtimeOptions: { localModelService: service },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.handleMessage({ type: "localModel.enable", consumer: "selectorHealing", enabled: true });
+    assert.equal(harness.configuration.get("browserSelectorHealingEnabled"), true);
+    assert.equal(harness.configuration.has("browserSemanticInterpreterEnabled"), false);
+    await harness.runtime.handleMessage({ type: "localModel.enable", consumer: "semanticInterpreter", enabled: false });
+    assert.equal(harness.configuration.get("browserSemanticInterpreterEnabled"), false);
+    assert.equal(harness.configuration.get("browserSelectorHealingEnabled"), true);
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
+test("a healing model checked after the Bridge connected is sent to it when the check lands", async () => {
+  let resolved;
+  let announce = () => undefined;
+  const service = {
+    discover: async () => undefined,
+    readiness: () => ({ enabled: true, discovering: false, probes: [], selection: { status: "serverUnavailable", detail: "" } }),
+    resolvedConfig: (consumer) => (consumer === "selectorHealing" ? resolved : undefined),
+    verifySelection: async () => undefined,
+    invalidate: () => undefined,
+    subscribe: (listener) => {
+      announce = listener;
+      return { dispose: () => { announce = () => undefined; } };
+    },
+  };
+  const harness = loadRuntimeHarness({
+    onCommandCheck: ({ command }) => `${command} mock-1.0.0`,
+    configuration: { browserSelectorHealingEnabled: true },
+    runtimeOptions: { localModelService: service, startBridge: true },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    assert.equal(harness.bridgeOptions.localModelConfig().model, "", "nothing is checked yet");
+    resolved = { backend: "ollama", endpoint: "http://127.0.0.1:11434", model: "healer" };
+    announce();
+    assert.equal(harness.bridgeRefreshes.at(-1)?.model, "healer", "the checked model never reached the Bridge");
+  } finally {
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+  const before = harness.bridgeRefreshes.length;
+  announce();
+  assert.equal(harness.bridgeRefreshes.length, before, "a disposed runtime still refreshed the Bridge");
 });
 
 test("a runtime with no host service still honours the reader's own settings", async () => {
@@ -7689,51 +7821,46 @@ test("the executable discovery probed is the executable the adapter is built wit
   }
 });
 
-test("a selected root holding no repository refuses the run before any provider is sent to", async () => {
+// Owner decision, docs/PRODUCT_DOCTRINE.md: a folder that is not a Git repository is a valid root
+// for a managed pipeline. The run goes ahead, and readiness says what it gives up there.
+test("a selected root holding no repository still runs a managed pipeline and says it is untracked", async () => {
   const extensionRoot = createSingleAgentPipelineRoot(
     (() => {
       const definition = singleAgentPipelineDefinition();
       return { ...definition, managedPolicy: { writeScope: "task", allowedPaths: ["src"] } };
     })(),
   );
-  const harness = loadRuntimeHarness({
+  let harness;
+  harness = loadRuntimeHarness({
     extensionRoot,
     onCommandCheck: ({ command, args }) => {
-      // Git answers, and the selected root is not a repository: two different blockers, and this
-      // is the one whose remedy is choosing a different root.
       if (command === "git") {
         if (args[0] === "--version") return "git version 2.43.0";
         throw new Error("fatal: not a git repository (or any of the parent directories): .git");
       }
       return `${command} test-version`;
     },
+    onAdapterSend: async ({ agentId }) => {
+      harness.adapterControls.get(agentId).release.resolve();
+      return { answer: "done" };
+    },
   });
   try {
     await harness.runtime.handleMessage({ type: "ready" });
     const readiness = harness.runtime.getState().readiness;
-    assert.equal(readiness.status, "blocked");
-    assert.ok(
-      readiness.findings.some((finding) =>
-        finding.remediationId === "workspace.selectRepository" &&
-        /is not a Git repository/u.test(finding.detail)),
-      "readiness does not name the root as the problem",
-    );
-    await assert.rejects(
-      harness.runtime.handleMessage({
-        type: "pipeline.run",
-        requestId: "blocked-root",
-        prompt: "Do the work",
-        attachmentIds: [],
-        iterationCount: 1,
-        delivery: "immediate",
-      }),
-      /is not a Git repository/u,
-    );
-    assert.equal(
-      harness.adapterControls.get("codex").sendCount,
-      0,
-      "a refused run must not reach a provider",
-    );
+    assert.notEqual(readiness.status, "blocked", "a managed pipeline was refused outside Git");
+    const git = readiness.findings.find((finding) => finding.id === "git");
+    assert.equal(git.status, "ready");
+    assert.match(git.detail, /Not a Git repository: file changes are not tracked/u);
+    await harness.runtime.handleMessage({
+      type: "pipeline.run",
+      requestId: "untracked-root",
+      prompt: "Do the work",
+      attachmentIds: [],
+      iterationCount: 1,
+      delivery: "immediate",
+    });
+    assert.equal(harness.adapterControls.get("codex").sendCount, 1, "the run did not reach its provider");
   } finally {
     harness.adapterControlHistory.forEach((control) => control.release.resolve());
     await harness.runtime.dispose();

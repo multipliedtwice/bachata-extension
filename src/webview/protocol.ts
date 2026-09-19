@@ -216,13 +216,18 @@ export type AgentAssignmentState = {
   modelLockReason?: string;
 };
 
+/** The two features that may run on a local model, each configured and checked on its own. */
+export type LocalModelConsumer = "semanticInterpreter" | "selectorHealing";
+
+export const LOCAL_MODEL_CONSUMERS: readonly LocalModelConsumer[] = ["semanticInterpreter", "selectorHealing"];
+
 /**
- * What the Agents view shows about local interpretation: which backend answered, which model was
+ * What the Agents view shows about one local-model feature: which backend answered, which model was
  * selected and why, and whether the reader pinned it. Distinct statuses so a reader is sent to the
  * right remedy — a server that is not running is not the same problem as a server with no usable
  * model, and neither is the same as a model the reader named that is now gone.
  */
-export type LocalInterpreterState = {
+export type LocalModelConsumerState = {
   enabled: boolean;
   discovering: boolean;
   status:
@@ -316,7 +321,7 @@ export type PanelState = {
   adapterTypes: string[];
   agents: Record<AgentId, AgentPanelState>;
   agentAssignments: AgentAssignmentState;
-  localInterpreter: LocalInterpreterState;
+  localModels: Record<LocalModelConsumer, LocalModelConsumerState>;
   roles: Record<string, AgentId>;
   running: boolean;
   workflowStatus: WorkflowStatus;
@@ -728,7 +733,8 @@ export type WebviewToExtensionMessage =
   | { type: "agents.effort.select"; agentId: AgentId; reasoningEffort?: string }
   | { type: "agents.model.discover"; agentId: AgentId }
   | { type: "agents.reset" }
-  | { type: "localModel.select"; model?: string }
+  | { type: "localModel.select"; consumer: LocalModelConsumer; model?: string }
+  | { type: "localModel.enable"; consumer: LocalModelConsumer; enabled: boolean }
   | { type: "browser.asset.save"; assetId: string }
   | { type: "browser.asset.reveal"; assetId: string }
   | { type: "transcript.export" }
@@ -863,6 +869,9 @@ const parseIdentifier = (value: unknown): string | undefined =>
   !reservedIdentifiers.has(value)
     ? value
     : undefined;
+
+const parseLocalModelConsumer = (value: unknown): LocalModelConsumer | undefined =>
+  LOCAL_MODEL_CONSUMERS.find((consumer) => consumer === value);
 
 const parseAgentId = (value: unknown): AgentId | undefined =>
   parseIdentifier(value);
@@ -1300,7 +1309,8 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
   }
 
   if (value.type === "localModel.select") {
-    if (!hasOnlyKeys(value, ["type", "model"])) {
+    const consumer = parseLocalModelConsumer(value.consumer);
+    if (!hasOnlyKeys(value, ["type", "consumer", "model"]) || !consumer) {
       throw new Error("Invalid localModel.select message");
     }
     if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) {
@@ -1308,8 +1318,17 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
     }
     return {
       type: "localModel.select",
+      consumer,
       ...(typeof value.model === "string" ? { model: value.model.trim() } : {}),
     };
+  }
+
+  if (value.type === "localModel.enable") {
+    const consumer = parseLocalModelConsumer(value.consumer);
+    if (!hasOnlyKeys(value, ["type", "consumer", "enabled"]) || !consumer || typeof value.enabled !== "boolean") {
+      throw new Error("Invalid localModel.enable message");
+    }
+    return { type: "localModel.enable", consumer, enabled: value.enabled };
   }
 
   if (value.type === "agents.model.discover") {

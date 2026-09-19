@@ -189,8 +189,12 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
       findings,
     };
   }
+  // Only task-list execution needs Git: it builds each task in a worktree created from HEAD. Any
+  // other pipeline may work on material that is not software at all, so outside a repository it
+  // runs without Git-based change tracking instead of being refused.
   const requiresCleanGit = pipeline.steps.some((step) => step.enabled && step.type === "executeChecklist");
-  const requiresGit = requiresCleanGit || pipeline.managedPolicy !== undefined;
+  const requiresGit = requiresCleanGit;
+  const tracksChangesWithGit = pipeline.managedPolicy !== undefined;
   // Git answered but the selected root holds no repository. Naming that as "Git is unavailable"
   // sent the reader to install a Git they already have; the root is what has to change.
   const rootIsNotARepository = input.workspace.gitAvailable === false &&
@@ -211,7 +215,9 @@ export const evaluateReadiness = (input: ReadinessInput): PipelineReadiness => {
         ? finding("git", "Git", "blocked", input.workspace.gitDetail ?? "Git is unavailable", "git.install")
         : requiresGit && input.workspace.gitAvailable === undefined
           ? finding("git", "Git", "needsSetup", input.workspace.gitDetail ?? "Run Doctor to verify Git", "doctor.run")
-          : finding("git", "Git", "ready", input.workspace.gitDetail ?? "Not required by this pipeline"));
+          : tracksChangesWithGit && rootIsNotARepository
+            ? finding("git", "Git", "ready", "Not a Git repository: file changes are not tracked or checked against the write scope")
+            : finding("git", "Git", "ready", input.workspace.gitDetail ?? "Not required by this pipeline"));
   const blockingDirtyPaths = input.workspace.gitClean === false &&
     (input.workspace.dirtyPaths === undefined ||
       input.workspace.dirtyPaths.some(

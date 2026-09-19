@@ -39,7 +39,6 @@ import {
 } from "./types";
 import { assertGitHeadUnchanged, captureGitHeadSnapshot, GitHeadSnapshot } from "./gitHeadGuard";
 import {
-  assertWorkspaceExecutionSupported,
   assertWorkspacePolicyAudit,
   captureWorkspacePolicyAudit,
   type WorkspacePolicyAuditSnapshot,
@@ -1722,7 +1721,6 @@ export const createCodexAppServerAdapter = (
         }
         if (requestData.workspacePolicy) {
           workspaceAuditBaseline = await captureWorkspacePolicyAudit(requestData, signal);
-          assertWorkspaceExecutionSupported(requestData, workspaceAuditBaseline);
         }
         listeners.add(listener);
         const input: JsonObject[] = [

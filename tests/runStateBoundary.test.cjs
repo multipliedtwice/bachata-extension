@@ -1,5 +1,4 @@
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
@@ -59,20 +58,6 @@ const readOnlySingle = () => pipelineDefinition(
   [agentStep("review", "Review", ["codex"], "Review: {{userPrompt}}")],
 );
 
-const git = (cwd, ...args) =>
-  execFileSync("git", ["-c", "user.email=bachata@example.invalid", "-c", "user.name=Bachata", ...args], {
-    cwd,
-    encoding: "utf8",
-  });
-
-const makeGitProject = (directory) => {
-  fs.mkdirSync(directory, { recursive: true });
-  git(directory, "init", "-q");
-  fs.writeFileSync(path.join(directory, "README.txt"), "tracked\n");
-  git(directory, "add", "README.txt");
-  git(directory, "commit", "-q", "-m", "init");
-};
-
 /**
  * A runtime over one preset. `provider.mode` decides what a send does: answer, throw, or hold until
  * the test releases it or the run is stopped. Every prompt a provider was actually handed is kept.
@@ -115,14 +100,32 @@ const sends = (harness) => harness.adapterControlHistory.reduce((total, control)
 const errors = (harness) => harness.transcript.filter((entry) => entry.kind === "error");
 const persistedRecovery = (harness) => harness.workspaceState.get("bachata.runtimeState.v5")?.resumableWorkflow;
 
-test("a precondition every participant shares refuses the run once, before any participant runs", async () => {
+// Owner decision, docs/PRODUCT_DOCTRINE.md: a folder that is not a Git repository is a valid
+// project, so a writing pipeline runs there. Do not reintroduce a Git refusal for it.
+test("a writing pipeline runs in a folder that is not a Git repository", async () => {
   const harness = startHarness(writingPair());
   try {
     await harness.runtime.handleMessage({ type: "ready" });
-    const folder = fs.realpathSync(harness.workspaceDirectory);
+    await harness.runtime.runPipeline("Change the retry guard", [], { allowedPaths: ["src"] });
+    assert.equal(sends(harness), 3);
+    assert.deepEqual(errors(harness), []);
+    assert.equal(harness.runtime.getState().workflowStatus, "completed");
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+// The shared precondition below is a project folder that cannot be resolved: it disappears before
+// the run starts. That still refuses every participant once, before any of them runs.
+test("a precondition every participant shares refuses the run once, before any participant runs", async () => {
+  const harness = startHarness(writingPair());
+  const moved = `${harness.workspaceDirectory}-moved`;
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    fs.renameSync(harness.workspaceDirectory, moved);
     await assert.rejects(
       harness.runtime.runPipeline("Change the retry guard", [], { allowedPaths: ["src"] }),
-      /^Error: Choose a Git project folder\./u,
+      /^Error: Bachata could not resolve the project/u,
     );
     assert.equal(sends(harness), 0, "a participant was invoked although the run could not be validated");
     assert.deepEqual(harness.transcript.filter((entry) => entry.agentId !== undefined), [], "a participant was given an entry");
@@ -130,12 +133,8 @@ test("a precondition every participant shares refuses the run once, before any p
     assert.deepEqual(duplicates, [], "the shared refusal was recorded more than once");
     assert.equal(failure.eventType, "workflow.preflightFailed");
     assert.equal(failure.agentId, undefined);
-    assert.equal(
-      failure.text,
-      `Choose a Git project folder. ${folder} is not inside a Git worktree, and Codex in “Review”, Claude in “Review” and 1 more participant may change files, so Bachata needs Git to validate those changes and did not start them.`,
-    );
-    assert.equal(failure.data.reason, "notGitWorktree");
-    assert.equal(failure.data.folder, folder);
+    assert.match(failure.text, /so it did not start Codex in “Review”, Claude in “Review” and 1 more participant\.$/u);
+    assert.equal(failure.data.reason, "unresolved");
     assert.deepEqual(failure.data.participants, [
       { participant: "Codex", step: "Review" },
       { participant: "Claude", step: "Review" },
@@ -149,12 +148,12 @@ test("a precondition every participant shares refuses the run once, before any p
     assert.equal(state.resumableWorkflow.nextStepIndex, 0);
     assert.ok(Object.values(state.agents).every((agent) => agent.status !== "error"), "a participant that never started is shown as failed");
 
-    makeGitProject(harness.workspaceDirectory);
+    fs.renameSync(moved, harness.workspaceDirectory);
     await harness.runtime.restartPipeline();
     assert.deepEqual(
       harness.provider.prompts.slice().sort(),
       ["Fix: Change the retry guard", "Review: Change the retry guard", "Review: Change the retry guard"],
-      "the restart did not rerun from the beginning once the folder was a Git project",
+      "the restart did not rerun from the beginning once the folder was back",
     );
     assert.equal(harness.runtime.getState().workflowStatus, "completed");
     assert.equal(harness.runtime.getState().resumableWorkflow, undefined);
@@ -293,19 +292,22 @@ test("a restored checkpoint keeps how its run ended, and one left running by a l
   }
 });
 
-test("choosing a Git project folder keeps a run that never started ready to restart there", async () => {
+test("choosing a project folder keeps a run that never started ready to restart there", async () => {
   let harness;
   harness = startHarness(writingPair(), {
     showOpenDialog: () => [{ fsPath: path.join(harness.workspaceDirectory, "project") }],
     showWarningMessage: () => "Change and reset",
   });
+  const moved = `${harness.workspaceDirectory}-moved`;
   try {
     await harness.runtime.handleMessage({ type: "ready" });
+    fs.renameSync(harness.workspaceDirectory, moved);
     await assert.rejects(
       harness.runtime.runPipeline("Change the retry guard", [], { allowedPaths: ["src"] }),
-      /Choose a Git project folder/u,
+      /Bachata could not resolve the project/u,
     );
-    makeGitProject(path.join(harness.workspaceDirectory, "project"));
+    fs.renameSync(moved, harness.workspaceDirectory);
+    fs.mkdirSync(path.join(harness.workspaceDirectory, "project"), { recursive: true });
     await harness.runtime.handleMessage({ type: "workingDirectory.pick" });
     const state = harness.runtime.getState();
     assert.equal(state.workingDirectory, fs.realpathSync(path.join(harness.workspaceDirectory, "project")));
@@ -340,20 +342,12 @@ for (const [chosen, writes] of [["writer", true], ["reader", false]]) {
     try {
       await harness.runtime.handleMessage({ type: "ready" });
       const run = harness.runtime.runPipeline("Change the retry guard", [], { allowedPaths: ["src"] });
-      if (writes) {
-        await assert.rejects(run, /Choose a Git project folder\./u);
-        assert.equal(sends(harness), 0, "the writing candidate was invoked outside Git");
-        const [failure, ...duplicates] = errors(harness);
-        assert.deepEqual(duplicates, []);
-        assert.equal(failure.eventType, "workflow.preflightFailed");
-        assert.deepEqual(failure.data.participants, [{ participant: "Builder", step: "Build" }]);
-        assert.equal(harness.runtime.getState().resumableWorkflow.failureScope, "run");
-      } else {
-        await run;
-        assert.deepEqual(harness.provider.prompts.map((prompt) => prompt.split("\n").at(-1)), ["Build: Change the retry guard"]);
-        assert.deepEqual(errors(harness), []);
-        assert.equal(harness.runtime.getState().workflowStatus, "completed");
-      }
+      // Outside Git both candidates run; which one writes no longer decides whether the run starts.
+      assert.ok(typeof writes === "boolean");
+      await run;
+      assert.deepEqual(harness.provider.prompts.map((prompt) => prompt.split("\n").at(-1)), ["Build: Change the retry guard"]);
+      assert.deepEqual(errors(harness), []);
+      assert.equal(harness.runtime.getState().workflowStatus, "completed");
     } finally {
       await closeHarness(harness);
     }

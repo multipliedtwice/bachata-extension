@@ -191,7 +191,9 @@ test("a POSIX selected root outside the open root stays refused, case intact", (
   }
 });
 
-test("Git is optional for a local review but required for managed workflows", () => {
+// Owner decision, docs/PRODUCT_DOCTRINE.md: Bachata tasks need not be software, so Git is optional
+// for every pipeline except task-list execution. Do not reintroduce the requirement.
+test("Git is optional for a local review and for managed workflows", () => {
   const review = pipeline("review", "codex-app-server");
   const reviewInput = base("review", [review], [{ type: "codex-app-server", available: true }]);
   reviewInput.workspace.gitAvailable = false;
@@ -199,7 +201,9 @@ test("Git is optional for a local review but required for managed workflows", ()
   const managed = { ...review, id: "managed", managedPolicy: { commitMode: "never" } };
   const managedInput = base("managed", [managed], [{ type: "codex-app-server", available: true }]);
   managedInput.workspace.gitAvailable = false;
-  assert.equal(evaluateReadiness(managedInput).status, "blocked");
+  assert.equal(evaluateReadiness(managedInput).status, "ready");
+  managedInput.workspace.gitRepository = false;
+  assert.equal(evaluateReadiness(managedInput).status, "ready");
 });
 
 test("managed workflows block on a dirty Git workspace", () => {

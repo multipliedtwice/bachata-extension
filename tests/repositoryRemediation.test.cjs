@@ -29,6 +29,15 @@ const input = (workspace) => ({
   codexWorkspaceScope: "wholeWorkingDirectory",
 });
 
+// Task-list execution builds each task in a Git worktree, so it is the one pipeline shape that
+// still needs a repository (docs/PRODUCT_DOCTRINE.md).
+const taskListPipeline = { ...managedPipeline, id: "task-list", steps: [{
+  id: "execute", name: "Execute", enabled: true, humanGate: "none", type: "executeChecklist",
+  allowedPaths: ["src"], checks: ["bachata:workspace-integrity"],
+}] };
+
+const taskListInput = (workspace) => ({ ...input(workspace), catalog: [taskListPipeline], selectedPipelineId: "task-list" });
+
 test("a Git probe distinguishes an unusable Git from a root that holds no repository", () => {
   const notARepository = gitReadinessFrom({
     outcome: "statusFailed",
@@ -45,16 +54,23 @@ test("a Git probe distinguishes an unusable Git from a root that holds no reposi
   assert.equal(usable.repository, true);
 });
 
-test("a root that is not a repository is still blocked, and its Fix names the root rather than Git", () => {
-  const blocked = evaluateReadiness(input({ gitAvailable: false, gitRepository: false }));
-  assert.equal(blocked.status, "blocked", "the Git audit stays in force");
+// Owner decision, docs/PRODUCT_DOCTRINE.md: only task-list execution needs Git. A managed pipeline
+// runs in a folder that is not a repository and is told so; it is never refused for it.
+test("a root that is not a repository blocks only task-list execution, and its Fix names the root", () => {
+  const managed = evaluateReadiness(input({ gitAvailable: false, gitRepository: false }));
+  const managedGit = managed.findings.find((finding) => finding.id === "git");
+  assert.equal(managedGit.status, "ready", "a managed pipeline was refused outside Git");
+  assert.match(managedGit.detail, /Not a Git repository: file changes are not tracked/u);
+  assert.notEqual(managed.status, "blocked");
+
+  const blocked = evaluateReadiness(taskListInput({ gitAvailable: false, gitRepository: false }));
   const git = blocked.findings.find((finding) => finding.id === "git");
   assert.equal(git.status, "blocked");
   assert.equal(git.remediationId, "workspace.selectRepository");
   assert.match(git.detail, /\/work is not a Git repository/u);
 
-  // An absent Git is still an absent Git, and still sends the reader to install one.
-  const noGit = evaluateReadiness(input({ gitAvailable: false }));
+  // An absent Git still sends task-list execution to install one.
+  const noGit = evaluateReadiness(taskListInput({ gitAvailable: false }));
   assert.equal(noGit.findings.find((finding) => finding.id === "git").remediationId, "git.install");
 });
 
@@ -90,9 +106,9 @@ test("the worktree remediation also offers working-directory selection", () => {
   assert.ok(plan.actions.slice(0, 3).some((action) => action.kind === "chooseWorkingDirectory"));
 });
 
-test("autonomous local-agent execution is still refused outside a Git repository", async () => {
-  // The remedy above changes which root a run points at. It must not have made a non-repository
-  // root runnable: this is the refusal that protects post-turn validation, and it stands.
+// Owner decision, docs/PRODUCT_DOCTRINE.md: a folder that is not a Git repository is runnable.
+// Choosing a repository remains available as a remedy for task-list execution only.
+test("autonomous local-agent execution runs outside a Git repository", async () => {
   const root = scratchRootSync("bachata-remediation-nonrepo-");
   try {
     const request = {
@@ -109,10 +125,7 @@ test("autonomous local-agent execution is still refused outside a Git repository
     };
     const before = await captureWorkspacePolicyAudit(request);
     assert.equal(before.isGitRepository, false);
-    await assert.rejects(
-      assertWorkspacePolicyAudit(request, before),
-      /Choose a Git project folder\./u,
-    );
+    await assert.doesNotReject(assertWorkspacePolicyAudit(request, before));
   } finally {
     removeScratchSync(root);
   }
@@ -242,7 +255,7 @@ test("a provider still being asked about, or a Git nobody has checked, is not a 
   // refused turn is not a provider that has gone away. The run's own preflight validates the
   // capabilities the pipeline needs against the adapters it actually built.
   const undiscovered = evaluateReadiness({
-    ...input({ gitAvailable: undefined }),
+    ...taskListInput({ gitAvailable: undefined }),
     adapters: [],
   });
   assert.deepEqual(
@@ -256,20 +269,26 @@ test("a provider still being asked about, or a Git nobody has checked, is not a 
   );
 });
 
-test("a local-agent pipeline that needs Git is refused outside a repository and accepted inside a child one", () => {
-  const notARepository = evaluateReadiness(input({
+test("task-list execution is refused outside a repository and accepted inside a child one; a managed pipeline is not refused", () => {
+  const notARepository = evaluateReadiness(taskListInput({
     gitAvailable: false,
     gitRepository: false,
   }));
   assert.ok(
     runBlockingFindings(notARepository.findings).some((entry) => entry.id === "git"),
-    "a managed pipeline started in a folder holding no repository",
+    "task-list execution started in a folder holding no repository",
+  );
+  assert.deepEqual(
+    runBlockingFindings(evaluateReadiness(input({ gitAvailable: false, gitRepository: false })).findings)
+      .filter((entry) => entry.id === "git"),
+    [],
+    "a managed pipeline was refused outside a repository",
   );
 
   // The remedy is to point Bachata at the repository, which is often a child of the open folder.
   // Once it is selected, the same pipeline is accepted.
   const childRepository = evaluateReadiness({
-    ...input({ gitAvailable: true, gitRepository: true }),
+    ...taskListInput({ gitAvailable: true, gitRepository: true, gitClean: true }),
     selectedRoot: "/work/packages/app",
   });
   assert.deepEqual(

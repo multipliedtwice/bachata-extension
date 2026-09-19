@@ -1,23 +1,23 @@
 # Bachata
 
 <p align="center">
-  <img src="media/readme-demo.gif" alt="Choosing the Code review and refinement pipeline, assigning a model to each role, and following the Implementer and Independent reviewer as they exchange findings, a fix, and a review" width="720">
+  <img src="https://raw.githubusercontent.com/multipliedtwice/bachata-extension/main/media/readme-demo.gif" alt="Choosing the Code review and refinement pipeline, assigning a model to each role, and following the Implementer and Independent reviewer as they exchange findings, a fix, and a review" width="720">
 </p>
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode"><img src="https://img.shields.io/badge/VS_Code_Marketplace-Bachata-007ACC?style=flat-square" alt="Bachata on the Visual Studio Marketplace"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/VS_Code-1.101%2B-007ACC?style=flat-square" alt="Requires VS Code 1.101 or newer"></a>
-  <a href="docs/RELEASE_VERDICT.md"><img src="https://img.shields.io/badge/status-alpha_candidate-C46A3A?style=flat-square" alt="Status: alpha candidate"></a>
-  <a href="docs/DEVELOPMENT.md"><img src="https://img.shields.io/badge/coverage-enforced_floors-586069?style=flat-square" alt="Coverage: enforced thresholds; see development checks"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-586069?style=flat-square" alt="MIT license"></a>
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/RELEASE_VERDICT.md"><img src="https://img.shields.io/badge/status-alpha_candidate-C46A3A?style=flat-square" alt="Status: alpha candidate"></a>
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/DEVELOPMENT.md"><img src="https://img.shields.io/badge/coverage-enforced_floors-586069?style=flat-square" alt="Coverage: enforced thresholds; see development checks"></a>
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-586069?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
   <a href="#install-and-run-a-first-review"><strong>Get started</strong></a> ·
-  <a href="docs/PIPELINES.md">Configure pipelines</a> ·
-  <a href="docs/PROVIDERS.md">Choose assistants</a> ·
-  <a href="docs/BROWSER_BRIDGE_INSTALL.md">Browser Bridge</a> ·
-  <a href="CHANGELOG.md">What’s new</a>
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PIPELINES.md">Configure pipelines</a> ·
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PROVIDERS.md">Choose assistants</a> ·
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/BROWSER_BRIDGE_INSTALL.md">Browser Bridge</a> ·
+  <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/CHANGELOG.md">What’s new</a>
 </p>
 
 ## Build your own AI workflow for software work
@@ -48,7 +48,7 @@ You can:
 
 Bachata uses AI tools you install and sign in to separately. It does not include
 an AI service or subscription. The optional
-[Browser Bridge](docs/BROWSER_BRIDGE_INSTALL.md) lets pipelines use conversations
+[Browser Bridge](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/BROWSER_BRIDGE_INSTALL.md) lets pipelines use conversations
 on websites such as ChatGPT and Claude.
 
 Some workflows only review files. Others edit your selected folder or keep changes
@@ -61,19 +61,21 @@ provider you choose. There is no Bachata account, hosted service, or telemetry.
 ## Requirements
 
 - VS Code 1.101.0 or newer.
-- A local Git repository, opened in a trusted VS Code window.
+- A folder opened in a trusted local VS Code window. It does not need to be a Git
+  repository; only task-list (TODO) execution does, because it builds each task in a
+  Git worktree.
 - Codex or Claude Code installed and signed in separately. Install both if you want
   two agents to cross-check each other.
 
 Using AI chat websites is an optional advanced workflow. They additionally need the
 separate Browser Bridge and a local VS Code Extension Host. See
-[Browser Bridge install](docs/BROWSER_BRIDGE_INSTALL.md).
+[Browser Bridge install](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/BROWSER_BRIDGE_INSTALL.md).
 
 ## Install and run a first review
 
 1. Install [Bachata from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode), or install a
    supplied `.vsix` with **Extensions: Install from VSIX...**.
-2. Open a trusted Git repository in a local VS Code window.
+2. Open the folder you want to work on in a trusted local VS Code window.
 3. Install and sign in to Codex or Claude Code. Install both to use a pair.
 4. Run **Bachata: Setup**.
 5. Choose **Review code**, then choose one AI assistant or two that check each other’s work.
@@ -119,6 +121,19 @@ Bachata can coordinate two separate browser conversations as Worker and Lead. On
 conversation works on the task. The other reviews it and can request a bounded
 revision. These are LLM conversations, not local coding agents. Bachata passes them
 selected context and controls any allowed code changes.
+
+Two optional features can use a local Ollama or LM Studio model with browser
+conversations. Both are off by default, and each is checked on its own task before
+use:
+
+- **Browser action interpreter** reads plain-language action requests in a browser
+  model's answer. Without it, Bachata uses explicit `bachata-action` blocks and its
+  built-in pattern matching.
+- **Selector healing** lets the Browser Bridge recover a page control when a saved
+  selector stops matching.
+
+With a pipeline selected, turn either one on under **Agents → Local models**. See
+[Local models](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SEMANTIC_INTERPRETER.md).
 
 ## Why use Bachata?
 
@@ -232,7 +247,7 @@ Not every artifact type is produced yet. A ruled review round persists a typed
 persists a typed `patch` naming the staged files and the findings it was scoped
 to. Which further artifact types the shipped presets declare is measured, not
 restated here: read `Declared artifact promotion types` in
-[BUILD_FACTS.md](BUILD_FACTS.md). A declaration says what a preset asks to
+[BUILD_FACTS.md](https://github.com/multipliedtwice/bachata-extension/blob/main/BUILD_FACTS.md). A declaration says what a preset asks to
 persist, never that a run produced it.
 
 A repository can hold more than one initiative. You create, switch, pause,
@@ -259,14 +274,14 @@ repository to a different path can require a new initiative. Bachata
 does not claim portable or repository-backed initiative history. An initiative
 can be exported to a JSON bundle and imported elsewhere as a separate
 initiative; import does not combine or synchronise initiative state.
-See [State and history](docs/STATE.md).
+See [State and history](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/STATE.md).
 
 Finding reconciliation is not Git integration. Bachata never merges Git branches
 automatically. Accepted retained work reaches current branch only after explicit
 human apply, and Bachata stages it without commit, rebase, tag, push, or automatic
 merge.
 
-See [Product doctrine](docs/PRODUCT_DOCTRINE.md) for mandatory boundaries.
+See [Product doctrine](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PRODUCT_DOCTRINE.md) for mandatory boundaries.
 
 ## Execution mechanics
 
@@ -321,23 +336,26 @@ Bachata runs against your local Git checkout. There is no Bachata account, no ho
 Bachata service, and no telemetry.
 
 Prompts, selected code, and answers still go to the LLM providers you choose.
+Optional local-model features send bounded evidence only to the Ollama or LM Studio
+endpoint they use. That endpoint is on this machine unless you separately allow a
+remote interpreter endpoint.
 Bachata shows the planned outbound context before a run. Provider credentials stay
 with the provider's CLI or browser session.
 
-Read [Privacy](docs/PRIVACY.md), [Security](docs/SECURITY.md), and
-[No telemetry](NO_TELEMETRY.md) for the full boundaries.
+Read [Privacy](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PRIVACY.md), [Security](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SECURITY.md), and
+[No telemetry](https://github.com/multipliedtwice/bachata-extension/blob/main/NO_TELEMETRY.md) for the full boundaries.
 
 ## Current status
 
 Bachata is currently a closed-alpha candidate, not a stable public release.
 Automated checks exist, but exact-build provider, platform, browser, and
 graphical validation is still incomplete. The
-[support matrix](docs/SUPPORT_MATRIX.md) records what is known.
+[support matrix](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SUPPORT_MATRIX.md) records what is known.
 
 Recorded longitudinal evidence for cross-run core-decision compression and review saturation
 remains a roadmap requirement. The current one-run benchmark has no recorded result
-and supports no quality claim. See [Roadmap](docs/ROADMAP.md) and
-[benchmark limits](benchmarks/README.md).
+and supports no quality claim. See [Roadmap](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/ROADMAP.md) and
+[benchmark limits](https://github.com/multipliedtwice/bachata-extension/blob/main/benchmarks/README.md).
 
 Bubble-up notifications, automatic post-discovery finding reconciliation, and
 the first-class Z.AI GLM provider identity ship in this build. Z.AI GLM is
@@ -353,17 +371,18 @@ hash they had just recorded. Read them in the repository.
 
 ## Learn more
 
-- [Release and deployment](docs/DEPLOYMENT.md)
+- [Release and deployment](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/DEPLOYMENT.md)
 
-- [Product doctrine](docs/PRODUCT_DOCTRINE.md)
-- [Product and workflow design](docs/PRODUCT_SPEC.md)
-- [Providers and setup](docs/PROVIDERS.md)
-- [Pipelines](docs/PIPELINES.md)
-- [Repository policy](docs/REPOSITORY_POLICY.md)
-- [Repository verifiers](docs/VERIFIERS.md)
-- [`TODO.md` orchestration](docs/ORCHESTRATION.md)
-- [Browser Bridge installation](docs/BROWSER_BRIDGE_INSTALL.md)
-- [Development and testing](docs/DEVELOPMENT.md)
+- [Product doctrine](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PRODUCT_DOCTRINE.md)
+- [Product and workflow design](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PRODUCT_SPEC.md)
+- [Providers and setup](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PROVIDERS.md)
+- [Pipelines](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PIPELINES.md)
+- [Repository policy](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/REPOSITORY_POLICY.md)
+- [Repository verifiers](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/VERIFIERS.md)
+- [`TODO.md` orchestration](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/ORCHESTRATION.md)
+- [Browser Bridge installation](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/BROWSER_BRIDGE_INSTALL.md)
+- [Local models: action interpreter and selector healing](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SEMANTIC_INTERPRETER.md)
+- [Development and testing](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/DEVELOPMENT.md)
 
 <div hidden>
 <!-- generated:verification-policy -->

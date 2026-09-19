@@ -218,6 +218,8 @@ const installHostDoubles = (options = {}) => {
   // The local-model configuration the runtime hands the bridge is only ever sent over a socket, so
   // the double keeps the accessor itself: a test can then ask what the bridge would be told.
   const bridgeOptions = {};
+  // What each refresh would send the connected Bridge, in order.
+  const bridgeRefreshes = [];
   const bridgePath = require.resolve("../../dist/browser/bridgeServer.js");
   injectModule(bridgePath, {
     createBrowserBridgeServer: (createOptions) => {
@@ -272,6 +274,9 @@ const installHostDoubles = (options = {}) => {
         },
         interrupt: async () => undefined,
         close: async () => undefined,
+        refreshLocalModelConfig: () => {
+          bridgeRefreshes.push(createOptions.localModelConfig?.());
+        },
       };
     },
   });
@@ -347,6 +352,7 @@ const installHostDoubles = (options = {}) => {
       (options.translations?.[message] ?? message).replace(/\{(\d+)\}/gu, (placeholder, index) =>
         args[Number(index)] === undefined ? placeholder : String(args[Number(index)])) },
     Disposable,
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     Uri: {
       file: (fsPath) => ({ fsPath }),
       joinPath: (base, ...segments) => ({
@@ -368,6 +374,9 @@ const installHostDoubles = (options = {}) => {
           defaultValue: configurationDefaults.get(key),
           globalValue: configuration.get(key),
         }),
+        update: async (key, value) => {
+          configuration.set(key, value);
+        },
       }),
       onDidChangeWorkspaceFolders: (listener) => {
         workspaceFolderListeners.add(listener);
@@ -452,6 +461,7 @@ const installHostDoubles = (options = {}) => {
     transcript,
     workspaceState,
     bridgeOptions,
+    bridgeRefreshes,
     workspaceDirectory,
     workspaceDirectories,
     storageDirectory,

@@ -1142,6 +1142,15 @@ test("1000 running tabs keep the active controls and dispatch Stop once", () => 
   } finally { harness.restore(); }
 });
 
+const localModelOff = (detail) => ({
+  enabled: false,
+  discovering: false,
+  status: "disabled",
+  detail,
+  explicit: false,
+  availableModels: [],
+});
+
 const managerState = (overrides = {}) => ({
   conversations: [conversationSummary()],
   activeConversationId: "run-1",
@@ -1218,13 +1227,9 @@ const panelState = (overrides = {}) => ({
   browserBridge: { enabled: true, connected: false, sessions: [] },
   queuedMessages: [],
   queuePaused: false,
-  localInterpreter: {
-    enabled: false,
-    discovering: false,
-    status: "disabled",
-    detail: "Local interpretation is off. Deterministic extraction runs on its own.",
-    explicit: false,
-    availableModels: [],
+  localModels: {
+    semanticInterpreter: localModelOff("Off. Explicit bachata-action blocks and built-in pattern matching only."),
+    selectorHealing: localModelOff("Off. Saved and deterministic selectors only."),
   },
   agentAssignments: assignmentStateFor(
     overrides.selectedPipelineDefinition ?? pipelineDefinition(),
@@ -2472,19 +2477,31 @@ test("a provider discovery finished and did not find is named as not found", () 
   }
 });
 
-const localInterpreterPanel = (local) =>
+const localModelPanel = (local, consumer = "selectorHealing") =>
   assignmentPanel({}, {
-    localInterpreter: {
-      enabled: true,
-      discovering: false,
-      explicit: false,
-      availableModels: [],
-      ...local,
+    localModels: {
+      ...panelState().localModels,
+      [consumer]: {
+        enabled: true,
+        discovering: false,
+        explicit: false,
+        availableModels: [],
+        ...local,
+      },
     },
   });
 
-test("a ready local interpreter names its backend, model and who chose it", () => {
-  const harness = bootWebview(managerState(), localInterpreterPanel({
+const localModelSection = (harness, consumer) =>
+  harness.document.root.querySelector(`[data-local-model="${consumer}"]`);
+
+// This DOM gives only the root markup, so a section's markup is its slice of it.
+const localModelMarkup = (harness, consumer) => {
+  const section = localModelSection(harness, consumer);
+  return harness.document.root.innerHTML.slice(section.contentStart, section.contentEnd);
+};
+
+test("a ready local model names its backend, model and who chose it", () => {
+  const harness = bootWebview(managerState(), localModelPanel({
     status: "ready",
     detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
     backend: "ollama",
@@ -2498,18 +2515,43 @@ test("a ready local interpreter names its backend, model and who chose it", () =
   }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.match(harness.document.root.innerHTML, /Local interpreter/u);
-    assert.match(harness.document.root.innerHTML, /Ollama/u);
-    assert.match(harness.document.root.innerHTML, /qwen2\.5-coder:7b/u);
+    const markup = localModelMarkup(harness, "selectorHealing");
+    assert.match(markup, /Selector healing/u);
+    assert.match(markup, /Ollama/u);
+    assert.match(markup, /qwen2\.5-coder:7b/u);
     // Both a model list and an explicit automatic choice are offered.
-    assert.match(harness.document.root.innerHTML, /Choose automatically/u);
+    assert.match(markup, /Choose automatically/u);
     const override = harness.document.root.querySelector('[data-action="local-model-select"][data-model="deepseek-r1:8b"]');
     assert.ok(override);
     override.click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
       conversationId: "run-1",
-      message: { type: "localModel.select", model: "deepseek-r1:8b" },
+      message: { type: "localModel.select", consumer: "selectorHealing", model: "deepseek-r1:8b" },
+    });
+  } finally {
+    harness.restore();
+  }
+});
+
+test("a model chosen for the interpreter is sent as the interpreter's choice", () => {
+  const harness = bootWebview(managerState(), localModelPanel({
+    status: "ready",
+    detail: "m on http://127.0.0.1:11434",
+    backend: "ollama",
+    backendLabel: "Ollama",
+    model: "m",
+    availableModels: [{ id: "m", backend: "ollama", availability: "loaded" }, { id: "n", backend: "ollama", availability: "loaded" }],
+  }, "semanticInterpreter"));
+  try {
+    harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
+    assert.match(localModelMarkup(harness, "semanticInterpreter"), /Browser action interpreter/u);
+    assert.equal(localModelSection(harness, "selectorHealing").querySelectorAll('[data-action="local-model-select"]').length, 0, "an off feature offers no models");
+    harness.document.root.querySelector('[data-action="local-model-select"][data-model="n"]').click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "localModel.select", consumer: "semanticInterpreter", model: "n" },
     });
   } finally {
     harness.restore();
@@ -2517,7 +2559,7 @@ test("a ready local interpreter names its backend, model and who chose it", () =
 });
 
 test("choosing automatic selection clears the pinned model", () => {
-  const harness = bootWebview(managerState(), localInterpreterPanel({
+  const harness = bootWebview(managerState(), localModelPanel({
     status: "ready",
     detail: "deepseek-r1:8b on http://127.0.0.1:11434",
     backend: "ollama",
@@ -2528,32 +2570,33 @@ test("choosing automatic selection clears the pinned model", () => {
   }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.match(harness.document.root.innerHTML, /your choice/u);
+    assert.match(localModelMarkup(harness, "selectorHealing"), /your choice/u);
     const automatic = harness.document.root.querySelectorAll('[data-action="local-model-select"]')[0];
     automatic.click();
     assert.deepEqual(harness.messages.at(-1), {
       type: "conversation.runtime",
       conversationId: "run-1",
-      message: { type: "localModel.select" },
+      message: { type: "localModel.select", consumer: "selectorHealing" },
     });
   } finally {
     harness.restore();
   }
 });
 
-test("each local interpreter failure is reported as its own distinct problem", () => {
+test("each local model failure is reported as its own distinct problem", () => {
   const cases = [
     ["serverUnavailable", "No local inference server answered. Start Ollama or LM Studio", /No local inference server answered/u],
     ["noSuitableModel", "No suitable model is available. A local server is running but has no models installed", /No suitable model is available/u],
     ["configuredModelUnavailable", "The model you selected is not available: gone-model", /model you selected is not available/u],
   ];
   for (const [status, detail, pattern] of cases) {
-    const harness = bootWebview(managerState(), localInterpreterPanel({ status, detail }));
+    const harness = bootWebview(managerState(), localModelPanel({ status, detail }));
     try {
       harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-      assert.match(harness.document.root.innerHTML, pattern);
-      // A blocked interpreter never reads as "ready" and never names a model it does not have.
-      assert.doesNotMatch(harness.document.root.innerHTML, /Local interpreter<\/strong><small>your choice/u);
+      const markup = localModelMarkup(harness, "selectorHealing");
+      assert.match(markup, pattern);
+      // A blocked feature never reads as "ready" and never names a model it does not have.
+      assert.match(markup, /<strong>Selector healing<\/strong><small>unavailable<\/small>/u);
     } finally {
       harness.restore();
     }
@@ -2561,67 +2604,94 @@ test("each local interpreter failure is reported as its own distinct problem", (
 });
 
 test("an unverified model is offered as pending, not claimed ready", () => {
-  const harness = bootWebview(managerState(), localInterpreterPanel({
+  const harness = bootWebview(managerState(), localModelPanel({
     status: "unverified",
-    detail: "llama3.2:3b on http://127.0.0.1:11434 — not yet checked against the interpreter contract",
+    detail: "llama3.2:3b on http://127.0.0.1:11434 — not yet checked",
     backend: "ollama",
     backendLabel: "Ollama",
     model: "llama3.2:3b",
   }));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.match(harness.document.root.innerHTML, /not yet checked against the interpreter contract/u);
+    assert.match(localModelMarkup(harness, "selectorHealing"), /not yet checked/u);
+    assert.match(localModelMarkup(harness, "selectorHealing"), /<strong>Selector healing<\/strong><small>not checked<\/small>/u);
+    assert.match(localModelSection(harness, "selectorHealing").className, /is-pending/u);
   } finally {
     harness.restore();
   }
 });
 
-test("a locked run cannot change the model the bridge is already healing with", () => {
+test("a locked run cannot change or switch the local models the bridge is using", () => {
   const harness = bootWebview(managerState(), assignmentPanel(
     { lockReason: "Assignments are locked while this run is in flight." },
     {
       running: true,
-      localInterpreter: {
-        enabled: true,
-        discovering: false,
-        status: "ready",
-        detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
-        backend: "ollama",
-        backendLabel: "Ollama",
-        model: "qwen2.5-coder:7b",
-        explicit: false,
-        availableModels: [{ id: "qwen2.5-coder:7b", backend: "ollama", availability: "loaded" }],
+      localModels: {
+        ...panelState().localModels,
+        selectorHealing: {
+          enabled: true,
+          discovering: false,
+          status: "ready",
+          detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
+          backend: "ollama",
+          backendLabel: "Ollama",
+          model: "qwen2.5-coder:7b",
+          explicit: false,
+          availableModels: [{ id: "qwen2.5-coder:7b", backend: "ollama", availability: "loaded" }],
+        },
       },
     },
   ));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    const choices = Array.from(harness.document.root.querySelectorAll('[data-action="local-model-select"]'));
-    assert.ok(choices.length > 0);
+    const choices = Array.from(harness.document.root.querySelectorAll('[data-action="local-model-select"], [data-action="local-model-enable"]'));
+    assert.ok(choices.length > 2);
     assert.equal(choices.every((choice) => choice.disabled === true), true);
   } finally {
     harness.restore();
   }
 });
 
-test("a blocked interpreter is labelled unavailable rather than automatic", () => {
-  const harness = bootWebview(managerState(), localInterpreterPanel({
-    status: "serverUnavailable",
-    detail: "No local inference server answered.",
-  }));
+test("local models that are off are still shown, explained, and can be turned on", () => {
+  const harness = bootWebview(managerState(), assignmentPanel());
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.match(harness.document.root.innerHTML, /<strong>Local interpreter<\/strong><small>unavailable<\/small>/u);
+    assert.match(harness.document.root.innerHTML, /<summary>Local models<\/summary>/u);
+    for (const [consumer, title, purpose] of [
+      ["semanticInterpreter", /Browser action interpreter<\/strong><small>off/u, /Classifies plain-language browser action requests/u],
+      ["selectorHealing", /Selector healing<\/strong><small>off/u, /Recovers page controls/u],
+    ]) {
+      const section = localModelSection(harness, consumer);
+      assert.match(localModelMarkup(harness, consumer), title);
+      assert.match(localModelMarkup(harness, consumer), purpose);
+      assert.doesNotMatch(section.className, /is-ready|is-blocked|is-pending/u);
+      const toggle = section.querySelector('[data-action="local-model-enable"]');
+      assert.equal(toggle.textContent, "Turn on");
+      assert.match(toggle.getAttribute("aria-label"), /^Turn on (Browser action interpreter|Selector healing)$/u);
+      toggle.click();
+      assert.deepEqual(harness.messages.at(-1), {
+        type: "conversation.runtime",
+        conversationId: "run-1",
+        message: { type: "localModel.enable", consumer, enabled: true },
+      });
+    }
   } finally {
     harness.restore();
   }
 });
 
-test("local interpretation that is off is not drawn at all", () => {
-  const harness = bootWebview(managerState(), assignmentPanel());
+test("an enabled local model can be turned off", () => {
+  const harness = bootWebview(managerState(), localModelPanel({ status: "serverUnavailable", detail: "No local inference server answered." }, "semanticInterpreter"));
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
-    assert.doesNotMatch(harness.document.root.innerHTML, /Local interpreter/u);
+    const toggle = localModelSection(harness, "semanticInterpreter").querySelector('[data-action="local-model-enable"]');
+    assert.equal(toggle.textContent, "Turn off");
+    toggle.click();
+    assert.deepEqual(harness.messages.at(-1), {
+      type: "conversation.runtime",
+      conversationId: "run-1",
+      message: { type: "localModel.enable", consumer: "semanticInterpreter", enabled: false },
+    });
   } finally {
     harness.restore();
   }
@@ -8377,7 +8447,7 @@ test("a refusal made before any participant started is stated once, offers the f
     assert.match(html, /<strong><i [^>]*><\/i> Failed<\/strong><p>Could not start step 1 of 3 · Implement<\/p>/u);
     assert.equal(harness.document.root.querySelector('[data-action="workflow-resume"]'), null, "a step that never started was offered for retry");
     const refusedSend = harness.document.root.querySelector('[data-action="submit-message"]');
-    assert.match(refusedSend.getAttribute("aria-description"), /Choose a Git project folder before restarting\./u);
+    assert.match(refusedSend.getAttribute("aria-description"), /Choose a project folder before restarting\./u);
     assert.doesNotMatch(html, /Send is disabled[^<]*reset/iu);
 
     harness.document.root.querySelector('[data-action="room-view"][data-view="execution"]').click();
@@ -11403,7 +11473,7 @@ test("composer settings and editor mode use semantic states without selected or 
 });
 
 test("model listbox selection uses only aria-selected across a host rerender", () => {
-  const panel = localInterpreterPanel({ status: "ready", detail: "Ready", explicit: true, model: "model-one", availableModels: [{ id: "model-one", backend: "ollama", availability: "loaded" }, { id: "model-two", backend: "ollama", availability: "installed" }] });
+  const panel = localModelPanel({ status: "ready", detail: "Ready", explicit: true, model: "model-one", availableModels: [{ id: "model-one", backend: "ollama", availability: "loaded" }, { id: "model-two", backend: "ollama", availability: "installed" }] });
   const harness = bootWebview(managerState(), panel);
   try {
     harness.document.getElementById("agents-picker-button").click();

@@ -364,8 +364,7 @@ import {
   providerKey,
 } from "../providers/providerRegistry";
 import type { LocalModelService } from "../providers/localModelService";
-import { localModelStatusText } from "../providers/localModelService";
-import { localBackendForAdapterType } from "../providers/localModelDiscovery";
+import { localModelPanelState } from "../providers/localModelService";
 import {
   ProviderDiscoverySettings,
   configuredProviderIdentities,
@@ -506,6 +505,7 @@ import {
   AgentPanelState,
   ExtensionToWebviewMessage,
   InteractionMode,
+  LocalModelConsumer,
   MessageDelivery,
   PanelState,
   PendingApproval,
@@ -1389,6 +1389,11 @@ const parsePersistedRuntimeState = (
 const getWorkspaceRoots = (): string[] =>
   vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
 
+const LOCAL_MODEL_SETTING_KEYS: Readonly<Record<LocalModelConsumer, { enabled: string; model: string }>> = {
+  semanticInterpreter: { enabled: "browserSemanticInterpreterEnabled", model: "browserSemanticInterpreterModel" },
+  selectorHealing: { enabled: "browserSelectorHealingEnabled", model: "browserSelectorHealingModel" },
+};
+
 /**
  * How much of a provider's failure message the panel is given. Generous, because an actionable
  * error is the whole point of showing one, and fixed, because the message is the provider's.
@@ -1682,13 +1687,9 @@ export const createRuntime = (
       availableAdapters: [],
       discovering: false,
     },
-    localInterpreter: {
-      enabled: false,
-      discovering: false,
-      status: "disabled",
-      detail: "Local interpretation is off. Deterministic extraction runs on its own.",
-      explicit: false,
-      availableModels: [],
+    localModels: {
+      semanticInterpreter: localModelPanelState(undefined, "semanticInterpreter"),
+      selectorHealing: localModelPanelState(undefined, "selectorHealing"),
     },
     roles: {},
     running: false,
@@ -2030,6 +2031,13 @@ export const createRuntime = (
       },
       onStatusChange: handleBridgeStatus,
     });
+  const refreshSelectorHealingConfiguration = (): void => {
+    try {
+      bridge.refreshLocalModelConfig();
+    } catch (error) {
+      logOutput(`Failed to refresh Browser Bridge selector-healing configuration: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const browserSelectorHealingConfigurationSubscription = ownsBridge
     ? vscode.workspace.onDidChangeConfiguration((event) => {
         const keys = [
@@ -2040,11 +2048,7 @@ export const createRuntime = (
           "bachata.browserSelectorHealingTimeoutMs",
         ];
         if (!keys.some((key) => event.affectsConfiguration(key))) return;
-        try {
-          bridge.refreshLocalModelConfig();
-        } catch (error) {
-          logOutput(`Failed to refresh Browser Bridge selector-healing configuration: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        refreshSelectorHealingConfiguration();
       })
     : undefined;
   let bridgeStatusSubscription: { dispose: () => void } | undefined;
@@ -2100,47 +2104,13 @@ export const createRuntime = (
   };
 
   /**
-   * What the Agents view is told about local interpretation. Read from the host's shared service,
-   * so the readiness a reader sees is the same one the interpreter and the bridge will act on.
+   * What the Agents view is told about each local-model feature. Read from the host's shared
+   * service, so the readiness a reader sees is the same one the interpreter and the bridge act on.
    */
   const refreshLocalInterpreter = (): void => {
-    const readinessValue = hostLocalModelService?.readiness();
-    if (!readinessValue) {
-      state.localInterpreter = {
-        enabled: false,
-        discovering: false,
-        status: "disabled",
-        detail: "Local interpretation is off. Deterministic extraction runs on its own.",
-        explicit: false,
-        availableModels: [],
-      };
-      return;
-    }
-    const selection = readinessValue.selection;
-    const backend = selection.status === "ready" || selection.status === "unverified"
-      ? localBackendForAdapterType(`local-${selection.backend}`)
-      : undefined;
-    state.localInterpreter = {
-      enabled: readinessValue.enabled,
-      discovering: readinessValue.discovering,
-      status: readinessValue.enabled ? selection.status : "disabled",
-      detail: localModelStatusText(readinessValue),
-      ...(selection.status === "ready" || selection.status === "unverified"
-        ? {
-            backend: selection.backend,
-            ...(backend === undefined ? {} : { backendLabel: backend.label }),
-            endpoint: selection.endpoint,
-            model: selection.model.id,
-          }
-        : {}),
-      explicit: selection.status === "ready" ? selection.explicit : false,
-      availableModels: readinessValue.probes
-        .filter((probe) => probe.reachable)
-        .flatMap((probe) => probe.models.map((model) => ({
-          id: model.id,
-          backend: probe.backend,
-          availability: model.availability,
-        }))),
+    state.localModels = {
+      semanticInterpreter: localModelPanelState(hostLocalModelService?.readiness("semanticInterpreter"), "semanticInterpreter"),
+      selectorHealing: localModelPanelState(hostLocalModelService?.readiness("selectorHealing"), "selectorHealing"),
     };
   };
 
@@ -3329,13 +3299,20 @@ export const createRuntime = (
   // The shared registry answers on its own schedule — a host pass, another conversation's refresh,
   // an invalidation — so the editor is told when its answers change rather than waiting for the
   // next message this conversation happens to handle.
-  const providerRegistrySubscription = providerRegistry.subscribe(() => {
+  const postDiscoveryState = (): void => {
     if (disposed) {
       return;
     }
     refreshAgentAssignments();
     refreshLocalInterpreter();
     post({ type: "state.snapshot", state: structuredClone(state) });
+  };
+  const providerRegistrySubscription = providerRegistry.subscribe(postDiscoveryState);
+  // A finished contract check changes readiness without touching the registry, and it is the moment
+  // a checked healing model exists to hand to a Bridge this runtime owns.
+  const localModelSubscription = hostLocalModelService?.subscribe(() => {
+    if (ownsBridge) refreshSelectorHealingConfiguration();
+    postDiscoveryState();
   });
 
   /**
@@ -10416,23 +10393,29 @@ export const createRuntime = (
           | "agents.effort.select"
           | "agents.model.discover"
           | "agents.reset"
-          | "localModel.select";
+          | "localModel.select"
+          | "localModel.enable";
       }
     >,
   ): Promise<void> => {
-    if (message.type === "localModel.select") {
-      // Changing the model re-resolves the configuration a running bridge is already healing with,
-      // so it is refused for exactly as long as reassignment is. The editor disables the control
-      // too, but a disabled control is a courtesy and this is the enforcement.
+    if (message.type === "localModel.select" || message.type === "localModel.enable") {
+      // Changing a local-model feature re-resolves the configuration a running bridge is already
+      // healing with, so it is refused for exactly as long as reassignment is. The editor disables
+      // the control too, but a disabled control is a courtesy and this is the enforcement.
       const refusal = agentAssignmentRefusal();
       if (refusal) {
         throw new Error(refusal);
       }
-      // Writing the setting is the whole change: the shared service reads it, and the configuration
-      // listener invalidates the cached readiness so the new choice is resolved once, for everyone.
+      // Writing the consumer's own setting is the whole change: the shared service reads it, and the
+      // configuration listener invalidates the cached readiness so the new choice is resolved once.
+      const keys = LOCAL_MODEL_SETTING_KEYS[message.consumer];
       await vscode.workspace
         .getConfiguration("bachata")
-        .update("browserSelectorHealingModel", message.model ?? "", vscode.ConfigurationTarget.Global);
+        .update(
+          message.type === "localModel.select" ? keys.model : keys.enabled,
+          message.type === "localModel.select" ? message.model ?? "" : message.enabled,
+          vscode.ConfigurationTarget.Global,
+        );
       hostLocalModelService?.invalidate();
       await hostLocalModelService?.discover();
       void hostLocalModelService?.verifySelection();
@@ -10675,6 +10658,7 @@ export const createRuntime = (
       case "agents.model.discover":
       case "agents.reset":
       case "localModel.select":
+      case "localModel.enable":
         return await handleAssignmentMessage(message);
       case "browser.session.select":
       case "browser.asset.save":
@@ -11485,6 +11469,7 @@ export const createRuntime = (
           workspaceSubscription.dispose();
           trustSubscription.dispose();
           providerRegistrySubscription.dispose();
+          localModelSubscription?.dispose();
           browserSelectorHealingConfigurationSubscription?.dispose();
           const workflow = activeWorkflow;
           workflowController?.abort();

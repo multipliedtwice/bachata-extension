@@ -458,7 +458,9 @@ type AgentAssignmentState = {
   modelLockReason?: string;
 };
 
-type LocalInterpreterState = {
+type LocalModelConsumer = "semanticInterpreter" | "selectorHealing";
+
+type LocalModelConsumerState = {
   enabled: boolean;
   discovering: boolean;
   status:
@@ -514,7 +516,7 @@ type PanelState = {
   adapterTypes: string[];
   agents: Record<string, AgentPanelState>;
   agentAssignments: AgentAssignmentState;
-  localInterpreter: LocalInterpreterState;
+  localModels: Record<LocalModelConsumer, LocalModelConsumerState>;
   roles: Record<string, string>;
   running: boolean;
   workflowStatus: WorkflowStatus;

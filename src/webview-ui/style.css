@@ -3931,6 +3931,17 @@ select[multiple] option {
   font-size: var(--bachata-font-xs);
 }
 
+.agents-local-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.agents-local-settings > summary {
+  cursor: pointer;
+}
+
 .agents-local {
   display: flex;
   flex-direction: column;
@@ -5871,14 +5882,6 @@ details.direction-evidence > ul,
   font-size: var(--bachata-font-body);
 }
 
-.agents-slot-settings .agents-choices {
-  gap: 8px;
-}
-
-.agents-slot-settings .agents-choice {
-  border-radius: 6px;
-}
-
 @container (max-width: 600px) {
   .direction-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -6348,16 +6351,6 @@ details.direction-evidence > ul,
 .run-requirements-list button,
 .agents-locked button {
   flex: 0 0 auto;
-}
-
-.agents-slot-settings {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.agents-slot-settings {
-  gap: 12px;
 }
 
 .agents-provider-select {
@@ -7085,12 +7078,6 @@ details.direction-evidence > ul,
 .agents-slot {
   gap: 10px;
   padding-block: 14px;
-}
-
-.agents-slot-settings {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
 }
 
 .agents-bridge-setup,

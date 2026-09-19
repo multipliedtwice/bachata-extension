@@ -503,7 +503,7 @@ test("the lead review packet names the exact candidate, its checks, and its diff
   );
 });
 
-test("outside a Git worktree an automated read-only turn may run, and a turn that may write is refused", async () => {
+test("outside a Git worktree an automated turn may run whether or not it may write", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-audit-nonrepo-"));
   try {
     const request = (policy) => ({
@@ -517,10 +517,7 @@ test("outside a Git worktree an automated read-only turn may run, and a turn tha
     assert.equal(before.isGitRepository, false);
     await assert.doesNotReject(assertWorkspacePolicyAudit(readOnly, before));
     const writing = request({ readOnly: false, writeScope: "task", allowedPaths: ["src"] });
-    await assert.rejects(
-      assertWorkspacePolicyAudit(writing, await captureWorkspacePolicyAudit(writing)),
-      /Choose a Git project folder\. .* is not inside a Git worktree/u,
-    );
+    await assert.doesNotReject(assertWorkspacePolicyAudit(writing, await captureWorkspacePolicyAudit(writing)));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

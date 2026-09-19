@@ -3,10 +3,12 @@ const test = require("node:test");
 
 const {
   CONTRACT_PROBE_PROMPT,
+  HEALING_PROBE_PROMPT,
   LOCAL_BACKENDS,
   CONTRACT_PROBE_CANDIDATES,
   contractIdentityRefusal,
   contractProbeVerdict,
+  healingProbeVerdict,
   localBackendForAdapterType,
   probeLmStudio,
   probeLocalBackend,
@@ -22,6 +24,7 @@ const {
   contractCheckKey,
   createLocalModelService,
   localBackendIdentities,
+  localModelPanelState,
   localModelStatusText,
   probeFromRecord,
 } = require("../dist/providers/localModelService.js");
@@ -42,6 +45,22 @@ const CONTRACT_FAIL = JSON.stringify({
   reject: ["probe-source"],
   ambiguous: ["probe-unclear"],
 });
+
+// Selector healing's passing answer: the chat textarea, the conversation region and the send
+// button, with the search box, the link and the settings button left alone.
+const HEALING_PASS = JSON.stringify({
+  protocol: "bachata-dom-heal-v1",
+  status: "selected",
+  composerIds: ["heal-composer"],
+  conversationRootIds: ["heal-thread"],
+  sendButtonIds: ["heal-send"],
+  stopButtonIds: [],
+  newConversationButtonIds: [],
+  responseMessageIds: [],
+});
+
+// Each consumer is asked its own task, so a capable model answers each one in that task's shape.
+const answerFor = (prompt) => (prompt === HEALING_PROBE_PROMPT ? HEALING_PASS : CONTRACT_PASS);
 
 const routes = (table) => async (url) => {
   const key = Object.keys(table).find((entry) => url.endsWith(entry));
@@ -197,7 +216,7 @@ test("a model that failed the contract is not selected, and failing all of them 
 
   const allBad = selectLocalModel({ probes, contractVerdict: () => false });
   assert.equal(allBad.status, "noSuitableModel");
-  assert.match(allBad.detail, /could carry out the interpreter contract/u);
+  assert.match(allBad.detail, /passed the contract check/u);
 });
 
 test("naming a backend restricts selection to it", () => {
@@ -446,6 +465,14 @@ const settings = (overrides = {}) => {
   };
 };
 
+// Only the interpreter on, for tests that count the checks one consumer makes.
+const semanticOnly = (values = {}) => ({
+  consumers: {
+    semanticInterpreter: consumer(values),
+    selectorHealing: consumer({ enabled: false }),
+  },
+});
+
 test("the service discovers both backends once and reuses the answers", async () => {
   const probes = [];
   const registry = createProviderRegistry({
@@ -491,7 +518,7 @@ test("the contract check runs once per model and is not repeated", async () => {
   });
   const service = createLocalModelService({
     registry,
-    settings: () => settings(),
+    settings: () => semanticOnly(),
     runPrompt: async () => {
       checks += 1;
       return CONTRACT_PASS;
@@ -535,7 +562,7 @@ test("no resolved configuration is shared while no backend is reachable", async 
   await service.discover();
   assert.equal(service.readiness().selection.status, "serverUnavailable");
   assert.equal(service.resolvedConfig("semanticInterpreter"), undefined);
-  assert.match(localModelStatusText(service.readiness()), /No local inference server answered/u);
+  assert.match(localModelStatusText(service.readiness(), "semanticInterpreter"), /No local inference server answered/u);
 });
 
 test("invalidation forgets readiness so the next discovery asks again", async () => {
@@ -591,12 +618,14 @@ test("an unfinished backend record is not a backend that answered no", () => {
 
 test("the status text names the remedy for each distinct failure", () => {
   const base = { enabled: true, probes: [], discovering: false };
-  assert.match(localModelStatusText({ ...base, enabled: false, selection: { status: "serverUnavailable", detail: "" } }), /Local interpretation is off/u);
-  assert.match(localModelStatusText({ ...base, discovering: true, selection: { status: "serverUnavailable", detail: "" } }), /Looking for a local inference server/u);
-  assert.match(localModelStatusText({ ...base, selection: { status: "noSuitableModel", detail: "nothing installed" } }), /No suitable model is available/u);
-  assert.match(localModelStatusText({ ...base, selection: { status: "configuredModelUnavailable", model: "m", detail: "m is gone" } }), /model you selected is not available/u);
+  const off = { ...base, enabled: false, selection: { status: "serverUnavailable", detail: "" } };
+  assert.match(localModelStatusText(off, "semanticInterpreter"), /Explicit bachata-action blocks and built-in pattern matching only/u);
+  assert.match(localModelStatusText(off, "selectorHealing"), /Saved and deterministic selectors only/u);
+  assert.match(localModelStatusText({ ...base, discovering: true, selection: { status: "serverUnavailable", detail: "" } }, "selectorHealing"), /Looking for a local inference server/u);
+  assert.match(localModelStatusText({ ...base, selection: { status: "noSuitableModel", detail: "nothing installed" } }, "selectorHealing"), /No suitable model is available/u);
+  assert.match(localModelStatusText({ ...base, selection: { status: "configuredModelUnavailable", model: "m", detail: "m is gone" } }, "selectorHealing"), /model you selected is not available/u);
   assert.match(
-    localModelStatusText({ ...base, selection: { status: "ready", backend: "ollama", endpoint: "http://127.0.0.1:11434", model: { id: "m", backend: "ollama", availability: "loaded" }, explicit: true } }),
+    localModelStatusText({ ...base, selection: { status: "ready", backend: "ollama", endpoint: "http://127.0.0.1:11434", model: { id: "m", backend: "ollama", availability: "loaded" }, explicit: true } }, "semanticInterpreter"),
     /m on http:\/\/127\.0\.0\.1:11434 \(your choice\)/u,
   );
 });
@@ -629,7 +658,7 @@ test("an explicit model earns the same verdict as an automatic one", () => {
     contractVerdict: () => false,
   });
   assert.equal(failed.status, "noSuitableModel");
-  assert.match(failed.detail, /pinned-model is installed on .* but could not carry out/u);
+  assert.match(failed.detail, /pinned-model is installed on .* but failed the contract check/u);
 });
 
 test("startup alone reaches ready for both consumers, with no manual selection", async () => {
@@ -649,17 +678,18 @@ test("startup alone reaches ready for both consumers, with no manual selection",
         ? [{ id: "qwen2.5-coder:7b", availability: "loaded" }]
         : undefined,
   });
+  const prompts = [];
   const service = createLocalModelService({
     registry,
     settings: () => settings(),
     runPrompt: async (target, prompt) => {
       checks += 1;
+      prompts.push(prompt);
       // The check is asked of the model that was selected, at the endpoint it was found on.
       assert.equal(target.backend, "ollama");
       assert.equal(target.endpoint, "http://127.0.0.1:11434");
       assert.equal(target.model, "qwen2.5-coder:7b");
-      assert.match(prompt, /probe-decoy/u);
-      return CONTRACT_PASS;
+      return answerFor(prompt);
     },
   });
 
@@ -668,17 +698,19 @@ test("startup alone reaches ready for both consumers, with no manual selection",
   await service.verifySelection();
 
   assert.deepEqual(probed.sort(), ["local-lmstudio", "local-ollama"]);
-  assert.equal(checks, 1, "one bounded check, unprompted");
+  assert.equal(checks, 2, "one bounded check per consumer, unprompted");
+  assert.deepEqual(prompts, [CONTRACT_PROBE_PROMPT, HEALING_PROBE_PROMPT], "each consumer is asked its own task");
   const readinessValue = service.readiness();
   assert.equal(readinessValue.selection.status, "ready");
   assert.equal(readinessValue.selection.explicit, false, "chosen automatically");
-  // Both consumers read this one answer: the interpreter and the bridge cannot disagree.
-  assert.deepEqual(service.resolvedConfig("semanticInterpreter"), {
+  const expected = {
     backend: "ollama",
     endpoint: "http://127.0.0.1:11434",
     model: "qwen2.5-coder:7b",
-  });
-  assert.match(localModelStatusText(readinessValue), /qwen2\.5-coder:7b on http:\/\/127\.0\.0\.1:11434/u);
+  };
+  assert.deepEqual(service.resolvedConfig("semanticInterpreter"), expected);
+  assert.deepEqual(service.resolvedConfig("selectorHealing"), expected);
+  assert.match(localModelStatusText(readinessValue, "semanticInterpreter"), /qwen2\.5-coder:7b on http:\/\/127\.0\.0\.1:11434/u);
 });
 
 test("a startup check that fails leaves nothing resolved for either consumer", async () => {
@@ -723,7 +755,7 @@ test("startup keeps checking past a failing model until one is proven", async ()
   });
   const service = createLocalModelService({
     registry,
-    settings: () => settings(),
+    settings: () => semanticOnly(),
     runPrompt: async (target) => {
       asked.push(target.model);
       return target.model === "bbb-can"
@@ -754,7 +786,7 @@ test("every model failing the check is reported, and each is asked only once", a
   });
   const service = createLocalModelService({
     registry,
-    settings: () => settings(),
+    settings: () => semanticOnly(),
     runPrompt: async () => { asked += 1; return "nope"; },
   });
   await service.discover();
@@ -783,7 +815,7 @@ test("a backend that stops answering is tried once per candidate, then left alon
   });
   const service = createLocalModelService({
     registry,
-    settings: () => settings(),
+    settings: () => semanticOnly(),
     runPrompt: async () => { asked += 1; throw new Error("ECONNRESET"); },
   });
   await service.discover();
@@ -810,7 +842,7 @@ test("one candidate's request failure does not end the search", async () => {
   });
   const service = createLocalModelService({
     registry,
-    settings: () => settings(),
+    settings: () => semanticOnly(),
     runPrompt: async (target) => {
       asked.push(target.model);
       if (target.model === "aaa-explodes") {
@@ -896,14 +928,14 @@ test("the three ways a running server offers nothing usable are reported differe
   assert.match(embeddingsOnly.detail, /are not text-generation models/u);
   assert.match(embeddingsOnly.detail, /text-embedding-bge-m3, text-embedding-nomic/u);
   assert.match(embeddingsOnly.detail, /install a chat or instruct model/u);
-  assert.doesNotMatch(embeddingsOnly.detail, /could carry out the interpreter contract/u);
+  assert.doesNotMatch(embeddingsOnly.detail, /passed the contract check/u);
 
   // Generative models that were actually judged and failed.
   const judged = selectLocalModel({
     probes: [ollamaProbe([{ id: "tried-and-failed" }])],
     contractVerdict: () => false,
   });
-  assert.match(judged.detail, /could carry out the interpreter contract/u);
+  assert.match(judged.detail, /passed the contract check/u);
   assert.equal(judged.detail.includes(endpoint), true);
 });
 
@@ -951,8 +983,8 @@ test("with both local consumers disabled, activation asks no backend anything", 
   assert.deepEqual(service.readiness().probes, []);
   assert.equal(service.resolvedConfig("semanticInterpreter"), undefined, "nothing is handed to either consumer");
   assert.equal(
-    localModelStatusText(service.readiness()),
-    "Local interpretation is off. Deterministic extraction runs on its own.",
+    localModelStatusText(service.readiness(), "semanticInterpreter"),
+    "Off. Explicit bachata-action blocks and built-in pattern matching only.",
   );
 });
 
@@ -966,7 +998,7 @@ test("a reachable server holding a usable model is still not touched while both 
   const prompts = [];
   const service = createLocalModelService({
     registry,
-    settings: () => settings({ enabled }),
+    settings: () => (enabled ? semanticOnly() : disabled()),
     runPrompt: async (target, prompt) => {
       prompts.push({ target, prompt });
       return CONTRACT_PASS;
@@ -1089,9 +1121,9 @@ const passingService = (registry, settingsValue, prompts) =>
   createLocalModelService({
     registry,
     settings: () => settingsValue,
-    runPrompt: async (target) => {
-      prompts.push(target);
-      return CONTRACT_PASS;
+    runPrompt: async (target, prompt) => {
+      prompts.push({ ...target, prompt });
+      return answerFor(prompt);
     },
   });
 
@@ -1150,7 +1182,7 @@ test("a healing-only host resolves its own model and leaves the interpreter with
   assert.equal(service.resolvedConfig("semanticInterpreter"), undefined);
 });
 
-test("two consumers on the same tuple share one probe and one verdict", async () => {
+test("two consumers on the same tuple share one probe but are each checked on their own task", async () => {
   const { asked, registry } = endpointRegistry({ "http://127.0.0.1:11434": ["shared-model"] });
   const prompts = [];
   const shared = { backend: "ollama", endpoint: "http://127.0.0.1:11434" };
@@ -1162,7 +1194,11 @@ test("two consumers on the same tuple share one probe and one verdict", async ()
   await service.discover();
   await service.verifySelection();
   assert.deepEqual(asked, ["http://127.0.0.1:11434"], "the same server was discovered twice");
-  assert.equal(prompts.length, 1, "the same tuple was checked twice");
+  assert.deepEqual(
+    prompts.map((target) => target.prompt),
+    [CONTRACT_PROBE_PROMPT, HEALING_PROBE_PROMPT],
+    "one consumer's verdict vouched for the other's task",
+  );
   assert.deepEqual(
     service.resolvedConfig("semanticInterpreter"),
     service.resolvedConfig("selectorHealing"),
@@ -1393,7 +1429,7 @@ test("a server that answers under a different model name verifies nothing", asyn
     undefined,
     "a model the server never ran was recorded as verified",
   );
-  assert.match(service.readiness().selection.detail, /could not carry out the interpreter contract/u);
+  assert.match(service.readiness().selection.detail, /failed the contract check/u);
 });
 
 test("a matching identity verifies, and a transport that reports none still can", async () => {
@@ -1432,4 +1468,149 @@ test("a matching identity verifies, and a transport that reports none still can"
     endpoint: "http://127.0.0.1:1234",
     model: "pinned-model",
   });
+});
+
+// Selector healing's own contract.
+//
+// Healing picks page controls from enumerated DOM candidates. A model that classifies action
+// candidates has shown nothing about that task, so healing is judged on its own probe, by the
+// Bridge's acceptance rules plus the one right answer the probe page has.
+
+const healing = (overrides) => JSON.stringify({ ...JSON.parse(HEALING_PASS), ...overrides });
+
+test("the healing probe is the Bridge's dom-heal shape over supplied candidates only", () => {
+  const prompt = JSON.parse(HEALING_PROBE_PROMPT);
+  assert.equal(prompt.protocol, "bachata-dom-heal-v1");
+  assert.equal(prompt.output.protocol, "bachata-dom-heal-v1");
+  assert.deepEqual(
+    prompt.candidates.map((candidate) => candidate.id).sort(),
+    ["heal-composer", "heal-pricing", "heal-reply", "heal-search", "heal-send", "heal-settings", "heal-thread"],
+  );
+});
+
+test("the healing verdict passes the right controls and refuses everything else", () => {
+  assert.equal(healingProbeVerdict(HEALING_PASS).compatible, true);
+  assert.equal(healingProbeVerdict(healing({ sendButtonIds: [], responseMessageIds: ["heal-reply"] })).compatible, true, "optional controls may be left out or named correctly");
+  assert.equal(healingProbeVerdict(`\`\`\`json\n${HEALING_PASS}\n\`\`\``).compatible, true, "the Bridge's repair pass is honoured");
+  const { newConversationButtonIds: _omitted, ...withoutOptional } = JSON.parse(HEALING_PASS);
+  assert.equal(healingProbeVerdict(JSON.stringify(withoutOptional)).compatible, true, "newConversationButtonIds is optional, as in the Bridge");
+
+  const refusals = [
+    ["Sure, the composer is the textarea.", /could not parse/u],
+    [JSON.stringify([HEALING_PASS]), /could not parse/u],
+    [healing({ protocol: "bachata-response-heal-v1" }), /dom-heal-v1 shape/u],
+    [healing({ extra: [] }), /dom-heal-v1 shape/u],
+    [JSON.stringify({ ...JSON.parse(HEALING_PASS), stopButtonIds: undefined }), /dom-heal-v1 shape/u],
+    [healing({ composerIds: "heal-composer" }), /dom-heal-v1 shape/u],
+    [healing({ status: "ambiguous" }), /did not select/u],
+    [healing({ composerIds: ["heal-invented"] }), /not given/u],
+    [healing({ sendButtonIds: ["heal-composer"] }), /more than one control/u],
+    [healing({ composerIds: ["heal-search"] }), /wrong candidate for composerIds/u],
+    [healing({ sendButtonIds: ["heal-settings"] }), /wrong candidate for sendButtonIds/u],
+    [healing({ stopButtonIds: ["heal-send"], sendButtonIds: [] }), /wrong candidate for stopButtonIds/u],
+    [healing({ composerIds: ["heal-composer", "heal-search"] }), /wrong candidate for composerIds/u],
+    [healing({ conversationRootIds: [] }), /left conversationRootIds empty/u],
+  ];
+  for (const [answer, detail] of refusals) {
+    const verdict = healingProbeVerdict(answer);
+    assert.equal(verdict.compatible, false, answer);
+    assert.match(verdict.detail, detail, answer);
+  }
+});
+
+test("a model that passes the interpreter's task but not healing's is ready for the interpreter only", async () => {
+  const { registry } = endpointRegistry({ "http://127.0.0.1:11434": ["classifier-only"] });
+  const prompts = [];
+  const service = createLocalModelService({
+    registry,
+    settings: () => settings({ backend: "ollama" }),
+    runPrompt: async (_target, prompt) => {
+      prompts.push(prompt);
+      return CONTRACT_PASS;
+    },
+  });
+  await service.discover();
+  await service.verifySelection();
+  assert.deepEqual(prompts, [CONTRACT_PROBE_PROMPT, HEALING_PROBE_PROMPT]);
+  assert.equal(service.readiness("semanticInterpreter").selection.status, "ready");
+  assert.equal(service.readiness("selectorHealing").selection.status, "noSuitableModel");
+  assert.equal(service.resolvedConfig("selectorHealing"), undefined, "the interpreter's verdict vouched for healing");
+});
+
+test("the panel shows each consumer's own readiness, and off reads as off", () => {
+  const ready = {
+    enabled: true,
+    discovering: false,
+    probes: [{ backend: "ollama", endpoint: "http://127.0.0.1:11434", reachable: true, models: [{ id: "m", backend: "ollama", availability: "loaded" }], detail: "" }],
+    selection: { status: "ready", backend: "ollama", endpoint: "http://127.0.0.1:11434", model: { id: "m", backend: "ollama", availability: "loaded" }, explicit: true },
+  };
+  assert.deepEqual(localModelPanelState(ready, "selectorHealing"), {
+    enabled: true,
+    discovering: false,
+    status: "ready",
+    detail: "m on http://127.0.0.1:11434 (your choice)",
+    backend: "ollama",
+    backendLabel: "Ollama",
+    endpoint: "http://127.0.0.1:11434",
+    model: "m",
+    explicit: true,
+    availableModels: [{ id: "m", backend: "ollama", availability: "loaded" }],
+  });
+  const failing = localModelPanelState({ ...ready, selection: { status: "noSuitableModel", detail: "none" } }, "selectorHealing");
+  assert.equal(failing.status, "noSuitableModel");
+  assert.equal(failing.model, undefined);
+  assert.equal(failing.explicit, false);
+  assert.deepEqual(localModelPanelState(undefined, "selectorHealing"), {
+    enabled: false,
+    discovering: false,
+    status: "disabled",
+    detail: "Off. Saved and deterministic selectors only.",
+    explicit: false,
+    availableModels: [],
+  });
+  assert.equal(localModelPanelState({ ...ready, enabled: false }, "semanticInterpreter").status, "disabled");
+});
+
+test("a recorded verdict is announced, and a disposed listener hears nothing", async () => {
+  const { registry } = endpointRegistry({ "http://127.0.0.1:11434": ["m"] });
+  let heard = 0;
+  let checks = 0;
+  const service = createLocalModelService({
+    registry,
+    settings: () => semanticOnly({ backend: "ollama" }),
+    runPrompt: async () => {
+      checks += 1;
+      return CONTRACT_PASS;
+    },
+  });
+  const subscription = service.subscribe(() => { heard += 1; });
+  await service.discover();
+  await service.verifySelection();
+  assert.equal(heard, 1, "the view was not told the check finished");
+  subscription.dispose();
+  service.invalidate();
+  await service.discover();
+  await service.verifySelection();
+  assert.equal(checks, 2, "the invalidated verdict was checked again");
+  assert.equal(heard, 1);
+});
+
+test("a listener that throws neither fails the check nor silences the others", async () => {
+  const { registry } = endpointRegistry({ "http://127.0.0.1:11434": ["m"] });
+  const logged = [];
+  let heard = 0;
+  const service = createLocalModelService({
+    registry,
+    settings: () => semanticOnly({ backend: "ollama" }),
+    runPrompt: async () => CONTRACT_PASS,
+    log: (line) => logged.push(line),
+  });
+  service.subscribe(() => { throw new Error("view gone"); });
+  service.subscribe(() => { heard += 1; });
+  await service.discover();
+  await service.verifySelection();
+  assert.equal(service.readiness("semanticInterpreter").selection.status, "ready");
+  assert.equal(heard, 1);
+  assert.equal(logged.some((line) => line.includes("check could not run")), false, "a listener failure was reported as the check failing");
+  assert.equal(logged.some((line) => line.includes("listener failed: view gone")), true);
 });

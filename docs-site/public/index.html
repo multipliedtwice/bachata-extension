@@ -176,7 +176,7 @@
       <h2>Assign agents</h2>
       <p><strong>Agents</strong> lists every role the selected pipeline needs. For each role, pick the provider and, where the provider reports one, the model. Changes apply to this run and are marked as reassigned; <strong>Reset to defaults</strong> restores the pipeline's own choices.</p>
       <figure>
-        <a href="img/agents.png"><img src="img/agents.png" width="2560" height="1600" alt="The Agents popover with two roles. Reviewer 1 uses Default · Codex CLI with the default model. Reviewer 2 uses Default · Claude CLI with the default model. A Local interpreter settings disclosure is at the bottom." loading="lazy"></a>
+        <a href="img/agents.png"><img src="img/agents.png" width="2560" height="1600" alt="The Agents popover with two roles. Reviewer 1 uses Default · Codex CLI with the default model. Reviewer 2 uses Default · Claude CLI with the default model. A collapsed Local models disclosure is at the bottom." loading="lazy"></a>
         <figcaption>Each role gets a provider and a model. Demo data.</figcaption>
       </figure>
       <p>Bachata ships no model catalog. When Codex can list its models, Bachata shows that list and refuses a model the installed Codex does not offer. When a provider cannot list models, the name you type is sent as written. Bachata never switches the provider or model for you. To stop a provider from ever running, add it to <code>bachata.disabledProviders</code>.</p>

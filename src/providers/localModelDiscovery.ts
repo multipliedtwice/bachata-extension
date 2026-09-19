@@ -1,3 +1,5 @@
+import { jsonrepair } from "jsonrepair";
+
 /**
  * Which local inference backend is running, what it can serve, and which of those can actually do
  * the interpreter's job.
@@ -247,7 +249,7 @@ export type LocalModelSelectionInput = {
   explicitModel?: string | undefined;
   /** Restrict to one backend when the reader named one. */
   explicitBackend?: LocalModelBackendId | "auto" | undefined;
-  /** A model already judged against the interpreter contract, and the verdict. */
+  /** A model already judged by the contract check, and the verdict. */
   contractVerdict?: (model: LocalModelSummary, endpoint: string) => boolean | undefined;
   /**
    * Candidates to pass over for this call only. Used while verifying: a model whose check could not
@@ -311,7 +313,7 @@ export const selectLocalModel = (input: LocalModelSelectionInput): LocalModelSel
       if (proven === false) {
         return {
           status: "noSuitableModel",
-          detail: `${explicit} is installed on ${probe.endpoint} but could not carry out the interpreter contract`,
+          detail: `${explicit} is installed on ${probe.endpoint} but failed the contract check`,
         };
       }
       return proven === true
@@ -327,7 +329,7 @@ export const selectLocalModel = (input: LocalModelSelectionInput): LocalModelSel
             backend: probe.backend,
             endpoint: probe.endpoint,
             model: match,
-            detail: `${explicit} has not yet been checked against the interpreter contract`,
+            detail: `${explicit} has not yet been checked`,
           };
     }
     return {
@@ -358,8 +360,8 @@ export const selectLocalModel = (input: LocalModelSelectionInput): LocalModelSel
         : nonGenerative.length === served.length
           ? `The only models on ${endpoints} are not text-generation models (${nonGenerative.map((model) => model.id).join(", ")}); install a chat or instruct model`
           : judged.length > 0
-            ? `No model on ${endpoints} could carry out the interpreter contract`
-            : `No model on ${endpoints} is usable for interpretation`,
+            ? `No model on ${endpoints} passed the contract check`
+            : `No model on ${endpoints} is usable for this feature`,
     };
   }
   const best = [...candidates].sort((left, right) => {
@@ -384,7 +386,7 @@ export const selectLocalModel = (input: LocalModelSelectionInput): LocalModelSel
         backend: best.probe.backend,
         endpoint: best.probe.endpoint,
         model: best.model,
-        detail: `${best.model.id} has not yet been checked against the interpreter contract`,
+        detail: `${best.model.id} has not yet been checked`,
       };
 };
 
@@ -525,6 +527,120 @@ export const contractProbeVerdict = (
   return {
     compatible: true,
     detail: "structured output, complete classification, and correct abstention on quoted text",
+  };
+};
+
+/**
+ * Selector healing's own contract check, in the Browser Bridge's `bachata-dom-heal-v1` shape.
+ *
+ * Healing asks a different question from interpretation — pick page controls from enumerated DOM
+ * candidates — so a model that classifies action candidates correctly has proven nothing about it.
+ * The page below has one right answer and three decoys a model must leave alone: a search box that
+ * is also a textbox, a navigation link, and a settings button.
+ */
+const HEALING_PROBE_CANDIDATES = [
+  { id: "heal-search", kindHint: "unknown", tag: "input", role: "searchbox", accessibleName: "Search help articles", placeholder: "Search", contentEditable: false, visible: true, rect: { x: 900, y: 12, width: 220, height: 32 }, domOrder: 1, mutationCount: 0, textGrowth: 0 },
+  { id: "heal-pricing", kindHint: "unknown", tag: "a", accessibleName: "Pricing", textPreview: "Pricing", contentEditable: false, visible: true, rect: { x: 760, y: 16, width: 60, height: 24 }, domOrder: 2, mutationCount: 0, textGrowth: 0 },
+  { id: "heal-thread", kindHint: "unknown", tag: "main", role: "main", accessibleName: "Conversation", textPreview: "Summarize this page. Here is a short summary of the page.", contentEditable: false, visible: true, rect: { x: 240, y: 64, width: 800, height: 620 }, domOrder: 3, mutationCount: 14, textGrowth: 820 },
+  { id: "heal-reply", kindHint: "unknown", tag: "article", accessibleName: "Assistant message", textPreview: "Here is a short summary of the page.", contentEditable: false, visible: true, rect: { x: 260, y: 300, width: 760, height: 120 }, domOrder: 4, mutationCount: 9, textGrowth: 610 },
+  { id: "heal-composer", kindHint: "unknown", tag: "textarea", accessibleName: "Message the assistant", placeholder: "Message the assistant", contentEditable: false, visible: true, rect: { x: 260, y: 700, width: 700, height: 56 }, domOrder: 5, mutationCount: 0, textGrowth: 0 },
+  { id: "heal-send", kindHint: "unknown", tag: "button", accessibleName: "Send message", contentEditable: false, visible: true, rect: { x: 970, y: 710, width: 40, height: 36 }, domOrder: 6, mutationCount: 0, textGrowth: 0 },
+  { id: "heal-settings", kindHint: "unknown", tag: "button", accessibleName: "Settings", contentEditable: false, visible: true, rect: { x: 1140, y: 12, width: 32, height: 32 }, domOrder: 7, mutationCount: 0, textGrowth: 0 },
+] as const;
+
+export const HEALING_PROBE_PROMPT = JSON.stringify({
+  protocol: "bachata-dom-heal-v1",
+  instruction: "Select only supplied candidate IDs. Never return CSS, XPath, JavaScript, URLs, coordinates, or new IDs. Return ambiguous when uncertain.",
+  candidates: HEALING_PROBE_CANDIDATES,
+  output: {
+    protocol: "bachata-dom-heal-v1",
+    status: "selected | ambiguous | unsupported",
+    composerIds: [],
+    conversationRootIds: [],
+    sendButtonIds: [],
+    stopButtonIds: [],
+    newConversationButtonIds: [],
+    responseMessageIds: [],
+  },
+});
+
+const HEALING_REQUIRED_FIELDS = ["composerIds", "conversationRootIds", "sendButtonIds", "stopButtonIds", "responseMessageIds"] as const;
+const HEALING_FIELDS = [...HEALING_REQUIRED_FIELDS, "newConversationButtonIds"] as const;
+type HealingField = (typeof HEALING_FIELDS)[number];
+
+const HEALING_ACCEPTED_IDS: Readonly<Record<HealingField, readonly string[]>> = {
+  composerIds: ["heal-composer"],
+  conversationRootIds: ["heal-thread"],
+  sendButtonIds: ["heal-send"],
+  stopButtonIds: [],
+  newConversationButtonIds: [],
+  responseMessageIds: ["heal-reply"],
+};
+
+const parseJsonObject = (answer: string): Record<string, unknown> | undefined => {
+  for (const attempt of [() => answer, () => jsonrepair(answer)]) {
+    try {
+      const value = asRecord(JSON.parse(attempt()));
+      if (value) {
+        return value;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+};
+
+const stringArray = (value: unknown): string[] | undefined =>
+  Array.isArray(value) && value.every((entry): entry is string => typeof entry === "string")
+    ? [...value]
+    : undefined;
+
+/**
+ * Judge one model's answer to the healing probe with the Bridge's own acceptance rules: a closed
+ * object in the declared shape, supplied ids only, no id twice, and a `selected` answer naming
+ * exactly one composer and one conversation region. On top of that the answer must be right —
+ * the chat textarea, not the search box — because the Bridge would bind whatever it was given.
+ */
+export const healingProbeVerdict = (answer: string): ContractProbeResult => {
+  const parsed = parseJsonObject(answer);
+  if (!parsed) {
+    return { compatible: false, detail: "returned output the selector healer could not parse" };
+  }
+  const allowedKeys = new Set<string>(["protocol", "status", ...HEALING_FIELDS]);
+  if (Object.keys(parsed).some((key) => !allowedKeys.has(key))
+    || HEALING_REQUIRED_FIELDS.some((field) => !Object.hasOwn(parsed, field))
+    || parsed.protocol !== "bachata-dom-heal-v1") {
+    return { compatible: false, detail: "did not answer in the bachata-dom-heal-v1 shape" };
+  }
+  if (parsed.status !== "selected") {
+    return { compatible: false, detail: "did not select the controls of an unambiguous chat page" };
+  }
+  const fields = HEALING_FIELDS.map((field) => ({ field, ids: parsed[field] === undefined ? [] : stringArray(parsed[field]) }));
+  if (fields.some(({ ids }) => ids === undefined)) {
+    return { compatible: false, detail: "did not answer in the bachata-dom-heal-v1 shape" };
+  }
+  const assigned = fields.flatMap(({ ids }) => ids ?? []);
+  const supplied = new Set<string>(HEALING_PROBE_CANDIDATES.map((candidate) => candidate.id));
+  if (assigned.some((id) => !supplied.has(id))) {
+    return { compatible: false, detail: "selected an id it was not given" };
+  }
+  if (new Set(assigned).size !== assigned.length) {
+    return { compatible: false, detail: "assigned the same candidate to more than one control" };
+  }
+  const wrong = fields.find(({ field, ids }) =>
+    (ids ?? []).length > 1 || (ids ?? []).some((id) => !HEALING_ACCEPTED_IDS[field].includes(id)));
+  if (wrong) {
+    return { compatible: false, detail: `chose the wrong candidate for ${wrong.field}` };
+  }
+  const missing = fields.find(({ field, ids }) =>
+    (field === "composerIds" || field === "conversationRootIds") && (ids ?? []).length !== 1);
+  if (missing) {
+    return { compatible: false, detail: `left ${missing.field} empty on a page where it is unambiguous` };
+  }
+  return {
+    compatible: true,
+    detail: "structured bachata-dom-heal-v1 output that picked the chat controls and left the decoys alone",
   };
 };
 

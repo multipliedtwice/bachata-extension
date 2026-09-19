@@ -77,7 +77,7 @@ const webview = JSON.parse(read("tsconfig.webview.json"))
   .include.map((file) => read(file))
   .join("\n");
 
-check("version", packageJson.version === "0.7.2", `version=${packageJson.version}`);
+check("version", packageJson.version === "0.7.3", `version=${packageJson.version}`);
 
 check("workspacePolicy:explicitScope", /resolveWorkspaceWritePolicy/.test(workspacePolicyAudit) && /writeScope === "task"/.test(workspacePolicyAudit) && /writeScope === "workspace"/.test(workspacePolicyAudit) && /Task-scoped execution requires an explicit file or directory path/.test(workspacePolicyAudit), "task-scoped local and browser agents derive a deterministic write boundary while whole-workspace authority is explicit");
 check("managedPair:verificationRecovery", /"WORKER_VERIFY"/.test(managedPair) && /case "workerNeedsContext"/.test(managedPair), "managed Worker can request additional context after verification or stale-hash failure");

@@ -190,7 +190,8 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
     },
     resetPairing: async () => { bridge.resetPairingCount += 1; },
     discover: () => { bridge.discoverCount += 1; },
-    refreshLocalModelConfig: () => undefined,
+    refreshCount: 0,
+    refreshLocalModelConfig: () => { bridge.refreshCount += 1; },
     bindConversation: () => undefined,
     releaseBinding: () => undefined,
     sendConversation: () => {
@@ -830,6 +831,7 @@ const loadHarness = (persistedManagerState, harnessOptions = {}) => {
       resourceBroker: harnessOptions.resourceBroker,
       workspaceLease: harnessOptions.workspaceLease,
       withWorkspaceMutation: harnessOptions.withWorkspaceMutation,
+      ...(harnessOptions.localModelService ? { localModelService: harnessOptions.localModelService } : {}),
     },
   );
   const originalDispose = manager.dispose.bind(manager);
@@ -1244,6 +1246,33 @@ test("prepared command drafts are transient and consumed once", async () => {
     harness.subscription.dispose();
     await harness.manager.dispose();
   }
+});
+
+test("a healing model checked after startup is sent to the shared Bridge, until disposal", async () => {
+  const listeners = new Set();
+  const localModelService = {
+    discover: async () => undefined,
+    readiness: () => ({ enabled: false, discovering: false, probes: [], selection: { status: "serverUnavailable", detail: "" } }),
+    resolvedConfig: () => undefined,
+    verifySelection: async () => undefined,
+    invalidate: () => undefined,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return { dispose: () => { listeners.delete(listener); } };
+    },
+  };
+  const harness = loadHarness(undefined, { localModelService });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    assert.equal(harness.bridge.startCount, 1);
+    const before = harness.bridge.refreshCount;
+    listeners.forEach((listener) => listener());
+    assert.equal(harness.bridge.refreshCount, before + 1, "a recorded verdict did not reach the Bridge");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+  assert.equal(listeners.size, 0, "the manager kept listening after disposal");
 });
 
 test("conversation tabs use isolated runtime storage and one shared bridge", async () => {

@@ -6,7 +6,7 @@ import type { PipelineDefinition } from "../pipeline/types";
 import { assignmentSlots } from "../pipeline/agentAssignment";
 import { pipelineDefinitionHash } from "../pipeline/identity";
 import { pipelineSummary } from "../pipeline/pipelineCatalog";
-import type { ConversationSummary, PanelState } from "../webview/protocol";
+import type { ConversationSummary, LocalModelConsumerState, PanelState } from "../webview/protocol";
 
 export type ReadOnlyPipeline = {
   definition: PipelineDefinition;
@@ -83,6 +83,15 @@ const scopedWorkspaceRoots = (
   : [...roots.filter((root) => path.resolve(root) !== path.resolve(preferredRoot)), preferredRoot];
 
 const unavailableReason = "Another Bachata window owns this repository's state.";
+
+const readOnlyLocalModel = (): LocalModelConsumerState => ({
+  enabled: false,
+  discovering: false,
+  status: "disabled",
+  detail: "Local models are unavailable in a read-only window.",
+  explicit: false,
+  availableModels: [],
+});
 
 export const readOnlyPanelState = async (input: {
   conversation: ConversationSummary;
@@ -188,13 +197,9 @@ export const readOnlyPanelState = async (input: {
       lockReason: reason,
       modelLockReason: reason,
     },
-    localInterpreter: {
-      enabled: false,
-      discovering: false,
-      status: "disabled",
-      detail: "Local interpretation is unavailable in a read-only window.",
-      explicit: false,
-      availableModels: [],
+    localModels: {
+      semanticInterpreter: readOnlyLocalModel(),
+      selectorHealing: readOnlyLocalModel(),
     },
     roles: {},
     running: false,

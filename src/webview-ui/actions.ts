@@ -874,10 +874,17 @@ root.addEventListener("click", (event) => {
     postRuntime({ type: "agents.model.discover", agentId: target.dataset.agent });
   } else if (action === "agents-reset-all") {
     postRuntime({ type: "agents.reset" });
-  } else if (action === "local-model-select") {
+  } else if (action === "local-model-select" && target.dataset.consumer) {
     postRuntime({
       type: "localModel.select",
+      consumer: target.dataset.consumer,
       ...(target.dataset.model ? { model: target.dataset.model } : {}),
+    });
+  } else if (action === "local-model-enable" && target.dataset.consumer) {
+    postRuntime({
+      type: "localModel.enable",
+      consumer: target.dataset.consumer,
+      enabled: target.dataset.enabled === "true",
     });
   } else if (action === "availability-check") {
     if (!agentsAssignable(activePanel())) {

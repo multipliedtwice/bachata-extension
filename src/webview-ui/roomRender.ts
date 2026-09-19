@@ -516,7 +516,7 @@ const sendBlockers = (
         ? localize("The pipeline is stopped.")
         : localize("The pipeline failed."),
       requirement: needsFolder
-        ? localize("Choose a Git project folder before restarting.")
+        ? localize("Choose a project folder before restarting.")
         : recovery.step === "resume"
           ? localize("Resume from the saved step, or start a new run for a different task.")
           : localize("Restart the pipeline after resolving the failure."),

@@ -17,6 +17,20 @@ const CONTRACT_PASS = JSON.stringify({
   ambiguous: ["probe-unclear"],
 });
 
+const { HEALING_PROBE_PROMPT } = require("../dist/providers/localModelDiscovery.js");
+
+// Selector healing is checked on its own dom-heal page, so a capable model answers that in kind.
+const HEALING_PASS = JSON.stringify({
+  protocol: "bachata-dom-heal-v1",
+  status: "selected",
+  composerIds: ["heal-composer"],
+  conversationRootIds: ["heal-thread"],
+  sendButtonIds: ["heal-send"],
+  stopButtonIds: [],
+  newConversationButtonIds: [],
+  responseMessageIds: [],
+});
+
 const SECRET = "sk-remote-0987654321";
 
 const consumer = (overrides = {}) => ({
@@ -251,9 +265,9 @@ test("the semantic consumer's remote endpoint, credential and deadline reach its
   const service = createLocalModelService({
     registry,
     settings: () => settings,
-    runPrompt: async (target) => {
+    runPrompt: async (target, prompt) => {
       prompts.push(target);
-      return CONTRACT_PASS;
+      return prompt === HEALING_PROBE_PROMPT ? HEALING_PASS : CONTRACT_PASS;
     },
   });
   await service.discover();

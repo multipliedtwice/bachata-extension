@@ -485,3 +485,31 @@ test("valid exact tiling and an empty response are still accepted", () => {
   assert.equal(tiled.success, true, tiled.error);
   assert.equal(tiled.message.segments.length, 3);
 });
+
+test("local-model messages name which feature they change", () => {
+  assert.deepEqual(parseWebviewMessage({ type: "localModel.select", consumer: "semanticInterpreter", model: " m " }), {
+    success: true,
+    message: { type: "localModel.select", consumer: "semanticInterpreter", model: "m" },
+  });
+  assert.deepEqual(parseWebviewMessage({ type: "localModel.select", consumer: "selectorHealing" }), {
+    success: true,
+    message: { type: "localModel.select", consumer: "selectorHealing" },
+  });
+  assert.deepEqual(parseWebviewMessage({ type: "localModel.enable", consumer: "selectorHealing", enabled: false }), {
+    success: true,
+    message: { type: "localModel.enable", consumer: "selectorHealing", enabled: false },
+  });
+  for (const message of [
+    { type: "localModel.select", model: "m" },
+    { type: "localModel.select", consumer: "bridge", model: "m" },
+    { type: "localModel.select", consumer: "toString" },
+    { type: "localModel.select", consumer: "selectorHealing", model: " " },
+    { type: "localModel.enable", consumer: "selectorHealing" },
+    { type: "localModel.enable", consumer: "selectorHealing", enabled: "true" },
+    { type: "localModel.enable", consumer: "semanticInterpreter", enabled: true, extra: 1 },
+  ]) {
+    const result = parseWebviewMessage(message);
+    assert.equal(result.success, false, JSON.stringify(message));
+    assert.match(result.error, /localModel\.(select|enable)/u, JSON.stringify(message));
+  }
+});

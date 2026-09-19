@@ -14,7 +14,7 @@ No permanent full-answer or durable evidence-snapshot table exists. Compact type
 
 Prompts, selected files, and answers go only to providers selected by the pipeline. Browser cookies and authenticated asset URLs stay inside the Browser Bridge.
 
-Network use is limited to selected providers, the loopback Browser Bridge, and an optional user-configured semantic interpreter. Remote semantic interpretation is off by default.
+Network use is limited to selected providers, the loopback Browser Bridge, and two optional local-model features: the semantic interpreter and selector healing. Both are off by default. When one is turned on with no endpoint set and its backend on `auto`, Bachata asks `127.0.0.1:1234` (LM Studio) and `127.0.0.1:11434` (Ollama) which models they serve. It then sends that feature's bounded contract check to the model it selects. Nothing is asked while both are off. Selector healing is loopback-only. Remote semantic interpretation needs a separate opt-in and is off by default.
 
 Full transcript export is explicit and local.
 

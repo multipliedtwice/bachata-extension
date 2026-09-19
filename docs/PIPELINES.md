@@ -139,6 +139,8 @@ Open runs watch catalog file creation, change, and deletion and refresh after co
 
 Structured and JSON modes edit one draft. Validation, import, export, save, and delete lock the complete editor, including nested controls, drag ordering, Escape, and close controls, until the operation finishes. Import validates into an unsaved draft and requires Save before the definition is persisted or selected. Pipeline selection completes before editing controls are enabled.
 
+Git is required only by an enabled `executeChecklist` step. Every other pipeline, including managed implementation pipelines, runs in a folder that is not a Git repository: Bachata then does not track or verify file changes against the write scope, export a patch, or detect repository changes for `untilClean`, and readiness reports that as a ready finding. This is an owner decision recorded in `docs/PRODUCT_DOCTRINE.md`; do not reintroduce the requirement.
+
 An enabled `executeChecklist` step performs Git preflight before any provider is called. For this embedded flow, only files inside the active custom-pipeline catalog may be dirty; every other tracked, staged, untracked, copied, or renamed path blocks execution and is listed in the error. This exemption treats pipelines as controller configuration and does not copy their uncommitted content into generated worktrees. The top-level `Bachata: Run TODO.md` command does not receive this exemption and still requires a completely clean repository.
 
 ## Execution snapshots

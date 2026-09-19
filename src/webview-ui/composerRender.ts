@@ -805,38 +805,70 @@ const agentsBridgePanelHtml = (panel: PanelState): string => {
   return `<section id="agents-bridge-panel" class="agents-bridge-setup" aria-label="${escapeAttribute(localize("Browser Bridge"))}"><h3>${escapeHtml(bridge.connected ? localize("Browser Bridge") : localize("Connect Browser Bridge"))}</h3><p class="muted">${presentation.statusHtml}</p>${presentation.reasonHtml}${instruction ? `<p>${escapeHtml(instruction)}</p>` : ""}${actions}</section>`;
 };
 
-// Local interpretation is a property of the machine, not of a role, so it reads as its own section
-// under the responsibilities rather than as a fourth provider choice inside each of them.
-const localInterpreterHtml = (panel: PanelState, locked: boolean): string => {
-  const local = panel.localInterpreter;
-  if (!local.enabled && local.status === "disabled") {
-    return "";
-  }
-  const stateClass = local.status === "ready"
-    ? " is-ready"
-    : local.status === "unverified" || local.discovering
-      ? " is-pending"
-      : " is-blocked";
+// Local models are a property of the machine, not of a role, so they read as their own section
+// under the responsibilities rather than as a fourth provider choice inside each of them. Each
+// feature is shown, switched and pinned on its own: they have separate settings and separate checks.
+const localModelCopy = (consumer: LocalModelConsumer): { title: string; purpose: string } =>
+  consumer === "semanticInterpreter"
+    ? {
+        title: localize("Browser action interpreter"),
+        purpose: localize("Classifies plain-language browser action requests with a local Ollama or LM Studio model."),
+      }
+    : {
+        title: localize("Selector healing"),
+        purpose: localize("Recovers page controls with a local Ollama or LM Studio model when saved selectors fail."),
+      };
+
+const LOCAL_MODEL_ORDER: LocalModelConsumer[] = ["semanticInterpreter", "selectorHealing"];
+
+const localModelHtml = (consumer: LocalModelConsumer, local: LocalModelConsumerState, locked: boolean): string => {
+  const copy = localModelCopy(consumer);
+  const stateClass = !local.enabled
+    ? ""
+    : local.status === "ready"
+      ? " is-ready"
+      : local.status === "unverified" || local.discovering
+        ? " is-pending"
+        : " is-blocked";
+  const unavailable = local.status === "serverUnavailable" || local.status === "noSuitableModel" || local.status === "configuredModelUnavailable";
+  const badge = !local.enabled
+    ? localize("off")
+    : local.discovering
+      ? localize("checking…")
+      : unavailable
+        ? localize("unavailable")
+        : local.status === "unverified"
+          ? localize("not checked")
+          : local.explicit
+            ? localize("your choice")
+            : localize("automatic");
+  const disabled = locked ? " disabled" : "";
+  const toggle = `<button type="button" data-action="local-model-enable" data-consumer="${consumer}" data-enabled="${local.enabled ? "false" : "true"}" aria-label="${escapeAttribute(local.enabled ? localize("Turn off {0}", copy.title) : localize("Turn on {0}", copy.title))}"${disabled}>${escapeHtml(local.enabled ? localize("Turn off") : localize("Turn on"))}</button>`;
   const chosen = local.model;
   // Changing the model re-resolves the configuration the bridge is already healing with, so the
   // override is refused for exactly as long as reassignment is: while a run holds it.
   const options = local.availableModels.map((model) => {
     const selected = model.id === chosen;
-    return `<button type="button" role="option" class="agents-session-option" data-action="local-model-select" data-model="${escapeAttribute(model.id)}" aria-selected="${selected ? "true" : "false"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(model.id)}</span><span class="agents-session-meta">${escapeHtml(model.backend)} · ${escapeHtml(model.availability)}</span></button>`;
+    return `<button type="button" role="option" class="agents-session-option" data-action="local-model-select" data-consumer="${consumer}" data-model="${escapeAttribute(model.id)}" aria-selected="${selected ? "true" : "false"}"${disabled}><span class="agents-session-name">${escapeHtml(model.id)}</span><span class="agents-session-meta">${escapeHtml(model.backend)} · ${escapeHtml(model.availability)}</span></button>`;
   });
-  const automatic = `<button type="button" role="option" class="agents-session-option" data-action="local-model-select" aria-selected="${local.explicit ? "false" : "true"}"${locked ? " disabled" : ""}><span class="agents-session-name">${escapeHtml(localize("Choose automatically"))}</span><span class="agents-session-meta">${escapeHtml(localize("checked against the interpreter contract"))}</span></button>`;
-  const list = options.length > 0
-    ? `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("Local interpreter model"))}">${automatic}${options.join("")}</div>`
+  const automatic = `<button type="button" role="option" class="agents-session-option" data-action="local-model-select" data-consumer="${consumer}" aria-selected="${local.explicit ? "false" : "true"}"${disabled}><span class="agents-session-name">${escapeHtml(localize("Choose automatically"))}</span><span class="agents-session-meta">${escapeHtml(localize("checked against this feature's contract"))}</span></button>`;
+  const list = local.enabled && options.length > 0
+    ? `<div class="agents-session-list" role="listbox" aria-label="${escapeAttribute(localize("{0} model", copy.title))}">${automatic}${options.join("")}</div>`
     : "";
-  return `<section class="agents-local${stateClass}">
+  return `<section class="agents-local${stateClass}" data-local-model="${consumer}">
     <div class="agents-slot-head">
-      <div class="agents-slot-title"><strong>${escapeHtml(localize("Local interpreter"))}</strong><small>${escapeHtml(local.status === "serverUnavailable" || local.status === "noSuitableModel" || local.status === "configuredModelUnavailable" ? localize("unavailable") : local.explicit ? localize("your choice") : localize("automatic"))}</small></div>
-      <span class="agents-slot-actual">${escapeHtml(local.backendLabel ?? (local.discovering ? localize("checking…") : localize("not available")))}</span>
+      <div class="agents-slot-title"><strong>${escapeHtml(copy.title)}</strong><small>${escapeHtml(badge)}</small></div>
+      <span class="agents-slot-actual">${escapeHtml(!local.enabled || local.discovering ? "" : local.backendLabel ?? localize("not available"))}</span>
     </div>
-    <p class="agents-constraint"${local.discovering ? ` ${liveRegionAttributes("agents:local", "status", local.detail)}` : ""}>${escapeHtml(local.detail)}</p>
+    <p class="agents-constraint">${escapeHtml(copy.purpose)}</p>
+    <p class="agents-constraint"${local.discovering ? ` ${liveRegionAttributes(`agents:local:${consumer}`, "status", local.detail)}` : ""}>${escapeHtml(local.detail)}</p>
+    <div class="compact-actions">${toggle}</div>
     ${list}
   </section>`;
 };
+
+const localModelsHtml = (panel: PanelState, locked: boolean): string =>
+  LOCAL_MODEL_ORDER.map((consumer) => localModelHtml(consumer, panel.localModels[consumer], locked)).join("");
 
 const agentsPickerHtml = (panel: PanelState): string => {
   const assignments = panel.agentAssignments;
@@ -867,7 +899,7 @@ const agentsPickerHtml = (panel: PanelState): string => {
     : historicalLock
       ? localize("This run keeps its original providers and models.")
       : lockReason ?? modelLockReason ?? "";
-  const interpreter = localInterpreterHtml(panel, providerLocked);
+  const localModels = localModelsHtml(panel, providerLocked);
   const bridgeNeeded = agentsBridgeNeeded(panel);
   const popover = `<div class="agents-popover" id="${AGENTS_POPOVER_ID}" role="dialog" aria-label="${escapeAttribute(localize("Agent assignments"))}">
     <div class="agents-popover-head"><h2>${escapeHtml(localize("Agents"))}</h2><div class="agents-head-actions">${bridgeNeeded ? agentsBridgeChipHtml(panel.browserBridge) : ""}${overrides > 0 && !providerLocked ? `<button type="button" class="agents-reset-all" data-action="agents-reset-all">${escapeHtml(localize("Reset to defaults"))}</button>` : ""}<button type="button" class="icon-button agents-close" data-action="agents-picker-toggle" aria-label="${escapeAttribute(localize("Close agent assignments"))}"><i class="codicon codicon-close" aria-hidden="true"></i></button></div></div>
@@ -876,7 +908,7 @@ const agentsPickerHtml = (panel: PanelState): string => {
     ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>${escapeHtml(localize("Discovering agents on this machine…"))}</p>` : ""}
     ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
     <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, providerLocked, modelLocked)).join("")}</div>
-    ${interpreter ? `<details class="agents-slot-settings" ${disclosureAttributes("agents:local-settings")}><summary>${escapeHtml(localize("Local interpreter settings"))}</summary>${interpreter}</details>` : ""}
+    <details class="agents-local-settings" ${disclosureAttributes("agents:local-settings")}><summary>${escapeHtml(localize("Local models"))}</summary>${localModels}</details>
   </div>`;
   return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;
 };

@@ -176,6 +176,8 @@ Finding reconciliation merges semantic finding identity, never Git branches. Bac
 
 Do not add or tighten a restriction because stricter looks safer. Added friction needs a concrete failure mode, user need, or platform constraint. Prefer removing friction when a restriction does not improve refinement quality, human direction, recoverability, or required compatibility.
 
+Decision, 2026-09-19, owner: a run does not require a Git repository. Bachata pipelines may work on material that is not software, so a folder without Git is a valid working root for every pipeline except task-list execution (`executeChecklist`), which builds each task in a worktree created from HEAD and cannot work without one. Outside a repository the run proceeds without Git-based change tracking, write-scope verification, patch export, or repository-change convergence, and readiness says so as a ready finding, not a refusal. Do not reintroduce a Git requirement for other pipelines; a proposal to do so needs the owner's explicit approval. `tests/readiness.test.cjs`, `tests/projectPreflight.test.cjs` and `tests/repositoryRemediation.test.cjs` hold this.
+
 Security documentation must state real boundaries accurately. Public positioning must not sell execution restriction as reason to buy Bachata.
 
 Persist workflow state as typed internal state. Do not generate repository specs or reports for routine workflow progress. Normal human-authored and agent-authored project documents remain allowed when work itself needs them.

@@ -292,19 +292,6 @@ export const captureWorkspacePolicyAudit = async (
   };
 };
 
-export const gitWorktreeRequirementMessage = (workingDirectory: string): string =>
-  `Choose a Git project folder. ${workingDirectory} is not inside a Git worktree, and this participant may change files, so Bachata needs Git to validate its changes.`;
-
-export const assertWorkspaceExecutionSupported = (
-  requestData: SendRequest,
-  before: WorkspacePolicyAuditSnapshot,
-): void => {
-  const policy = requestData.workspacePolicy;
-  if (policy && gitWorktreeRequired(policy) && !before.isGitRepository) {
-    throw new Error(gitWorktreeRequirementMessage(requestData.workingDirectory));
-  }
-};
-
 export const assertWorkspacePolicyAudit = async (
   requestData: SendRequest,
   before: WorkspacePolicyAuditSnapshot,
@@ -312,7 +299,6 @@ export const assertWorkspacePolicyAudit = async (
 ): Promise<void> => {
   const policy = requestData.workspacePolicy;
   if (!policy) return;
-  assertWorkspaceExecutionSupported(requestData, before);
   const after = await captureWorkspacePolicyAudit(requestData, signal);
   if (before.isGitRepository !== after.isGitRepository) throw new Error("Workspace repository identity changed during the agent turn");
   if (before.isGitRepository && before.head !== after.head) {

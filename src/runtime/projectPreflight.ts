@@ -52,10 +52,12 @@ const blockingCause = (
   if (lookupError !== undefined) return { reason: "unresolved", detail: lookupError };
   if (workingDirectory === undefined) return { reason: "noFolder" };
   if (probe === undefined) return { reason: "unresolved", detail: "The project folder was not checked." };
-  if (probe.kind === "worktree") return undefined;
+  // A folder that is not a Git worktree is a valid project: the run goes ahead without Git-based
+  // change tracking. Only a probe that could not answer still refuses.
+  if (probe.kind === "worktree" || probe.kind === "notWorktree") return undefined;
   const detail = probe.detail.trim();
   return {
-    reason: probe.kind === "notWorktree" ? "notGitWorktree" : "unresolved",
+    reason: "unresolved",
     ...(detail === "" ? {} : { detail }),
   };
 };
@@ -104,9 +106,7 @@ export const projectPreflightFailure = (input: {
     reason: first.cause.reason,
     ...location,
     participants,
-    message: folder === undefined
-      ? `Choose a Git project folder. No project folder is selected, and ${who} may change files, so Bachata did not start them.`
-      : `Choose a Git project folder. ${folder} is not inside a Git worktree, and ${who} may change files, so Bachata needs Git to validate those changes and did not start them.`,
+    message: `Choose a project folder. No project folder is selected, and ${who} may change files, so Bachata did not start them.`,
   };
 };
 

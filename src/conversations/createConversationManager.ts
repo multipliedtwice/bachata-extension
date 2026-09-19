@@ -3749,14 +3749,20 @@ export const createConversationManager = (
     "bachata.browserSelectorHealingModel",
     "bachata.browserSelectorHealingTimeoutMs",
   ];
-  const browserSelectorHealingConfigurationSubscription = vscode.workspace.onDidChangeConfiguration((event) => {
-    if (!selectorHealingConfigurationKeys.some((key) => event.affectsConfiguration(key))) return;
+  const refreshSelectorHealingConfiguration = (): void => {
     try {
       sharedBridge.refreshLocalModelConfig();
     } catch (error) {
       output.appendLine(`Failed to refresh Browser Bridge selector-healing configuration: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
+  const browserSelectorHealingConfigurationSubscription = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (!selectorHealingConfigurationKeys.some((key) => event.affectsConfiguration(key))) return;
+    refreshSelectorHealingConfiguration();
   });
+  // Turning healing on writes its setting before any model is checked, so the Bridge is first told
+  // there is no model. The checked model reaches it only when the check records its verdict.
+  const selectorHealingVerdictSubscription = options.localModelService?.subscribe(refreshSelectorHealingConfiguration);
 
   const runtimeStorage = (
     conversationId: string,
@@ -7815,6 +7821,7 @@ export const createConversationManager = (
 
         options.workspaceLease?.signal.removeEventListener("abort", handleWorkspaceLeaseLost);
         browserSelectorHealingConfigurationSubscription.dispose();
+        selectorHealingVerdictSubscription?.dispose();
         browserBridgeWindowSubscription?.dispose();
         if (pipelineCatalogRefreshTimer) {
           clearTimeout(pipelineCatalogRefreshTimer);

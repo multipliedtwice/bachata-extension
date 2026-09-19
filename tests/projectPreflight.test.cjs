@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
-  assertWorkspaceExecutionSupported,
+  assertWorkspacePolicyAudit,
   captureWorkspacePolicyAudit,
   gitWorktreeRequired,
   probeWorkspaceRepository,
@@ -68,7 +68,7 @@ test("a worktree root, a nested folder, a dirty tree, a trailing slash and a sym
     const snapshot = await captureWorkspacePolicyAudit(dirty);
     assert.equal(snapshot.isGitRepository, true);
     assert.ok(Object.keys(snapshot.entries).length >= 2, "the dirty tree was not recorded as dirty");
-    assert.doesNotThrow(() => assertWorkspaceExecutionSupported(dirty, snapshot), "a dirty worktree was refused");
+    await assert.doesNotReject(assertWorkspacePolicyAudit(dirty, snapshot), "a dirty worktree was refused");
   } finally {
     removeScratchSync(links);
     removeScratchSync(repo);
@@ -90,19 +90,18 @@ test("a folder outside Git is not a worktree, and a probe that could not run is 
   }
 });
 
-test("outside Git a read-only participant may run and a participant that may write is refused before its turn", async () => {
+// Owner decision, docs/PRODUCT_DOCTRINE.md: a folder that is not a Git repository is a valid
+// project. Bachata may run tasks that are not software, so a participant that may write runs there
+// too, without Git-based change tracking.
+test("outside Git every participant may run, including one that may write", async () => {
   const plain = scratchRootSync("bachata-preflight-plain-");
   try {
     const readOnly = request(plain, { readOnly: true, writeScope: "readOnly", automated: true });
     const before = await captureWorkspacePolicyAudit(readOnly);
     assert.equal(before.isGitRepository, false);
-    assert.doesNotThrow(() => assertWorkspaceExecutionSupported(readOnly, before));
-    assert.doesNotThrow(() => assertWorkspaceExecutionSupported(request(plain, { readOnly: true, writeScope: "task", automated: true }), before));
-    assert.doesNotThrow(() => assertWorkspaceExecutionSupported(request(plain), before));
-    assert.throws(
-      () => assertWorkspaceExecutionSupported(request(plain, writingPolicy), before),
-      (error) => error.message === `Choose a Git project folder. ${plain} is not inside a Git worktree, and this participant may change files, so Bachata needs Git to validate its changes.`,
-    );
+    await assert.doesNotReject(assertWorkspacePolicyAudit(readOnly, before));
+    const writing = request(plain, writingPolicy);
+    await assert.doesNotReject(assertWorkspacePolicyAudit(writing, await captureWorkspacePolicyAudit(writing)));
   } finally {
     removeScratchSync(plain);
   }
@@ -237,27 +236,22 @@ test("a refusal names the folder, the participants that would have written, and 
     projectPreflightFailure({ participants, probes: new Map([["/work", { kind: "worktree", repositoryRoot: "/work" }]]) }),
     undefined,
   );
-  assert.deepEqual(
+  assert.equal(
     projectPreflightFailure({ participants, probes: new Map([["/work", { kind: "notWorktree", detail: "fatal: not a git repository" }]]) }),
-    {
-      reason: "notGitWorktree",
-      folder: "/work",
-      detail: "fatal: not a git repository",
-      participants: [{ participant: "Builder", step: "Implement" }, { participant: "Reviewer", step: "Review" }],
-      message: "Choose a Git project folder. /work is not inside a Git worktree, and Builder in “Implement” and Reviewer in “Review” may change files, so Bachata needs Git to validate those changes and did not start them.",
-    },
+    undefined,
+    "a folder that is not a Git repository was refused",
   );
   const quiet = projectPreflightFailure({
     participants: participants.slice(0, 1),
-    probes: new Map([["/work", { kind: "notWorktree", detail: "  " }]]),
+    probes: new Map([["/work", { kind: "unresolved", detail: "  " }]]),
   });
-  assert.equal("detail" in quiet, false, "an empty Git diagnostic was kept");
+  assert.equal("detail" in quiet, false, "an empty diagnostic was kept");
   assert.deepEqual(
     projectPreflightFailure({ participants: [{ participant: "Builder", step: "Implement", workingDirectory: undefined }], probes: new Map() }),
     {
       reason: "noFolder",
       participants: [{ participant: "Builder", step: "Implement" }],
-      message: "Choose a Git project folder. No project folder is selected, and Builder in “Implement” may change files, so Bachata did not start them.",
+      message: "Choose a project folder. No project folder is selected, and Builder in “Implement” may change files, so Bachata did not start them.",
     },
   );
   assert.deepEqual(
@@ -297,12 +291,12 @@ test("a refusal names the folder, the participants that would have written, and 
 test("a refusal speaks for one folder at a time and summarises a long participant list", () => {
   const many = ["A", "B", "C", "D"].map((participant) => ({ participant, step: "S", workingDirectory: "/work" }));
   const probes = new Map([
-    ["/work", { kind: "notWorktree", detail: "" }],
-    ["/other", { kind: "notWorktree", detail: "" }],
+    ["/work", { kind: "unresolved", detail: "" }],
+    ["/other", { kind: "unresolved", detail: "" }],
   ]);
-  assert.match(projectPreflightFailure({ participants: many, probes }).message, /A in “S”, B in “S” and 2 more participants may change files/u);
-  assert.match(projectPreflightFailure({ participants: many.slice(0, 3), probes }).message, /A in “S”, B in “S” and 1 more participant may change files/u);
-  assert.match(projectPreflightFailure({ participants: [many[0], many[0]], probes }).message, /, and A in “S” may change files/u);
+  assert.match(projectPreflightFailure({ participants: many, probes }).message, /did not start A in “S”, B in “S” and 2 more participants\./u);
+  assert.match(projectPreflightFailure({ participants: many.slice(0, 3), probes }).message, /did not start A in “S”, B in “S” and 1 more participant\./u);
+  assert.match(projectPreflightFailure({ participants: [many[0], many[0]], probes }).message, /did not start A in “S”\./u);
   const split = projectPreflightFailure({
     participants: [{ participant: "Other", step: "S", workingDirectory: "/other" }, many[0]],
     probes,

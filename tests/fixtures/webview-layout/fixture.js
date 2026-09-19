@@ -187,21 +187,31 @@ window.__panelState = {
       },
     },
   },
-  // A ready local interpreter, so the Agents popover is measured with the section present.
-  localInterpreter: {
-    enabled: true,
-    discovering: false,
-    status: "ready",
-    detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
-    backend: "ollama",
-    backendLabel: "Ollama",
-    endpoint: "http://127.0.0.1:11434",
-    model: "qwen2.5-coder:7b",
-    explicit: false,
-    availableModels: [
-      { id: "qwen2.5-coder:7b", backend: "ollama", availability: "loaded" },
-      { id: "deepseek-r1:8b", backend: "ollama", availability: "installed" },
-    ],
+  // One ready local model and one off, so the Agents popover is measured with both states present.
+  localModels: {
+    semanticInterpreter: {
+      enabled: false,
+      discovering: false,
+      status: "disabled",
+      detail: "Off. Explicit bachata-action blocks and built-in pattern matching only.",
+      explicit: false,
+      availableModels: [],
+    },
+    selectorHealing: {
+      enabled: true,
+      discovering: false,
+      status: "ready",
+      detail: "qwen2.5-coder:7b on http://127.0.0.1:11434",
+      backend: "ollama",
+      backendLabel: "Ollama",
+      endpoint: "http://127.0.0.1:11434",
+      model: "qwen2.5-coder:7b",
+      explicit: false,
+      availableModels: [
+        { id: "qwen2.5-coder:7b", backend: "ollama", availability: "loaded" },
+        { id: "deepseek-r1:8b", backend: "ollama", availability: "installed" },
+      ],
+    },
   },
   roles: {},
   running: false,

@@ -13,6 +13,8 @@
  */
 import {
   CONTRACT_PROBE_PROMPT,
+  ContractProbeResult,
+  HEALING_PROBE_PROMPT,
   LOCAL_BACKENDS,
   contractIdentityRefusal,
   LocalBackendProbe,
@@ -20,6 +22,7 @@ import {
   LocalModelSelection,
   LocalModelSummary,
   contractProbeVerdict,
+  healingProbeVerdict,
   localBackendForAdapterType,
   normalizeEndpoint,
   selectLocalModel,
@@ -102,6 +105,33 @@ export const localRequestScope = (consumer: {
 export type LocalConsumerId = "semanticInterpreter" | "selectorHealing";
 
 export const LOCAL_CONSUMERS: readonly LocalConsumerId[] = ["semanticInterpreter", "selectorHealing"];
+
+const CONSUMER_LOG_NAME: Readonly<Record<LocalConsumerId, string>> = {
+  semanticInterpreter: "interpreter",
+  selectorHealing: "selector-healing",
+};
+
+/**
+ * The bounded exchange each consumer's model must pass. Each consumer is asked its own task, read
+ * by that task's own rules: a model that classifies action candidates has shown nothing about
+ * picking page controls, and the reverse.
+ */
+export const LOCAL_CONSUMER_CONTRACTS: Readonly<Record<LocalConsumerId, {
+  prompt: string;
+  verdict: (answer: string) => ContractProbeResult;
+}>> = {
+  // The interpreter's own parser, reading the answer exactly as it will read a real one. A reader
+  // assembled here could be laxer than the production one, and then the gate would pass models the
+  // interpreter goes on to refuse.
+  semanticInterpreter: {
+    prompt: CONTRACT_PROBE_PROMPT,
+    verdict: (answer) => contractProbeVerdict(parseLocalDecision(answer)),
+  },
+  selectorHealing: {
+    prompt: HEALING_PROBE_PROMPT,
+    verdict: healingProbeVerdict,
+  },
+};
 
 export type LocalModelSettings = {
   consumers: Record<LocalConsumerId, LocalConsumerSettings>;
@@ -236,9 +266,8 @@ export type LocalModelService = {
   /** Ask the shared registry to discover the configured backends; already-answered ones cost nothing. */
   discover: () => Promise<void>;
   /**
-   * What one consumer is told. Omitting the consumer answers for the host as a whole — the enabled
-   * consumer whose state a reader is shown in the Agents view — which is a summary, not something a
-   * caller may run on.
+   * What one consumer is told. Omitting the consumer answers for the first enabled consumer, a
+   * summary kept for callers that ask about the host as a whole; nothing may run on it.
    */
   readiness: (consumer?: LocalConsumerId) => LocalModelReadiness;
   /**
@@ -251,12 +280,17 @@ export type LocalModelService = {
   ) => { backend: LocalModelBackendId; endpoint: string; model: string } | undefined;
   /**
    * Run the bounded contract check for whatever each enabled consumer currently proposes, and
-   * remember the verdicts. A tuple already judged is not judged again, so two consumers pointing at
-   * the same backend, endpoint and model share one check.
+   * remember the verdicts. A tuple already judged for a consumer is not judged again; each consumer
+   * is judged on its own task, so two consumers on the same model are two checks.
    */
   verifySelection: (signal?: AbortSignal) => Promise<void>;
   /** Forget cached readiness — a settings change, a backend event, or a real request failure. */
   invalidate: () => void;
+  /**
+   * Be told when a contract check records a verdict. Discovery changes arrive through the shared
+   * registry; a verdict changes only this service, so a view showing readiness listens here too.
+   */
+  subscribe: (listener: () => void) => { dispose: () => void };
 };
 
 const disabledReadiness = (): LocalModelReadiness => ({
@@ -285,14 +319,25 @@ export const createLocalModelService = (input: {
   ) => Promise<string | { text: string; model?: string | undefined }>;
   log?: (message: string) => void;
 }): LocalModelService => {
-  // Keyed by backend, endpoint and model together, so a verdict earned on one server never vouches
-  // for the same model name on another.
+  // Keyed by consumer, backend, endpoint and model together, so a verdict earned on one server or
+  // for one task never vouches for the same model name on another.
   const verdicts = new Map<ContractCheckKey, boolean>();
   // What configuration the verdicts belong to. A check that was in flight when the settings changed
   // is answering an obsolete question, and its answer is dropped rather than published.
   let generation = 0;
   let verifying: Promise<void> | undefined;
   let verifyAbort: AbortController | undefined;
+  const listeners = new Set<() => void>();
+  // A listener's failure is its own: it must not read as the check failing, or stop the others.
+  const announceVerdict = (): void => {
+    listeners.forEach((listener) => {
+      try {
+        listener();
+      } catch (error) {
+        input.log?.(`Local model readiness listener failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  };
 
   const consumerSettings = (consumer: LocalConsumerId): LocalConsumerSettings =>
     input.settings().consumers[consumer];
@@ -309,7 +354,7 @@ export const createLocalModelService = (input: {
     localRequestScope(consumerSettings(consumer));
 
   const checkKey = (consumer: LocalConsumerId, model: LocalModelSummary, endpoint: string) =>
-    contractCheckKey(model.backend, endpoint, model.id, scopeFor(consumer));
+    contractCheckKey(model.backend, endpoint, model.id, `${consumer}|${scopeFor(consumer)}`);
 
   const verdictFor = (
     consumer: LocalConsumerId,
@@ -364,9 +409,7 @@ export const createLocalModelService = (input: {
     ownGeneration: number,
     signal: AbortSignal,
     // Candidates whose check could not be completed are passed over for the rest of this pass, so
-    // the search moves on instead of being handed the same model again. Shared across consumers:
-    // two consumers pointing at the same backend, endpoint and model are one question, and asking
-    // it twice spends a reader's machine on an answer already given.
+    // the search moves on instead of being handed the same model again.
     attempted: Set<ContractCheckKey>,
   ): Promise<void> => {
     if (!consumerSettings(consumer).enabled) {
@@ -386,7 +429,7 @@ export const createLocalModelService = (input: {
         selection.backend,
         selection.endpoint,
         selection.model.id,
-        scopeFor(consumer),
+        `${consumer}|${scopeFor(consumer)}`,
       );
       if (verdicts.has(key) || attempted.has(key)) {
         return;
@@ -402,7 +445,7 @@ export const createLocalModelService = (input: {
             allowRemote: settings.allowRemote,
             ...(settings.apiKey === undefined ? {} : { apiKey: settings.apiKey }),
           },
-          CONTRACT_PROBE_PROMPT,
+          LOCAL_CONSUMER_CONTRACTS[consumer].prompt,
           signal,
         );
         const text = typeof answer === "string" ? answer : answer.text;
@@ -417,16 +460,14 @@ export const createLocalModelService = (input: {
         }
         // A server that answered as a different model has told us the tuple under test is not the
         // tuple that ran. The verdict belongs to that tuple's name, so it is recorded as a refusal.
-        // The interpreter's own parser, reading the answer exactly as it will read a real one. A
-        // reader assembled here — or handed in by the caller — could be laxer than the production
-        // one, and then the gate would pass models the interpreter goes on to refuse.
         const verdict = wrongModel === undefined
-          ? contractProbeVerdict(parseLocalDecision(text))
+          ? LOCAL_CONSUMER_CONTRACTS[consumer].verdict(text)
           : { compatible: false, detail: wrongModel };
         verdicts.set(key, verdict.compatible);
         input.log?.(
-          `Local interpreter check: ${selection.model.id} on ${selection.endpoint} ${verdict.compatible ? "passed" : "failed"} — ${verdict.detail}`,
+          `Local ${CONSUMER_LOG_NAME[consumer]} check: ${selection.model.id} on ${selection.endpoint} ${verdict.compatible ? "passed" : "failed"} — ${verdict.detail}`,
         );
+        announceVerdict();
       } catch (error) {
         // A request that failed says nothing certain about the model — it may have failed to load,
         // or the server may be gone — so no verdict is recorded and it is not condemned. The search
@@ -436,7 +477,7 @@ export const createLocalModelService = (input: {
           return;
         }
         input.log?.(
-          `Local interpreter check could not run for ${selection.model.id}: ${error instanceof Error ? error.message : String(error)}`,
+          `Local ${CONSUMER_LOG_NAME[consumer]} check could not run for ${selection.model.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -447,6 +488,10 @@ export const createLocalModelService = (input: {
       await input.registry.discover(localBackendIdentities(input.settings()));
     },
     readiness,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return { dispose: () => { listeners.delete(listener); } };
+    },
     resolvedConfig: (consumer) => {
       if (!consumerSettings(consumer).enabled) {
         return undefined;
@@ -512,9 +557,17 @@ export const createLocalModelService = (input: {
  * What the settings view shows, and what a workflow that needs the interpreter is told before it
  * runs. Each status names the remedy, because "unavailable" alone sends a reader to the wrong fix.
  */
-export const localModelStatusText = (readinessValue: LocalModelReadiness): string => {
+const CONSUMER_OFF_TEXT: Readonly<Record<LocalConsumerId, string>> = {
+  semanticInterpreter: "Off. Explicit bachata-action blocks and built-in pattern matching only.",
+  selectorHealing: "Off. Saved and deterministic selectors only.",
+};
+
+export const localModelStatusText = (
+  readinessValue: LocalModelReadiness,
+  consumer: LocalConsumerId,
+): string => {
   if (!readinessValue.enabled) {
-    return "Local interpretation is off. Deterministic extraction runs on its own.";
+    return CONSUMER_OFF_TEXT[consumer];
   }
   if (readinessValue.discovering) {
     return "Looking for a local inference server…";
@@ -524,7 +577,7 @@ export const localModelStatusText = (readinessValue: LocalModelReadiness): strin
     return `${selection.model.id} on ${selection.endpoint}${selection.explicit ? " (your choice)" : ""}`;
   }
   if (selection.status === "unverified") {
-    return `${selection.model.id} on ${selection.endpoint} — not yet checked against the interpreter contract`;
+    return `${selection.model.id} on ${selection.endpoint} — not yet checked`;
   }
   if (selection.status === "serverUnavailable") {
     return `No local inference server answered. Start Ollama or LM Studio, or set an endpoint. ${selection.detail}`;
@@ -533,4 +586,62 @@ export const localModelStatusText = (readinessValue: LocalModelReadiness): strin
     return `The model you selected is not available: ${selection.detail}`;
   }
   return `No suitable model is available. ${selection.detail}`;
+};
+
+export type LocalModelPanelState = {
+  enabled: boolean;
+  discovering: boolean;
+  status: LocalModelSelection["status"] | "disabled";
+  detail: string;
+  backend?: string;
+  backendLabel?: string;
+  endpoint?: string;
+  model?: string;
+  explicit: boolean;
+  availableModels: Array<{ id: string; backend: string; availability: string }>;
+};
+
+/**
+ * What the Agents view shows for one consumer. No readiness means no host service is resolving for
+ * this window, which reads exactly like the feature being off.
+ */
+export const localModelPanelState = (
+  readinessValue: LocalModelReadiness | undefined,
+  consumer: LocalConsumerId,
+): LocalModelPanelState => {
+  if (!readinessValue?.enabled) {
+    return {
+      enabled: false,
+      discovering: false,
+      status: "disabled",
+      detail: CONSUMER_OFF_TEXT[consumer],
+      explicit: false,
+      availableModels: [],
+    };
+  }
+  const selection = readinessValue.selection;
+  const chosen = selection.status === "ready" || selection.status === "unverified" ? selection : undefined;
+  const backend = chosen === undefined ? undefined : localBackendForAdapterType(`local-${chosen.backend}`);
+  return {
+    enabled: true,
+    discovering: readinessValue.discovering,
+    status: selection.status,
+    detail: localModelStatusText(readinessValue, consumer),
+    ...(chosen === undefined
+      ? {}
+      : {
+          backend: chosen.backend,
+          ...(backend === undefined ? {} : { backendLabel: backend.label }),
+          endpoint: chosen.endpoint,
+          model: chosen.model.id,
+        }),
+    explicit: selection.status === "ready" ? selection.explicit : false,
+    availableModels: readinessValue.probes
+      .filter((probe) => probe.reachable)
+      .flatMap((probe) => probe.models.map((model) => ({
+        id: model.id,
+        backend: probe.backend,
+        availability: model.availability,
+      }))),
+  };
 };
