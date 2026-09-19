@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased — Self-improvement: one command reproduces the Codex-to-Claude workflow
+## 0.7.4 — Self-improvement: one command reproduces the Codex-to-Claude workflow
 
 Initial remediation has local regression coverage. Final safety follow-up awaits broad
 regression gates. Dependency fixes use registry audit evidence.
 Live provider and packaged UI acceptance remain separate release gates.
-Packaged as 0.7.3. That is a build version, not a marketplace release: the authenticated
+Packaged as 0.7.4. That is a build version, not a marketplace release: the authenticated
 four-participant provider run named below is still a human acceptance gate.
 
 ### Added
@@ -45,6 +45,11 @@ The following changes have focused regression proof in the uploaded-source envir
 
 ### Fixed
 
+- Browser conversation ownership changes are transactional. Failed selection, peer shutdown, and unconfirmed terminal evidence retain the correct reservation and quarantine instead of leaking ownership or freeing a conversation still in use.
+- Browser actions execute only from request-local evidence, and the Agents picker disables conversations already owned by another participant.
+- Local-model endpoints preserve configured path prefixes for Ollama and LM Studio requests.
+- Managed tasks keep one immutable repository baseline while tracking the current workspace snapshot, including before the first commit and outside Git.
+- Fixed and until-clean iteration modes share one restartable execution sequence with persisted progress and clean-pass state.
 - The Marketplace listing showed no demo and broken documentation links. Packaging keeps README links relative so the VSIX matches its source byte for byte, and the web listing resolves relative paths against its own site. README images and links now use absolute GitHub URLs.
 - Choosing a local model in **Agents** wrote the selector-healing model setting whatever feature was on screen. With only the interpreter on, the choice did nothing; with both on, the interpreter was shown and healing was changed. Each choice now writes that feature's own setting. `tests/runtimeBehavior.test.cjs`, `tests/webviewDom.test.cjs`.
 - The semantic interpreter setting described its model as "OpenAI-compatible". Ollama is called through its own `/api/chat`; the description now says Ollama or LM Studio.

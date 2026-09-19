@@ -26,12 +26,12 @@ verdict below is authored by a human and no generator may set it.
 
 ## Verdict
 
-**SHIP as a stable release, 0.7.3, by owner decision on 2026-09-19.**
+**SHIP as a stable release, 0.7.4, by owner decision on 2026-09-19.**
 
-The owner decided to publish 0.7.3 to the VS Code Marketplace. The candidate is the VSIX built by
+The owner decided to publish 0.7.4 to the VS Code Marketplace. The candidate is the VSIX built by
 the `Paired release verification` candidate phase at the verification commit; publication depends
 on that workflow's verify phase passing for those exact bytes. The 0.7.1 measurements below remain
-bound to the 0.7.1 artifacts and are not re-claimed for 0.7.3. The human evidence records in
+bound to the 0.7.1 artifacts and are not re-claimed for 0.7.4. The human evidence records in
 `RELEASE_VALIDATION_RECORD.md`, `PROVIDER_TERMS.md` and `COMPATIBILITY_MATRIX.md` remain
 unrecorded; this verdict does not claim them.
 

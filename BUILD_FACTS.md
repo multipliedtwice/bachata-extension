@@ -11,11 +11,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 | Fact | Value |
 | --- | --- |
-| Extension version | 0.7.3 |
+| Extension version | 0.7.4 |
 | Pinned Browser Bridge version | 0.6.9 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 763 |
-| Maintained source manifest SHA-256 (Git-tracked) | 9f3cee146226ce86c1e3a40d4e5232455f6ab9c5758ebb36dc974067696ba8ff |
+| Maintained source files (Git-tracked) | 774 |
+| Maintained source manifest SHA-256 (Git-tracked) | b8c3ead9c9eedda97e5a932d02aa7f8ce301ad2475b40b5adefc3a0b3b12938d |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -23,7 +23,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Settings in "%configuration.group.4.title%" | 40 |
 | Contributed commands | 28 |
 | Built-in presets (Git-tracked) | 21 |
-| Test files (Git-tracked) | 237 |
+| Test files (Git-tracked) | 242 |
 | Declared artifact promotion types | design, recommendation, requirement |
 | Benchmark tasks (Git-tracked) | 4 |
 | Benchmark arms declared (Git-tracked tasks) | 8 |
@@ -38,11 +38,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit bef51d2bc771d01fe46acf041bd6625afb2da224.
+The working tree was modified, so these values describe the working tree and not commit 6cee58f1ed6f9867cc05a4ee23fbd6b7ea587275.
 
 | Observation | Value |
 | --- | --- |
-| Revision | bef51d2bc771d01fe46acf041bd6625afb2da224 |
+| Revision | 6cee58f1ed6f9867cc05a4ee23fbd6b7ea587275 |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 774 |
 | Platform | Darwin 24.5.0 arm64 |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | no bachata-vscode-0.7.3.vsix is staged |
+| Staged VSIX | no bachata-vscode-0.7.4.vsix is staged |
 | Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.9.zip, 1.06 MB, SHA-256 7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6 |
 | Test run | not collected in this generation |
 
