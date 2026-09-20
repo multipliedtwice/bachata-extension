@@ -35,8 +35,8 @@ Do not install a Bridge build from any other source. The Bridge holds a pairing 
 
 ## Pair
 
-1. In Bachata run settings choose **Discover**. The local bridge starts and shows an endpoint and a pairing token.
-2. Open the Bridge popup, paste the endpoint and token, and pair.
+1. In Bachata run settings choose **Discover**. The local bridge starts and shows a pairing code.
+2. Copy the code. Open the Bridge popup. Choose **Paste & connect**. Port routes automatically; no URL paste.
 3. Open the provider conversation you want to use and sign in.
 4. Refresh the popup tab list until the conversation reports ready.
 5. Bind one ready conversation per browser role.

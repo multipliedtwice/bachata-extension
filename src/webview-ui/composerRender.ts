@@ -798,12 +798,12 @@ const agentsBridgePanelHtml = (panel: PanelState): string => {
   const presentation = browserBridgePresentation(bridge, "agents:bridge");
   const pairing = Boolean(bridge.pairingToken) && !bridge.connected;
   const instruction = pairing
-    ? localize("Pair the Bachata Browser Bridge extension using this token.")
+    ? localize("Pair the Bachata Browser Bridge extension using this code.")
     : bridge.connected
       ? localize("Choose each browser agent's conversation from its selector below.")
       : "";
   const actions = bridge.enabled
-    ? `<div class="compact-actions">${pairing ? `<button type="button" data-action="bridge-copy-token">${escapeHtml(localize("Copy pairing token"))}</button>` : ""}${bridge.connected ? "" : `<button type="button" data-action="bridge-discover">${escapeHtml(localize("Find browser"))}</button>`}<button type="button" data-action="bridge-reset"${runConfigurationLocked(panel) ? " disabled" : ""}>${escapeHtml(localize("Reset pairing"))}</button></div>`
+    ? `<div class="compact-actions">${pairing ? `<button type="button" data-action="bridge-copy-token">${escapeHtml(localize("Copy pairing code"))}</button>` : ""}${bridge.connected ? "" : `<button type="button" data-action="bridge-discover">${escapeHtml(localize("Find browser"))}</button>`}<button type="button" data-action="bridge-reset"${runConfigurationLocked(panel) ? " disabled" : ""}>${escapeHtml(localize("Reset pairing"))}</button></div>`
     : "";
   return `<section id="agents-bridge-panel" class="agents-bridge-setup" aria-label="${escapeAttribute(localize("Browser Bridge"))}"><h3>${escapeHtml(bridge.connected ? localize("Browser Bridge") : localize("Connect Browser Bridge"))}</h3><p class="muted">${presentation.statusHtml}</p>${presentation.reasonHtml}${instruction ? `<p>${escapeHtml(instruction)}</p>` : ""}${actions}</section>`;
 };

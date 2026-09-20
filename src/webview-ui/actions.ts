@@ -182,6 +182,14 @@ const closeMenusWithin = (surface: HTMLElement | null): void => {
   });
 };
 
+const bridgePairingCode = (endpoint: string | undefined, token: string): string => {
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(token)) return token;
+  const match = /^ws:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/bachata-browser-bridge-v9$/u.exec(endpoint ?? "");
+  if (!match) return token;
+  const port = Number.parseInt(match[1] ?? "", 10);
+  return port <= 65_535 ? `v9.${String(port)}.${token}` : token;
+};
+
 const installActionListeners = (): void => {
 // A fixed-position menu does not follow the surface it was opened from; scrolling that surface
 // closes it, and the tab strip's edge fades follow its own scroll.
@@ -991,16 +999,15 @@ root.addEventListener("click", (event) => {
   else if (action === "browser-asset-save" && target.dataset.assetId) postRuntime({ type: "browser.asset.save", assetId: target.dataset.assetId });
   else if (action === "browser-asset-reveal" && target.dataset.assetId) postRuntime({ type: "browser.asset.reveal", assetId: target.dataset.assetId });
   else if (action === "bridge-copy-token") {
-    // Only the token travels. The endpoint is canonical on the Bridge side, so a clipboard a
-    // hostile process can write cannot redirect the pairing to a port of its choosing.
-    const token = activePanel().browserBridge.pairingToken;
+    const bridge = activePanel().browserBridge;
+    const token = bridge.pairingToken;
     if (token !== undefined) {
-      void navigator.clipboard.writeText(token).then(() => {
+      void navigator.clipboard.writeText(bridgePairingCode(bridge.endpoint, token)).then(() => {
         target.textContent = localize("Copied");
-        announceStatus(localize("Pairing token copied. Use Paste & Pair in the Bridge popup."));
-        setTimeout(() => { target.textContent = localize("Copy token"); }, 1200);
+        announceStatus(localize("Pairing code copied. Use Paste & connect in the Bridge popup."));
+        setTimeout(() => { target.textContent = localize("Copy code"); }, 1200);
       }, () => {
-        announceStatus(localize("Copying the pairing token failed."));
+        announceStatus(localize("Copying the pairing code failed."));
       });
     }
   } else if (action === "bridge-discover") postRuntime({ type: "bridge.discover" });

@@ -93,6 +93,7 @@ Do not turn a documented boundary into broader restriction without concrete fail
 - exact provider, tab, frame, document, and conversation binding;
 - cancellable bounded provisioning;
 - strict recoverable endpoint validation.
+- pairing code may select one numeric loopback port; scheme, host, and Protocol v9 path stay fixed.
 
 ## Residual risk
 

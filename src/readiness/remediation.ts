@@ -278,8 +278,8 @@ export const remediationPlan = (
       condition: detail ?? "No paired Browser Bridge is reachable from this window.",
       steps: [
         "Install the Bachata Browser Bridge in a local Chrome or Edge profile and verify its checksum.",
-        "In Bachata run settings choose Discover to start the local bridge and show its endpoint and pairing token.",
-        "Open the Browser Bridge popup, paste the endpoint and token, and bachata.",
+        "In Bachata run settings choose Discover to start the local bridge and show its pairing code.",
+        "Open the Browser Bridge popup and choose Paste & connect.",
         "Open the provider conversation you want to use and refresh the popup tab list.",
         "Bind one ready conversation for each browser role in this pipeline.",
       ],

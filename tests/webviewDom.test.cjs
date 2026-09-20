@@ -7660,19 +7660,16 @@ test("each notification action is described by its own row, and that row exists"
 });
 
 /**
- * Copying the pairing token.
+ * Copying the pairing code.
  *
- * The Bridge's Paste & Pair reads the clipboard and pairs with it, so what VS Code puts there is a
- * security boundary, not a convenience: the endpoint must never travel with it. A clipboard is
- * writable by any local process, and an endpoint carried in one would let that process choose the
- * port the Bridge connects to. These pin the token as the only thing that crosses, and pin the
- * three ways the control can be asked to do nothing.
+ * The code carries a version, a validated loopback port, and the token. The popup reconstructs the
+ * fixed scheme, host and path, so dynamically allocated Bridge servers need no copied URL.
  */
-const bridgePanelWithToken = (token) => panelState({
+const bridgePanelWithToken = (token, endpoint = "ws://127.0.0.1:43127/bachata-browser-bridge-v9") => panelState({
   browserBridge: {
     enabled: true,
     connected: false,
-    endpoint: "ws://127.0.0.1:43127/bachata-browser-bridge-v9",
+    endpoint,
     sessions: [],
     ...(token === undefined ? {} : { pairingToken: token }),
   },
@@ -7686,9 +7683,12 @@ const openBridgeInspector = (harness) => {
   }
 };
 
-test("copying the pairing token sends the token and nothing else to the clipboard", async () => {
-  const token = "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG0";
-  const harness = bootWebview(managerState(), bridgePanelWithToken(token));
+test("copying the pairing code includes the Bridge port without carrying a URL", async () => {
+  const token = "a".repeat(43);
+  const harness = bootWebview(
+    managerState(),
+    bridgePanelWithToken(token, "ws://127.0.0.1:64782/bachata-browser-bridge-v9"),
+  );
   try {
     openBridgeInspector(harness);
     const button = harness.document.root.querySelector('[data-action="bridge-copy-token"]');
@@ -7697,8 +7697,8 @@ test("copying the pairing token sends the token and nothing else to the clipboar
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(
       harness.clipboard.writes,
-      [token],
-      "the clipboard carried something other than exactly the token",
+      [`v9.64782.${token}`],
+      "the clipboard did not carry the routed pairing code",
     );
     const endpointCarried = harness.clipboard.writes.some((value) => value.includes("ws://"));
     assert.equal(endpointCarried, false, "an endpoint travelled with the token");
@@ -7728,7 +7728,7 @@ test("with no pairing token there is no copy control and nothing reaches the cli
 });
 
 test("a refused clipboard says so instead of reporting a copy that did not happen", async () => {
-  const token = "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG0";
+  const token = "a".repeat(43);
   const harness = bootWebview(managerState(), bridgePanelWithToken(token));
   try {
     harness.clipboard.refuse = true;
@@ -7736,7 +7736,7 @@ test("a refused clipboard says so instead of reporting a copy that did not happe
     const button = harness.document.root.querySelector('[data-action="bridge-copy-token"]');
     button.click();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(harness.clipboard.writes, [token], "the write was never attempted");
+    assert.deepEqual(harness.clipboard.writes, [`v9.43127.${token}`], "the write was never attempted");
     assert.match(
       harness.document.liveStatus.textContent,
       /failed/iu,
