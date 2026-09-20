@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- Added a GitHub Pages overview and technical design for a token-efficient harness based on durable exact evidence, bounded execution state, structured peer projections, recallable browser observations, and safe action fusion. The proposal is not shipped behavior and makes no Bachata token or cost reduction claim.
+
 ## 0.7.4 — Self-improvement: one command reproduces the Codex-to-Claude workflow
 
 Initial remediation has local regression coverage. Final safety follow-up awaits broad

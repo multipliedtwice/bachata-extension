@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.6.9 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 774 |
-| Maintained source manifest SHA-256 (Git-tracked) | 910784ee9408f97b06cb7921a3a9fab1e200b0e6fc7fb5291e46bea5de36ddc5 |
+| Maintained source manifest SHA-256 (Git-tracked) | eef9e5bd83333cad67abdd8fca1106098e2842afd20c5dda677da1f74044ade8 |
 | Contributed settings | 114 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -38,16 +38,16 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 638a469f488d2b5cad5d321103e8873c29b75682.
+The working tree was modified, so these values describe the working tree and not commit 9aaa1d0e7fdd30d52e848ab2d05edd34627e33dd.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 638a469f488d2b5cad5d321103e8873c29b75682 |
+| Revision | 9aaa1d0e7fdd30d52e848ab2d05edd34627e33dd |
 | Working tree | modified |
-| Maintained source files (working tree, what source:export carries) | 774 |
+| Maintained source files (working tree, what source:export carries) | 775 |
 | Platform | Darwin 24.5.0 arm64 |
 | Node | v23.6.1 |
-| Git | git version 2.55.0 |
+| Git | git version 2.15.0 |
 | dist | 9.44 MB |
 | node_modules/typescript | 22.87 MB |
 | node_modules/ts-morph | 1.47 MB |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | no bachata-vscode-0.7.5.vsix is staged |
+| Staged VSIX | bachata-vscode-0.7.5.vsix, 13.98 MB, SHA-256 d650f15208dce6e6e78804d5448442d3a9b0360356e1d8177742c6420509452c |
 | Pinned Browser Bridge ZIP | bachata-browser-bridge-0.6.9.zip, 1.06 MB, SHA-256 7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6 |
 | Test run | not collected in this generation |
 

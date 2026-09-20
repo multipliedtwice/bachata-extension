@@ -52,6 +52,7 @@
     <a href="#getting-started">Get started</a>
     <a href="#pipelines">Pipelines</a>
     <a href="#results">Results</a>
+    <a href="#token-efficiency">Token efficiency</a>
     <a href="#browser-bridge">Browser Bridge</a>
     <a href="#reference">Reference</a>
     <a href="https://github.com/multipliedtwice/bachata-extension">GitHub</a>
@@ -78,6 +79,8 @@
       <li><a href="#fix-and-apply">Fix and apply</a></li>
       <li><a href="#fresh-review">Fresh review rounds</a></li>
       <li><a href="#editor">Edit pipelines</a></li>
+      <li class="group">Design</li>
+      <li><a href="#token-efficiency">Token-efficient execution</a></li>
       <li class="group">Browser Bridge</li>
       <li><a href="#browser-bridge">What it does</a></li>
       <li><a href="#bridge-install">Install the Bridge</a></li>
@@ -320,6 +323,36 @@
         <figcaption>The pipeline editor. Demo data.</figcaption>
       </figure>
       <p>Turn on <code>bachata.advancedMode</code> to show the full editor: roles, consensus, typed outputs, human gates, capabilities, permission modes, approval policies, prompt templates and path policies. Pipelines can be exported and imported as JSON (pipeline JSON version <code>1</code>). Runs keep the exact pipeline snapshot they started with.</p>
+    </section>
+
+    <section class="part" id="token-efficiency">
+      <p class="eyebrow">Design proposal</p>
+      <h2>Use less repeated model context</h2>
+      <p>Bachata is exploring a token-efficient execution mode for Claude Code and Codex. The goal is to send the smallest sufficient state for the next decision instead of repeatedly sending complete earlier answers, verification output and conversation history.</p>
+      <div class="note warn">
+        <strong>Not shipped</strong>
+        This is an implementation proposal, not current behavior or a token, cost, latency or quality claim. Existing execution remains the default.
+      </div>
+
+      <h3>Why this can help</h3>
+      <ul>
+        <li>Local providers can retain a conversation while Bachata also sends an explicit handoff.</li>
+        <li>Consensus rounds can pass complete peer answers into later rounds.</li>
+        <li>Browser work can require separate model responses for a mutation and predetermined controller checks.</li>
+        <li>Current byte limits prevent runaway payloads, but they do not create recallable exact evidence.</li>
+      </ul>
+
+      <h3>Proposed rollout</h3>
+      <ol class="steps">
+        <li><strong>Preserve exact admitted evidence.</strong> Store Bachata-owned prompts, returned answers and controller evidence before compact previews are produced. If exact evidence cannot be retained, compact execution does not start.</li>
+        <li><strong>Pilot bounded local state.</strong> Start fresh Claude Code or Codex sessions with typed task state, the latest controller observation and scoped evidence references. Keep the current flow as the fallback.</li>
+        <li><strong>Project consensus safely.</strong> Carry agreements, disputes, attribution and unresolved decisions without treating omitted objections as resolved.</li>
+        <li><strong>Add browser recall and safe action fusion.</strong> Let the controller provide exact evidence pages and combine mutation with already authorized checks only where approval and recovery boundaries remain clear.</li>
+      </ol>
+
+      <h3>Safety boundary</h3>
+      <p>The controller still owns Git, write scope, verification, integration and recovery. Invalid, stale, incomplete or oversized state fails closed. Exact admitted evidence remains exportable, provider-private history is not misrepresented as captured, and no telemetry or runtime measurement layer is added.</p>
+      <p>Read the <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md">technical design</a> and the external <a href="https://arxiv.org/html/2609.20519v1">SoL-Pi paper</a> that motivated this investigation. Reported paper results are not Bachata results.</p>
     </section>
 
     <section class="part" id="browser-bridge">

@@ -358,6 +358,11 @@ remains a roadmap requirement. The current one-run benchmark has no recorded res
 and supports no quality claim. See [Roadmap](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/ROADMAP.md) and
 [benchmark limits](https://github.com/multipliedtwice/bachata-extension/blob/main/benchmarks/README.md).
 
+Bachata is also exploring a token-efficient harness: bounded typed state, compact peer handoffs,
+recallable observation references, and fewer safe browser round trips. This is a design proposal,
+not shipped behavior or a cost claim. See the [public documentation](https://multipliedtwice.github.io/bachata-extension/#token-efficiency)
+and [technical design](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md).
+
 Bubble-up notifications, automatic post-discovery finding reconciliation, and
 the first-class Z.AI GLM provider identity ship in this build. Z.AI GLM is
 documented as a technical configuration only: Bachata makes no GLM Coding Plan
@@ -378,6 +383,7 @@ hash they had just recorded. Read them in the repository.
 - [Product and workflow design](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PRODUCT_SPEC.md)
 - [Providers and setup](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PROVIDERS.md)
 - [Pipelines](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PIPELINES.md)
+- [Token-efficient harness design](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md)
 - [Repository policy](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/REPOSITORY_POLICY.md)
 - [Repository verifiers](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/VERIFIERS.md)
 - [`TODO.md` orchestration](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/ORCHESTRATION.md)
