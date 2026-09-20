@@ -504,18 +504,37 @@ const queueHtml = (panel: PanelState): string => {
 
 const attachmentStripHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const pending = Array.from(draft.pendingAttachments.values())
-    .map((attachment) => `<div class="attachment-chip pending"><img src="${escapeAttribute(attachment.previewUrl)}" alt=""><span>${escapeHtml(attachment.name)}</span><small>${escapeHtml(localize("uploading"))}</small></div>`)
-    .join("");
-  const stored = panel.attachments
     .map((attachment) => {
-      const inputId = `attachment-${attachment.id}`;
-      const preview = attachment.previewUri
-        ? `<img src="${escapeAttribute(attachment.previewUri)}" alt="${escapeAttribute(localize("Preview of {0}", attachment.name))}">`
-        : "";
-      return `<div class="attachment-chip" title="${escapeAttribute(attachment.name)}"><input id="${escapeAttribute(inputId)}" type="checkbox" data-action="attachment-select" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Include {0} in this message", attachment.name))}" ${draft.selectedAttachmentIds.has(attachment.id) ? "checked" : ""}><label for="${escapeAttribute(inputId)}">${preview}<span>${escapeHtml(attachment.name)}</span><small>${escapeHtml(formatBytes(attachment.size))}</small></label><button type="button" class="icon-button" data-action="attachment-remove" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Remove attachment {0}", attachment.name))}">×</button></div>`;
+      const preview = attachment.mimeType.startsWith("image/")
+        ? `<img src="${escapeAttribute(attachment.previewUrl)}" alt="">`
+        : `<span class="attachment-file-icon" aria-hidden="true"><i class="codicon codicon-file"></i></span>`;
+      return `<div class="attachment-chip pending" title="${escapeAttribute(attachment.name)}">${preview}<span class="attachment-chip-copy"><strong>${escapeHtml(attachment.name)}</strong><small><i class="codicon codicon-loading codicon-modifier-spin" aria-hidden="true"></i>${escapeHtml(localize("Uploading"))}</small></span></div>`;
     })
     .join("");
-  return pending || stored ? `<div class="attachment-strip-shell"><div class="attachment-strip">${pending}${stored}</div></div>` : "";
+  const panelAttachmentIds = new Set(panel.attachments.map((attachment) => attachment.id));
+  const localOnly = Array.from(draft.localAttachmentPreviews.values())
+    .filter((attachment) => !panelAttachmentIds.has(attachment.attachmentId))
+    .map((attachment) => ({
+      id: attachment.attachmentId,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      relativePath: "",
+      previewUri: attachment.previewUrl,
+    }));
+  const stored = [...panel.attachments, ...localOnly]
+    .map((attachment) => {
+      const inputId = `attachment-${attachment.id}`;
+      const selected = draft.selectedAttachmentIds.has(attachment.id);
+      const localPreview = draft.localAttachmentPreviews.get(attachment.id)?.previewUrl;
+      const previewUri = localPreview ?? attachment.previewUri;
+      const preview = previewUri && attachment.mimeType.startsWith("image/")
+        ? `<img src="${escapeAttribute(previewUri)}" alt="${escapeAttribute(localize("Preview of {0}", attachment.name))}">`
+        : `<span class="attachment-file-icon" aria-hidden="true"><i class="codicon codicon-file"></i></span>`;
+      return `<div class="attachment-chip" data-selected="${selected ? "true" : "false"}" title="${escapeAttribute(attachment.name)}"><input id="${escapeAttribute(inputId)}" type="checkbox" class="sr-only" data-action="attachment-select" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Include {0} in this message", attachment.name))}" ${selected ? "checked" : ""}><label for="${escapeAttribute(inputId)}">${preview}<span class="attachment-chip-copy"><strong>${escapeHtml(attachment.name)}</strong><small>${escapeHtml(formatBytes(attachment.size))}</small></span></label><button type="button" class="icon-button attachment-remove" data-action="attachment-remove" data-attachment-id="${escapeAttribute(attachment.id)}" aria-label="${escapeAttribute(localize("Remove attachment {0}", attachment.name))}"><i class="codicon codicon-close" aria-hidden="true"></i></button></div>`;
+    })
+    .join("");
+  return pending || stored ? `<div class="attachment-strip-shell" role="group" aria-label="${escapeAttribute(localize("Attachments"))}"><div class="attachment-strip">${pending}${stored}</div></div>` : "";
 };
 
 /**
@@ -643,7 +662,7 @@ const inspectorHtml = (panel: PanelState, readOnly = false): string => {
   const pipeline = panel.selectedPipelineDefinition;
   const pipelineSummary = pipeline ? `<section class="inspector-pipeline"><h3>${escapeHtml(localize("Pipeline"))}</h3><div class="inspector-summary-row"><div><strong>${escapeHtml(pipeline.name)}</strong><small>${escapeHtml(countLabel(pipeline.steps.filter((step) => step.enabled).length, "step"))} · ${escapeHtml(countLabel(pipeline.agents.length, "participant"))}</small></div><button data-action="pipeline-view">${escapeHtml(localize("View pipeline"))}</button></div></section>` : "";
   const controlsLocked = readOnly || runConfigurationLocked(panel);
-  const bridgeActions = !bridge.enabled ? "" : `<div class="compact-actions bridge-pairing-actions">${bridge.pairingToken && !bridge.connected ? `<button data-action="bridge-copy-token"${readOnly ? " disabled" : ""}>${escapeHtml(localize("Copy pairing token"))}</button>` : ""}<button data-action="bridge-discover"${readOnly ? " disabled" : ""}>${escapeHtml(localize("Find browser"))}</button><button data-action="bridge-reset"${controlsLocked ? " disabled" : ""}>${escapeHtml(localize("Reset pairing"))}</button></div>`;
+  const bridgeActions = !bridge.enabled ? "" : `<div class="compact-actions bridge-pairing-actions">${bridge.pairingToken && !bridge.connected ? `<button data-action="bridge-copy-token"${readOnly ? " disabled" : ""}>${escapeHtml(localize("Copy pairing token"))}</button>` : ""}${bridge.connected ? "" : `<button data-action="bridge-discover"${readOnly ? " disabled" : ""}>${escapeHtml(localize("Find browser"))}</button>`}<button data-action="bridge-reset"${controlsLocked ? " disabled" : ""}>${escapeHtml(localize("Reset pairing"))}</button></div>`;
   return `<aside class="inspector" aria-label="${escapeAttribute(localize("Run details"))}"><div class="inspector-header"><h2 id="inspector-title" tabindex="-1">${escapeHtml(localize("Run details"))}</h2><button class="icon-button" data-action="inspector-toggle" aria-label="${escapeAttribute(localize("Close run details"))}">×</button></div><div class="inspector-scroll"><section><h3>${escapeHtml(localize("Participants"))}</h3>${participantsHtml(panel, readOnly)}</section>${pipelineSummary}<section class="inspector-environment"><h3>${escapeHtml(localize("Environment"))}</h3><dl class="bridge-details"><dt>${escapeHtml(localize("Folder"))}</dt><dd>${escapeHtml(panel.workingDirectory ?? localize("Not selected"))}</dd><dt>${escapeHtml(localize("Browser Bridge"))}</dt><dd>${bridgePresentation.statusHtml}</dd></dl>${bridgeActions}${bridgePresentation.reasonHtml}<div class="compact-actions"><button data-action="working-directory" ${controlsLocked ? "disabled" : ""}>${escapeHtml(localize("Choose folder"))}</button><button data-action="availability-check" ${controlsLocked || !agentsAssignable(panel) ? "disabled" : ""}${!agentsAssignable(panel) ? ` title="${escapeAttribute(localize("Select a pipeline with participants to check providers."))}"` : ""}>${escapeHtml(localize("Check providers"))}</button></div></section></div></aside>`;
 };
 
@@ -656,29 +675,11 @@ const refreshComposerSubmitState = (): void => {
   if (action) action.innerHTML = composerPrimaryActionHtml(activePanel(), activeDraft());
 };
 
-const safetyLevelLabels: Record<ExecutionContract["safetyLevel"], string> = {
-  review: localize("Review · read-only"),
-  interactive: localize("Interactive implementation · you approve actions"),
-  managed: localize("Managed implementation · controller-owned scope and verification"),
-  orchestration: localize("TODO orchestration · isolated unattended execution"),
-};
-
 const writeScopeLabels: Record<ExecutionContract["scope"]["writeScope"], string> = {
   readOnly: localize("no repository writes"),
   task: localize("isolated task worktree"),
   configured: localize("configured working directory"),
   workspace: localize("workspace files"),
-};
-
-const contractStatusLabels: Record<ExecutionContract["providers"][number]["status"], string> = {
-  ready: localize("ready"), blocked: localize("blocked"), needsSetup: localize("needs setup"), unsupported: localize("not supported here"),
-};
-
-const contractGateLabels: Record<string, string> = {
-  none: localize("no human decision"), both: localize("before and after the step runs"),
-  before: localize("before the step runs"), beforeStep: localize("before the step runs"),
-  after: localize("after the step runs"), afterStep: localize("after the step runs"),
-  invalidConsensus: localize("when a consensus round is invalid"), maxConsensusRounds: localize("at the consensus round limit"),
 };
 
 const writeScopeText = (value: string): string =>
@@ -692,14 +693,9 @@ const authorityChangeValue = (label: string, value: string): string =>
       : value;
 
 
-const contractList = (values: string[], empty: string): string => values.length > 0
-  ? `<ul class="contract-list">${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul>`
-  : `<p class="muted">${escapeHtml(empty)}</p>`;
-
-// The composer's rendering — the surface, the pipeline picker, the settings panel and the run
-// contract — and the pipeline-picker control functions live in composerRender.ts; the contract
-// label maps above are consumed there. The picker functions are called from the action dispatch
-// and the document keydown handler below.
+// The composer's rendering — the surface, the pipeline picker and the settings panel — and the
+// pipeline-picker control functions live in composerRender.ts. The picker functions are called
+// from the action dispatch and the document keydown handler below.
 
 const refreshInteractionSubmitState = (interactionRef: string): void => {
   const interaction = state.manager.interactions.find((item) => item.interactionRef === interactionRef);
@@ -908,8 +904,11 @@ const openPopoverSelector = (): string | undefined =>
       : undefined;
 
 let pendingRenderFocus: (() => void) | undefined;
-const focusAfterRender = (focus: () => void): void => {
+const focusAfterNextRender = (focus: () => void): void => {
   pendingRenderFocus = focus;
+};
+const focusAfterRender = (focus: () => void): void => {
+  focusAfterNextRender(focus);
   scheduleRender();
 };
 
@@ -928,6 +927,11 @@ const render = (): void => {
   const scroll = document.getElementById("conversation-scroll");
   const inspectorScroll = root.querySelector<HTMLElement>(".inspector-scroll");
   const inspectorScrollTop = inspectorScroll?.scrollTop ?? 0;
+  const attachmentStrip = root.querySelector<HTMLElement>(".attachment-strip");
+  const attachmentStripScroll = attachmentStrip === null ? undefined : {
+    conversationId: activeId(),
+    left: attachmentStrip.scrollLeft,
+  };
   const resultFooter = root.querySelector<HTMLElement>(".execution-result-footer");
   const resultFooterScroll = resultFooter === null ? undefined : {
     key: resultFooter.dataset.scrollKey, top: resultFooter.scrollTop, left: resultFooter.scrollLeft,
@@ -1002,6 +1006,11 @@ const render = (): void => {
   }
   const nextInspectorScroll = root.querySelector<HTMLElement>(".inspector-scroll");
   if (nextInspectorScroll) nextInspectorScroll.scrollTop = inspectorScrollTop;
+  const nextAttachmentStrip = root.querySelector<HTMLElement>(".attachment-strip");
+  if (nextAttachmentStrip && attachmentStripScroll?.conversationId === activeId()) {
+    nextAttachmentStrip.scrollLeft = attachmentStripScroll.left;
+  }
+  updateAttachmentStripEdges();
   transcriptGrewAbove = false;
   settleCodeBlockFocus();
   restoreCodeBlockScroll(codeBlockScroll);
@@ -1114,8 +1123,7 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const addFiles = async (files: FileList): Promise<void> => {
-  const conversationId = activeId();
+const addFiles = async (files: FileList, conversationId = activeId()): Promise<void> => {
   const conversation = conversationById(conversationId);
   const panel = state.panels.get(conversationId) ?? emptyPanel();
   const draft = draftFor(conversationId);
@@ -1134,8 +1142,12 @@ const addFiles = async (files: FileList): Promise<void> => {
     "text/markdown",
     "application/json",
   ]);
-  let reservedCount = panel.attachments.length + draft.pendingAttachments.size;
+  const panelAttachmentIds = new Set(panel.attachments.map((attachment) => attachment.id));
+  const localOnlyAttachments = Array.from(draft.localAttachmentPreviews.values())
+    .filter((attachment) => !panelAttachmentIds.has(attachment.attachmentId));
+  let reservedCount = panel.attachments.length + localOnlyAttachments.length + draft.pendingAttachments.size;
   let reservedBytes = panel.attachments.reduce((total, attachment) => total + attachment.size, 0) +
+    localOnlyAttachments.reduce((total, attachment) => total + attachment.size, 0) +
     Array.from(draft.pendingAttachments.values()).reduce((total, attachment) => total + attachment.size, 0);
   const selected = Array.from(files);
   let accepted = 0;
@@ -1170,7 +1182,7 @@ const addFiles = async (files: FileList): Promise<void> => {
     accepted += 1;
     const clientId = crypto.randomUUID();
     const previewUrl = URL.createObjectURL(file);
-    draft.pendingAttachments.set(clientId, { clientId, name: file.name, size: file.size, previewUrl });
+    draft.pendingAttachments.set(clientId, { clientId, name: file.name, mimeType, size: file.size, previewUrl });
     scheduleRender();
     try {
       const dataBase64 = await fileToBase64(file);
@@ -1186,7 +1198,7 @@ const addFiles = async (files: FileList): Promise<void> => {
   }
 };
 
-const submitMessage = (delivery: MessageDelivery): void => {
+const submitMessage = (delivery = composerDelivery(activePanel())): void => {
   const conversationId = activeId();
   if (pendingInterrupts.has(conversationId)) {
     announceStatus(localize("Wait for the current interruption to finish."));
@@ -1221,8 +1233,8 @@ const submitMessage = (delivery: MessageDelivery): void => {
     attachmentIds,
     delivery,
     iterationCount,
-    iterationMode: draft.iterationMode,
-    requiredCleanPasses: draft.requiredCleanPasses,
+    iterationMode: "fixed",
+    requiredCleanPasses: 1,
     requestId: id,
   }, conversationId);
   scheduleRender();
@@ -1394,8 +1406,8 @@ const startPipelineImport = (returnFocusSelector?: string): void => {
   postRuntime({ type: "pipeline.import", requestId: id }, editorTargetId());
 };
 
-const startPipelineFork = (): void => {
-  const pipelineId = activePanel().selectedPipelineId;
+const startPipelineFork = (requestedPipelineId?: string): void => {
+  const pipelineId = requestedPipelineId ?? activePanel().selectedPipelineId;
   if (!pipelineId) return;
   openPipelineEditor(false);
   const id = requestId();
@@ -1475,7 +1487,10 @@ const dismissTransientMenus = (origin: Element | null): void => {
 
 // Action dispatch and input handling are installed by installActionListeners() in
 // actions.ts, which this bootstrap calls below.
-root.addEventListener("pointerdown", () => { pointerActivationPending = true; }, true);
+root.addEventListener("pointerdown", () => {
+  pointerActivationPending = true;
+  root.dataset.focusInput = "pointer";
+}, true);
 const finishPointerActivation = (): void => {
   pointerActivationPending = false;
   if (deferredRender && !composing) {
@@ -1530,14 +1545,12 @@ document.addEventListener("focusin", (event) => {
   }
 });
 
-// A slot's provider choices are one radiogroup: one tab stop, and the arrows move inside it. Moving
-// focus deliberately does not assign — an assignment restarts a provider, which is far too much for
-// an arrow key — so the reader arrows to a choice and presses Enter or Space, which the buttons
-// already answer natively.
-const moveAgentsChoiceFocus = (current: HTMLElement, key: string): boolean => {
-  const group = current.closest(".agents-choices, .agents-effort-stops");
+// Radio groups use one tab stop and arrow-key movement. Provider movement does not assign because
+// that restarts a provider; the lightweight run-limit slider selects as it moves.
+const moveRadioChoiceFocus = (current: HTMLElement, key: string): HTMLElement | undefined => {
+  const group = current.closest(".agents-choices, .discrete-slider-stops");
   if (!group) {
-    return false;
+    return undefined;
   }
   // Filtered in script rather than with `:not([disabled])`, because the selector is the kind a
   // minimal DOM does not implement and the behaviour must be testable.
@@ -1546,7 +1559,7 @@ const moveAgentsChoiceFocus = (current: HTMLElement, key: string): boolean => {
   );
   const index = radios.indexOf(current);
   if (radios.length === 0 || index === -1) {
-    return false;
+    return undefined;
   }
   const target = key === "ArrowDown" || key === "ArrowRight"
     ? radios[(index + 1) % radios.length]
@@ -1556,12 +1569,16 @@ const moveAgentsChoiceFocus = (current: HTMLElement, key: string): boolean => {
         ? radios[0]
         : radios[radios.length - 1];
   target?.focus();
-  return true;
+  return target;
 };
 
-document.addEventListener("pointerdown", () => {
+const markPointerFocus = (): void => {
   root.dataset.focusInput = "pointer";
-});
+};
+
+document.addEventListener("pointerdown", markPointerFocus, true);
+document.addEventListener("mousedown", markPointerFocus, true);
+document.addEventListener("touchstart", markPointerFocus, true);
 
 document.addEventListener("keydown", (event) => {
   root.dataset.focusInput = "keyboard";
@@ -1572,27 +1589,27 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     return;
   }
-  if (
-    state.agentsPickerOpen &&
-    event.target instanceof HTMLElement &&
+  if (event.target instanceof HTMLElement &&
     event.target.getAttribute("role") === "radio" &&
-    ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) &&
-    moveAgentsChoiceFocus(event.target, event.key)
-  ) {
+    ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    const target = moveRadioChoiceFocus(event.target, event.key);
+    if (!target) return;
     event.preventDefault();
+    if (event.target.dataset.action === "run-limit") target.click();
     return;
   }
-  // The combobox keyboard is scoped to the picker's own focus. If focus has moved on — Tab into the
+  // The picker keyboard is scoped to the picker's own focus. If focus has moved on — Tab into the
   // prompt, say — these keys are the prompt's again, so Enter there can never select a pipeline
   // because a popover was left open.
   if (state.agentsModelMenuFor !== undefined && event.target instanceof HTMLElement) {
     const onModelInput = event.target instanceof HTMLInputElement && event.target.dataset.agentsModelFor !== undefined;
-    if (onModelInput && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    const onModelOption = event.target.dataset.action === "agents-model" && event.target.getAttribute("role") === "option";
+    if ((onModelInput || onModelOption) && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
       moveAgentModelActive(event.key);
       return;
     }
-    if (onModelInput && event.key === "Enter") {
+    if ((onModelInput && event.key === "Enter") || (onModelOption && (event.key === "Enter" || event.key === " "))) {
       event.preventDefault();
       commitAgentModelActive();
       return;
@@ -1656,7 +1673,7 @@ document.addEventListener("keydown", (event) => {
   ) {
     event.preventDefault();
     // The keyboard route to sending has to refuse for the same reason the Send button does.
-    if (!declineDisabledControl(event.target)) submitMessage(activeDraft().delivery);
+    if (!declineDisabledControl(event.target)) submitMessage();
   }
   if (event.key === "Enter" && state.dialog && event.target instanceof HTMLInputElement && event.target.id === "app-dialog-input") {
     event.preventDefault();
@@ -1881,27 +1898,23 @@ const runHumanE2eUiScenario = async (
   }
   await settleUi();
 
-// Pipeline editing is reached through the composer's settings panel, and a modal editor opened
-// over that panel dismisses it: a click inside the editor is a click outside the panel. A person
-// coming back to Edit therefore opens Settings again first, and waits for the control to be
-// offered rather than pressing at whatever moment the render happens to reach.
-const openPipelineEditorThroughSettings = async (): Promise<void> => {
-  if (!state.composerSettingsOpen) {
-    root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
+// Pipeline editing is reached through the selected pipeline's own action menu.
+const openPipelineEditorThroughPicker = async (): Promise<void> => {
+  if (!state.pipelinePickerOpen) {
+    root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
     await settleUi();
   }
-  await waitForUi(() =>
-    root.querySelector<HTMLButtonElement>('[data-action="pipeline-edit"]')?.disabled === false
-  );
-  root.querySelector<HTMLElement>('[data-action="pipeline-edit"]:not([disabled])')?.click();
+  const pipelineId = activePanel().selectedPipelineId;
+  root.querySelector<HTMLElement>(`[data-action="pipeline-row-menu"][data-pipeline-id="${CSS.escape(pipelineId ?? "")}"]`)?.click();
+  await settleUi();
+  root.querySelector<HTMLElement>(`[data-action="pipeline-row-edit"][data-pipeline-id="${CSS.escape(pipelineId ?? "")}"]`)?.click();
   await settleUi();
 };
 
-  // Pipeline editing lives inside the composer's settings panel now, so it is opened the way a
-  // person would before the New-pipeline control can be reached.
-  root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
+  // New pipelines live in the pipeline picker beside the existing pipeline actions.
+  root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
   await settleUi();
-  root.querySelector<HTMLElement>('[data-action="pipeline-new"]:not([disabled])')?.click();
+  root.querySelector<HTMLElement>('[data-action="pipeline-picker-new"]:not([disabled])')?.click();
   await settleUi();
   const newDraftDeleteHidden =
     root.querySelector(".pipeline-editor") !== null &&
@@ -1927,7 +1940,7 @@ const openPipelineEditorThroughSettings = async (): Promise<void> => {
     activePanel().selectedPipelineDefinition?.id === message.pipeline.id
   );
 
-  await openPipelineEditorThroughSettings();
+  await openPipelineEditorThroughPicker();
   const editorOpened = root.querySelector(".pipeline-editor") !== null;
   const sourcePipelineIdLocked =
     root.querySelector<HTMLInputElement>('[data-editor-meta="id"]')?.disabled === true;
@@ -1950,7 +1963,7 @@ const openPipelineEditorThroughSettings = async (): Promise<void> => {
   let invalidJsonKeepsText = false;
   let invalidJsonErrorLines = -1;
   const editedDescription = "Edited through the JSON view";
-  await openPipelineEditorThroughSettings();
+  await openPipelineEditorThroughPicker();
   if (root.querySelector(".pipeline-editor") !== null) {
     root.querySelector<HTMLButtonElement>('[data-action="editor-mode"][data-mode="json"]:not([disabled])')?.click();
     const reachedJson = await waitForUi(() => root.querySelector("#pipeline-raw") !== null);
@@ -2003,27 +2016,24 @@ const openPipelineEditorThroughSettings = async (): Promise<void> => {
   }
 
   const prompt = root.querySelector<HTMLTextAreaElement>("#composer-prompt");
-  // The pipeline editing above was reached through the settings panel; it is closed again so the
-  // "hidden until requested" check reads a composer at rest rather than one still holding the
-  // panel open from an earlier step.
+  // The iteration slider stays hidden until its loop control is opened.
   if (state.composerSettingsOpen) {
     root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
     await settleUi();
   }
-  // Read before the panel is opened: the run options are not on screen until the person asks for
-  // them. Driving `#pipeline-iterations` without opening it found nothing at all and left the
-  // iteration count reporting whatever the default already was.
+  // Read before the popover is opened: the slider is not on screen until the person asks for it.
   const advancedOptionsHiddenByDefault = root.querySelector("#pipeline-iterations") === null;
   root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')?.click();
   await settleUi();
-  const iterations = root.querySelector<HTMLInputElement>("#pipeline-iterations");
+  const iterations = root.querySelector<HTMLElement>(
+    `[data-action="run-limit"][data-iterations="${String(message.iterationCount)}"]`,
+  );
   if (prompt) {
     prompt.value = message.prompt;
     prompt.dispatchEvent(new Event("input", { bubbles: true }));
   }
   if (iterations) {
-    iterations.value = String(message.iterationCount);
-    iterations.dispatchEvent(new Event("input", { bubbles: true }));
+    iterations.click();
   }
   await settleUi();
   let submitted = false;
@@ -2264,6 +2274,30 @@ const runHumanE2eUiAction = async (
       button.click();
       completed = true;
     }
+  } else if (message.action === "selectAgentProvider" && targetId) {
+    const [agentId, adapter, ...unexpected] = targetId.split("\u0000");
+    if (agentId && adapter && unexpected.length === 0) {
+      if (!state.agentsPickerOpen) {
+        root.querySelector<HTMLButtonElement>('[data-action="agents-picker-toggle"]')?.click();
+        await settleUi();
+      }
+      const select = document.getElementById(`agents-provider-${agentId}`);
+      if (select instanceof HTMLSelectElement && Array.from(select.options).some((option) => option.value === adapter)) {
+        select.value = adapter;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await settleUi();
+        const replacement = document.getElementById(`agents-provider-${agentId}`);
+        const visibleOnFirstChange = replacement instanceof HTMLSelectElement && replacement.value === adapter;
+        completed = adapter === "browser"
+          ? visibleOnFirstChange && document.getElementById(agentModelChipId(agentId))?.dataset.browser === "true"
+          : visibleOnFirstChange && await waitForUi(
+            () => activePanel().agentAssignments.slots.some((slot) =>
+              slot.agentId === agentId && slot.assignedAdapter === adapter
+            ),
+            20_000,
+          );
+      }
+    }
   } else if (message.action === "selectBrowserSession" && targetId) {
     await waitForUi(
       () => activePanel().browserBridge.sessions.some((session) => session.id === targetId),
@@ -2319,6 +2353,12 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     Array.from(state.scrollPositions.keys()).forEach((key) => {
       if (!conversationIds.has(key.split(":", 1)[0] ?? "")) state.scrollPositions.delete(key);
     });
+    for (const [key, pending] of state.pendingAgentModels) {
+      if (!conversationIds.has(pending.conversationId)) state.pendingAgentModels.delete(key);
+    }
+    for (const [key, pending] of state.pendingAgentProviders) {
+      if (!conversationIds.has(pending.conversationId)) state.pendingAgentProviders.delete(key);
+    }
     for (const conversation of message.state.conversations) {
       const draft = state.drafts.get(conversation.id);
       const panel = state.panels.get(conversation.id);
@@ -2393,6 +2433,8 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     state.hydrated = true;
     state.pendingInteractions.clear();
     state.pendingApprovals.clear();
+    state.pendingAgentProviders.clear();
+    state.pendingAgentModels.clear();
     state.managerError = message.message;
     scheduleRender();
   }
@@ -2424,6 +2466,7 @@ window.addEventListener("beforeunload", () => {
   state.drafts.forEach((draft, conversationId) => {
     rememberDraftLocally(conversationId, draft.prompt);
     draft.pendingAttachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+    draft.localAttachmentPreviews.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
   });
   rememberEditorLocally();
   flushDraftSave();

@@ -174,6 +174,7 @@ const state: {
   composerSettingsOpen: boolean;
   pipelinePickerOpen: boolean;
   pipelinePickerActiveId?: string;
+  pipelineActionFor?: string;
   pipelinePickerFilter: PipelinePickerFilter;
   pipelinePickerQuery: string;
   agentsPickerOpen: boolean;
@@ -208,7 +209,9 @@ const state: {
   scrollPositions: Map<string, { top: number; distanceFromBottom: number; following: boolean }>;
   pendingEditorOperation?: PendingEditorOperation;
   pendingRuns: Map<string, PendingRunRequest>;
-  pendingPipelineSelections: Map<string, { conversationId: string; pipelineId: string }>;
+  pendingPipelineSelections: Map<string, { conversationId: string; pipelineId: string; nextAction?: "edit" }>;
+  pendingAgentProviders: Map<string, { conversationId: string; agentId: string; adapter: string; overridden: boolean }>;
+  pendingAgentModels: Map<string, { conversationId: string; agentId: string; adapter: string; model?: string }>;
   pendingInteractions: Set<string>;
   pendingApprovals: Set<string>;
   secretDrafts: Map<string, string>;
@@ -290,6 +293,8 @@ const state: {
   scrollPositions: new Map(),
   pendingRuns: new Map(),
   pendingPipelineSelections: new Map(),
+  pendingAgentProviders: new Map(),
+  pendingAgentModels: new Map(),
   pendingInteractions: new Set(),
   pendingApprovals: new Set(),
   secretDrafts: new Map(),
@@ -638,10 +643,17 @@ const draftFor = (conversationId: string): ConversationDraft => {
       delivery: "immediate",
       selectedAttachmentIds: new Set<string>(),
       pendingAttachments: new Map<string, PendingAttachment>(),
+      localAttachmentPreviews: new Map<string, LocalAttachmentPreview>(),
     };
     state.drafts.set(conversationId, draft);
   }
   return draft;
+};
+
+const releaseLocalAttachmentPreview = (draft: ConversationDraft, attachmentId: string): void => {
+  const preview = draft.localAttachmentPreviews.get(attachmentId);
+  if (preview) URL.revokeObjectURL(preview.previewUrl);
+  draft.localAttachmentPreviews.delete(attachmentId);
 };
 
 let draftSaveTimer: ReturnType<typeof setTimeout> | undefined;

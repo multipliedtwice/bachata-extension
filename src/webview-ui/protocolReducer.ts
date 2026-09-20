@@ -7,11 +7,37 @@
 
 const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): void => {
   let panel = state.panels.get(conversationId) ?? emptyPanel();
+  const settledProviderAgents = new Set<string>();
   if (message.type === "state.snapshot") {
+    const previousPanel = panel;
     panel = message.state;
+    for (const [key, pending] of state.pendingAgentProviders) {
+      if (pending.conversationId !== conversationId) continue;
+      const slot = panel.agentAssignments.slots.find((candidate) => candidate.agentId === pending.agentId);
+      const previousSlot = previousPanel.agentAssignments.slots.find((candidate) => candidate.agentId === pending.agentId);
+      const agent = panel.agents[pending.agentId];
+      if (
+        !slot ||
+        slot.assignedAdapter === pending.adapter ||
+        agent?.adapterType === pending.adapter ||
+        previousSlot?.assignedAdapter !== slot.assignedAdapter
+      ) {
+        state.pendingAgentProviders.delete(key);
+        settledProviderAgents.add(pending.agentId);
+      }
+    }
+    for (const [key, pending] of state.pendingAgentModels) {
+      if (pending.conversationId !== conversationId) continue;
+      const slot = panel.agentAssignments.slots.find((candidate) => candidate.agentId === pending.agentId);
+      if (!slot || slot.assignedAdapter !== pending.adapter || slot.assignedModel === pending.model) {
+        state.pendingAgentModels.delete(key);
+      }
+    }
     const draft = draftFor(conversationId);
     const ids = new Set(message.state.attachments.map((attachment) => attachment.id));
-    draft.selectedAttachmentIds = new Set(Array.from(draft.selectedAttachmentIds).filter((id) => ids.has(id)));
+    draft.selectedAttachmentIds = new Set(Array.from(draft.selectedAttachmentIds).filter((id) =>
+      ids.has(id) || draft.localAttachmentPreviews.has(id)
+    ));
     const approvalKeys = new Set(message.state.approvals.map((approval) => approvalKey(approval.agentId, approval.requestId)));
     Array.from(state.pendingApprovals).forEach((key) => {
       if (!approvalKeys.has(key)) state.pendingApprovals.delete(key);
@@ -81,15 +107,29 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
     panel.approvals = panel.approvals.filter((item) => item.requestId !== message.requestId || item.agentId !== message.agentId);
     state.pendingApprovals.delete(approvalKey(message.agentId, message.requestId));
   } else if (message.type === "attachment.added") {
-    panel.attachments.push(message.attachment);
+    panel.attachments = [
+      ...panel.attachments.filter((attachment) => attachment.id !== message.attachment.id),
+      message.attachment,
+    ];
     const draft = draftFor(conversationId);
     const pending = draft.pendingAttachments.get(message.clientId);
-    if (pending) URL.revokeObjectURL(pending.previewUrl);
+    if (pending) {
+      releaseLocalAttachmentPreview(draft, message.attachment.id);
+      draft.localAttachmentPreviews.set(message.attachment.id, {
+        attachmentId: message.attachment.id,
+        name: message.attachment.name,
+        mimeType: message.attachment.mimeType,
+        size: message.attachment.size,
+        previewUrl: pending.previewUrl,
+      });
+    }
     draft.pendingAttachments.delete(message.clientId);
     draft.selectedAttachmentIds.add(message.attachment.id);
   } else if (message.type === "attachment.removed") {
     panel.attachments = panel.attachments.filter((attachment) => attachment.id !== message.attachmentId);
-    draftFor(conversationId).selectedAttachmentIds.delete(message.attachmentId);
+    const draft = draftFor(conversationId);
+    draft.selectedAttachmentIds.delete(message.attachmentId);
+    releaseLocalAttachmentPreview(draft, message.attachmentId);
   } else if (message.type === "attachment.failed") {
     const draft = draftFor(conversationId);
     const pending = draft.pendingAttachments.get(message.clientId);
@@ -108,7 +148,10 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
           if (draft.prompt.trim() === pending.prompt) {
             draft.prompt = "";
           }
-          pending.attachmentIds.forEach((id) => draft.selectedAttachmentIds.delete(id));
+          pending.attachmentIds.forEach((id) => {
+            draft.selectedAttachmentIds.delete(id);
+            releaseLocalAttachmentPreview(draft, id);
+          });
           state.pendingRuns.delete(message.requestId);
           state.errors.delete(pending.conversationId);
         } else if (message.status === "failed" || message.status === "cancelled") {
@@ -117,9 +160,13 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
         }
       }
     } else if (message.operation === "pipeline.select") {
+      const pendingSelection = state.pendingPipelineSelections.get(message.requestId);
       state.pendingPipelineSelections.delete(message.requestId);
       if (message.status === "failed" && message.message) state.errors.set(conversationId, message.message);
-      else if (message.status === "completed") state.errors.delete(conversationId);
+      else if (message.status === "completed") {
+        state.errors.delete(conversationId);
+        if (pendingSelection?.nextAction === "edit") openPipelineEditor(false);
+      }
     } else if (
       state.pendingEditorOperation?.requestId === message.requestId &&
       state.pendingEditorOperation.conversationId === conversationId
@@ -157,10 +204,28 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
       }
     }
   } else if (message.type === "error") {
+    for (const [key, pending] of state.pendingAgentProviders) {
+      if (pending.conversationId === conversationId) {
+        state.pendingAgentProviders.delete(key);
+        settledProviderAgents.add(pending.agentId);
+      }
+    }
+    for (const [key, pending] of state.pendingAgentModels) {
+      if (pending.conversationId === conversationId) state.pendingAgentModels.delete(key);
+    }
     panel.approvals.forEach((approval) => state.pendingApprovals.delete(approvalKey(approval.agentId, approval.requestId)));
     state.errors.set(conversationId, message.message);
   }
   state.panels.set(conversationId, panel);
+  const focusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+  const focusedProvider = focusedElement?.dataset.agentsProviderFor;
+  if (conversationId === activeId() && focusedProvider && settledProviderAgents.has(focusedProvider)) {
+    const providerControlId = focusedElement.id;
+    focusedElement.blur();
+    if (providerControlId) {
+      focusAfterNextRender(() => document.getElementById(providerControlId)?.focus({ preventScroll: true }));
+    }
+  }
   if (
     (message.type === "agent.delta" || message.type === "agent.replace" || message.type === "agent.reset") &&
     updateLiveAgentOutput(conversationId, message.agentId)

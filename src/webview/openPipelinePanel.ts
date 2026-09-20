@@ -108,6 +108,7 @@ export type HumanE2eUiAction =
   | "abandonTodo"
   | "cleanupTodo"
   | "discoverBridge"
+  | "selectAgentProvider"
   | "selectBrowserSession"
   | "submitPreparedRun";
 
@@ -129,6 +130,7 @@ const humanE2eUiActions: readonly HumanE2eUiAction[] = [
   "abandonTodo",
   "cleanupTodo",
   "discoverBridge",
+  "selectAgentProvider",
   "selectBrowserSession",
   "submitPreparedRun",
 ];

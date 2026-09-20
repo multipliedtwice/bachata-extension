@@ -103,6 +103,24 @@ test("pipeline summaries preserve picker, participant, step, and workspace scope
       promptPlaceholder: "Review this interface for usability, accessibility, and visual hierarchy…",
       icon: "search",
     },
+    details: {
+      roleProviders: [
+        { role: "UX", provider: "Claude Code" },
+        { role: "Accessibility", provider: "Codex CLI" },
+      ],
+      authorities: [{
+        role: "Pipeline",
+        managed: false,
+        readOnly: false,
+        writeScope: "workspace",
+        writablePaths: [],
+        protectedPaths: [],
+        commitMode: "never",
+        checks: [],
+      }],
+      limits: [],
+      humanDecisions: [],
+    },
   });
 
   assert.deepEqual(pipelineSummary(definition("workspace-review"), true, "workspace-hash", {
@@ -124,8 +142,93 @@ test("pipeline summaries preserve picker, participant, step, and workspace scope
       promptPlaceholder: "Describe the outcome for workspace-review…",
       icon: "symbol-method",
     },
+    details: {
+      roleProviders: [{ role: "Codex", provider: "Codex CLI" }],
+      authorities: [{
+        role: "Pipeline",
+        managed: false,
+        readOnly: false,
+        writeScope: "workspace",
+        writablePaths: [],
+        protectedPaths: [],
+        commitMode: "never",
+        checks: [],
+      }],
+      limits: [],
+      humanDecisions: [],
+    },
     scopeRoot: "/project",
   });
+});
+
+test("pipeline summaries expose only compact picker details", () => {
+  const pipeline = definition("managed-review", {
+    managedPolicy: {
+      writeScope: "configured",
+      allowedPaths: ["src", "tests"],
+      protectedPaths: [".git"],
+      commitMode: "never",
+      verificationChecks: [{ id: "project", command: "bachata:project-checks" }],
+      maxRevisionCycles: 1,
+    },
+    roles: [{ id: "worker", name: "Worker", instructions: "Implement", model: "gpt-6-astra", managed: true }],
+    steps: [
+      {
+        id: "assign",
+        name: "Assign",
+        enabled: true,
+        type: "assignRoles",
+        humanGate: "none",
+        roleAssignments: [{ agentId: "codex", role: "worker" }],
+      },
+      {
+        id: "review",
+        name: "Review",
+        enabled: true,
+        type: "agent",
+        participants: ["worker"],
+        promptTemplate: "{{userPrompt}}",
+        parallel: false,
+        consensus: true,
+        consensusConfig: { mode: "unanimous", maxRounds: 4, onMaxRounds: "humanGate" },
+        humanGate: "after",
+      },
+    ],
+  });
+  const details = pipelineSummary(pipeline, false, "hash", {
+    key: "workspace:/project",
+    root: "/project",
+    directory: "/project/.bachata/pipelines",
+  }).details;
+  assert.deepEqual(details.roleProviders, [{ role: "Worker", provider: "Codex CLI", model: "gpt-6-astra" }]);
+  assert.deepEqual(details.authorities, [{
+    role: "Worker",
+    managed: true,
+    readOnly: false,
+    writeScope: "configured",
+    writablePaths: ["src", "tests"],
+    protectedPaths: [".git"],
+    commitMode: "never",
+    checks: ["bachata:project-checks"],
+  }]);
+  assert.deepEqual(details.limits, [
+    { kind: "consensusRounds", value: 4, stepName: "Review" },
+    { kind: "revisionCycles", value: 1 },
+  ]);
+  assert.deepEqual(details.humanDecisions, [
+    { stepName: "Review", timing: "after" },
+    { stepName: "Review", timing: "consensusLimit" },
+  ]);
+
+  const readOnlyDetails = pipelineSummary(definition("read-only", {
+    managedPolicy: { writeScope: "readOnly" },
+    roles: [{ id: "reviewer", name: "Reviewer", instructions: "Review", managed: true }],
+  }), false, "hash", {
+    key: "builtin",
+    directory: "/presets",
+  }).details;
+  assert.equal(readOnlyDetails.authorities[0].readOnly, true);
+  assert.equal(readOnlyDetails.authorities[0].writeScope, "readOnly");
 });
 
 test("pipeline summaries derive code-writing capability from every declared execution path", () => {

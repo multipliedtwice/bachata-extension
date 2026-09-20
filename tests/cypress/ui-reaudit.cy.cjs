@@ -815,7 +815,9 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
     cy.get('[data-action="recovery-change-model"]').should("be.visible").click();
     cy.get(".agents-popover").should("be.visible");
     cy.get("#agents-provider-lead").should("be.disabled");
-    cy.get("#agents-model-select-lead").should("not.be.disabled").select("gpt-5.6-terra");
+    cy.get("#agents-model-chip-lead").should("not.be.disabled").click();
+    cy.get('[data-action="agents-model"][data-agent="lead"][data-model="gpt-5.6-terra"]').click();
+    cy.get("#agents-model-chip-lead").should("contain.text", "GPT-5.6-Terra");
     cy.get(".agents-locked").should("contain.text", "Model and thinking effort changes apply when you resume");
     cy.window().its("__posted").then((messages) => {
       expect(messages.at(-1).message).to.deep.equal({
@@ -930,7 +932,8 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
       it(`unifies composer, pickers, fields, and refusal states in ${theme} at ${width}px`, () => {
         cy.viewport(width, 900);
         interactionFixture(theme);
-        cy.get('[data-action="attachment-pick"], .composer-settings-button, .icon-send').each(($control) => expectSquareIcon($control[0]));
+        cy.get('.composer-settings-button, .icon-send').each(($control) => expectSquareIcon($control[0]));
+        cy.get('[data-action="attachment-pick"]').should("have.attr", "aria-label").and("match", /Attach image/u);
         if (width <= 850) cy.get("#agents-picker-button").then(($control) => expectSquareIcon($control[0]));
         expectFieldResponse("#composer-prompt", ".composer-surface");
         pointerClick("#composer-prompt");
@@ -949,8 +952,8 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
         expectControlFill("#pipeline-picker-button", "selected");
         expectPointerFocus("#pipeline-picker-search");
         interactionKey("ArrowDown", "ArrowDown", 40);
-        cy.get('[data-pipeline-id="custom-a"]').should("have.attr", "aria-selected", "true").and("have.attr", "data-active", "false");
-        cy.get('[data-pipeline-id="custom-b"]').should("have.attr", "aria-selected", "false").and("have.attr", "data-active", "true");
+        cy.get('[data-action="pipeline-picker-select"][data-pipeline-id="custom-a"]').should("have.attr", "aria-pressed", "true").and("have.attr", "data-active", "false");
+        cy.get('[data-action="pipeline-picker-select"][data-pipeline-id="custom-b"]').should("have.attr", "aria-pressed", "false").and("have.attr", "data-active", "true");
         cy.get("#pipeline-picker-button").should(($button) => {
           const active = $button[0].ownerDocument.getElementById($button[0].getAttribute("aria-activedescendant"));
           expect(active.dataset.pipelineId).to.equal("custom-b");
@@ -986,13 +989,9 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
         cy.focused().should("have.id", "agents-picker-button");
         pointerClick('.composer-settings-button');
         expectControlFill('.composer-settings-button', "selected");
-        expectFieldResponse("#pipeline-iterations");
-        expectFieldResponse("#pipeline-iteration-mode");
-        cy.get("#composer-settings").should(($panel) => {
-          const style = $panel[0].ownerDocument.defaultView.getComputedStyle($panel[0]);
-          expect(style.overflowY).to.match(/auto|scroll/u);
-          expect(parseFloat(style.maxHeight)).to.be.greaterThan(0);
-        });
+        cy.get("#pipeline-iterations").should("have.attr", "role", "radiogroup");
+        cy.get('#pipeline-iterations [data-action="run-limit"]').should("have.length", 10);
+        cy.get("#composer-settings").should("contain.text", "Iterations").and("not.contain.text", "Delivery").and("not.contain.text", "Mode");
         pointerClick('.composer-settings-button');
         cy.get("#composer-settings").should("not.exist");
         cy.get("#composer-prompt").type("Check primary Send colors");
@@ -1049,8 +1048,9 @@ describe("shared interaction contract", { browser: "chrome" }, () => {
       it(`shares editor mode, disclosure, reorder, native selection, and footer states in ${theme} at ${width}px`, () => {
         cy.viewport(width, 900);
         interactionFixture(theme);
-        pointerClick('.composer-settings-button');
-        pointerClick('[data-action="pipeline-edit"]');
+        pointerClick('#pipeline-picker-button');
+        pointerClick('[data-action="pipeline-row-menu"][data-pipeline-id="custom-a"]');
+        pointerClick('[data-action="pipeline-row-edit"][data-pipeline-id="custom-a"]');
         cy.get(".pipeline-editor").should("be.visible");
         cy.get('.pipeline-editor > header [data-action="pipeline-editor-close"]').then(($control) => expectSquareIcon($control[0]));
         expectPrimaryResponse('[data-action="pipeline-save"]');

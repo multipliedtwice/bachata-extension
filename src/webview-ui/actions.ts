@@ -150,7 +150,10 @@ const declineDisabledControl = (target: HTMLElement): boolean => {
     .split(" ")
     .filter((token) => token.length > 0);
   if (target.dataset.action === "submit-message") {
-    explainSendRequirements(activeId(), sendBlockers(activeId(), activePanel(), activeDraft()));
+    explainSendRequirements(activeId(), sendBlockers(activeId(), activePanel(), {
+      ...activeDraft(),
+      delivery: composerDelivery(activePanel()),
+    }));
     return true;
   }
   const described = describedIds
@@ -184,6 +187,9 @@ const installActionListeners = (): void => {
 // closes it, and the tab strip's edge fades follow its own scroll.
 root.addEventListener("scroll", (event) => {
   const target = event.target instanceof HTMLElement ? event.target : null;
+  if (target !== null && target.matches(".attachment-strip")) {
+    updateAttachmentStripEdges();
+  }
   if (target !== null && target.matches(".run-tabs-scroll")) {
     updateTabStripEdges();
     const restored = target.dataset.restoredScrollLeft === String(target.scrollLeft);
@@ -211,6 +217,7 @@ window.addEventListener("resize", () => {
     ? document.activeElement.closest<HTMLElement>(".run-tab") : null;
   revealRunTab(focused ?? root.querySelector<HTMLElement>(".run-tab.selected"));
   updateTabStripEdges();
+  updateAttachmentStripEdges();
 });
 
 // F12. Whether the inspector is a column or a sheet depends on the width, and so does what the
@@ -808,7 +815,7 @@ root.addEventListener("click", (event) => {
     state.composerSettingsOpen = !state.composerSettingsOpen;
     focusAfterRender(() => {
       (state.composerSettingsOpen
-        ? root.querySelector<HTMLElement>(".composer-settings button")
+        ? root.querySelector<HTMLElement>('[data-action="run-limit"][aria-checked="true"]')
         : root.querySelector<HTMLElement>(".composer-settings-button"))?.focus();
     });
   } else if (action === "pipeline-picker-toggle") {
@@ -816,10 +823,48 @@ root.addEventListener("click", (event) => {
     else openPipelinePicker();
   } else if (action === "pipeline-picker-filter" && target.dataset.pipelineFilter) {
     setPipelinePickerFilter(target.dataset.pipelineFilter);
+  } else if (action === "pipeline-picker-new") {
+    closePipelinePicker(false);
+    openPipelineEditor(true);
   } else if (action === "pipeline-picker-select" && target.dataset.pipelineId) {
     const pipelineId = target.dataset.pipelineId;
     closePipelinePicker();
     selectPipeline(pipelineId);
+  } else if (action === "pipeline-row-menu" && target.dataset.pipelineId) {
+    const pipelineId = target.dataset.pipelineId;
+    if (state.pipelineActionFor === pipelineId) delete state.pipelineActionFor;
+    else state.pipelineActionFor = pipelineId;
+    scheduleRender();
+    focusAfterRender(() => root.querySelector<HTMLElement>(`[data-action="pipeline-row-menu"][data-pipeline-id="${CSS.escape(pipelineId)}"]`)?.focus());
+  } else if (action?.startsWith("pipeline-row-") && target.dataset.pipelineId) {
+    const pipeline = activePanel().pipelines.find((candidate) => candidate.id === target.dataset.pipelineId);
+    if (!pipeline) return;
+    closePipelinePicker(false);
+    if (action === "pipeline-row-details") {
+      openDialog({
+        kind: "pipelineDetails",
+        title: pipeline.name,
+        message: "",
+        confirmLabel: localize("Close"),
+        pipeline,
+      });
+    } else if (action === "pipeline-row-edit" && pipeline.editable) {
+      if (pipeline.id === activePanel().selectedPipelineId) openPipelineEditor(false);
+      else selectPipeline(pipeline.id, "edit");
+    } else if (action === "pipeline-row-fork") {
+      startPipelineFork(pipeline.id);
+    } else if (action === "pipeline-row-delete" && pipeline.editable) {
+      openDialog({
+        kind: "deletePipeline",
+        title: localize("Delete {0}?", pipeline.name),
+        message: localize("Remove the custom pipeline “{0}” ({1})? Existing run histories are retained.", pipeline.name, pipeline.id),
+        confirmLabel: localize("Delete {0}", pipeline.name),
+        pipelineId: pipeline.id,
+        scopeKey: pipeline.scopeKey,
+        expectedHash: pipeline.hash,
+        danger: true,
+      });
+    }
   } else if (action === "agents-picker-toggle") {
     if (state.agentsPickerOpen) closeAgentsPicker();
     else openAgentsPicker();
@@ -849,13 +894,31 @@ root.addEventListener("click", (event) => {
       adapter: target.dataset.adapter,
       ...(target.dataset.session ? { browserSessionId: target.dataset.session } : {}),
     });
+  } else if (action === "agents-browser-new" && target.dataset.agent && target.dataset.adapter) {
+    postRuntime({
+      type: "agents.assign",
+      agentId: target.dataset.agent,
+      adapter: target.dataset.adapter,
+    });
+    closeAgentModelMenu();
   } else if (action === "agents-model-menu" && target.dataset.agent) {
     toggleAgentModelMenu(target.dataset.agent);
   } else if (action === "agents-model" && target.dataset.agent) {
+    const conversationId = activeId();
+    const agentId = target.dataset.agent;
+    const slot = activePanel().agentAssignments.slots.find((candidate) => candidate.agentId === agentId);
+    if (slot) {
+      state.pendingAgentModels.set(pendingAgentModelKey(conversationId, agentId), {
+        conversationId,
+        agentId,
+        adapter: slot.assignedAdapter,
+        ...(target.dataset.model ? { model: target.dataset.model } : {}),
+      });
+    }
     // No model attribute means the reader chose the provider's own default, which clears theirs.
     postRuntime({
       type: "agents.model.select",
-      agentId: target.dataset.agent,
+      agentId,
       ...(target.dataset.model ? { model: target.dataset.model } : {}),
     });
     closeAgentModelMenu();
@@ -866,14 +929,28 @@ root.addEventListener("click", (event) => {
     focusAfterRender(() => document.getElementById(agentModelMenuId(agentId))
       ?.querySelector<HTMLElement>(effort ? `[data-action="agents-effort"][data-effort="${effort}"]` : ".agents-effort-reset")
       ?.focus());
+  } else if (action === "run-limit" && target.dataset.iterations) {
+    const count = Math.max(
+      1,
+      Math.min(state.manager.maxPipelineIterations, Math.trunc(Number(target.dataset.iterations) || 1)),
+    );
+    activeDraft().iterationCount = count;
+    activeDraft().iterationMode = "fixed";
+    activeDraft().requiredCleanPasses = 1;
+    scheduleRender();
+    focusAfterRender(() => root.querySelector<HTMLElement>(`[data-action="run-limit"][data-iterations="${String(count)}"]`)?.focus());
   } else if (action === "agents-bridge-toggle") {
     state.agentsBridgeOpen = state.agentsBridgeOpen !== true;
     scheduleRender();
     focusAfterRender(() => document.getElementById("agents-bridge-chip")?.focus());
   } else if (action === "agents-model-discover" && target.dataset.agent) {
     postRuntime({ type: "agents.model.discover", agentId: target.dataset.agent });
-  } else if (action === "agents-reset-all") {
-    postRuntime({ type: "agents.reset" });
+  } else if (action === "agents-model-search-toggle" && target.dataset.agent) {
+    const agentId = target.dataset.agent;
+    state.agentsModelDrafts[agentId] = "";
+    state.agentsModelActive = 0;
+    scheduleRender();
+    focusAgentModelMenu(agentId);
   } else if (action === "local-model-select" && target.dataset.consumer) {
     postRuntime({
       type: "localModel.select",
@@ -936,12 +1013,24 @@ root.addEventListener("click", (event) => {
   });
   else if (action === "session-reset") postRuntime({ type: "session.reset", agentId: target.dataset.agent });
   else if (action === "load-older") postRuntime({ type: "transcript.loadOlder", beforeId: activePanel().transcript[0]?.id });
-  else if (action === "attachment-pick") document.getElementById("attachment-input")?.click();
+  else if (action === "attachment-pick") {
+    const input = document.getElementById("attachment-input");
+    if (input instanceof HTMLInputElement) {
+      const conversationId = activeId();
+      input.onchange = (changeEvent) => {
+        changeEvent.stopPropagation();
+        const files = input.files;
+        if (files && files.length > 0) void addFiles(files, conversationId);
+        input.value = "";
+      };
+      input.click();
+    }
+  }
   else if (action === "attachment-remove" && target.dataset.attachmentId) {
     event.preventDefault();
     event.stopPropagation();
     postRuntime({ type: "attachment.remove", attachmentId: target.dataset.attachmentId });
-  } else if (action === "submit-message") submitMessage(activeDraft().delivery);
+  } else if (action === "submit-message") submitMessage();
   else if (action === "interrupt-run") {
     if (pendingInterrupts.has(activeId())) return;
     pendingInterrupts.add(activeId());
@@ -1052,10 +1141,7 @@ root.addEventListener("click", (event) => {
       ).join("\n\n"),
       confirmLabel: localize("Close"),
     });
-  } else if (action === "pipeline-edit") openPipelineEditor(false);
-  else if (action === "pipeline-new") openPipelineEditor(true);
-  else if (action === "pipeline-fork") startPipelineFork();
-  else if (action === "pipeline-editor-close") {
+  } else if (action === "pipeline-editor-close") {
     closePipelineEditor();
   } else if (action === "editor-mode") {
     const nextMode = target.dataset.mode === "json" ? "json" : "form";
@@ -1340,18 +1426,6 @@ root.addEventListener("input", (event) => {
     else scheduleDraftSave(activeId(), target.value);
     refreshComposerSubmitState();
     if (wasEmpty !== (target.value.trim().length === 0)) scheduleRender();
-  } else if (target.id === "pipeline-iterations") activeDraft().iterationCount = Math.max(
-    1,
-    Math.min(
-      state.manager.maxPipelineIterations,
-      Math.trunc(Number(target.value) || state.manager.defaultPipelineIterations),
-    ),
-  );
-  else if (target.id === "pipeline-iteration-mode") {
-    activeDraft().iterationMode = target.value === "untilClean" ? "untilClean" : "fixed";
-    scheduleRender();
-  } else if (target.id === "pipeline-clean-passes") {
-    activeDraft().requiredCleanPasses = Math.max(1, Math.min(10, Math.trunc(Number(target.value) || 2)));
   } else if (target.id === "run-search") {
     state.roomSearch = target.value;
     queueHistorySearch();
@@ -1471,9 +1545,6 @@ root.addEventListener("change", (event) => {
   } else if (target.id === "show-archived" && target instanceof HTMLInputElement) {
     state.showArchived = target.checked;
     scheduleRender();
-  } else if (target.id === "message-delivery" && target instanceof HTMLSelectElement) {
-    activeDraft().delivery = target.value as MessageDelivery;
-    scheduleRender();
   } else if (target.dataset.interactionOption && target instanceof HTMLInputElement) {
     const interactionRef = target.dataset.interactionOption;
     const selected = Array.from(root.querySelectorAll<HTMLInputElement>(`[data-interaction-option="${interactionRef}"]:checked`)).map((input) => input.value);
@@ -1485,6 +1556,7 @@ root.addEventListener("change", (event) => {
   } else if (target.dataset.action === "attachment-select" && target instanceof HTMLInputElement && target.dataset.attachmentId) {
     if (target.checked) activeDraft().selectedAttachmentIds.add(target.dataset.attachmentId);
     else activeDraft().selectedAttachmentIds.delete(target.dataset.attachmentId);
+    scheduleRender();
   } else if (target.dataset.action === "browser-session" && target.dataset.agent) {
     if (runConfigurationLocked(activePanel())) {
       announceStatus(localize("Finish the active operation before changing run configuration."));

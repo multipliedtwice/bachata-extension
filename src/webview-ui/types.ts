@@ -233,6 +233,28 @@ type PipelineSummary = {
     promptPlaceholder: string;
     icon: string;
   };
+  details: {
+    roleProviders: Array<{ role: string; provider: string; model?: string }>;
+    authorities: Array<{
+      role: string;
+      managed: boolean;
+      readOnly: boolean;
+      writeScope: "task" | "configured" | "workspace" | "readOnly";
+      writablePaths: string[];
+      protectedPaths: string[];
+      commitMode: "never" | "allow";
+      checks: string[];
+    }>;
+    limits: Array<{
+      kind: "consensusRounds" | "revisionCycles" | "checklistRetries" | "checklistConcurrency" | "stepTimeout";
+      value: number;
+      stepName?: string;
+    }>;
+    humanDecisions: Array<{
+      stepName: string;
+      timing: "before" | "after" | "both" | "consensusLimit";
+    }>;
+  };
 };
 type BrowserSessionStatus =
   | "disconnected"
@@ -1074,6 +1096,7 @@ type HumanE2eAction =
   | "abandonTodo"
   | "cleanupTodo"
   | "discoverBridge"
+  | "selectAgentProvider"
   | "selectBrowserSession"
   | "submitPreparedRun";
 type ExtensionMessage =
@@ -1106,6 +1129,14 @@ type RunPatchFile = {
 type PendingAttachment = {
   clientId: string;
   name: string;
+  mimeType: string;
+  size: number;
+  previewUrl: string;
+};
+type LocalAttachmentPreview = {
+  attachmentId: string;
+  name: string;
+  mimeType: string;
   size: number;
   previewUrl: string;
 };
@@ -1117,6 +1148,7 @@ type ConversationDraft = {
   delivery: MessageDelivery;
   selectedAttachmentIds: Set<string>;
   pendingAttachments: Map<string, PendingAttachment>;
+  localAttachmentPreviews: Map<string, LocalAttachmentPreview>;
 };
 type PendingRunRequest = {
   conversationId: string;
@@ -1132,6 +1164,7 @@ type PendingEditorOperation = {
 };
 type AppDialog =
   | { kind: "runRequirements"; title: string; message: string; confirmLabel: string; conversationId: string }
+  | { kind: "pipelineDetails"; title: string; message: string; confirmLabel: string; pipeline: PipelineSummary }
   | { kind: "turnDetails"; title: string; message: string; confirmLabel: string; prompt: string; context?: string }
   | { kind: "notificationSettings"; title: string; message: string; confirmLabel: string }
   | { kind: "renameRun"; title: string; message: string; confirmLabel: string; conversationId: string; inputValue: string }

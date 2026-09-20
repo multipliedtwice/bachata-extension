@@ -357,9 +357,166 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }`);
   await frame(session);
+  assert.equal(await session.evaluate("document.querySelector('.attachment-chip.pending')?.textContent.includes('review.md') === true"), true);
+  await session.evaluate(`{
+    const upload = window.__posted.find(message => message.message?.type === 'attachment.add');
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'conversation.message',
+      conversationId: 'run-1',
+      message: {
+        type: 'attachment.added',
+        clientId: upload.message.clientId,
+        attachment: {
+          id: 'review-attachment',
+          name: 'review.md',
+          mimeType: 'text/markdown',
+          size: 58,
+          relativePath: 'attachments/review.md'
+        }
+      }
+    }}));
+  }`);
+  await frame(session);
+  assert.equal(await session.evaluate("document.querySelector('.attachment-chip[data-selected=\"true\"]')?.textContent.includes('review.md') === true"), true);
+  assert.equal(await session.evaluate("!document.querySelector('.attachment-strip-shell').hasAttribute('data-scroll-start') && !document.querySelector('.attachment-strip-shell').hasAttribute('data-scroll-end')"), true);
   assert.equal(await session.evaluate("document.querySelector('.composer-send [data-action=\"submit-message\"]') !== null"), true);
   assert.equal(await session.evaluate("document.querySelector('.composer-send [data-action=\"interrupt-run\"]') === null"), true);
   assert.equal((await dispatched()).filter(message => message.message?.type === 'attachment.add').length, 1);
+  await session.send("Emulation.setDeviceMetricsOverride", { width: 480, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await session.evaluate(`{
+    window.__panelState.attachments = Array.from({ length: 8 }, (_, index) => ({
+      id: index === 0 ? 'review-attachment' : 'overflow-' + index,
+      name: index === 0 ? 'review.md' : 'overflow-' + index + '.md',
+      mimeType: 'text/markdown',
+      size: 1024,
+      relativePath: 'attachments/overflow-' + index + '.md'
+    }));
+    window.__boot();
+  }`);
+  await frame(session);
+  assert.equal(await session.evaluate(`(() => {
+    const shell = document.querySelector('.attachment-strip-shell');
+    const strip = shell.querySelector('.attachment-strip');
+    return strip.scrollWidth > strip.clientWidth && !shell.hasAttribute('data-scroll-start') && shell.hasAttribute('data-scroll-end');
+  })()`), true);
+  const attachmentScrollEnd = await session.evaluate(`(() => {
+    const strip = document.querySelector('.attachment-strip');
+    strip.scrollLeft = strip.scrollWidth;
+    strip.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return strip.scrollLeft;
+  })()`);
+  await session.evaluate("window.__boot()");
+  await frame(session);
+  assert.equal(await session.evaluate(`(() => {
+    const shell = document.querySelector('.attachment-strip-shell');
+    const strip = shell.querySelector('.attachment-strip');
+    return Math.abs(strip.scrollLeft - ${String(attachmentScrollEnd)}) <= 1 && shell.hasAttribute('data-scroll-start') && !shell.hasAttribute('data-scroll-end');
+  })()`), true);
+  passed++;
+  await reset();
+  await session.evaluate(`{
+    window.__panelState.agentAssignments.slots = window.__panelState.agentAssignments.slots.map(slot => ({
+      ...slot,
+      assignedAdapter: slot.defaultAdapter.endsWith('-browser') ? 'codex-app-server' : slot.defaultAdapter,
+      overridden: slot.defaultAdapter.endsWith('-browser'),
+      browserSessionId: undefined,
+    }));
+    window.__boot();
+  }`);
+  await frame(session);
+  await activate('[data-action="agents-picker-toggle"]', "pointer");
+  await session.evaluate(`{
+    const provider = document.querySelector('#agents-provider-lead');
+    provider.focus();
+    provider.value = 'browser';
+    provider.dispatchEvent(new Event('change', { bubbles: true }));
+  }`);
+  await frame(session);
+  expectAll(await session.evaluate(`(() => ({
+    localModels: document.querySelector('.agents-local-settings')?.textContent.includes('Local models') === true,
+    browserConversation: document.querySelector('#agents-model-chip-lead')?.dataset.browser === 'true',
+    focusRestored: document.activeElement?.id === 'agents-provider-lead',
+  }))()`), "Browser Bridge selection");
+  passed++;
+  await reset();
+  await activate('[data-action="agents-picker-toggle"]', "pointer");
+  await session.evaluate(`{
+    const provider = document.querySelector('#agents-provider-builder');
+    provider.focus();
+    provider.value = 'codex-app-server';
+    provider.dispatchEvent(new Event('change', { bubbles: true }));
+  }`);
+  await frame(session);
+  expectAll(await session.evaluate(`(() => {
+    const assignments = window.__posted.filter(entry => entry.message?.type === 'agents.assign');
+    return {
+      dispatchedOnce: assignments.length === 1,
+      dispatchedCodex: assignments[0]?.message?.agentId === 'builder'
+        && assignments[0]?.message?.adapter === 'codex-app-server',
+      selectedOnFirstChange: document.querySelector('#agents-provider-builder')?.value === 'codex-app-server',
+      localModelsHidden: document.querySelector('.agents-local-settings') === null,
+      codexModelShown: document.querySelector('#agents-model-chip-builder')?.dataset.browser === undefined,
+      modelWaitsForProvider: document.querySelector('#agents-model-chip-builder')?.disabled === true,
+    };
+  })()`), "one-change Browser Bridge to Codex selection");
+  await session.evaluate(`window.__send({
+    type: 'conversation.message',
+    conversationId: 'run-1',
+    message: { type: 'state.snapshot', state: window.__panelState },
+  })`);
+  await frame(session);
+  expectAll(await session.evaluate(`(() => ({
+    staleSnapshotKeptProvider: document.querySelector('#agents-provider-builder')?.value === 'codex-app-server',
+    staleSnapshotKeptCliModel: document.querySelector('#agents-model-chip-builder')?.dataset.browser === undefined,
+    staleSnapshotKeptLocalModelsHidden: document.querySelector('.agents-local-settings') === null,
+  }))()`), "stale provider snapshot");
+  await session.evaluate(`{
+    const slot = window.__panelState.agentAssignments.slots.find(candidate => candidate.agentId === 'builder');
+    slot.assignedAdapter = 'codex-app-server';
+    slot.overridden = true;
+    delete slot.browserSessionId;
+    window.__send({
+      type: 'conversation.message',
+      conversationId: 'run-1',
+      message: { type: 'state.snapshot', state: window.__panelState },
+    });
+  }`);
+  await frame(session);
+  expectAll(await session.evaluate(`(() => ({
+    localModelsHidden: document.querySelector('.agents-local-settings') === null,
+    codexModel: document.querySelector('#agents-model-chip-builder')?.dataset.browser === undefined,
+    modelEnabled: document.querySelector('#agents-model-chip-builder')?.disabled === false,
+    focusRestored: document.activeElement?.id === 'agents-provider-builder',
+  }))()`), "Browser Bridge to Codex selection");
+  passed++;
+  await activate('#agents-model-chip-builder', "pointer");
+  await session.evaluate("window.__posted = []");
+  await activate('[data-action="agents-model"][data-agent="builder"][data-model="gpt-5.6-terra"]', "pointer");
+  expectAll(await session.evaluate(`(() => {
+    const selections = window.__posted.filter(entry => entry.message?.type === 'agents.model.select');
+    return {
+      dispatchedOnce: selections.length === 1,
+      dispatchedChosenModel: selections[0]?.message?.agentId === 'builder'
+        && selections[0]?.message?.model === 'gpt-5.6-terra',
+      menuClosed: document.querySelector('#agents-model-menu-builder') === null,
+      firstClickVisible: document.querySelector('#agents-model-chip-builder')?.textContent.includes('GPT-5.6-Terra') === true,
+    };
+  })()`), "one-click CLI model selection");
+  await session.evaluate(`{
+    const slot = window.__panelState.agentAssignments.slots.find(candidate => candidate.agentId === 'builder');
+    slot.assignedModel = 'gpt-5.6-terra';
+    window.__send({
+      type: 'conversation.message',
+      conversationId: 'run-1',
+      message: { type: 'state.snapshot', state: window.__panelState },
+    });
+  }`);
+  await frame(session);
+  assert.equal(
+    await session.evaluate("document.querySelector('#agents-model-chip-builder')?.textContent.includes('GPT-5.6-Terra')"),
+    true,
+    "accepted model selection did not remain visible",
+  );
   passed++;
   for (const theme of ["light", "dark", "high-contrast"]) {
     await session.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme === "light" ? "light" : "dark" }, { name: "forced-colors", value: theme === "high-contrast" ? "active" : "none" }] });

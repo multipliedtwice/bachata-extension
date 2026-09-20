@@ -32,16 +32,16 @@ const restoreDialogFocus = (selector: string | undefined): void => {
     }
     (target
       ?? (layer ? reachableControls(layer)[0] : undefined)
-      // The pipeline edit control lives inside the settings panel and may be closed; the settings
-      // control that opens it is always in the composer, so it is the stable landing place.
-      ?? root.querySelector<HTMLElement>('[data-action="composer-settings-toggle"]')
+      // Pipeline actions live inside a picker that may be closed; its trigger is the stable landing
+      // place after a pipeline dialog or editor operation.
+      ?? root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')
       ?? document.getElementById("composer-prompt")
       ?? root.querySelector<HTMLElement>('[data-action="run-drawer-toggle"]'))?.focus();
   });
 };
 
 const isCloseOnlyDialog = (dialog: AppDialog): boolean =>
-  ["turnDetails", "notificationSettings", "runRequirements"].includes(dialog.kind);
+  ["turnDetails", "notificationSettings", "runRequirements", "pipelineDetails"].includes(dialog.kind);
 
 const openRunRequirements = (conversationId = activeId()): void => {
   openDialog({ kind: "runRequirements", conversationId, title: localize("Run requirements"), message: "", confirmLabel: localize("Close") });
@@ -82,6 +82,50 @@ const closeDialog = (): void => {
   restoreDialogFocus(selector);
 };
 
+const pipelineDetailsHtml = (pipeline: PipelineSummary): string => {
+  const details = pipeline.details;
+  const roleProviders = details.roleProviders.length === 0
+    ? `<p class="muted">${escapeHtml(localize("None"))}</p>`
+    : `<dl class="pipeline-details-list">${details.roleProviders.map((item) => `<div><dt>${escapeHtml(item.role)}</dt><dd>${escapeHtml(item.provider)}${item.model ? ` · ${escapeHtml(item.model)}` : ""}</dd></div>`).join("")}</dl>`;
+  const scopeLabel = (authority: PipelineSummary["details"]["authorities"][number]): string => {
+    if (authority.readOnly) return localize("Read-only");
+    if (authority.writablePaths.length > 0) return localize("Writes: {0}", authority.writablePaths.join(", "));
+    if (authority.writeScope === "task") return localize("Writes in task worktree");
+    if (authority.writeScope === "configured") return localize("Writes in configured paths");
+    return localize("Writes in workspace");
+  };
+  const authorities = `<ul class="pipeline-details-items">${details.authorities.map((authority) => {
+    const facts = [
+      authority.managed ? localize("Managed") : undefined,
+      scopeLabel(authority),
+      authority.commitMode === "allow" ? localize("Commits allowed") : localize("No commits"),
+      authority.checks.length > 0 ? localize("Checks: {0}", authority.checks.join(", ")) : undefined,
+      authority.protectedPaths.length > 0 ? localize("Protected: {0}", authority.protectedPaths.join(", ")) : undefined,
+    ].filter((item): item is string => item !== undefined);
+    return `<li><strong>${escapeHtml(authority.role)}</strong><span>${escapeHtml(facts.join(" · "))}</span></li>`;
+  }).join("")}</ul>`;
+  const limitLabel = (limit: PipelineSummary["details"]["limits"][number]): string => {
+    if (limit.kind === "consensusRounds") return localize("{0}: up to {1} consensus rounds", limit.stepName ?? localize("Consensus"), String(limit.value));
+    if (limit.kind === "revisionCycles") return localize("Revision cycles: {0}", String(limit.value));
+    if (limit.kind === "checklistRetries") return localize("{0}: {1} retries", limit.stepName ?? localize("Checklist"), String(limit.value));
+    if (limit.kind === "checklistConcurrency") return localize("{0}: {1} concurrent tasks", limit.stepName ?? localize("Checklist"), String(limit.value));
+    return localize("{0}: {1} timeout", limit.stepName ?? localize("Step"), durationLabel(limit.value));
+  };
+  const limits = details.limits.length === 0
+    ? `<p class="muted">${escapeHtml(localize("None"))}</p>`
+    : `<ul class="pipeline-details-simple">${details.limits.map((limit) => `<li>${escapeHtml(limitLabel(limit))}</li>`).join("")}</ul>`;
+  const decisionLabel = (decision: PipelineSummary["details"]["humanDecisions"][number]): string => {
+    if (decision.timing === "before") return localize("{0}: before", decision.stepName);
+    if (decision.timing === "after") return localize("{0}: after", decision.stepName);
+    if (decision.timing === "both") return localize("{0}: before and after", decision.stepName);
+    return localize("{0}: at the consensus limit", decision.stepName);
+  };
+  const decisions = details.humanDecisions.length === 0
+    ? `<p class="muted">${escapeHtml(localize("None"))}</p>`
+    : `<ul class="pipeline-details-simple">${details.humanDecisions.map((decision) => `<li>${escapeHtml(decisionLabel(decision))}</li>`).join("")}</ul>`;
+  return `<div class="pipeline-details"><section><h3>${escapeHtml(localize("Roles and providers"))}</h3>${roleProviders}</section><section><h3>${escapeHtml(localize("Authority"))}</h3>${authorities}</section><section><h3>${escapeHtml(localize("Run limits"))}</h3>${limits}</section><section><h3>${escapeHtml(localize("Human decisions"))}</h3>${decisions}</section></div>`;
+};
+
 
 const appDialogHtml = (): string => {
   const dialog = state.dialog;
@@ -110,6 +154,7 @@ const appDialogHtml = (): string => {
     : "";
   const notificationSettings = dialog.kind === "notificationSettings" ? notificationModeControlHtml() : "";
   const requirements = dialog.kind === "runRequirements" ? runRequirementsHtml(dialog.conversationId) : "";
+  const pipelineDetails = dialog.kind === "pipelineDetails" ? pipelineDetailsHtml(dialog.pipeline) : "";
   const closeOnly = isCloseOnlyDialog(dialog);
   const unavailable = (dialog.kind === "mergeFinding" || dialog.kind === "resolveRecord" && dialog.mode === "supersede") && recordOptions.length === 0;
   const danger = "danger" in dialog && dialog.danger;
@@ -120,7 +165,7 @@ const appDialogHtml = (): string => {
   const marked = refusedField === undefined
     ? input
     : input.replace(`id="${refusedField}"`, `id="${refusedField}" aria-invalid="true" aria-describedby="app-dialog-error"`);
-  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title"${dialog.message ? ' aria-describedby="app-dialog-message"' : ""}><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button class="icon-button" data-action="dialog-cancel" aria-label="${escapeAttribute(localize("Close dialog"))}">×</button></header>${dialog.message ? `<p id="app-dialog-message">${escapeHtml(dialog.message)}</p>` : ""}${turnDetails}${notificationSettings}${requirements}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Close"))}</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Cancel"))}</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
+  return `<div class="modal-backdrop app-dialog-backdrop" data-action="dialog-backdrop"><section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title"${dialog.message ? ' aria-describedby="app-dialog-message"' : ""}><header><h2 id="app-dialog-title">${escapeHtml(dialog.title)}</h2><button class="icon-button" data-action="dialog-cancel" aria-label="${escapeAttribute(localize("Close dialog"))}">×</button></header>${dialog.message ? `<p id="app-dialog-message">${escapeHtml(dialog.message)}</p>` : ""}${turnDetails}${notificationSettings}${requirements}${pipelineDetails}${marked}<div class="error" id="app-dialog-error" role="alert">${escapeHtml(refusal)}</div><footer>${closeOnly ? `<button class="primary" data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Close"))}</button>` : `<button data-action="dialog-cancel" data-dialog-default="cancel">${escapeHtml(localize("Cancel"))}</button><button class="${danger ? "danger" : "primary"}" data-action="dialog-confirm"${unavailable ? " disabled" : ""}>${escapeHtml(dialog.confirmLabel)}</button>`}</footer></section></div>`;
 };
 
 type ControlSnapshot = {
@@ -379,6 +424,16 @@ const updateTabStripEdges = (): void => {
   const end = scroll.scrollLeft + scroll.clientWidth < scroll.scrollWidth - 1;
   if (start) strip.setAttribute("data-scroll-start", ""); else strip.removeAttribute("data-scroll-start");
   if (end) strip.setAttribute("data-scroll-end", ""); else strip.removeAttribute("data-scroll-end");
+};
+
+const updateAttachmentStripEdges = (): void => {
+  const shell = root.querySelector<HTMLElement>(".attachment-strip-shell");
+  const scroll = shell?.querySelector<HTMLElement>(".attachment-strip");
+  if (!shell || !scroll) return;
+  const start = scroll.scrollLeft > 1;
+  const end = scroll.scrollLeft + scroll.clientWidth < scroll.scrollWidth - 1;
+  if (start) shell.setAttribute("data-scroll-start", ""); else shell.removeAttribute("data-scroll-start");
+  if (end) shell.setAttribute("data-scroll-end", ""); else shell.removeAttribute("data-scroll-end");
 };
 
 type RunTabStripSnapshot = {

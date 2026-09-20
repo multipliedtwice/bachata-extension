@@ -3,7 +3,7 @@
 Current source repairs cover run/recovery state, project preflight, bounded result decisions,
 human consensus resolution, provider-capacity acquisition, and the reviewed Chat and Execution
 UI. Focused runtime, DOM, source-distribution, rendered-layout, and browser checks pass. A fresh
-0.7.1 VSIX is rebuilt and installed only after the full gate below passes. Stable release still
+0.7.5 VSIX is rebuilt and installed only after the full gate below passes. Stable release still
 needs the human, provider, platform, compatibility, terms, packaged-build screenshot, and binding
 evidence below.
 Current gate truth: [stable gate](STABLE_RELEASE_GATE.md),
@@ -15,7 +15,7 @@ Test counts follow one convention: every `node --test` invocation the package's 
 runs, summed, with the contributing commands named beside the number. A count for the main suite
 alone is not comparable and must not be recorded here.
 
-Artifacts under test: Bachata VSIX `a897d96e06cd4d3b949a1bc76af90fbdc15196035f267f92024a1bbfbd7907e9`, Browser Bridge ZIP `7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6`.
+Artifacts under test: Bachata VSIX `d650f15208dce6e6e78804d5448442d3a9b0360356e1d8177742c6420509452c`, Browser Bridge ZIP `7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6`.
 Browser Bridge ZIP `bachata-browser-bridge-0.6.9.zip` remains pinned and unbound. Only
 `npm run release:bind` may write final artifact hashes onto this line after the human evidence is
 complete.
@@ -26,12 +26,12 @@ verdict below is authored by a human and no generator may set it.
 
 ## Verdict
 
-**SHIP as a stable release, 0.7.4, by owner decision on 2026-09-19.**
+**SHIP as a stable release, 0.7.5, by owner decision on 2026-09-20.**
 
-The owner decided to publish 0.7.4 to the VS Code Marketplace. The candidate is the VSIX built by
+The owner decided to publish 0.7.5 to the VS Code Marketplace. The candidate is the VSIX built by
 the `Paired release verification` candidate phase at the verification commit; publication depends
 on that workflow's verify phase passing for those exact bytes. The 0.7.1 measurements below remain
-bound to the 0.7.1 artifacts and are not re-claimed for 0.7.4. The human evidence records in
+bound to the 0.7.1 artifacts and are not re-claimed for 0.7.5. The human evidence records in
 `RELEASE_VALIDATION_RECORD.md`, `PROVIDER_TERMS.md` and `COMPATIBILITY_MATRIX.md` remain
 unrecorded; this verdict does not claim them.
 
@@ -126,7 +126,7 @@ both stay empty until a human runs them.
 
 ## Package weight, measured on the current tree
 
-The staged 0.7.1 VSIX is current for this source. Exact size and digest are generator-owned facts
+The staged 0.7.5 VSIX is current for this source. Exact size and digest are generator-owned facts
 in `BUILD_FACTS.md`; dependency-tree sizes remain there too.
 
 | Item | Measured |

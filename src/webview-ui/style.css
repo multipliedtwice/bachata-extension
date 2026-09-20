@@ -1493,6 +1493,11 @@ strong + small {
   flex: 0 0 auto;
 }
 
+.composer-attachment-button {
+  flex: 0 0 auto;
+  color: var(--bachata-muted);
+}
+
 /* The active run options, shown as quiet pills on the surface so a queued delivery or a non-default
    iteration count reads without opening the settings control. Decorative: the gear names the same
    set for assistive tech. */
@@ -1552,63 +1557,111 @@ strong + small {
 
 .attachment-strip {
   display: flex;
-  gap: 6px;
-  margin-bottom: 7px;
+  gap: 8px;
+  margin: 2px 0 8px;
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding: 2px 1px 5px;
 }
 
 .attachment-chip {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 9px;
   flex: 0 0 auto;
-  min-width: 0;
-  max-width: min(260px, 100%);
-  min-height: 35px;
-  padding: 4px 6px;
+  width: min(210px, calc(100cqw - var(--bachata-gutter) * 2 - 24px));
+  min-width: 150px;
+  min-height: 62px;
+  padding: 7px 32px 7px 7px;
   border: 1px solid var(--bachata-border);
-  border-radius: 8px;
-  background: var(--bachata-card);
+  border-radius: 10px;
+  background: var(--bachata-surface);
   font-size: var(--bachata-font-sm);
 }
 
 .attachment-chip img {
-  width: 26px;
-  height: 26px;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 7px;
+  background: var(--vscode-editor-background);
 }
 
-.attachment-chip input {
-  width: 16px;
-  height: 16px;
-  min-height: auto;
-  margin: 0;
+.attachment-file-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: var(--vscode-editor-background);
+  color: var(--bachata-muted);
+}
+
+.attachment-file-icon .codicon {
+  font-size: 23px;
 }
 
 .attachment-chip label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 9px;
+  width: 100%;
   min-width: 0;
   cursor: pointer;
 }
 
-.attachment-chip img,
-.attachment-chip input,
-.attachment-chip small,
-.attachment-chip button {
-  flex: 0 0 auto;
+.attachment-chip-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-.attachment-chip span {
+.attachment-chip-copy strong,
+.attachment-chip-copy small {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.attachment-chip-copy strong {
+  font-weight: 500;
+}
+
+.attachment-chip-copy small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--bachata-muted);
+}
+
+.attachment-chip[data-selected="false"] {
+  opacity: 0.62;
+}
+
+.attachment-chip[data-selected="true"] {
+  border-color: var(--vscode-focusBorder, var(--bachata-focus-ring));
+}
+
+#root:not([data-focus-input="pointer"]) .attachment-chip:focus-within {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: var(--bachata-focus-offset, 2px);
+}
+
+.attachment-chip .attachment-remove {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 6px;
 }
 
 .attachment-chip.pending {
@@ -2046,6 +2099,9 @@ strong + small {
   .composer-toolbar .agents-picker-label {
     display: none;
   }
+}
+
+@media (max-width: 480px) {
 }
 
 @media (max-width: 590px) {
@@ -3613,7 +3669,7 @@ select[multiple] option {
   background: var(--vscode-descriptionForeground);
 }
 
-/* The custom pipeline picker: a combobox trigger and the listbox it opens. */
+/* The custom pipeline picker: a compact trigger and the chooser it opens. */
 .pipeline-picker {
   display: flex;
   min-width: 0;
@@ -3689,8 +3745,16 @@ select[multiple] option {
   height: 34px;
   padding: 0;
   border: 0;
-  --bachata-focus-offset: 0px;
   background: transparent;
+}
+
+.pipeline-picker-search input:focus-visible {
+  outline: none;
+}
+
+#root:not([data-focus-input="pointer"]) .pipeline-picker-search:has(input:focus-visible) {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: 2px;
 }
 
 .pipeline-picker-filters {
@@ -3709,9 +3773,23 @@ select[multiple] option {
 }
 
 .pipeline-picker-list {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 4px;
+}
+
+.pipeline-picker-footer {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.pipeline-picker-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
 }
 
 .pipeline-picker-empty {
@@ -3720,13 +3798,130 @@ select[multiple] option {
   text-align: center;
 }
 
+.pipeline-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--bachata-control-size);
+  align-items: start;
+  border-radius: 8px;
+}
+
+#root .pipeline-picker-row:hover {
+  background: color-mix(in srgb, var(--vscode-foreground) 5%, var(--vscode-editor-background));
+}
+
 .pipeline-picker-option {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
   padding: 7px 9px;
+  border: 0;
   border-radius: 8px;
+  text-align: left;
+  background: transparent;
   cursor: pointer;
+  --bachata-control-hover: transparent;
+  --bachata-control-selected: transparent;
+  --bachata-control-pressed: transparent;
+}
+
+.pipeline-picker-actions-toggle {
+  margin: 5px 4px 0 0;
+}
+
+.pipeline-picker-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px 8px;
+}
+
+.pipeline-picker-actions button {
+  min-height: 28px;
+  padding: 3px 8px;
+}
+
+#root .pipeline-picker-row[data-active="true"] {
+  background: color-mix(in srgb, var(--vscode-foreground) 7%, var(--vscode-editor-background));
+}
+
+#root .pipeline-picker-row[data-selected="true"] {
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--vscode-foreground) 10%, var(--vscode-editor-background));
+}
+
+#root .pipeline-picker-row[data-selected="true"][data-active="true"] {
+  background: color-mix(in srgb, var(--vscode-foreground) 12%, var(--vscode-editor-background));
+}
+
+#root .pipeline-picker-row:is([data-selected="true"], [data-active="true"]) > .pipeline-picker-actions-toggle {
+  color: inherit;
+}
+
+.pipeline-details {
+  display: grid;
+  gap: 16px;
+}
+
+.pipeline-details section {
+  display: grid;
+  gap: 6px;
+}
+
+.pipeline-details h3 {
+  margin: 0;
+  font-size: var(--bachata-font-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bachata-muted);
+}
+
+.pipeline-details-list,
+.pipeline-details-items,
+.pipeline-details-simple {
+  margin: 0;
+}
+
+.pipeline-details-list > div,
+.pipeline-details-items > li {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1.3fr);
+  gap: 10px;
+  padding-block: 5px;
+  border-top: 1px solid var(--bachata-border);
+}
+
+.pipeline-details-list > div:first-child,
+.pipeline-details-items > li:first-child {
+  border-top: 0;
+}
+
+.pipeline-details-list dt,
+.pipeline-details-items strong {
+  font-weight: 600;
+}
+
+.pipeline-details-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-details-items {
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-details-items span {
+  min-width: 0;
+  color: var(--bachata-muted);
+  overflow-wrap: anywhere;
+}
+
+.pipeline-details-simple {
+  padding-left: 18px;
+  overflow-wrap: anywhere;
 }
 
 .pipeline-picker-option-head {
@@ -3745,18 +3940,17 @@ select[multiple] option {
   font-size: var(--bachata-font-sm);
 }
 
-.pipeline-picker-option-participants {
-  color: var(--vscode-foreground, inherit);
-  font-size: var(--bachata-font-sm);
+.pipeline-picker-option-desc {
+  min-width: 0;
   overflow: hidden;
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-sm);
+  white-space: nowrap;
   text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
 }
 
-.pipeline-picker-option-desc {
-  color: var(--bachata-muted);
+.pipeline-picker-option-participants {
+  color: var(--vscode-foreground, inherit);
   font-size: var(--bachata-font-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3831,11 +4025,6 @@ select[multiple] option {
   margin: 2px 0 0;
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
-}
-
-.agents-reset-all {
-  flex: 0 0 auto;
-  white-space: nowrap;
 }
 
 .agents-slot-list {
@@ -3939,7 +4128,77 @@ select[multiple] option {
 }
 
 .agents-local-settings > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 55%, var(--bachata-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-focusBorder) 7%, var(--bachata-surface));
   cursor: pointer;
+  list-style: none;
+}
+
+.agents-local-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agents-local-settings > summary:hover {
+  background: color-mix(in srgb, var(--vscode-focusBorder) 11%, var(--bachata-surface));
+}
+
+.agents-local-settings-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.agents-local-settings-copy > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agents-local-settings-copy strong,
+.agents-local-settings-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-local-settings-copy small {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+  font-weight: 400;
+}
+
+.agents-local-settings-status {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-focusBorder) 14%, transparent);
+  font-size: var(--bachata-font-xs);
+}
+
+.agents-local-settings > summary[data-local-model-state="ready"] {
+  border-color: color-mix(in srgb, var(--bachata-green) 60%, var(--bachata-border));
+  background: color-mix(in srgb, var(--bachata-green) 7%, var(--bachata-surface));
+}
+
+.agents-local-settings > summary[data-local-model-state="attention"] {
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 60%, var(--bachata-border));
+}
+
+.agents-local-settings-chevron {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+
+.agents-local-settings[open] .agents-local-settings-chevron {
+  transform: rotate(90deg);
 }
 
 .agents-local {
@@ -4002,10 +4261,6 @@ select[multiple] option {
   margin: 0;
   color: var(--bachata-muted);
   font-size: var(--bachata-font-sm);
-}
-
-.composer-settings .run-contract {
-  margin: 0;
 }
 
 .participant-more summary,
@@ -4146,82 +4401,6 @@ details[open] > summary .disclosure-chevron {
   }
 }
 
-.run-contract {
-  margin-bottom: 8px;
-  border: 1px solid var(--bachata-border);
-  border-radius: 10px;
-  background: var(--bachata-surface);
-}
-
-.run-contract > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: var(--bachata-font-xs);
-}
-
-.run-contract > summary::-webkit-details-marker {
-  display: none;
-}
-
-.contract-badge {
-  font-weight: 600;
-}
-
-.contract-assurance {
-  border: 1px solid var(--vscode-panel-border, transparent);
-  border-radius: 999px;
-  padding: 0 8px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.contract-assurance-statement {
-  grid-column: 1 / -1;
-}
-
-.contract-pipeline {
-  color: var(--bachata-muted);
-}
-
-.contract-blockers {
-  margin-left: auto;
-  color: var(--bachata-warn-text);
-}
-
-.contract-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px 16px;
-  padding: 0 10px 10px;
-}
-
-.contract-outbound {
-  grid-column: 1 / -1;
-}
-
-.contract-outbound > details {
-  border-left: 2px solid var(--bachata-border, var(--vscode-panel-border));
-  margin: 4px 0;
-  padding-left: 8px;
-}
-
-.contract-outbound > details > summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.contract-outbound h4 {
-  margin: 6px 0 2px;
-  font-size: var(--bachata-font-xs);
-  color: var(--bachata-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 .compare-grid {
   display: grid;
   /* A bare minmax(240px, …) floors the single track at 240px in a narrower container and the
@@ -4292,28 +4471,6 @@ details[open] > summary .disclosure-chevron {
   padding-left: 20px;
   display: grid;
   gap: 4px;
-}
-
-.contract-inexact {
-  color: var(--bachata-muted);
-  font-style: italic;
-}
-
-.contract-grid h3 {
-  margin: 6px 0 2px;
-  font-size: var(--bachata-font-xs);
-  font-weight: 600;
-  color: var(--bachata-muted);
-}
-
-.contract-list {
-  margin: 0;
-  padding-left: 16px;
-  font-size: var(--bachata-font-xs);
-}
-
-.contract-list > li {
-  overflow-wrap: anywhere;
 }
 
 .search-truncated {
@@ -4565,13 +4722,6 @@ details[open] > summary .disclosure-chevron {
   margin-top: 6px;
 }
 
-.contract-policy-refusals {
-  grid-column: 1 / -1;
-  padding: 10px 12px;
-  border: 1px solid var(--vscode-inputValidation-errorBorder);
-  background: var(--vscode-inputValidation-errorBackground);
-}
-
 .notification-center {
   position: relative;
 }
@@ -4788,15 +4938,6 @@ details[open] > summary .disclosure-chevron {
   color: var(--bachata-warn-text);
 }
 
-/* The kicker is the composer's heading, so a room with no other h2 still outlines
-   h1 → h2 → h3; it keeps the look of the summary line it sits in. */
-.contract-kicker {
-  margin: 0;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-}
-
 /* Appended 2026-09-06 after the measured UI review. Each block names the finding it closes. */
 
 /* F2. The Direction view shares the execution view's vocabulary: boxed sections, record rows,
@@ -4982,31 +5123,7 @@ details.direction-evidence > ul,
   }
 }
 
-/* F4. The contract summary wraps; the pipeline name is the item that gives way. */
-.run-contract > summary {
-  flex-wrap: wrap;
-}
-
-.contract-pipeline {
-  flex: 1 1 140px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 590px) {
-  .contract-pipeline {
-    flex-basis: 100%;
-  }
-
-  .contract-blockers {
-    margin-left: 0;
-  }
-}
-
-/* F6. Inside the composer the contract and the blockers are what scroll; below 560px of room
-   the field gives back its slack so the transcript keeps a readable band. */
+/* Below 560px of room the field gives back its slack so the transcript keeps a readable band. */
 .composer > .composer-blockers {
   flex: 0 1 auto;
   min-height: 0;
@@ -5216,15 +5333,32 @@ details.direction-evidence > ul,
   max-width: 100%;
 }
 
+.attachment-strip-shell::before,
 .attachment-strip-shell::after {
   content: "";
   position: absolute;
   top: 0;
-  right: 0;
   bottom: 9px;
   width: 24px;
-  background: linear-gradient(to left, var(--bachata-surface), transparent);
+  z-index: 1;
+  opacity: 0;
   pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.attachment-strip-shell::before {
+  left: 0;
+  background: linear-gradient(to right, var(--vscode-input-background, var(--bachata-card)), transparent);
+}
+
+.attachment-strip-shell::after {
+  right: 0;
+  background: linear-gradient(to left, var(--vscode-input-background, var(--bachata-card)), transparent);
+}
+
+.attachment-strip-shell[data-scroll-start]::before,
+.attachment-strip-shell[data-scroll-end]::after {
+  opacity: 1;
 }
 
 /* S11. The queued prompt is a preview and clamps with an ellipsis; the blocked reason beside it
@@ -5834,7 +5968,9 @@ details.direction-evidence > ul,
 .composer > .composer-settings {
   position: absolute;
   z-index: 35;
-  bottom: calc(100% + 8px);
+  /* Anchor to the bottom controls, not the total composer height. A growing prompt may sit behind
+     this popover, but can no longer push the settings above the viewport. */
+  bottom: calc(var(--bachata-gutter) + 44px);
   right: var(--bachata-gutter);
   width: min(480px, calc(100% - var(--bachata-gutter) * 2));
   max-height: min(560px, calc(100cqh - 180px));
@@ -6997,8 +7133,7 @@ details.direction-evidence > ul,
   gap: 8px;
 }
 
-.composer-settings-section + .composer-settings-section,
-.composer-settings .run-contract {
+.composer-settings-section + .composer-settings-section {
   padding-top: 12px;
   border-top: 1px solid var(--bachata-border);
 }
@@ -7224,7 +7359,7 @@ details.direction-evidence > ul,
   font-weight: 600;
 }
 
-.agents-effort-stops {
+.discrete-slider-stops {
   display: grid;
   grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
@@ -7234,7 +7369,7 @@ details.direction-evidence > ul,
   background: var(--vscode-input-background, var(--bachata-card));
 }
 
-#root .agents-popover .agents-effort .agents-effort-stops .agents-effort-stop[role="radio"] {
+#root .discrete-slider-stops .discrete-slider-stop[role="radio"] {
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -7247,7 +7382,7 @@ details.direction-evidence > ul,
   --bachata-focus-offset: -3px;
 }
 
-.agents-effort-stop::after {
+.discrete-slider-stop::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -7258,23 +7393,23 @@ details.direction-evidence > ul,
   background: var(--vscode-input-border, var(--bachata-border));
 }
 
-.agents-effort-stop:first-child::after {
+.discrete-slider-stop:first-child::after {
   left: 50%;
 }
 
-.agents-effort-stop:last-child::after {
+.discrete-slider-stop:last-child::after {
   right: 50%;
 }
 
-.agents-effort-stop[data-reached="true"]::after {
+.discrete-slider-stop[data-reached="true"]::after {
   background: var(--vscode-button-background);
 }
 
-.agents-effort-stop[data-thumb="true"]:not(:last-child)::after {
+.discrete-slider-stop[data-thumb="true"]:not(:last-child)::after {
   background: linear-gradient(to right, var(--vscode-button-background) 50%, var(--vscode-input-border, var(--bachata-border)) 50%);
 }
 
-.agents-effort-stop::before {
+.discrete-slider-stop::before {
   content: "";
   position: absolute;
   z-index: 1;
@@ -7288,12 +7423,12 @@ details.direction-evidence > ul,
   opacity: 0.6;
 }
 
-.agents-effort-stop[data-reached="true"]::before {
+.discrete-slider-stop[data-reached="true"]::before {
   background: var(--vscode-button-foreground);
   opacity: 0.85;
 }
 
-.agents-effort-stop[data-thumb="true"]::before {
+.discrete-slider-stop[data-thumb="true"]::before {
   width: 20px;
   height: 20px;
   border: 1px solid var(--vscode-input-border, var(--bachata-border));
@@ -7313,12 +7448,29 @@ details.direction-evidence > ul,
   background: var(--vscode-input-background, var(--bachata-card));
 }
 
+.agents-model-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: var(--bachata-control-size);
+}
+
 .agents-popover .agents-model-search input[type="text"] {
   min-height: 32px;
   padding-inline: 0;
   border: 0;
   background: transparent;
   --bachata-focus-offset: 0px;
+}
+
+.agents-model-search input:focus-visible {
+  outline: none;
+}
+
+#root:not([data-focus-input="pointer"]) .agents-model-search:has(input:focus-visible) {
+  outline: 2px solid var(--bachata-focus-ring);
+  outline-offset: 2px;
 }
 
 .agents-model-list {
@@ -7331,6 +7483,7 @@ details.direction-evidence > ul,
 .agents-model-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name check";
   align-items: center;
   gap: 1px 8px;
   min-height: 32px;
@@ -7340,9 +7493,22 @@ details.direction-evidence > ul,
   font-size: var(--bachata-font-sm);
 }
 
+.agents-model-option.has-meta {
+  grid-template-areas:
+    "name check"
+    "meta check";
+}
+
+.agents-model-option-name {
+  grid-area: name;
+}
+
+.agents-model-option-meta {
+  grid-area: meta;
+}
+
 .agents-model-option-name,
 .agents-model-option-meta {
-  grid-column: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7354,8 +7520,8 @@ details.direction-evidence > ul,
 }
 
 .agents-model-option .codicon-check {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-area: check;
+  align-self: center;
 }
 
 .agents-model-option[data-kind="custom"] .agents-model-option-name {
@@ -7378,4 +7544,51 @@ details.direction-evidence > ul,
   .agents-slot-row {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* One bounded run-limit control replaces the former multi-purpose settings dialog. */
+.composer-settings-button {
+  position: relative;
+}
+
+.iteration-picker-value {
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  min-width: 14px;
+  height: 14px;
+  padding-inline: 3px;
+  border-radius: 999px;
+  background: var(--vscode-badge-background, var(--vscode-focusBorder));
+  color: var(--vscode-badge-foreground, var(--vscode-button-foreground));
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+
+.composer > .iteration-picker-popover {
+  width: min(280px, calc(100% - var(--bachata-gutter) * 2));
+  max-height: none;
+  gap: 10px;
+  overflow: visible;
+  padding: 12px;
+}
+
+.iteration-picker-head,
+.iteration-picker-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.iteration-picker-head span,
+.iteration-picker-scale {
+  color: var(--bachata-muted);
+  font-size: var(--bachata-font-xs);
+}
+
+.iteration-picker-stops {
+  margin-top: 2px;
 }

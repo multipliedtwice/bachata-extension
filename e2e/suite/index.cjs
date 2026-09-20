@@ -480,6 +480,20 @@ const verifyControlledBrowserBridge = async (api) => {
     }));
     const bound = await api.humanE2e.runWebviewAction("selectBrowserSession", peer.session.id, 20_000);
     assert.equal(bound.completed, true);
+    const switchedToCli = await api.humanE2e.runWebviewAction(
+      "selectAgentProvider",
+      `human-e2e-browser\u0000human-e2e-adapter`,
+      30_000,
+    );
+    assert.equal(switchedToCli.completed, true, "one provider selection did not reach the real Extension Host");
+    const switchedBackToBridge = await api.humanE2e.runWebviewAction(
+      "selectAgentProvider",
+      `human-e2e-browser\u0000browser`,
+      20_000,
+    );
+    assert.equal(switchedBackToBridge.completed, true, "one Browser Bridge selection did not remain visible");
+    const rebound = await api.humanE2e.runWebviewAction("selectBrowserSession", peer.session.id, 20_000);
+    assert.equal(rebound.completed, true);
     const submitted = await api.humanE2e.runWebviewAction("submitPreparedRun", undefined, 20_000);
     assert.equal(submitted.completed, true);
     const request = await peer.collector.next((value) => value.type === "conversation.send", 20_000);

@@ -75,7 +75,7 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
         await frame(session);
         await readable(`${label} settings`);
         const stable = await session.evaluate(`(() => {const box = document.querySelector('.composer-surface').getBoundingClientRect(); return {y:box.y,h:box.height};})()`);
-        await press(session, '.composer-settings [data-action="composer-settings-toggle"]');
+        await press(session, '.composer-settings-button');
         await frame(session);
         assert.deepEqual(await session.evaluate(`(() => {const box = document.querySelector('.composer-surface').getBoundingClientRect(); return {y:box.y,h:box.height};})()`), stable, `${label}: settings do not move input`);
         await press(session, '#agents-picker-button');
@@ -115,9 +115,11 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
   }
   for (const [width, height, font] of [[320, 500, 13], [400, 500, 18], [792, 900, 13], [1280, 900, 18]]) {
     await reset(width, font, "dark", height);
-    await press(session, '.composer-settings-button');
+    await press(session, '#pipeline-picker-button');
     await frame(session);
-    await press(session, '[data-action="pipeline-edit"]');
+    await press(session, '.pipeline-picker-row[data-selected="true"] [data-action="pipeline-row-menu"]');
+    await frame(session);
+    await press(session, '.pipeline-picker-row[data-selected="true"] [data-action="pipeline-row-edit"]');
     await frame(session);
     await readable(`editor ${width} ${height} ${font}`);
     const dialog = await session.evaluate(`(() => {const r = document.querySelector('.pipeline-editor').getBoundingClientRect();return {left:r.left,right:innerWidth-r.right,top:r.top,bottom:innerHeight-r.bottom};})()`);

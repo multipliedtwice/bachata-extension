@@ -66,6 +66,35 @@ test("Execution result and Pipeline use document surfaces instead of nested card
   }
 });
 
+test("The run-limit popover stays anchored to the bottom controls when the prompt grows", () => {
+  const settings = declarationsFor(".composer > .composer-settings");
+  assert.equal(settings.position, "absolute");
+  assert.equal(settings.bottom, "calc(var(--bachata-gutter) + 44px)");
+  assert.doesNotMatch(settings.bottom, /100%/u);
+});
+
+test("Pipeline search draws one focus ring around the complete search control", () => {
+  assert.equal(declarationsFor(".pipeline-picker-search input:focus-visible").outline, "none");
+  const wrapper = declarationsFor('#root:not([data-focus-input="pointer"]) .pipeline-picker-search:has(input:focus-visible)');
+  assert.equal(wrapper.outline, "2px solid var(--bachata-focus-ring)");
+  assert.equal(wrapper["outline-offset"], "2px");
+});
+
+test("Agent model search draws one focus ring around the complete search control", () => {
+  assert.equal(declarationsFor(".agents-model-search input:focus-visible").outline, "none");
+  const wrapper = declarationsFor('#root:not([data-focus-input="pointer"]) .agents-model-search:has(input:focus-visible)');
+  assert.equal(wrapper.outline, "2px solid var(--bachata-focus-ring)");
+  assert.equal(wrapper["outline-offset"], "2px");
+});
+
+test("Pipeline creation stays outside the scrollable picker list", () => {
+  const list = declarationsFor(".pipeline-picker-list");
+  const footer = declarationsFor(".pipeline-picker-footer");
+  assert.equal(list.flex, "1 1 auto");
+  assert.equal(list["overflow-y"], "auto");
+  assert.equal(footer.flex, "0 0 auto");
+});
+
 test("Execution failure and unresolved groups retain semantic boundaries without repeating response rails", () => {
   for (const selector of [
     ".execution-content .result-failure",
@@ -455,7 +484,12 @@ test("editable fields keep their field surfaces and never inherit action hover, 
   assert.ok(painted.length >= 4);
   for (const rule of painted) {
     for (const selector of rule.selectors) {
-      assert.ok(selector.startsWith(actionSelector) || /^#root select\[multiple\].* option:checked/u.test(selector), selector);
+      assert.ok(
+        selector.startsWith(actionSelector) ||
+        /^#root select\[multiple\].* option:checked/u.test(selector) ||
+        selector === '#root .pipeline-picker-row:is([data-selected="true"], [data-active="true"])',
+        selector,
+      );
     }
   }
   for (const selector of ["input", "select", "textarea"]) {
@@ -470,13 +504,20 @@ test("editable fields keep their field surfaces and never inherit action hover, 
 
 test("keyboard focus outlines the active control surface and pointer focus never acquires it", () => {
   const outlines = rules.filter((rule) => /outline\s*:\s*2px solid/u.test(rule.body));
-  assert.equal(outlines.length, 2);
+  assert.equal(outlines.length, 5);
   assert.deepEqual(outlines[0].selectors, [":focus-visible"]);
   assert.deepEqual(outlines[1].selectors, ['#root:not([data-focus-input="pointer"]) .composer-surface:has(> textarea:focus-visible)']);
+  assert.deepEqual(outlines[2].selectors, ['#root:not([data-focus-input="pointer"]) .attachment-chip:focus-within']);
+  assert.deepEqual(outlines[3].selectors, ['#root:not([data-focus-input="pointer"]) .pipeline-picker-search:has(input:focus-visible)']);
+  assert.deepEqual(outlines[4].selectors, ['#root:not([data-focus-input="pointer"]) .agents-model-search:has(input:focus-visible)']);
   assert.equal(declarationsFor(":focus:not(:focus-visible)").outline, "none");
   assert.equal(declarationsFor('#root[data-focus-input="pointer"] :focus-visible').outline, "none");
   assert.equal(declarationsFor(".composer-surface > textarea:focus-visible").outline, "none");
   assert.equal(declarationsFor('#root:not([data-focus-input="pointer"]) .composer-surface:has(> textarea:focus-visible)')["outline-offset"], "var(--bachata-focus-offset, 2px)");
+  assert.equal(declarationsFor(".pipeline-picker-search input:focus-visible").outline, "none");
+  assert.equal(declarationsFor('#root:not([data-focus-input="pointer"]) .pipeline-picker-search:has(input:focus-visible)')["outline-offset"], "2px");
+  assert.equal(declarationsFor(".agents-model-search input:focus-visible").outline, "none");
+  assert.equal(declarationsFor('#root:not([data-focus-input="pointer"]) .agents-model-search:has(input:focus-visible)')["outline-offset"], "2px");
   for (const selector of [".chat-minimap button", ".execution-content .code-block pre"]) {
     assert.equal(declarationsFor(selector)["--bachata-focus-offset"], "-2px", selector);
   }

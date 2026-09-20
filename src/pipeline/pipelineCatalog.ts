@@ -3,6 +3,7 @@ import { validatePipelineDefinition } from "./schema";
 import { PipelineDefinition } from "./types";
 import { assignmentSlots } from "./agentAssignment";
 import { grantsNoWrite } from "./permissionModes";
+import { providerDisplayName } from "./providerNames";
 import type { PipelineScope } from "./catalogStorage";
 import type { PipelineSummary } from "../webview/protocol";
 
@@ -106,6 +107,67 @@ const pipelineWritesCode = (pipeline: PipelineDefinition): boolean => {
   });
 };
 
+const unique = (values: readonly string[]): string[] => [...new Set(values)];
+
+const pipelineDetails = (pipeline: PipelineDefinition): PipelineSummary["details"] => {
+  const slots = assignmentSlots(pipeline).slots;
+  const policy = pipeline.managedPolicy;
+  const writesCode = pipelineWritesCode(pipeline);
+  const roles = pipeline.roles ?? [];
+  const rolesById = new Map(roles.map((role) => [role.id, role]));
+  const roleProviders = slots.map((slot) => {
+    const model = (slot.roleId === undefined ? undefined : rolesById.get(slot.roleId)?.model) ?? slot.defaultModel;
+    return {
+      role: slot.responsibility,
+      provider: providerDisplayName(slot.defaultAdapter),
+      ...(model === undefined ? {} : { model }),
+    };
+  });
+  const authorities = (roles.length > 0 ? roles : [{ id: "pipeline", name: "Pipeline", instructions: "" }]).map((role) => {
+    const readOnly = policy?.writeScope === "readOnly" || ("readOnly" in role ? role.readOnly === true : !writesCode);
+    return {
+      role: role.name,
+      managed: "managed" in role ? role.managed === true : policy !== undefined,
+      readOnly,
+      writeScope: readOnly ? "readOnly" as const : policy?.writeScope ?? ("writeScope" in role ? role.writeScope : undefined) ?? "workspace",
+      writablePaths: unique(policy?.allowedPaths ?? ("allowedPaths" in role ? role.allowedPaths : undefined) ?? []),
+      protectedPaths: unique(policy?.protectedPaths ?? ("protectedPaths" in role ? role.protectedPaths : undefined) ?? []),
+      commitMode: policy?.commitMode ?? ("commitMode" in role ? role.commitMode : undefined) ?? "never",
+      checks: unique((policy?.verificationChecks ?? ("verificationChecks" in role ? role.verificationChecks : undefined) ?? []).map((check) => check.command)),
+    };
+  });
+  const limits: PipelineSummary["details"]["limits"] = [];
+  pipeline.steps.forEach((step) => {
+    if (!step.enabled) return;
+    if (step.type === "agent" && step.consensus) {
+      limits.push({ kind: "consensusRounds", value: step.consensusConfig?.maxRounds ?? 1, stepName: step.name });
+    }
+    if (step.type === "checklist" && step.timeoutMs !== undefined) {
+      limits.push({ kind: "stepTimeout", value: step.timeoutMs, stepName: step.name });
+    }
+    if (step.type === "executeChecklist") {
+      if (step.retries !== undefined) limits.push({ kind: "checklistRetries", value: step.retries, stepName: step.name });
+      if (step.maxConcurrency !== undefined) limits.push({ kind: "checklistConcurrency", value: step.maxConcurrency, stepName: step.name });
+    }
+  });
+  if (policy?.maxRevisionCycles !== undefined) {
+    limits.push({ kind: "revisionCycles", value: policy.maxRevisionCycles });
+  }
+  const humanDecisions: PipelineSummary["details"]["humanDecisions"] = pipeline.steps.flatMap((step) => {
+    if (!step.enabled) return [];
+    const timing = step.humanGate;
+    const explicit = timing === "before" || timing === "after" || timing === "both"
+      ? [{ stepName: step.name, timing }]
+      : [];
+    const consensusLimit = step.type === "agent" && step.consensus &&
+      (step.consensusConfig?.onMaxRounds ?? "humanGate") === "humanGate"
+      ? [{ stepName: step.name, timing: "consensusLimit" as const }]
+      : [];
+    return [...explicit, ...consensusLimit];
+  });
+  return { roleProviders, authorities, limits, humanDecisions };
+};
+
 export const pipelineSummary = (
   pipeline: PipelineDefinition,
   editable: boolean,
@@ -126,6 +188,7 @@ export const pipelineSummary = (
     writesCode: pipelineWritesCode(pipeline),
     stepCount: pipeline.steps.filter((step) => step.enabled).length,
     presentation: pipelinePresentation(pipeline, editable),
+    details: pipelineDetails(pipeline),
     ...(editable && scope.root ? { scopeRoot: scope.root } : {}),
   };
 };
