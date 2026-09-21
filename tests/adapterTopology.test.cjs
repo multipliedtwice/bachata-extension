@@ -226,6 +226,44 @@ test("a binding whose conversation is gone stays visible and explained, never si
   assert.equal(topology.agents.browser.sessionId, undefined);
 });
 
+test("a live bound browser session refreshes ownership metadata", () => {
+  const topology = {
+    adapters: {},
+    definitions: { browser: definition("browser", "chatgpt-browser") },
+    agents: {
+      browser: {
+        id: "browser",
+        adapterType: "chatgpt-browser",
+        browserBinding: { conversationId: "old" },
+        sessionId: "old-session",
+        output: "",
+      },
+    },
+  };
+  bindBrowserAgents(
+    topology,
+    bindingHost({
+      resolveBoundSession: () => ({
+        id: "live-session",
+        provider: "chatgpt",
+        conversationUrl: "https://chatgpt.com/c/live",
+        conversationIdentity: "chatgpt:live",
+        tabId: 42,
+        documentToken: "doc",
+        status: "ready",
+      }),
+    }),
+  );
+  assert.deepEqual(topology.agents.browser.browserBinding, {
+    provider: "chatgpt",
+    conversationUrl: "https://chatgpt.com/c/live",
+    conversationIdentity: "chatgpt:live",
+    preferredTabId: 42,
+  });
+  assert.equal(topology.agents.browser.sessionId, "live-session");
+  assert.equal(topology.agents.browser.status, "idle");
+});
+
 test("a binding that throws clears the stale session id and reports the failure", () => {
   const topology = {
     adapters: {},
