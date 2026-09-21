@@ -263,6 +263,23 @@ test("pipeline summaries derive code-writing capability from every declared exec
       checks: [],
     }],
   })), true);
+  const checklistLimits = pipelineSummary(definition("checklist-limits", {
+    steps: [{
+      id: "execute",
+      name: "Execute",
+      enabled: true,
+      type: "executeChecklist",
+      humanGate: "none",
+      inputName: "work",
+      pipelineId: "worker",
+      retries: 2,
+      maxConcurrency: 3,
+    }],
+  }), false, "checklist-limits-hash", scope).details.limits;
+  assert.deepEqual(checklistLimits, [
+    { kind: "checklistRetries", value: 2, stepName: "Execute" },
+    { kind: "checklistConcurrency", value: 3, stepName: "Execute" },
+  ]);
   assert.equal(writesCode(definition("assignment-only", {
     agents: [agent],
     steps: [{
@@ -496,6 +513,28 @@ test("a legacy value that was never an array yields no plan at all", () => {
   for (const value of [undefined, null, {}, "[]", 3]) {
     assert.equal(planLegacyCustomPipelineMigration(value, passThrough, () => false), undefined);
   }
+});
+
+test("pipeline summaries expose checklist timeout limits", () => {
+  const summary = pipelineSummary(definition("timed-check", {
+    steps: [{
+      id: "check",
+      name: "Check",
+      enabled: true,
+      type: "checklist",
+      participants: [],
+      promptTemplate: "{{userPrompt}}",
+      parallel: false,
+      consensus: false,
+      humanGate: "none",
+      timeoutMs: 4_200,
+    }],
+  }), false, "timed-hash", {
+    key: "builtin:timed-check",
+    root: "/ignored",
+    directory: "/ignored/.bachata/pipelines",
+  });
+  assert.deepEqual(summary.details.limits, [{ kind: "stepTimeout", value: 4_200, stepName: "Check" }]);
 });
 
 test("a legacy entry shadowing a built-in id is ignored with its reason, not migrated", () => {
