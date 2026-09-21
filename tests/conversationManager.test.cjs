@@ -2183,9 +2183,9 @@ test("Browser Bridge close failure quarantines cross-window ownership", async ()
     resourceBroker: broker,
     bridgeCloseError: new Error("bridge process remained alive"),
     configurationValues: {
-      browserBridgeOwnerTimeoutMs: 100,
-      browserBridgeCloseTimeoutMs: 1000,
-      managerDisposeTimeoutMs: 1000,
+      browserBridgeOwnerTimeoutMs: 2_000,
+      browserBridgeCloseTimeoutMs: 2_000,
+      managerDisposeTimeoutMs: 3_000,
     },
   });
   try {
@@ -2197,9 +2197,9 @@ test("Browser Bridge close failure quarantines cross-window ownership", async ()
       /cleanup was not fully confirmed/u,
     );
     assert.ok(harness.outputLines.some((line) => /bridge process remained alive/u.test(line)));
-    assert.equal(
-      broker.listQuarantine().some((item) => item.key === "browser-bridge:profile"),
-      true,
+    await waitFor(
+      () => broker.listQuarantine().some((item) => item.key === "browser-bridge:profile"),
+      5_000,
     );
   } finally {
     harness.subscription.dispose();

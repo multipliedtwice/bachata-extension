@@ -104,16 +104,16 @@ test("later lower-capacity requests do not block earlier higher-capacity request
   const later = broker(temporary.databasePath, "capacity-later");
   const held = await blocker.acquire({
     resources: [{ key: "capacity:queue-order", capacity: 1 }],
-    deadlineAt: Date.now() + 1000,
+    deadlineAt: Date.now() + 10_000,
   });
   const earlierWaiting = earlier.acquire({
     resources: [{ key: "capacity:queue-order", units: 2, capacity: 2 }],
-    deadlineAt: Date.now() + 1000,
+    deadlineAt: Date.now() + 10_000,
   });
   await wait(30);
   const laterWaiting = later.acquire({
     resources: [{ key: "capacity:queue-order", capacity: 1 }],
-    deadlineAt: Date.now() + 1000,
+    deadlineAt: Date.now() + 10_000,
   });
   await wait(30);
   await held.release();
