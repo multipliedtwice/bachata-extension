@@ -21,6 +21,12 @@ jobs:
   validate:
     name: Validate on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # Build facts are byte-level release evidence. Keep Git from rewriting LF
+    # source files to CRLF on Windows before those bytes are measured.
+    env:
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: false
     strategy:
       fail-fast: false
       matrix:
