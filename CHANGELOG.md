@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.6 — Efficient context and recoverable browser conversations
+
 ### Documentation
 
 - Added a GitHub Pages overview and technical design for a token-efficient harness based on durable exact evidence, bounded execution state, structured peer projections, recallable browser observations, and safe action fusion. The first local TODO slice is implemented off by default; later mechanisms remain proposals. No Bachata token or cost reduction claim.
