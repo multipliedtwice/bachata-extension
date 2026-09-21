@@ -6,7 +6,7 @@ Extension: Bachata 0.7.6. Browser protocol: v9. Bridge: bachata-browser-bridge 0
 
 Every row names the exact VS Code build it was exercised on, reported by `Code > About` as the `Version` field, for example `1.101.2`. `engines.vscode` declares the floor Bachata claims to support; a row is evidence only for the build it names. A recorded row with no exact version is not evidence and the release metadata gate refuses it.
 
-Artifacts under test: Bachata VSIX `d650f15208dce6e6e78804d5448442d3a9b0360356e1d8177742c6420509452c`, Browser Bridge ZIP `7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6`.
+Artifacts under test: Bachata VSIX `4493c49b9ad01e69e22e8d6ff0a04d92c38d2ce6a1e369796ed8f865db9315f2`, Browser Bridge ZIP `9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16`.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 

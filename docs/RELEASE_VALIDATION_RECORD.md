@@ -2,7 +2,7 @@
 
 One file, one release. It records the exact artifacts and the human validation that automated tests cannot replace. `Not performed` blocks the release metadata gate.
 
-Artifacts under test: Bachata VSIX `d650f15208dce6e6e78804d5448442d3a9b0360356e1d8177742c6420509452c`, Browser Bridge ZIP `7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6`.
+Artifacts under test: Bachata VSIX `4493c49b9ad01e69e22e8d6ff0a04d92c38d2ce6a1e369796ed8f865db9315f2`, Browser Bridge ZIP `9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16`.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 
@@ -11,8 +11,8 @@ Every record in this file is void unless it names one of those hashes. A record 
 
 | Artifact | Version | SHA-256 | Recorded |
 | --- | --- | --- | --- |
-| Bachata VSIX | 0.7.5 | `d650f15208dce6e6e78804d5448442d3a9b0360356e1d8177742c6420509452c` | yes |
-| Browser Bridge ZIP | 0.6.9 | `7be12bb7afb336429e34228cc23dd0b09918db02f4aed839e3af7f307dfc5fb6` | yes |
+| Bachata VSIX | 0.7.6 | `4493c49b9ad01e69e22e8d6ff0a04d92c38d2ce6a1e369796ed8f865db9315f2` | yes |
+| Browser Bridge ZIP | 0.7.0 | `9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16` | yes |
 
 ## 1. Graphical Extension Host validation
 
