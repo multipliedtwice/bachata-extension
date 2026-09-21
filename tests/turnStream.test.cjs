@@ -67,6 +67,14 @@ test("a session event carries the new session id and accounts nothing", () => {
   assert.equal(state.result, undefined);
 });
 
+test("a browser binding event carries the binding without changing stream accounting", () => {
+  const binding = { provider: "chatgpt", conversationIdentity: "conversation-9" };
+  const { state, actions } = drive([{ type: "browserBinding", sessionId: "session-9", binding }]);
+  assert.deepEqual(actions, [{ kind: "browserBinding", sessionId: "session-9", binding }]);
+  assert.equal(state.streamedBytes, 0);
+  assert.equal(state.result, undefined);
+});
+
 test("text appends and accumulates bytes across events", () => {
   const { state, actions } = drive([
     { type: "text", text: "ab" },
