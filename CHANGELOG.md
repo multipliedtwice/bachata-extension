@@ -4,7 +4,11 @@
 
 ### Documentation
 
-- Added a GitHub Pages overview and technical design for a token-efficient harness based on durable exact evidence, bounded execution state, structured peer projections, recallable browser observations, and safe action fusion. The proposal is not shipped behavior and makes no Bachata token or cost reduction claim.
+- Added a GitHub Pages overview and technical design for a token-efficient harness based on durable exact evidence, bounded execution state, structured peer projections, recallable browser observations, and safe action fusion. The first local TODO slice is implemented off by default; later mechanisms remain proposals. No Bachata token or cost reduction claim.
+
+### Local TODO execution state
+
+- Added `bachata.executionContextMode` with `legacy` default and opt-in `localTodoStateV1`: exact admitted local evidence, strict controller-owned state, bounded recall, fresh Claude/Codex dispatches, awaited recovery boundaries and explicit evidence export. Existing controller checks and revision budgets remain. Full project verification requires the dependency-equipped checkout.
 
 ## 0.7.4 — Self-improvement: one command reproduces the Codex-to-Claude workflow
 

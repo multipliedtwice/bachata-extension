@@ -495,7 +495,7 @@ root.addEventListener("click", (event) => {
       ...(hunks.length > 0 ? { hunks } : {}),
     });
   } else if (action === "run-bundle-export" && target.dataset.conversation) {
-    const format = target.dataset.format === "markdown" || target.dataset.format === "sarif"
+    const format = target.dataset.format === "markdown" || target.dataset.format === "sarif" || target.dataset.format === "executionEvidence"
       ? target.dataset.format
       : "bundle";
     vscode.postMessage({

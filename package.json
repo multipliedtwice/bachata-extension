@@ -489,6 +489,13 @@
         "title": "Bachata",
         "order": 1,
         "properties": {
+          "bachata.executionContextMode": {
+            "type": "string",
+            "enum": ["legacy", "localTodoStateV1"],
+            "default": "legacy",
+            "description": "%configuration.bachata.executionContextMode.description%",
+            "order": 0
+          },
           "bachata.advancedMode": {
             "type": "boolean",
             "default": false,

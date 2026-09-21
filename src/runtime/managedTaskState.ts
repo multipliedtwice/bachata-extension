@@ -1,5 +1,5 @@
-import { ControllerEvidenceLine } from "./controllerVerification";
-import { ManagedLeadDefect } from "./managedLeadReview";
+import type { ControllerEvidenceLine } from "./controllerVerification";
+import type { ManagedLeadDefect } from "./managedLeadReview";
 
 /**
  * What a rejected Worker is owed on its next turn: the defects the Lead named, and the
@@ -47,6 +47,7 @@ export type ManagedTaskState = {
   takeLeadRevision: (taskId: string) => ManagedLeadRevisionDirective | undefined;
   /** Forget everything. The task that follows starts from nothing, whatever happened to this one. */
   clear: () => void;
+  restoreRevisions: (taskId: string, revisions: number) => void;
 };
 
 export const createManagedTaskState = (): ManagedTaskState => {
@@ -86,6 +87,10 @@ export const createManagedTaskState = (): ManagedTaskState => {
       const pending = current.pending;
       current.pending = undefined;
       return pending;
+    },
+    restoreRevisions: (taskId, revisions) => {
+      if (!Number.isSafeInteger(revisions) || revisions < 0) throw new Error("Invalid managed revision budget");
+      own(taskId).revisions = revisions;
     },
     clear: () => {
       current = undefined;

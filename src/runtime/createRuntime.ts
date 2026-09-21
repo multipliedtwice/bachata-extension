@@ -1,3 +1,7 @@
+import { executionContextModeForRun } from "./settingsSnapshot";
+import { createLocalExecutionState, localExecutionScope, type LocalExecutionState } from "./localExecutionState";
+import { evidenceDigest, withControllerEvidence, type ExecutionEvidenceRecord } from "../state/executionEvidence";
+import type { ManagedRepositoryBaseline } from "../orchestrator/managedPair";
 import { browserCandidateReference, browserControllerEvidence, browserControllerText, composeAgentPrompt } from "./browserPromptContracts";
 import {
   BrowserSessionOrigin,
@@ -732,6 +736,7 @@ export type RuntimeOptions = {
   ) => Promise<RuntimeInteractionResponse>;
   executeChecklist?: ((request: ExecuteChecklistRequest) => Promise<ExecuteChecklistResult>) | undefined;
   getProviderChatTitle?: ((agentId: string) => string | undefined) | undefined;
+  onExecutionEvidence?: (record: ExecutionEvidenceRecord) => Promise<void> | void;
   onPipelineStep?: ((event: {
     step: PipelineStep;
     index: number;
@@ -1581,6 +1586,9 @@ export const createRuntime = (
   // discarded when the task changes or ends; `managedTaskState.ts` says why that is a shape and
   // not a rule.
   const managedTaskState = createManagedTaskState();
+  let localExecution: LocalExecutionState | undefined;
+  let localExecutionBaseline: ManagedRepositoryBaseline | undefined;
+  let localExecutionPolicyIdentity: (() => string) | undefined;
   let activeWorkflow: Promise<void> | undefined;
   let lastPipelineResult: PipelineRunResult | undefined;
   let workflowActive = false;
@@ -1802,7 +1810,8 @@ export const createRuntime = (
     const live = captureRunSettings(liveConfigurationReader);
     activeRunSettings = restored === undefined
       ? live
-      : { ...live, values: { ...live.values, ...restored.values } };
+      : { ...live, values: { ...live.values, executionContextMode: "legacy", ...restored.values } };
+    activeRunSettings.values.executionContextMode = executionContextModeForRun(live.values.executionContextMode, restored);
     return activeRunSettings;
   };
 
@@ -4566,6 +4575,9 @@ export const createRuntime = (
     let browserOperationDeadlineExpired = false;
 
     try {
+      if (localExecution && !["claude-code", "codex-app-server"].includes(definitions[agentId]?.adapter ?? "")) {
+        throw new Error("Compact execution cannot fall back to a browser or a different provider family");
+      }
       const browserSessionOrigin = await ensureBrowserSession(agentId, controller.signal);
       const workingDirectory = await requireAgentWorkingDirectory(agentId);
       const turnPolicy = turnExecutionPolicy({
@@ -4729,9 +4741,10 @@ export const createRuntime = (
       // P3. Controller verification judges what this turn changed, so the tree it started from is
       // captured before the turn runs. Without a baseline the workspace-integrity check cannot
       // tell the turn's own changes from what the working tree already had.
-      const controllerVerificationBaseline = useLocalControllerVerification
+      if (localExecution && managedTurnOptions) managedTurnOptions.taskHash = localExecution.snapshot().taskDigest;
+      const controllerVerificationBaseline = localExecutionBaseline ?? (useLocalControllerVerification
         ? await captureManagedRepositoryBaseline(workingDirectory, controller.signal)
-        : undefined;
+        : undefined);
       const controllerVerificationOptions = (base: ManagedBrowserTurnOptions): ManagedBrowserTurnOptions => ({
         ...base,
         ...(controllerVerificationBaseline === undefined
@@ -4757,11 +4770,26 @@ export const createRuntime = (
       }> => {
         const controllerOptions = controllerVerificationOptions(base);
         const controllerTurn = await prepareManagedBrowserTurn(controllerOptions);
-        const records = await runManagedControllerVerification(
+        const exactRefs: string[] = [];
+        const verify = () => runManagedControllerVerification(
           controllerTurn,
           controllerOptions,
           declaredControllerChecks.map((check) => check.id),
         );
+        const compact = localExecution;
+        const records = compact
+          ? await withControllerEvidence(async (source, content) => {
+              const record = await compact.evidence.put({ kind: "controller", source, content, candidate: controllerTurn.workspaceFingerprint, revision: compact.snapshot().revision });
+              exactRefs.push(record.id);
+            }, verify)
+          : await verify();
+        if (compact) {
+          await compact.verification(controllerTurn.workspaceFingerprint, records.map((record) => ({
+            id: record.id, status: record.status,
+            content: JSON.stringify({ record, exactCommandAndCheckReferences: exactRefs }),
+          })));
+          await persistNow();
+        }
         const authorization = controllerVerificationAuthorizes({
           required: declaredControllerChecks,
           records,
@@ -4984,10 +5012,11 @@ export const createRuntime = (
       outputRedactors.delete(agentId);
       patchAgent(agentId, { status: "running", error: undefined, output: "" });
 
-      const sendTurn = async (
+      const sendProviderTurn = async (
         turnPrompt: string,
         turnAttachments: string[],
         promptEventType: string,
+        archiveAnswer?: (answer: string) => Promise<void>,
       ): Promise<AdapterTurnResult> => {
         const managedDeadline = (): TurnDeadline => ({
           kind: "managed",
@@ -5031,7 +5060,9 @@ export const createRuntime = (
         }
         abortOnDeadline([browserDeadline()]);
         const request: SendRequest = {
-          sessionId: agentStateFor(agentId).sessionId,
+          ...(localExecution
+            ? { sessionMode: "freshExecutionState" as const }
+            : { sessionId: agentStateFor(agentId).sessionId }),
           sessionName: hostCallbacks.getProviderChatTitle?.(agentId),
           browserBinding: agentStateFor(agentId).browserBinding,
           prompt: turnPrompt,
@@ -5053,6 +5084,7 @@ export const createRuntime = (
         const streamLimits = { agentId, maxStoredResponseBytes };
         let stream = emptyTurnStream();
         for await (const event of turnAdapter.send(request, controller.signal)) {
+          if (event.type === "complete" && archiveAnswer) await archiveAnswer(event.answer);
           const advanced = turnStreamStep(stream, event, streamLimits);
           stream = advanced.state;
           const action = advanced.action;
@@ -5063,6 +5095,10 @@ export const createRuntime = (
           }
           if (action.kind === "failure") throw new Error(action.message);
           if (action.kind === "session") {
+            if (localExecution) {
+              await localExecution.locator(agentId, action.sessionId);
+              await persistNow();
+            }
             patchAgent(agentId, { sessionId: action.sessionId }, true);
             continue;
           }
@@ -5126,6 +5162,44 @@ export const createRuntime = (
             ? {}
             : { capturedResponse: outcome.capturedResponse }),
         };
+      };
+
+      const sendTurn = async (
+        turnPrompt: string,
+        turnAttachments: string[],
+        promptEventType: string,
+        repairAttempt?: number,
+      ): Promise<AdapterTurnResult> => {
+        const compact = localExecution;
+        if (!compact) return sendProviderTurn(turnPrompt, turnAttachments, promptEventType);
+        if (localExecutionPolicyIdentity?.() !== compact.snapshot().policyId) throw new Error("Effective execution policy changed; compact execution requires recovery");
+        if (turnAttachments.length > 0 || !stepId) throw new Error("Compact dispatch does not admit attachments or unbound steps");
+        const role = options.roleId === "lead" ? "planner" : options.roleId === "worker" ? "worker" : options.roleId === "reviewer" ? "reviewer" : undefined;
+        if (!role) throw new Error("Compact dispatch requires a declared TODO role");
+        const candidate = async (): Promise<string> => computeManagedWorkspaceFingerprint({
+          taskHash: compact.snapshot().taskDigest,
+          repositoryBaseline: await captureManagedRepositoryBaseline(workingDirectory, controller.signal),
+        });
+        const snapshot = compact.snapshot();
+        const resumeProcedure = promptEventType === "agent.prompt" && snapshot.pending?.procedure.startsWith(`${stepId}:`)
+          ? snapshot.pending.procedure : undefined;
+        const result = await compact.dispatch({
+          procedure: resumeProcedure ?? `${stepId}:${promptEventType}:${String(snapshot.revisionsUsed)}:${String(repairAttempt ?? 0)}`,
+          ...(repairAttempt === undefined ? {} : { repairAttempt }),
+          role, agentId, candidate,
+          send: async (projected, archiveAnswer) => (await sendProviderTurn(projected, [], promptEventType, archiveAnswer)).result,
+          audit: async () => {
+            const baseline = await captureManagedRepositoryBaseline(workingDirectory, controller.signal);
+            const initial = localExecutionBaseline;
+            if (!initial) throw new Error("Compact task-start baseline is missing");
+            const before = new Map(initial.entries.map((entry) => [entry.path, entry.fingerprint]));
+            const after = new Map(baseline.entries.map((entry) => [entry.path, entry.fingerprint]));
+            const changedPaths = [...new Set([...before.keys(), ...after.keys()])].filter((file) => before.get(file) !== after.get(file)).sort();
+            return { candidate: computeManagedWorkspaceFingerprint({ taskHash: compact.snapshot().taskDigest, repositoryBaseline: baseline }), changedPaths };
+          },
+          persistBoundary: persistNow,
+        });
+        return { result };
       };
 
       const isBrowserAgent = definitions[agentId]?.adapter.endsWith("-browser") === true;
@@ -5903,7 +5977,7 @@ export const createRuntime = (
         controllerVerificationIssues = managedLeadReview.issues;
         controllerVerificationBlocked = !managedLeadReview.authorized;
       } else if (useLocalControllerVerification && managedTurnOptions && status === "completed") {
-        let attemptsUsed = 0;
+        let attemptsUsed = localExecution?.snapshot().repairAttempts ?? 0;
         for (;;) {
           if (resultIsStale({ operationTaskId, currentTaskId: state.taskId, aborted: controller.signal.aborted })) {
             return { status: "interrupted", answer: "" };
@@ -5933,6 +6007,7 @@ export const createRuntime = (
             }),
             [],
             "verification.controller.revision",
+            attemptsUsed,
           );
           status = continuation.result.status;
           lastNaturalAnswer = continuation.result.answer;
@@ -5948,12 +6023,13 @@ export const createRuntime = (
       }
       let controllerVerificationSendsBack = false;
       if (controllerVerificationBlocked && managedTurnOptions) {
-        const used = managedTaskState.spendRevision(operationTaskId);
+        const used = localExecution ? await localExecution.spendRevision() : managedTaskState.spendRevision(operationTaskId);
         if (used > Math.max(0, managedTurnOptions.maxRevisionCycles)) {
           throw new Error(
             `Managed Lead cannot approve: required verification is not passing after ${String(used - 1)} revision cycle(s) (${controllerVerificationIssues.join(", ")})`,
           );
         }
+        if (localExecution) await localExecution.budgets({ revisionsUsed: used, repairAttempts: 0 });
         controllerVerificationSendsBack = true;
       }
       // P3. What a managed local Lead's own answer does to the run.
@@ -6002,12 +6078,13 @@ export const createRuntime = (
           );
         }
         if (decision.decision === "reject") {
-          const used = managedTaskState.spendRevision(operationTaskId);
+          const used = localExecution ? await localExecution.spendRevision() : managedTaskState.spendRevision(operationTaskId);
           if (used > Math.max(0, managedTurnOptions.maxRevisionCycles)) {
             throw new Error(
               `Managed Lead rejected the candidate after ${String(used - 1)} revision cycle(s), which is the whole revision budget: ${decision.defects.map((defect) => defect.id).join(", ")}`,
             );
           }
+          if (localExecution) await localExecution.budgets({ revisionsUsed: used, repairAttempts: 0 });
           managedTaskState.holdLeadRevision(operationTaskId, {
             candidate: managedLeadReview.workspaceFingerprint,
             summary: decision.summary,
@@ -6093,7 +6170,7 @@ export const createRuntime = (
           ? {
               managedState: {
                 state: "WORKER_REVISE",
-                revisionCycles: managedTaskState.revisionsUsed(operationTaskId),
+                revisionCycles: localExecution?.snapshot().revisionsUsed ?? managedTaskState.revisionsUsed(operationTaskId),
                 maxRevisionCycles: managedTurnOptions.maxRevisionCycles,
               },
             }
@@ -7425,6 +7502,43 @@ export const createRuntime = (
           throw projectPreflightError(projectFailure);
         }
 
+        localExecution = undefined;
+        localExecutionBaseline = undefined;
+        if (runSettings.values.executionContextMode === "localTodoStateV1" && pipeline.id === "todo-implementation") {
+          const assigned = Object.fromEntries(pipeline.steps.flatMap((entry) => entry.type === "assignRoles" ? entry.roleAssignments.map((item) => [item.role, item.agentId]) : []));
+          const assignments = { planner: assigned.lead ?? "", worker: assigned.worker ?? "", reviewer: assigned.reviewer ?? "" };
+          const allLocal = Object.values(assignments).every((agentId) => ["claude-code", "codex-app-server"].includes(definitions[agentId]?.adapter ?? ""));
+          if (!allLocal) throw new Error("Compact TODO mode requires local Claude Code or Codex assignments; provider changes require explicit recovery");
+          if (allLocal) {
+            if (!workspaceRoot || attachmentPaths.length > 0) throw new Error("Compact TODO mode requires a workspace and no attachments");
+            const enabled = pipeline.steps.filter((entry) => entry.enabled);
+            if (enabled.length !== 4 || enabled.some((entry, index) => entry.id !== ["assign-roles", "lead-plan", "worker-implementation", "lead-review"][index]
+              || entry.humanGate !== "none"
+              || (index === 0 ? entry.type !== "assignRoles" : entry.type !== "agent"
+                || entry.consensus || entry.parallel || entry.participants.length !== 1
+                || entry.participants[0] !== ["", "lead", "worker", "reviewer"][index]))) {
+              throw new Error("Compact TODO mode requires the serial planner, worker, reviewer workflow");
+            }
+            const baseline = await captureManagedRepositoryBaseline(workspaceRoot, controller.signal);
+            const taskDigest = evidenceDigest(redactText(prompt));
+            localExecutionPolicyIdentity = () => evidenceDigest(JSON.stringify({ policy: pipeline.managedPolicy, constraints: runConstraints, authority: captureRunSettings(liveConfigurationReader).authority }));
+            localExecution = await createLocalExecutionState(storageDirectory, {
+              ...localExecutionScope(taskId), bundleId: pipelineSnapshot.bundleHash ?? pipelineSnapshot.hash, bundle: JSON.stringify(pipelineSnapshot), task: prompt,
+              instructions: JSON.stringify({ roles: pipeline.roles, steps: pipeline.steps.filter((entry) => entry.type === "agent").map((entry) => ({ id: entry.id, promptTemplate: entry.promptTemplate })) }),
+              assignments, policyId: localExecutionPolicyIdentity(),
+              candidate: computeManagedWorkspaceFingerprint({ taskHash: taskDigest, repositoryBaseline: baseline }),
+              baseline: JSON.stringify(baseline), checks: pipeline.managedPolicy?.verificationChecks ?? [], maxRevisions: pipeline.managedPolicy?.maxRevisionCycles ?? 1,
+              restart: options.restartFrom !== undefined,
+              withMutation: withWorkspaceMutation,
+              ...(hostCallbacks.onExecutionEvidence ? { onRecord: hostCallbacks.onExecutionEvidence } : {}),
+            });
+            const admittedBaseline = await localExecution.evidence.read(localExecution.snapshot().baselineRef, "controller");
+            localExecutionBaseline = parseManagedRepositoryBaseline(JSON.parse(admittedBaseline.content));
+            if (!localExecutionBaseline) throw new Error("Compact task-start baseline is invalid");
+            managedTaskState.restoreRevisions(taskId, localExecution.snapshot().revisionsUsed);
+            await persistNow();
+          }
+        }
         workflowActive = true;
         state.roles = { ...initialCheckpoint.snapshot.roles };
         patchRun(true, "running", { roles: state.roles });
@@ -7453,6 +7567,7 @@ export const createRuntime = (
             );
           },
           {
+            ...(localExecution ? { executionContextMode: "localTodoStateV1" as const } : {}),
             onStep: (step, _index, round) => {
               // Republish the contract at every step boundary. Pinned values do not move, but an
               // authority control the human changed since the run started must not keep being
@@ -7622,6 +7737,9 @@ export const createRuntime = (
         // task it was running is over, and its revision budget and any undelivered Lead
         // directive end with it.
         managedTaskState.clear();
+        localExecution = undefined;
+        localExecutionBaseline = undefined;
+        localExecutionPolicyIdentity = undefined;
         endRunSettings();
         attachmentUseCount -= 1;
         activeForegroundOperations -= 1;

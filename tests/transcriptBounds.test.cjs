@@ -35,6 +35,28 @@ const entry = (overrides = {}) => ({
 
 const temporaryDirectory = () => fs.mkdtempSync(path.join(os.tmpdir(), "bachata-transcript-"));
 
+test("bounded transcript retention cannot prune admitted exact evidence", async () => {
+  const { createExecutionEvidenceStore } = require("../dist/state/executionEvidence.js");
+  const { exportExecutionEvidence } = require("../dist/export/executionEvidence.js");
+  const directory = temporaryDirectory();
+  const transcript = createTranscriptStore(directory, () => undefined, { maxEntries: 1 });
+  try {
+    const evidence = createExecutionEvidenceStore(directory, { runId: "run", taskId: "task" });
+    const text = "admitted-" + "🙂".repeat(3000);
+    const record = await evidence.put({ kind: "answer", source: "dispatch", content: text });
+    await transcript.append(entry({ text }));
+    assert.notEqual((await transcript.load())[0].text, text);
+    await transcript.append(entry({ id: "2", text: "later preview" }));
+    assert.equal((await transcript.load()).some((item) => item.id === "1"), false);
+    await transcript.clear();
+    const exported = JSON.parse(await exportExecutionEvidence(directory));
+    assert.equal(exported.runs[0].records.find((item) => item.id === record.id).content, text);
+  } finally {
+    await transcript.flush();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("a ten-megabyte answer is bounded, marked, and cheap to bound", () => {
   const started = Date.now();
   const bounded = boundedTranscriptEntry(entry({ text: "a".repeat(MEGABYTES) }));

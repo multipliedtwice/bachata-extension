@@ -1,3 +1,4 @@
+import { currentControllerEvidenceCapture } from "../state/executionEvidence";
 import { captureSourceBaseline } from "./sourceBaseline";
 import { BrowserContextReferences } from "./contextReferences";
 import { assertBrowserSourcePath, browserAttachmentPath, isBrowserSourcePath, browserSourceDiff } from "./sourceTransferPolicy";
@@ -1540,7 +1541,7 @@ const verifyManagedWorkspaceIntegrity = async (
       id: "workspace-integrity",
       status: "failed",
       scope: "workspaceIntegrity",
-      summary: `Controller detected repository policy violations:\n${turn.repositoryPolicyViolations.join("\n")}`.slice(0, 16_384),
+      summary: controllerSummary(`Controller detected repository policy violations:\n${turn.repositoryPolicyViolations.join("\n")}`, 16_384),
     };
   }
   const validated: string[] = [];
@@ -1586,9 +1587,12 @@ const executionPassed = (execution: Awaited<ReturnType<typeof runProcess>>): boo
   && !execution.timedOut
   && !execution.cancelled;
 
+const controllerSummary = (value: string, limit: number): string =>
+  currentControllerEvidenceCapture() ? value : value.slice(0, limit);
+
 const processSummary = (label: string, execution: Awaited<ReturnType<typeof runProcess>>): string => {
   const detail = [execution.stdout, execution.stderr].filter(Boolean).join("\n").trim();
-  return `${label}: ${detail || `exit ${String(execution.exitCode ?? "unknown")}`}`.slice(0, 8_192);
+  return controllerSummary(`${label}: ${detail || `exit ${String(execution.exitCode ?? "unknown")}`}`, 8_192);
 };
 
 const verifyManagedProjectChecks = async (
@@ -1666,6 +1670,7 @@ const verifyManagedProjectChecks = async (
   }
 
   const syntaxCheck = collectContextSyntaxCheck(turn.index, existingChanged);
+  await currentControllerEvidenceCapture()?.("controller syntax evidence before projection", JSON.stringify(syntaxCheck));
   if (syntaxCheck.diagnostics.length > 0) {
     failures.push(...syntaxCheck.diagnostics.slice(0, 20).map((diagnostic) =>
       `${diagnostic.path}${diagnostic.line ? `:${String(diagnostic.line)}` : ""}: ${diagnostic.message}`,
@@ -1765,7 +1770,7 @@ const verifyManagedProjectChecks = async (
       id: "project-checks",
       scope: "controllerProjectChecks",
       status: "failed",
-      summary: failures.join("\n").slice(0, 16_384),
+      summary: controllerSummary(failures.join("\n"), 16_384),
     };
   }
   if (syntaxCheck.skippedPaths.length > 0) {
@@ -1790,8 +1795,8 @@ const verifyManagedProjectChecks = async (
     scope: "controllerProjectChecks",
     status: "passed",
     summary: summaries.length > 0
-      ? `${summaries.join("; ")}; ${controllerScopeNote}`.slice(0, 16_384)
-      : `No changed source files required an available language-specific checker; controller safety checks passed. ${controllerScopeNote}`.slice(0, 16_384),
+      ? controllerSummary(`${summaries.join("; ")}; ${controllerScopeNote}`, 16_384)
+      : controllerSummary(`No changed source files required an available language-specific checker; controller safety checks passed. ${controllerScopeNote}`, 16_384),
   };
 };
 
@@ -2051,6 +2056,13 @@ export const runManagedControllerVerification = async (
   checkIds: readonly string[],
 ): Promise<HandoffVerification[]> => {
   const verificationFingerprint = await refreshManagedWorkspaceFingerprint(turn, options);
+  await currentControllerEvidenceCapture()?.("controller workspace evidence before projection", JSON.stringify({
+    workspaceFingerprint: verificationFingerprint,
+    workspaceSnapshot: turn.workspaceSnapshot,
+    changedFiles: turn.changedFiles,
+    preexistingChangedFiles: turn.preexistingChangedFiles,
+    repositoryPolicyViolations: turn.repositoryPolicyViolations,
+  }));
   const checksById = new Map(options.verificationChecks.map((check) => [check.id, check]));
   let results: HandoffVerification[] = [];
   for (const checkId of checkIds) {
@@ -2076,6 +2088,7 @@ export const runManagedControllerVerification = async (
         summary: `Autonomous managed verification does not execute repository commands or shell wrappers: ${check.command}.`,
       });
     } catch (error) {
+      if (currentControllerEvidenceCapture()) throw error;
       results.push({
         id: checkId,
         status: "failed",
@@ -2086,6 +2099,8 @@ export const runManagedControllerVerification = async (
       });
     }
   }
+  const capture = currentControllerEvidenceCapture();
+  if (capture) await capture("controller verification records before projection", JSON.stringify(results));
   const completedFingerprint = await refreshManagedWorkspaceFingerprint(turn, options);
   if (completedFingerprint !== verificationFingerprint) {
     results = results.map((record) => ({

@@ -82,3 +82,14 @@ test("clear is idempotent and a cleared owner still serves the next task", () =>
   state.holdLeadRevision("task-1", directive("candidate-1"));
   assert.equal(state.takeLeadRevision("task-1")?.candidate, "candidate-1");
 });
+
+test("compact recovery restores only the task-owned revision budget", () => {
+  const state = createManagedTaskState();
+  state.restoreRevisions("task", 1);
+  assert.equal(state.revisionsUsed("task"), 1);
+  assert.equal(state.spendRevision("task"), 2);
+  assert.equal(state.revisionsUsed("other"), 0);
+  assert.throws(() => state.restoreRevisions("task", -1));
+  state.clear();
+  assert.equal(state.revisionsUsed("task"), 0);
+});

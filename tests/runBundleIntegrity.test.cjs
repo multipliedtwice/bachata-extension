@@ -43,6 +43,14 @@ const exportedRun = () => ({
   },
 });
 
+test("explicit admitted evidence export is not mistaken for a replayable run bundle", async (t) => {
+  const { fixture } = require("./support/executionFixture.cjs");
+  const { exportExecutionEvidence } = require("../dist/export/executionEvidence.js");
+  const { root } = await fixture(t);
+  const inspection = inspectRunBundle(await exportExecutionEvidence(root));
+  assert.ok(inspection.errors.length > 0);
+});
+
 test("an exported bundle records a digest of exactly what it carries", () => {
   const bundle = JSON.parse(createRunBundle(exportedRun(), "2026-08-25T00:00:00.000Z"));
   assert.equal(bundle.integrity.algorithm, "sha256");

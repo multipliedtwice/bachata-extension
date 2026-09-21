@@ -26,6 +26,18 @@ const presetNames = fs
 const readPreset = (name) =>
   JSON.parse(fs.readFileSync(path.join(presetsDirectory, name), "utf8"));
 
+test("shipped local TODO contract admits exact immutable instructions under compact limits", () => {
+  const { EXECUTION_LIMITS } = require("../dist/pipeline/executionState.js");
+  const definition = validatePipeline(readPreset("todo-implementation.pipeline.json"), "todo-implementation");
+  const enabled = definition.steps.filter((step) => step.enabled);
+  assert.deepEqual(enabled.map((step) => step.id), ["assign-roles", "lead-plan", "worker-implementation", "lead-review"]);
+  assert.ok(enabled.slice(1).every((step) => step.type === "agent" && !step.parallel && !step.consensus && step.participants.length === 1));
+  const instructions = JSON.stringify({ roles: definition.roles, steps: definition.steps.filter((step) => step.type === "agent").map((step) => ({ id: step.id, promptTemplate: step.promptTemplate })) });
+  assert.ok(Buffer.byteLength(instructions + "Implement the declared task", "utf8") < EXECUTION_LIMITS.taskInstructions);
+  assert.deepEqual(definition.managedPolicy.verificationChecks.map((check) => check.id), ["workspace-integrity", "project-checks"]);
+  assert.equal(definition.managedPolicy.maxRevisionCycles, 1);
+});
+
 test("every shipped preset validates through the real schema and the real adapter registry", () => {
   // WHY BOTH, AND WHY THE REGISTRY. `feature-delivery` shipped a step permission mode of
   // `acceptEdits` on its Worker ROLE, and that role's first candidate is Codex, which has

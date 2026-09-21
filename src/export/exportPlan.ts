@@ -21,7 +21,7 @@ import type { ExportPolicy } from "./exportPolicy";
  * function of what the policy did rather than of where it was called from.
  */
 
-export type ExportFormat = "bundle" | "markdown" | "sarif";
+export type ExportFormat = "bundle" | "markdown" | "sarif" | "executionEvidence";
 
 export type ExportPlan = {
   format: ExportFormat;
@@ -45,6 +45,7 @@ export type ExportPlanVerdict =
 
 const SUFFIXES: Record<ExportFormat, string> = {
   bundle: "bachata-run",
+  executionEvidence: "bachata-execution-evidence",
   markdown: "bachata-evidence",
   sarif: "bachata-evidence.sarif",
 };
@@ -62,7 +63,7 @@ export const runExportPlan = (input: {
   runRef: string;
 }, localize: Localize = formatMessage): ExportPlanVerdict => {
   const format = input.format ?? "bundle";
-  if (format !== "bundle" && !input.hasEvidence) {
+  if (format !== "bundle" && format !== "executionEvidence" && !input.hasEvidence) {
     return { refusal: localize("This run has no recorded result to export as evidence") };
   }
   const extension = format === "markdown" ? "md" : "json";
@@ -80,7 +81,9 @@ export const runExportPlan = (input: {
         ? { [localize("Bachata evidence report")]: ["md"] }
         : { [localize("Bachata export")]: ["json"] },
       saveLabel: localize("Export"),
-      prompt: format === "markdown"
+      prompt: format === "executionEvidence"
+        ? localize("Export admitted execution evidence?")
+        : format === "markdown"
         ? localize("Export evidence as Markdown?")
         : format === "sarif"
           ? localize("Export evidence as SARIF?")

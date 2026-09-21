@@ -538,3 +538,13 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
     });
   }
 });
+
+it("offers an explicit admitted-evidence export without starting a provider turn", () => {
+  boot("completed");
+  cy.window().then((win) => { win.__posted.length = 0; });
+  cy.get('.result-primary-actions details.header-action-menu > summary').click();
+  cy.get('[data-action="run-bundle-export"][data-format="executionEvidence"]').should("be.visible").click();
+  cy.window().should((win) => expect(win.__posted).to.deep.equal([{
+    type: "conversation.exportBundle", conversationId: "run-1", format: "executionEvidence",
+  }]));
+});

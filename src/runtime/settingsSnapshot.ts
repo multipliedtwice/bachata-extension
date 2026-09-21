@@ -42,6 +42,7 @@ export type RunSettingsSnapshot = {
 // interface   presentation, retention and admission limits. They do not decide what a run does,
 //             so they are neither pinned nor recorded.
 export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
+  { key: "executionContextMode", kind: "string", fallback: "legacy", allowed: ["legacy", "localTodoStateV1"] },
   { key: "defaultPipelineIterations", kind: "number", fallback: 1, minimum: 1, maximum: 10 },
   { key: "maxPipelineIterations", kind: "number", fallback: 10, minimum: 1, maximum: 50 },
   { key: "browserOperationTimeoutMs", kind: "number", fallback: 7_200_000, minimum: 10_000, maximum: MAXIMUM_TIMEOUT_MS },
@@ -491,3 +492,11 @@ const stable = (value: unknown): unknown => {
 
 export const runSettingsFingerprint = (snapshot: RunSettingsSnapshot): string =>
   JSON.stringify(stable(snapshot));
+
+export const executionContextModeForRun = (
+  configured: unknown,
+  recorded?: RunSettingsSnapshot,
+): "legacy" | "localTodoStateV1" => {
+  const value = recorded === undefined ? configured : recorded.values.executionContextMode;
+  return value === "localTodoStateV1" ? "localTodoStateV1" : "legacy";
+};

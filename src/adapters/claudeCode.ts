@@ -1,3 +1,4 @@
+import { assertAdapterSessionMode } from "./types";
 import {
   appendBoundedText,
   createBoundedLineDecoder,
@@ -441,6 +442,7 @@ export const createClaudeCodeAdapter = (
     const queue = createAsyncQueue<AgentEvent>();
 
     const execute = async (): Promise<void> => {
+      assertAdapterSessionMode(requestData);
       if (disposed) {
         queue.fail(new Error("Claude Code adapter is disposed"));
         return;

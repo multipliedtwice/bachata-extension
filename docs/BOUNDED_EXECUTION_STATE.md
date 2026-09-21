@@ -1,6 +1,49 @@
-# Bounded execution state (design, not shipped)
+# Bounded execution state
 
-Design only. No behaviour change. Default unchanged. No implementation here.
+Local TODO slice implemented in source. `legacy` remains default. Full dependency-backed gates
+pending. Other domains remain design only.
+
+## Implemented contract
+
+`executionState.ts` owns strict parsing and the pure reducer. `executionProjection.ts` owns prompt
+bounds. `localExecutionState.ts` owns evidence admission, durable dispatch boundaries and recall.
+`createRuntime.ts` keeps existing controller checks, workspace audits and Lead verdict routing.
+
+Model proposals name version, issued dispatch, base revision, procedure, typed operations and task
+result. Planner proposes bounded plan/acceptance. Worker reports work or proposes a resolution.
+Lead proposes exact defects or resolves named defects after controller verification. Controller
+alone changes candidate, checks, policy, phase and completion. Omission retains data. No merge,
+null-delete or rolling summary. Duplicate JSON keys and duplicate operation targets refuse.
+
+Compare the proposal with its issued state, then bind authorized Worker edits to the audited
+post-turn candidate. Read-only drift refuses. Required evidence and unresolved defect text must
+fit; no truncation to make a dispatch fit.
+
+| Bound | Initial value |
+| --- | --- |
+| Complete Bachata prompt | 128 KiB |
+| State projection | 32 KiB |
+| Exact task + all role/workflow instructions | 32 KiB |
+| Latest observation | 16 KiB |
+| Recalled UTF-8 content per dispatch | 16 KiB |
+| Plan items / unresolved defects / required checks | 16 / 10 / 16 |
+| JSON depth | 8 |
+| Free text / identifiers | 4 KiB / 128 bytes; defect ids 80 bytes |
+
+Recall names known handles and byte ranges. Validate scope, reader, digest, completeness, candidate
+and UTF-8 boundaries. Pages carry continuation offsets. Historical pages cannot pass current
+checks. Recall is explicit and runs in another fresh conversation.
+
+Exact evidence is durable before references are published. See [State](./STATE.md) for storage and
+export limits. Prepared prompts reconstruct byte-for-byte. Settled dispatches can recover a lost
+workflow checkpoint. Unsettled writes reconcile workspace state and block automatic replay.
+Explicit task restart preserves old evidence. Mode changes apply at a new run boundary.
+
+The source tests include deterministic 10/50/100/200-transition fixtures, byte comparisons,
+malformed proposals, stale revisions, recall integrity and crash boundaries. These fixtures are
+not a provider quality or cost result. The dependency-equipped checkout must run the full gates.
+
+## Original design context
 
 Source: SKILL.state, <https://arxiv.org/html/2608.26263>. Take core. Do not port the framework. Do
 not copy its merge semantics.
@@ -33,7 +76,7 @@ Paper limits, both hit Bachata:
 Invariant: transcript never source of truth for the next action. Execution state never a record of
 what happened.
 
-## Baseline today
+## Legacy baseline
 
 `src/pipeline/runner.ts:485` builds the template values: prior/peer/intervention answers, role
 identity, `outputsJson`, per-agent and per-role answer maps. Prompt = `Role: <name> (<id>)` + role
@@ -65,7 +108,7 @@ Nothing foreign to import. Gap is schema, reducer, who-writes rule.
 - Transcript store + `state/catalog` — audit plane, already separate.
 - Pipeline output schemas — typed structured output, validated per step.
 
-## Proposed contract
+## Earlier design sketch (not the implemented schema)
 
 Versioned per pipeline domain. `todo-implementation` first.
 
@@ -126,10 +169,9 @@ grow — the resumed Claude/Codex session, which keeps its own conversation whil
 only a locator (`docs/STATE.md`), and the managed browser continuation, whose transcript lives in
 the tab, unowned. State-only semantics hold only where the provider conversation is also fresh.
 
-- local Claude/Codex resumed session: explicit fresh session per state-only turn. Rule not yet
-  explicit for local adapters.
-- managed browser continuation: `managedFreshSessionKeys` +
-  `ensureFreshManagedBrowserSession` (`src/runtime/createRuntime.ts`) already do this.
+- local Claude/Codex resumed session: explicit fresh session per state-only turn. Enforced by the discriminated adapter request and runtime guard in the pilot.
+- managed browser continuation is fresh once per task and agent, then continues until rollover.
+  It is not state-only. Per-turn freshness and state-aware rollover remain proposed browser work.
 - turn that keeps its provider session is NOT state-only. Never describe it as one.
 
 ## Pilot scope
@@ -140,14 +182,14 @@ the tab, unowned. State-only semantics hold only where the provider conversation
 - transcripts and evidence: nothing deleted.
 - no product performance claim before real controlled evaluation. Paper's numbers are paper's.
 
-## Acceptance for a later implementation
+## Acceptance gates
 
 - prompt projection constant across 10, 50, 100, 200 simulated transitions, bounds fixed.
 - restart from persisted state gives the same next prompt and same allowed action set.
 - stale, malformed, oversized, unknown-field, unauthorized-deletion patches all fail closed.
 - external workspace drift invalidates stale state immediately.
 - two patches against one base revision behave deterministically.
-- full chronology stays exportable while none of it auto-replays.
+- admitted exact evidence stays exportable after preview pruning; exclusions stay explicit.
 - state-only and current mode reach equivalent results on deterministic fixtures.
 - provider sessions demonstrably fresh where state-only semantics are claimed.
 
@@ -156,17 +198,14 @@ at runtime. `NO_TELEMETRY.md` is authoritative.
 
 ## Migration, compatibility, security
 
-- additive. New module `src/pipeline/executionState.ts` + per-domain schema. No existing type
-  changes.
+- additive opt-in modules and an explicit fresh-session adapter request. Legacy request shape remains accepted.
 - `schemaVersion` bump on any field change. Unknown version refuses, does not guess.
 - off by default: no migration for existing runs.
 - security boundary unchanged: controller still owns verification, Git and write scope. State
   carries evidence REFERENCES, so a model cannot smuggle forged check output into the next turn.
-- rollback: setting off. State records inert when unread.
+- rollback: setting off for new runs. Existing recovery retains its pinned mode and evidence.
 
-## Owner decisions still open
+## Pilot decisions locked
 
-- whether the pilot ships at all.
-- whether a fresh local provider session per turn is acceptable cost.
-- bound values (bytes, items) per domain.
-- whether Lead may write `unresolved` directly or only propose.
+Local TODO only. Fresh local conversation for every dispatch. Bounds above. Lead proposes defects;
+controller writes them. No default-on rollout. Broader domains remain separate work.

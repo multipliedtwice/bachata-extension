@@ -54,6 +54,18 @@ test("a checkpoint for the selected pipeline at its own revision is resumable", 
   assert.equal(recoveryCheckpointIsUsable(usable()), true);
 });
 
+test("a compact recovery checkpoint retains its pinned mode after the live setting is disabled", () => {
+  const { captureRunSettings, executionContextModeForRun } = require("../dist/runtime/settingsSnapshot.js");
+  const runSettings = captureRunSettings((key, fallback) => key === "executionContextMode" ? "localTodoStateV1" : fallback);
+  const input = usable({ checkpoint: { runSettings } });
+  const reloaded = { ...input, checkpoint: JSON.parse(JSON.stringify(input.checkpoint)) };
+  assert.equal(recoveryCheckpointIsUsable(reloaded), true);
+  assert.equal(executionContextModeForRun("legacy", reloaded.checkpoint.runSettings), "localTodoStateV1");
+  delete reloaded.checkpoint.runSettings.values.executionContextMode;
+  assert.equal(executionContextModeForRun("localTodoStateV1", reloaded.checkpoint.runSettings), "legacy");
+  assert.equal(executionContextModeForRun("legacy"), "legacy");
+});
+
 test("the first and last step boundaries are both resumable", () => {
   assert.equal(recoveryCheckpointIsUsable(usable({ checkpoint: { nextStepIndex: 0 } })), true);
   assert.equal(recoveryCheckpointIsUsable(usable({ checkpoint: { nextStepIndex: 2 } })), true);

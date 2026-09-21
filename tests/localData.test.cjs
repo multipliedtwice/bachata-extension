@@ -120,6 +120,7 @@ test("only archived, idle runs past the retention period are cleanup candidates"
       path.join(root, "transcript.jsonl"),
       path.join(root, "transcript.index.json"),
       path.join(root, "attachments"),
+      path.join(root, "execution-evidence"),
     ]);
     assert.deepEqual(initial.paths.filter((entry) => entry === root), [], "the storage root itself was offered for deletion");
     assert.equal(initial.bytes, 23, "the catalog beside the initial conversation was counted as its data");
@@ -147,4 +148,10 @@ test("a missing storage root reports zero instead of throwing", async () => {
     retainedWorktrees: [path.join(os.tmpdir(), "bachata-missing-worktree")],
   });
   assert.deepEqual(entries.map((entry) => entry.bytes), [0, 0, 0, 0, 0]);
+});
+
+test("default conversation deletion owns private execution evidence with its transcript", () => {
+  const { conversationOwnedPaths, DEFAULT_CONVERSATION_ID } = require("../dist/state/localData.js");
+  const owned = conversationOwnedPaths("/storage", DEFAULT_CONVERSATION_ID);
+  assert.ok(owned.some((entry) => entry.endsWith("execution-evidence")));
 });

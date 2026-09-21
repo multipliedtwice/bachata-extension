@@ -42,15 +42,12 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
 
 ### Bounded execution state pilot
 
-- [ ] **EX-BOUNDED-STATE-01 / bounded execution state pilot:** decide release inclusion.
-  If included, build the opt-in design in
-  [`docs/BOUNDED_EXECUTION_STATE.md`](docs/BOUNDED_EXECUTION_STATE.md). Scope:
-  `todo-implementation` + local Claude/Codex adapters, off by default. Needs: per-domain typed
-  schema with hard byte/item/depth bounds; controller-only compare-and-swap reducer keyed on
-  (revision, candidate fingerprint); typed field operations, never dictionary merge, never
-  omission-as-deletion; evidence held as audit-plane references; fresh provider session wherever
-  state-only semantics are claimed.
-  If included, owner sets per-domain bound values and whether Lead may write `unresolved`.
+- [ ] **EX-BOUNDED-STATE-01 / bounded execution state pilot:** verify the opt-in local TODO
+  implementation against the authoritative dependency-equipped checkout. Run formatting, lint,
+  type checks, no-telemetry, build, adapter/runtime/catalog/command-output/export regression files,
+  and the full required suite under safe resource conditions. Lead runs the authored Cypress
+  export journey. Keep `legacy` default; make no provider-quality or token/cost/latency claim.
+  Existing native ignored-write coverage remains EX-G6-09.
 
 ### P2: expanded evidence authority
 

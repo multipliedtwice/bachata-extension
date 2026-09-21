@@ -3,6 +3,40 @@ const test = require("node:test");
 
 const { createRuntimePersistence } = require("../dist/runtime/runtimePersistence.js");
 
+test("compact provider dispatch awaits persistNow instead of the debounced checkpoint", async (t) => {
+  const { fixture, projectionFromPrompt, proposal, planOperation } = require("./support/executionFixture.cjs");
+  const { controller } = await fixture(t);
+  let release;
+  let announce;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const started = new Promise((resolve) => { announce = resolve; });
+  let sends = 0;
+  const persistence = createRuntimePersistence({
+    snapshot: () => controller.snapshot(),
+    write: async (value) => {
+      if (value.pending?.status === "prepared") { announce(); await gate; }
+    },
+    withMutation: (operation) => operation(), log: () => undefined,
+  });
+  const pending = controller.dispatch({
+    procedure: "planner", role: "planner", agentId: "lead",
+    candidate: async () => "c0", audit: async () => ({ candidate: "c0", changedPaths: [] }),
+    persistBoundary: persistence.persistNow,
+    send: async (prompt) => {
+      sends += 1;
+      return { status: "completed", answer: JSON.stringify(proposal(projectionFromPrompt(prompt), "planned", [planOperation()])) };
+    },
+  });
+  await started;
+  assert.equal(sends, 0);
+  assert.equal(controller.snapshot().pending.status, "prepared");
+  release();
+  await pending;
+  await persistence.drain();
+  assert.equal(sends, 1);
+  assert.equal(controller.snapshot().pending.status, "settled");
+});
+
 // A harness with no clock and no workspace: every collaborator is a function this test owns, so
 // what is asserted is the module's own rules rather than a runtime's behaviour around it.
 const harness = (overrides = {}) => {

@@ -650,3 +650,25 @@ test("bounded event retention preserves only the latest attempt boundary and its
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("exact evidence references survive catalog history pruning and follow run deletion", async () => {
+  const { createExecutionEvidenceStore } = require("../dist/state/executionEvidence.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "bachata-evidence-catalog-"));
+  const catalog = createStateCatalog(root, { retention: { eventsPerRun: 1 } });
+  try {
+    const run = catalog.createRun({ title: "Evidence" });
+    const store = createExecutionEvidenceStore(root, { runId: "run", taskId: "task" }, {
+      onRecord: (record) => catalog.recordExecutionEvidence(run.runRef, record),
+    });
+    const record = await store.put({ kind: "answer", source: "dispatch", content: "exact answer" });
+    for (let index = 0; index < 5; index += 1) catalog.appendEvent({ runRef: run.runRef, type: "answer", payload: { preview: index } });
+    assert.equal(catalog.listExecutionEvidence(run.runRef).length, 1);
+    assert.equal((await store.read(record.id, "export")).content, "exact answer");
+    assert.throws(() => catalog.recordExecutionEvidence(run.runRef, record));
+    catalog.deleteRun(run.runRef);
+    assert.equal(catalog.listExecutionEvidence(run.runRef).length, 0);
+  } finally {
+    catalog.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,4 +1,4 @@
-import { BrowserConversationBinding, CapturedResponse } from "../browser/protocol";
+import type { BrowserConversationBinding, CapturedResponse } from "../browser/protocol";
 import type { ProviderModelCatalog } from "./providerModels";
 
 export type { ProviderModelCatalog, ProviderModelOption } from "./providerModels";
@@ -66,8 +66,20 @@ export type AgentCapabilities = {
   passiveActionLoop: boolean;
 };
 
-export type SendRequest = {
-  sessionId?: string | undefined;
+export type AdapterSessionMode =
+  | { sessionMode?: "existing" | undefined; sessionId?: string | undefined }
+  | { sessionMode: "freshExecutionState"; sessionId?: never };
+
+export const assertAdapterSessionMode = (request: SendRequest): void => {
+  if (request.sessionMode === "freshExecutionState" && "sessionId" in request) {
+    throw new Error("Fresh execution-state dispatch cannot carry a resume identifier");
+  }
+  if (request.sessionMode !== undefined && request.sessionMode !== "existing" && request.sessionMode !== "freshExecutionState") {
+    throw new Error("Unknown adapter session mode");
+  }
+};
+
+export type SendRequest = AdapterSessionMode & {
   sessionName?: string | undefined;
   browserBinding?: BrowserConversationBinding | undefined;
   prompt: string;

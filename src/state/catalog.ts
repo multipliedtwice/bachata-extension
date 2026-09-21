@@ -1,3 +1,4 @@
+import type { ExecutionEvidenceRecord } from "./executionEvidence";
 import { mkdirSync } from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -207,6 +208,8 @@ export type StateCatalog = {
   getRun: (runRef: string) => RunCatalogRecord | undefined;
   listRuns: (includeArchived?: boolean) => RunCatalogRecord[];
   deleteRun: (runRef: string) => void;
+  recordExecutionEvidence: (runRef: string, record: ExecutionEvidenceRecord) => void;
+  listExecutionEvidence: (runRef: string) => unknown[];
   getActiveRunRef: () => string | undefined;
   setActiveRunRef: (runRef?: string) => void;
   createIteration: (input: {
@@ -817,6 +820,13 @@ const migrate = (database: DatabaseSync): void => {
   runMigration(database, 18, () => {
     migrateReplaySourceSettingsColumn(database);
   });
+  runMigration(database, 19, () => {
+    database.exec(`CREATE TABLE execution_evidence (
+      evidence_id TEXT PRIMARY KEY,
+      run_ref TEXT NOT NULL REFERENCES runs(run_ref) ON DELETE CASCADE,
+      record_json TEXT NOT NULL
+    )`);
+  });
 };
 
 const installWriterFence = (database: DatabaseSync): void => {
@@ -835,6 +845,7 @@ const installWriterFence = (database: DatabaseSync): void => {
     "structured_outputs",
     "resources",
     "events",
+    "execution_evidence",
     ...LONGITUDINAL_TABLES,
   ];
   for (const table of tables) {
@@ -1653,6 +1664,15 @@ export const createStateCatalog = (
     getRun: (runRef) => readCatalogRun(database, runRef),
     listRuns: (includeArchived = false) => readCatalogRuns(database, includeArchived),
     deleteRun,
+    recordExecutionEvidence: (runRef, record) => {
+      database.prepare("INSERT INTO execution_evidence(evidence_id, run_ref, record_json) VALUES (?, ?, ?)").run(record.id, runRef, JSON.stringify(record));
+    },
+    listExecutionEvidence: (runRef) => database.prepare("SELECT record_json FROM execution_evidence WHERE run_ref = ? ORDER BY rowid").all(runRef).map((row) => {
+      const value = row.record_json;
+      if (typeof value !== "string") throw new Error("Invalid catalog execution evidence reference");
+      const parsed: unknown = JSON.parse(value);
+      return parsed;
+    }),
     getActiveRunRef: () => readCatalogActiveRunRef(database),
     setActiveRunRef,
     createIteration,
@@ -1751,6 +1771,7 @@ export const createStateCatalog = (
     "upsertRun",
     "commitRuns",
     "deleteRun",
+    "recordExecutionEvidence",
     "setActiveRunRef",
     "createIteration",
     "updateIteration",

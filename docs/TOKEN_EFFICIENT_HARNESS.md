@@ -1,6 +1,28 @@
-# Token-efficient harness (design, not shipped)
+# Token-efficient harness
 
-Status: proposal. No runtime change. No Bachata token or cost claim.
+Status: first local TODO slice implemented in source, off by default. Full project gates still
+require the dependency-equipped checkout. No token, cost, or latency claim.
+
+## Implemented slice
+
+- `bachata.executionContextMode`: `legacy` default; `localTodoStateV1` opt-in. Pin to run.
+- Local Claude/Codex, serial `todo-implementation` planner/worker/reviewer only. No attachments.
+- Exact admitted evidence store first. Post-redaction bytes, immutable blobs, manifest, catalog
+  references, explicit export. No provider-private history. See [State](./STATE.md).
+- Strict versioned proposals. Controller applies one transition per issued revision. Unknown,
+  stale, incomplete, over-limit, wrong-owner and unauthorized data refuse advancement.
+- Fresh Claude session and Codex `thread/start` for each dispatch, including repair and recall.
+  Session locators stay private audit records; never become resume inputs in this mode.
+- Keep existing scope audits, controller verification, candidate-bound Lead acceptance and
+  revision budgets. Worker reports cannot pass checks or clear Lead defects.
+- Persist prepared/dispatched/settled state, directives and budgets at awaited boundaries.
+  Uncertain writes reconcile and block; never auto-replay. Safe setting rollback is a new run.
+- Prompt 128 KiB; state projection 32 KiB; exact task + instructions 32 KiB; observation 16 KiB;
+  recall content 16 KiB. At most 16 plan items, 10 unresolved defects, 16 checks; depth 8.
+- Native ignored-write attribution remains the pre-existing `EX-G6-09` limitation. No new claim
+  of complete native tool history or ignored-file coverage.
+
+Remaining sections describe later mechanisms unless explicitly named above.
 
 Source ideas:
 
@@ -49,13 +71,13 @@ Pilot local Claude/Codex first. Each turn gets:
 - latest controller observation.
 - recallable evidence references.
 
-Each answer returns a validated state patch plus its task result. Controller applies patch. Full
+Each answer returns typed proposed operations plus its task result. Controller validates ownership and applies the transition. Full
 answer stays in audit storage. Next prompt uses state, not transcript replay.
 
 State-only semantics require a fresh provider session. A resumed provider session may retain hidden
 history, so Bachata must not claim bounded context while resuming it.
 
-### 2. Structured consensus projection
+### 2. Structured consensus projection — proposed
 
 Replace raw peer-answer replay with bounded fields:
 
@@ -68,7 +90,7 @@ Replace raw peer-answer replay with bounded fields:
 Keep original peer answers in audit storage. Allow exact recall by reference when a dispute needs
 it. Fail closed if projection is invalid or incomplete.
 
-### 3. Browser observation handles
+### 3. Browser observation handles — proposed
 
 Large DOM, diff, and verifier output becomes controller-owned evidence. Prompt gets compact summary
 and stable handle. Model may request exact evidence by handle. Controller checks scope and returns a
@@ -77,7 +99,7 @@ bounded slice.
 Conversation rollover becomes state-aware. Start a fresh browser conversation when hidden history
 is no longer useful, not only when a large byte ceiling is reached.
 
-### 4. Safe action fusion
+### 4. Safe action fusion — proposed
 
 For managed browser work, permit one bounded mutation plan to include declared verification. The
 controller still executes checks and owns the verdict. Failure enters the existing bounded revision
@@ -117,7 +139,7 @@ content digest, scope, and freshness. It is a reference, not proof supplied by a
 
 ## Rollout
 
-1. Local bounded-state pilot on one managed workflow.
+1. Local bounded-state pilot on one managed workflow: implemented off by default; project gates pending.
 2. Structured consensus projection.
 3. Browser observation handles and state-aware rollover.
 4. Safe action fusion.
@@ -132,8 +154,8 @@ Each phase stands alone. Do not require later phases to ship an earlier safe red
 - provider turn count drops where action fusion applies.
 - stale, malformed, oversized, or unauthorized patches and evidence requests fail closed.
 - restart from persisted state produces the same next prompt and allowed actions.
-- full chronology and original evidence remain exportable.
-- disabling feature restores current behavior.
+- exact admitted evidence remains exportable after preview pruning; disclose exclusions and redactions.
+- disabling the setting restores legacy behavior for new runs; recoverable runs retain their pinned state.
 
 Tests may assert prompt bytes, provider turns, state transitions, and result equivalence. No runtime
 measurement layer.
@@ -144,11 +166,8 @@ SoL-Pi reports lower token traffic and cost on its Pi-based evaluation, with a q
 its complete efficiency setting. Those are paper results, not Bachata results. Bachata has different
 providers, session behavior, pipelines, browser control, audit requirements, and safety gates.
 
-## Owner decisions
+## Locked pilot decisions
 
-- ship pilot or keep design only.
-- first workflow for pilot.
-- fresh-session cost acceptable or not.
-- state and evidence bounds.
-- reducer model, deterministic reducer, or hybrid.
-- minimum quality-equivalence fixtures before default-on consideration.
+Local TODO workflow, fresh sessions, fixed initial bounds, controller-only deterministic reducer,
+strict proposals, no telemetry, off by default. No open product decision for this slice.
+Later mechanisms and any default-on rollout need separate authorization and evidence.

@@ -1,4 +1,5 @@
 {
+  "configuration.bachata.executionContextMode.description": "Context for new runs. Legacy preserves existing behavior. localTodoStateV1 uses bounded controller state, exact local evidence, and fresh Claude/Codex conversations for the local TODO implementation workflow. The mode is pinned to each run.",
   "command.bachata.bootstrapConfiguration.title": "Bootstrap Verifiers and Repository Policy",
   "command.bachata.doctor.title": "Doctor",
   "command.bachata.explainPipeline.title": "Explain Pipeline",

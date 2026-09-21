@@ -1915,3 +1915,41 @@ test("Claude turn completes when the CLI keeps running after its result", async 
     await adapter.dispose();
   }
 });
+
+for (const provider of ["codex", "claude"]) {
+  test(`${provider} fresh execution-state dispatch never resumes a seeded provider conversation`, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-fresh-session-"));
+    const recordPath = path.join(root, "requests.jsonl");
+    const previous = process.env.MOCK_RECORD_PATH;
+    process.env.MOCK_RECORD_PATH = recordPath;
+    const adapter = provider === "codex" ? createCodex() : createClaude();
+    try {
+      const first = await collect(adapter.send(request("seed legacy conversation"), new AbortController().signal));
+      assert.equal(completion(first).status, "completed");
+      const seeded = session(first).sessionId;
+      await assert.rejects(collect(adapter.send({ ...request("must refuse", seeded), sessionMode: "freshExecutionState" }, new AbortController().signal)), /resume identifier/u);
+      for (const label of ["implementation", "repair", "recall"]) {
+        const fresh = { ...request(label), sessionMode: "freshExecutionState" };
+        delete fresh.sessionId;
+        const events = await collect(adapter.send(fresh, new AbortController().signal));
+        assert.equal(completion(events).status, "completed");
+        assert.ok(session(events).sessionId);
+      }
+      const records = fs.readFileSync(recordPath, "utf8").trim().split("\n").map(JSON.parse);
+      if (provider === "codex") {
+        const methods = records.filter((record) => record.type === "rpc").map((record) => record.message.method);
+        assert.equal(methods.filter((method) => method === "thread/start").length, 4);
+        assert.equal(methods.filter((method) => method === "thread/resume").length, 0);
+      } else {
+        const text = JSON.stringify(records);
+        assert.ok(text.includes("--session-id"));
+        assert.ok(!text.includes("--resume"));
+      }
+    } finally {
+      await adapter.dispose();
+      if (previous === undefined) delete process.env.MOCK_RECORD_PATH;
+      else process.env.MOCK_RECORD_PATH = previous;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}

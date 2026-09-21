@@ -326,12 +326,12 @@
     </section>
 
     <section class="part" id="token-efficiency">
-      <p class="eyebrow">Design proposal</p>
+      <p class="eyebrow">Opt-in local pilot</p>
       <h2>Use less repeated model context</h2>
-      <p>Bachata is exploring a token-efficient execution mode for Claude Code and Codex. The goal is to send the smallest sufficient state for the next decision instead of repeatedly sending complete earlier answers, verification output and conversation history.</p>
+      <p>Bachata now includes the first source implementation of a token-efficient execution mode for Claude Code and Codex. The goal is to send the smallest sufficient state for the next decision instead of repeatedly sending complete earlier answers, verification output and conversation history.</p>
       <div class="note warn">
-        <strong>Not shipped</strong>
-        This is an implementation proposal, not current behavior or a token, cost, latency or quality claim. Existing execution remains the default.
+        <strong>Off by default</strong>
+        Set <code>bachata.executionContextMode</code> to <code>localTodoStateV1</code> to opt in for local TODO implementation. <code>legacy</code> remains the default. Project release gates remain pending, and this is not a token, cost, latency or quality claim.
       </div>
 
       <h3>Why this can help</h3>
@@ -342,10 +342,10 @@
         <li>Current byte limits prevent runaway payloads, but they do not create recallable exact evidence.</li>
       </ul>
 
-      <h3>Proposed rollout</h3>
+      <h3>Rollout</h3>
       <ol class="steps">
-        <li><strong>Preserve exact admitted evidence.</strong> Store Bachata-owned prompts, returned answers and controller evidence before compact previews are produced. If exact evidence cannot be retained, compact execution does not start.</li>
-        <li><strong>Pilot bounded local state.</strong> Start fresh Claude Code or Codex sessions with typed task state, the latest controller observation and scoped evidence references. Keep the current flow as the fallback.</li>
+        <li><strong>Implemented: preserve exact admitted evidence.</strong> Store Bachata-owned prompts, returned answers and controller evidence before compact previews are produced. If exact evidence cannot be retained, compact execution does not start.</li>
+        <li><strong>Implemented off by default: pilot bounded local state.</strong> Start fresh Claude Code or Codex sessions with typed task state, the latest controller observation and scoped evidence references. Keep the current flow as the default.</li>
         <li><strong>Project consensus safely.</strong> Carry agreements, disputes, attribution and unresolved decisions without treating omitted objections as resolved.</li>
         <li><strong>Add browser recall and safe action fusion.</strong> Let the controller provide exact evidence pages and combine mutation with already authorized checks only where approval and recovery boundaries remain clear.</li>
       </ol>

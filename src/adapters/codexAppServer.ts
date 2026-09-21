@@ -1,3 +1,4 @@
+import { assertAdapterSessionMode } from "./types";
 import {
   createBoundedLineDecoder,
   createIncrementalTextDecoder,
@@ -1294,6 +1295,7 @@ export const createCodexAppServerAdapter = (
   };
 
   const openThread = async (requestData: SendRequest): Promise<string> => {
+    assertAdapterSessionMode(requestData);
     // Refuse before spawning. A run Bachata will not allow must not start a provider process.
     assertCodexScopeSupported(requestData.workspacePolicy, workspaceScope);
     await start();
@@ -1433,6 +1435,7 @@ export const createCodexAppServerAdapter = (
     const queue = createAsyncQueue<AgentEvent>();
 
     const execute = async (): Promise<void> => {
+      assertAdapterSessionMode(requestData);
       if (activeOperations.size > 0) {
         queue.fail(new Error("Codex is already running"));
         return;

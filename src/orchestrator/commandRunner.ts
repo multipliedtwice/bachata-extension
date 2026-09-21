@@ -1,3 +1,4 @@
+import { currentControllerEvidenceCapture, EXECUTION_EVIDENCE_LIMITS } from "../state/executionEvidence";
 import * as path from "node:path";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 
@@ -79,6 +80,11 @@ const execute = async (
       stderrTruncated: false,
     };
   }
+  const capture = currentControllerEvidenceCapture();
+  const exactStdout: Buffer[] = [];
+  const exactStderr: Buffer[] = [];
+  let exactBytes = 0;
+  let admissionFailure = false;
   const stdout = createBoundedBuffer(options.maxOutputBytes);
   const stderr = createBoundedBuffer(options.maxOutputBytes);
   const scope = spawnProcessScope(executable, args, {
@@ -88,12 +94,30 @@ const execute = async (
     windowsHide: true,
     cleanupGraceMs: 2_000,
   });
-  scope.child.stdout?.on("data", (chunk: Buffer) => appendBoundedBuffer(stdout, chunk));
-  scope.child.stderr?.on("data", (chunk: Buffer) => appendBoundedBuffer(stderr, chunk));
+  const admit = (chunks: Buffer[], chunk: Buffer): void => {
+    if (!capture || admissionFailure) return;
+    exactBytes += chunk.byteLength;
+    if (exactBytes > EXECUTION_EVIDENCE_LIMITS.recordBytes) {
+      admissionFailure = true;
+      void scope.terminate(2_000).catch(() => false);
+      return;
+    }
+    chunks.push(Buffer.from(chunk));
+  };
+  scope.child.stdout?.on("data", (chunk: Buffer) => {
+    admit(exactStdout, chunk);
+    appendBoundedBuffer(stdout, chunk);
+  });
+  scope.child.stderr?.on("data", (chunk: Buffer) => {
+    admit(exactStderr, chunk);
+    appendBoundedBuffer(stderr, chunk);
+  });
   scope.child.stdout?.once("error", (error) => {
+    if (capture) admissionFailure = true;
     appendBoundedBuffer(stderr, Buffer.from(error instanceof Error ? error.message : String(error), "utf8"));
   });
   scope.child.stderr?.once("error", (error) => {
+    if (capture) admissionFailure = true;
     appendBoundedBuffer(stderr, Buffer.from(error instanceof Error ? error.message : String(error), "utf8"));
   });
 
@@ -142,6 +166,13 @@ const execute = async (
   }
   if (!result.cleanupConfirmed) {
     appendBoundedBuffer(stderr, Buffer.from("Process scope cleanup could not be confirmed", "utf8"));
+  }
+  if (capture) {
+    if (admissionFailure) throw new Error("Exact controller output admission failed; verification cannot advance");
+    const decode = (chunks: Buffer[]): string => new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+    await capture("command invocation", JSON.stringify({ executable, args, exitCode: result.exitCode, timedOut, cancelled, cleanupConfirmed: result.cleanupConfirmed, error: result.error }));
+    await capture("command stdout", decode(exactStdout));
+    await capture("command stderr", decode(exactStderr));
   }
   return {
     ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),

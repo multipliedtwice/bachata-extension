@@ -79,12 +79,13 @@ export const describeLocalData = async (input: {
   retainedWorktrees: string[];
 }): Promise<LocalDataEntry[]> => {
   const conversations = path.join(input.storageRoot, "conversations");
-  const [catalog, rootTranscript, rootAttachments, pipelines, conversationData] = await Promise.all([
+  const [catalog, rootTranscript, rootAttachments, pipelines, conversationData, rootEvidence] = await Promise.all([
     fileSize(input.catalogPath),
     fileSize(path.join(input.storageRoot, "transcript.jsonl")),
     directorySize(path.join(input.storageRoot, "attachments")),
     directorySize(path.join(input.storageRoot, "pipelines")),
     directorySize(conversations),
+    directorySize(path.join(input.storageRoot, "execution-evidence")),
   ]);
   const worktrees = await Promise.all(input.retainedWorktrees.map((target) => directorySize(target)));
   return [
@@ -101,9 +102,9 @@ export const describeLocalData = async (input: {
       category: "transcripts",
       label: "Transcripts and per-run storage",
       path: conversations,
-      bytes: conversationData.bytes + rootTranscript.bytes,
-      fileCount: conversationData.fileCount + rootTranscript.fileCount,
-      removes: "Stored transcript previews and per-run files. Runs stay listed with their catalog metadata.",
+      bytes: conversationData.bytes + rootTranscript.bytes + rootEvidence.bytes,
+      fileCount: conversationData.fileCount + rootTranscript.fileCount + rootEvidence.fileCount,
+      removes: "Stored transcript previews, admitted execution evidence, and per-run files. Runs stay listed with their catalog metadata.",
       keeps: "Catalog metadata, provider-side conversation history, repository files.",
     },
     {
@@ -174,6 +175,7 @@ export const conversationOwnedPaths = (
         path.join(directory, "transcript.jsonl"),
         path.join(directory, "transcript.index.json"),
         path.join(directory, "attachments"),
+        path.join(directory, "execution-evidence"),
       ]
     : [directory];
 };

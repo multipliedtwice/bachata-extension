@@ -4,6 +4,26 @@ const { ProviderFailureError } = require("../dist/adapters/providerFailure.js");
 
 const { executePipeline } = require("../dist/pipeline/runner.js");
 
+test("compact runner leaves peer history out of the runtime input while legacy keeps the same handoff", async () => {
+  const definition = JSON.parse(require("node:fs").readFileSync(require("node:path").join(__dirname, "../presets/todo-implementation.pipeline.json"), "utf8"));
+  for (const compact of [false, true]) {
+    const prompts = [];
+    const result = await executePipeline(definition, "Exact task", [], async (_agentId, prompt) => {
+      prompts.push(prompt);
+      return { status: "completed", answer: `prior-answer-${prompts.length}` };
+    }, {
+      ...(compact ? { executionContextMode: "localTodoStateV1" } : {}),
+      onStep: () => undefined, onRoles: () => undefined,
+      waitForHumanGate: async () => ({ action: "continue" }),
+    });
+    assert.equal(result.status, "completed");
+    assert.equal(prompts.length, 3);
+    assert.equal(prompts[1].includes("prior-answer-1"), !compact);
+    assert.equal(prompts[2].includes("prior-answer-2"), !compact);
+    assert.ok(prompts.every((prompt) => prompt.includes("Exact task")));
+  }
+});
+
 const pipeline = {
   version: 1,
   id: "runner-test",

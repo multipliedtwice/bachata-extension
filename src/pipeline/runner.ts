@@ -146,6 +146,7 @@ export type ExecuteChecklistResult = {
 };
 
 export type PipelineRunCallbacks = {
+  executionContextMode?: "localTodoStateV1";
   onStep: (step: PipelineStep, index: number, round?: number) => void;
   onRoles: (roles: Record<string, AgentId>) => void;
   onOutput?: ((artifact: StepOutputArtifact) => Promise<void> | void) | undefined;
@@ -1380,7 +1381,9 @@ export const executePipeline = async (
             roles,
             namedOutputs,
           );
-          const renderedPrompt = renderTemplate(agentStep.promptTemplate, values);
+          const renderedPrompt = callbacks.executionContextMode === "localTodoStateV1"
+            ? userPrompt
+            : renderTemplate(agentStep.promptTemplate, values);
           const participantPrompt = roleDefinition
             ? [
                 `Role: ${roleDefinition.name} (${roleDefinition.id})`,

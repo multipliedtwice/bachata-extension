@@ -1,4 +1,4 @@
-import { JsonValue } from "../adapters/types";
+import type { JsonValue } from "../adapters/types";
 
 const sensitiveJsonKeys = new Set([
   "authorization",

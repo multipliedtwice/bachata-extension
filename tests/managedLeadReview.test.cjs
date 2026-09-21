@@ -20,6 +20,31 @@ const { TASK_REVIEW_VERDICT_SCHEMA } = require("../dist/pipeline/candidateShapes
 
 const CANDIDATE = "a".repeat(64);
 
+test("compact Lead decisions pass the existing candidate-bound verdict gate without altering exact defects", async (t) => {
+  const { fixture, proposal, projectionFromPrompt, planOperation } = require("./support/executionFixture.cjs");
+  const { controller } = await fixture(t);
+  const send = (role, status, operations, procedure = role) => controller.dispatch({
+    role, procedure, agentId: role === "worker" ? "worker" : "lead",
+    candidate: async () => "c0", audit: async () => ({ candidate: "c0", changedPaths: [] }),
+    persistBoundary: async () => undefined,
+    send: async (prompt) => ({ status: "completed", answer: JSON.stringify(proposal(projectionFromPrompt(prompt), status, operations)) }),
+  });
+  await send("planner", "planned", [planOperation()]);
+  await send("worker", "worked", [{ type: "reportWork", planIds: ["p1"] }]);
+  await controller.verification("c0", [{ id: "required", status: "passed", content: "pass" }]);
+  const evidence = controller.snapshot().checks[0].evidence;
+  const rejected = await send("reviewer", "reject", [{ type: "raiseDefect", id: "d1", statement: "exact defect", requiredChange: "exact repair", evidence: [evidence] }]);
+  const decision = managedLeadDecision({ answer: rejected.answer, candidate: "c0", currentCandidate: "c0" });
+  assert.equal(decision.decision, "reject");
+  assert.equal(decision.defects[0].statement, "exact defect");
+  assert.equal(decision.defects[0].requiredChange, "exact repair");
+  await send("worker", "worked", [{ type: "reportWork", planIds: ["p1"] }, { type: "proposeResolution", defectId: "d1" }], "worker-revision");
+  await controller.verification("c0", [{ id: "required", status: "passed", content: "pass again" }]);
+  const accepted = await send("reviewer", "accept", [{ type: "resolveDefect", defectId: "d1" }], "review-revision");
+  assert.equal(managedLeadDecision({ answer: accepted.answer, candidate: "c0", currentCandidate: "c0" }).decision, "accept");
+  assert.equal(managedLeadDecision({ answer: accepted.answer, candidate: "c0", currentCandidate: "drift" }).decision, "invalid");
+});
+
 const defect = (overrides = {}) => ({
   id: "missing-guard",
   severity: "blocker",

@@ -329,3 +329,24 @@ test("the three browser action policies offer the same choices in the same order
     assert.match(enumDescriptions[values.indexOf("disabled")], /^Refuse every/u);
   }
 });
+
+test("execution context mode is opt-in, pinned, validated, and localized", () => {
+  const defaults = captureRunSettings(reader());
+  assert.equal(defaults.values.executionContextMode, "legacy");
+  const optedIn = captureRunSettings(reader({ executionContextMode: "localTodoStateV1" }));
+  assert.equal(optedIn.values.executionContextMode, "localTodoStateV1");
+  assert.deepEqual(pinnedRunSettings.find((item) => item.key === "executionContextMode").allowed, ["legacy", "localTodoStateV1"]);
+  assert.equal(contributed.executionContextMode.default, "legacy");
+  assert.ok(manifestMessages["configuration.bachata.executionContextMode.description"]);
+});
+
+test("old runs remain legacy and setting withdrawal takes effect at the next new run boundary", () => {
+  const { executionContextModeForRun } = require("../dist/runtime/settingsSnapshot.js");
+  const old = captureRunSettings(reader());
+  delete old.values.executionContextMode;
+  assert.equal(executionContextModeForRun("localTodoStateV1", old), "legacy");
+  const active = captureRunSettings(reader({ executionContextMode: "localTodoStateV1" }));
+  assert.equal(executionContextModeForRun("legacy", active), "localTodoStateV1");
+  assert.equal(executionContextModeForRun("legacy"), "legacy");
+  assert.equal(executionContextModeForRun("invalid"), "legacy");
+});

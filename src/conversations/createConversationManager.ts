@@ -1,3 +1,4 @@
+import { exportExecutionEvidence } from "../export/executionEvidence";
 import { verificationCandidateFrom } from "../longitudinal/findingVerification";
 import type { ProviderRegistry } from "../providers/providerRegistry";
 import type { LocalModelService } from "../providers/localModelService";
@@ -908,7 +909,7 @@ const parseManagerMessage = (
     typeof value.conversationId === "string"
   ) {
     const format = value.format;
-    if (format !== undefined && format !== "bundle" && format !== "markdown" && format !== "sarif") {
+    if (format !== undefined && format !== "bundle" && format !== "markdown" && format !== "sarif" && format !== "executionEvidence") {
       throw new Error("conversation.exportBundle contains an invalid format");
     }
     return {
@@ -4362,6 +4363,7 @@ export const createConversationManager = (
         }
         return result;
       },
+      onExecutionEvidence: (record) => catalog.recordExecutionEvidence(findSummary(conversationId).runRef, record),
       onPipelineStep: (event) => beginPipelineStep(conversationId, event),
       onPipelineOutput: (artifact) => savePipelineOutput(conversationId, artifact),
       onPipelineDecision: (artifact) => savePipelineDecision(conversationId, artifact),
@@ -6915,6 +6917,24 @@ export const createConversationManager = (
       const policyLoad = summary.workingDirectory
         ? await loadExportPolicy(summary.workingDirectory)
         : { present: false, errors: [] as string[] };
+      if (message.format === "executionEvidence") {
+        if (policyLoad.errors.length > 0) throw new Error(`Execution evidence export policy is invalid: ${policyLoad.errors.join("; ")}`);
+        const content = await exportExecutionEvidence(runtimeStorage(summary.id).storageDirectory, policyLoad.policy);
+        const preview = await vscode.workspace.openTextDocument({ content, language: "json" });
+        await vscode.window.showTextDocument(preview, { preview: true });
+        const confirmation = await vscode.window.showWarningMessage(
+          vscode.l10n.t("Export admitted execution evidence?"),
+          { modal: true, detail: vscode.l10n.t("The export discloses credential, provider identity and repository policy exclusions for each admitted record. Review before saving.") },
+          vscode.l10n.t("Save export"),
+        );
+        if (confirmation !== vscode.l10n.t("Save export")) return;
+        const selected = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(path.join(summary.workingDirectory ?? storageRoot, `${summary.runRef}.bachata-execution-evidence.json`)),
+          filters: { [vscode.l10n.t("Bachata export")]: ["json"] }, saveLabel: vscode.l10n.t("Export"),
+        });
+        if (selected) await vscode.workspace.fs.writeFile(selected, Buffer.from(content, "utf8"));
+        return;
+      }
       const conversationResult = state.resultsByConversation[summary.id];
       const evidenceExclusion = conversationResult
         ? excludeEvidencePaths(conversationResult, policyLoad.policy)

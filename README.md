@@ -358,9 +358,11 @@ remains a roadmap requirement. The current one-run benchmark has no recorded res
 and supports no quality claim. See [Roadmap](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/ROADMAP.md) and
 [benchmark limits](https://github.com/multipliedtwice/bachata-extension/blob/main/benchmarks/README.md).
 
-Bachata is also exploring a token-efficient harness: bounded typed state, compact peer handoffs,
-recallable observation references, and fewer safe browser round trips. This is a design proposal,
-not shipped behavior or a cost claim. See the [public documentation](https://multipliedtwice.github.io/bachata-extension/#token-efficiency)
+The first token-efficient harness slice is implemented behind `bachata.executionContextMode`:
+`legacy` stays default; `localTodoStateV1` uses exact local evidence, bounded controller state and
+fresh Claude/Codex conversations for local TODO implementation. Project release gates remain
+pending. Compact peer handoffs and browser changes remain proposals. No token or cost claim. See
+the [public documentation](https://multipliedtwice.github.io/bachata-extension/#token-efficiency)
 and [technical design](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md).
 
 Bubble-up notifications, automatic post-discovery finding reconciliation, and

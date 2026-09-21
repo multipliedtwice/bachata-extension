@@ -995,6 +995,32 @@ test("run bundle export writes redacted bounded local evidence", async () => {
   }
 });
 
+test("admitted execution evidence exports through the manager message boundary after preview pruning", async () => {
+  const { createExecutionEvidenceStore } = require("../dist/state/executionEvidence.js");
+  const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-exact-manager-export-"));
+  const saveDialogPath = path.join(storageRoot, "admitted.json");
+  const harness = loadHarness(undefined, { storageRoot, removeStorageOnDispose: true, saveDialogPath, providePipelineSnapshot: true });
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    const conversationId = harness.manager.getState().activeConversationId;
+    const instance = harness.runtimeInstances[0];
+    const store = createExecutionEvidenceStore(instance.options.storageDirectory, { runId: "run", taskId: "task" });
+    await store.put({ kind: "providerLocator", source: "codex", content: "private-thread" });
+    const content = "Exact admitted answer\n" + "ไทย🙂".repeat(2000);
+    const record = await store.put({ kind: "answer", source: "dispatch", content });
+    instance.state.transcript.length = 0;
+    await harness.manager.handleMessage({ type: "conversation.exportBundle", conversationId, format: "executionEvidence" });
+    assert.deepEqual(harness.savedFiles, [saveDialogPath]);
+    const exported = readFileSync(saveDialogPath, "utf8");
+    assert.ok(!exported.includes("private-thread"));
+    assert.equal(JSON.parse(exported).runs[0].records.find((item) => item.id === record.id).content, content);
+    assert.equal(harness.exportPreviews.length, 1);
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
 test("the repository export policy filters every bundle section, not only changed files", async () => {
   const storageRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-run-export-policy-"));
   const repositoryRoot = mkdtempSync(path.join(os.tmpdir(), "bachata-export-policy-repo-"));

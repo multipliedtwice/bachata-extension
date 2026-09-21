@@ -17,6 +17,7 @@ checklist_items
 structured_outputs
 resources
 events
+execution_evidence
 schema_migrations
 ```
 
@@ -32,15 +33,40 @@ Initiative, cycle, artifact, decision, external evidence, finding history, and r
 - Export is filtered by `.bachata/export-policy.json` like every other Bachata export, previewed in an editor, and written only after you confirm.
 - Post-alpha work is tracked in [Roadmap](ROADMAP.md).
 
-Bounded execution state for model turns, kept apart from the audit plane, is designed in [Bounded execution state](BOUNDED_EXECUTION_STATE.md). It is a design only; nothing in it is shipped or on by default.
+Bounded execution state for model turns, kept apart from the audit plane, is designed in [Bounded execution state](BOUNDED_EXECUTION_STATE.md). The local TODO slice is implemented behind `bachata.executionContextMode: localTodoStateV1`. Default is `legacy`. Other proposed domains remain unimplemented.
 
 ## Stored state
 
 Bachata stores provider bindings, compact previews, typed outputs and hashes, interaction state, exact pending checklist items, immutable parent and task pipeline snapshots with revisions and scope, execution-bundle hashes, workflow checkpoints, task resources, exact Master snapshots and checks, and Git bindings.
 
-Provider sessions remain full conversation history. Durable Bachata state keeps only minimal conversation locator when provider exposes one: adapter/provider identity, provider session or conversation id, role, last-seen state, and reconstruction capability. Each run states whether its provider history can be reconstructed. A local CLI session Bachata can resume, and a browser conversation the Bridge can reopen, report `available`; a session with no recorded locator reports `unavailable`; an adapter Bachata cannot judge reports `unknown`. Bachata fetches nothing eagerly and stores no provider transcript of its own.
+Legacy provider sessions remain full conversation history. Legacy durable Bachata state keeps only minimal conversation locator when provider exposes one: adapter/provider identity, provider session or conversation id, role, last-seen state, and reconstruction capability. Each run states whether its provider history can be reconstructed. A local CLI session Bachata can resume, and a browser conversation the Bridge can reopen, report `available`; a session with no recorded locator reports `unavailable`; an adapter Bachata cannot judge reports `unknown`. Bachata fetches nothing eagerly. The opt-in compact mode archives admitted Bachata prompts, returned answers and controller evidence; it does not archive provider-private internal history.
 
-No new durable full-output or evidence snapshot exists. Compact typed outputs, provenance, hashes, and bounded operational transcript or recovery data remain. Raw response data may exist while active or resumable step needs it. No silent unlimited cache. Exports strip provider locators and credentials.
+Legacy keeps bounded previews and provider locators. Opt-in local TODO runs additionally store exact
+admitted post-redaction prompts, returned answers, task/bundle/baseline records, and controller
+command/check evidence before preview reduction. Provider-private history is not exposed or stored.
+
+Private `execution-evidence` storage belongs to the conversation. Immutable UTF-8 blobs precede
+manifest publication. Records carry schema, run/task scope, source identity, SHA-256, byte length,
+completeness, candidate/revision, reader permissions, storage reference, and redaction/exclusion
+notes. Catalog references live outside preview pruning. Conversation deletion and retention own
+these files, including the initial conversation.
+
+Limits: 16 MiB per record; 256 MiB per task directory including metadata; 4,096 records; 8 MiB
+manifest; 64 retained task directories per conversation. Refuse admission on overflow or archive
+failure. Never trim required evidence. Interrupted or unsettled writes enter recovery.
+
+Run result → More → Admitted execution evidence (JSON) is the explicit export route. Preview and
+confirmation remain. Repository export policy, credential redaction, provider locator exclusion,
+and URL locator exclusion still apply. Each exported record distinguishes admitted digest/length
+from exported digest/length and discloses changes. Missing or corrupt evidence refuses the export.
+
+Accepted compact state persists at awaited boundaries beside the manifest. It includes the issued
+dispatch, task-start baseline, accepted plan, exact Lead defects, candidate-bound checks, consumed
+directive, and revision budgets. A prepared turn reconstructs its exact prompt. A settled turn can
+satisfy a stale workflow checkpoint without repeating its edit. An unsettled turn records a
+workspace reconciliation and blocks automatic mutation replay. Explicit task restart preserves
+prior evidence and admits a new baseline. Setting changes apply to new runs; an active or
+recoverable run keeps its pinned mode. Old snapshots lacking the setting stay legacy.
 
 Bubble-up notifications remain session-lived and are not durable history. Durable typed events may regenerate current attention state without storing notification prose.
 

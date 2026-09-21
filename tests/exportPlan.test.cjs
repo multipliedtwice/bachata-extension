@@ -127,3 +127,11 @@ test("a caller with a contents line puts it directly under the size", () => {
     "an export with no contents line left a gap where one would have been",
   );
 });
+
+test("exact execution evidence has an explicit JSON export route without a completed result", () => {
+  const verdict = runExportPlan({ format: "executionEvidence", hasEvidence: false, runRef: "R123" });
+  assert.equal(verdict.refusal, undefined);
+  assert.equal(verdict.plan.render, "executionEvidence");
+  assert.equal(verdict.plan.fileName, "R123.bachata-execution-evidence.json");
+  assert.equal(verdict.plan.reseal, false);
+});
