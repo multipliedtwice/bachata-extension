@@ -641,6 +641,9 @@ test("coverage gates source files and critical modules separately", async () => 
   const windowsJobSource = await loadSource("scripts/windows-job-runner.ps1");
   assert.doesNotMatch(isolatedRunnerSource, /--test-force-exit/u);
   assert.match(isolatedRunnerSource, /BACHATA_TEST_FILE_TIMEOUT_MS/u);
+  assert.match(isolatedRunnerSource, /BACHATA_TEST_PRIORITY/u);
+  assert.match(isolatedRunnerSource, /priorityNames/u);
+  assert.match(isolatedRunnerSource, /fileRank/u);
   assert.match(isolatedRunnerSource, /spawnProcessScope/u);
   assert.match(isolatedRunnerSource, /waitForChild/u);
   assert.match(boundedChildSource, /processScope\.terminate\(graceMs\)/u);

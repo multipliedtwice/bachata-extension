@@ -10,6 +10,23 @@ if (inputs.length === 0) {
   throw new Error("At least one test file or directory is required");
 }
 
+// Keep the normal lexical order unless CI names a small set of historically fragile files. This
+// lets a failing lane report quickly without making the default order depend on mutable history.
+const priorityNames = (process.env.BACHATA_TEST_PRIORITY ?? "")
+  .split(",")
+  .map((value) => value.trim().replaceAll("\\", "/"))
+  .filter(Boolean);
+const priorityRank = new Map(priorityNames.map((name, index) => [name, index]));
+const fileRank = (file) => {
+  const normalized = file.replaceAll("\\", "/");
+  const basename = path.basename(normalized);
+  return priorityRank.get(normalized) ?? priorityRank.get(basename) ?? Number.MAX_SAFE_INTEGER;
+};
+const orderedFiles = (values) => values.slice().sort((left, right) => {
+  const rankDifference = fileRank(left) - fileRank(right);
+  return rankDifference || left.localeCompare(right);
+});
+
 const files = [];
 for (const input of inputs) {
   const details = await stat(input);
@@ -28,6 +45,7 @@ for (const input of inputs) {
 if (files.length === 0) {
   throw new Error("No test files were found");
 }
+files.splice(0, files.length, ...orderedFiles(files));
 
 // One process scope covers the whole lane instead of one per file. The node test runner already
 // forks a child process per test file, so per-file isolation is unchanged, but a per-file scope

@@ -83,6 +83,7 @@ jobs:
         env:
           BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
           BACHATA_TEST_RUN_TIMEOUT_MS: "5400000"
+          BACHATA_TEST_PRIORITY: "tests/conversationManager.test.cjs,tests/resourceBroker.test.cjs,tests/turnStream.test.cjs"
         run: npm test
 
       - name: Coverage gates
