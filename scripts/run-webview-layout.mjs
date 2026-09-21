@@ -123,7 +123,16 @@ const press = async (session, selector) => {
     await delay(100);
     first = await locate();
   }
-  if (!first) throw new Error(`No element for ${selector} after 5s`);
+  if (!first) {
+    const context = await session.evaluate(`(() => ({
+      renderFailure: document.querySelector('.render-failure')?.textContent?.trim() ?? null,
+      pickerExpanded: document.querySelector('#pipeline-picker-button')?.getAttribute('aria-expanded') ?? null,
+      pickerOpen: document.querySelector('.pipeline-picker-popover') !== null,
+      pipelineFilters: [...document.querySelectorAll('[data-action="pipeline-picker-filter"]')]
+        .map((element) => element.getAttribute('data-pipeline-filter')),
+    }))()`);
+    throw new Error(`No element for ${selector} after 5s: ${JSON.stringify(context)}`);
+  }
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: first.x, y: first.y });
   await delay(120);
   const point = await session.evaluate(

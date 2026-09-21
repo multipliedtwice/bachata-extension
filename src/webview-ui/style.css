@@ -7622,7 +7622,7 @@ details.direction-evidence > ul,
 .composer-context-reason {
   flex-basis: 100%;
   margin: 0;
-  font-size: 11px;
+  font-size: var(--bachata-font-xs);
   line-height: 1.4;
   color: var(--vscode-descriptionForeground);
 }

@@ -267,7 +267,10 @@ test("verification rejects unsafe, duplicate, and self-executing archives withou
 test("packaged first-party sources are compared against the working tree", async () => {
   const { packagedSourceEquivalence, shippedSourceFiles, staleVsixEntries } = await import(verifierPath);
 
-  assert.deepEqual(await shippedSourceFiles({ files: ["package.nls*.json"] }), ["package.nls.json"]);
+  assert.deepEqual(await shippedSourceFiles({ files: ["package.nls*.json"] }), [
+    "package.nls.json",
+    "package.nls.ru.json",
+  ]);
 
   const pairs = packagedSourceEquivalence([
     "package.json",

@@ -115,9 +115,17 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
   }
   for (const [width, height, font] of [[320, 500, 13], [400, 500, 18], [792, 900, 13], [1280, 900, 18]]) {
     await reset(width, font, "dark", height);
+    await session.evaluate("document.querySelector('#pipeline-picker-button')?.scrollIntoView({ block: 'center' })");
+    await frame(session);
     await press(session, '#pipeline-picker-button');
     await frame(session);
+    await press(session, '[data-action="pipeline-picker-filter"][data-pipeline-filter="custom"]');
+    await frame(session);
+    await session.evaluate("document.querySelector('.pipeline-picker-row[data-selected=\"true\"] [data-action=\"pipeline-row-menu\"]')?.scrollIntoView({ block: 'nearest' })");
+    await frame(session);
     await press(session, '.pipeline-picker-row[data-selected="true"] [data-action="pipeline-row-menu"]');
+    await frame(session);
+    await session.evaluate("document.querySelector('.pipeline-picker-row[data-selected=\"true\"] [data-action=\"pipeline-row-edit\"]')?.scrollIntoView({ block: 'nearest' })");
     await frame(session);
     await press(session, '.pipeline-picker-row[data-selected="true"] [data-action="pipeline-row-edit"]');
     await frame(session);
