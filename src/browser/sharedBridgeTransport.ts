@@ -1,3 +1,5 @@
+import { isRecoveryId, isStableRecoveryIdentity, validRecoverableConversations } from "./recovery";
+import { parseBridgeClientMessage } from "./protocol";
 import { browserBindingForSession, browserConversationClaimKey, resolveBrowserSession } from "./conversationOwnership";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
@@ -237,7 +239,7 @@ export const createSharedBridgeRequestHandler = (options: {
       return;
     }
     if (method === "revealAsset") { await bridge.revealAsset(string(args.assetId)); reply(response, null); return; }
-    if (method !== "openConversation" && method !== "sendConversation" && method !== "fetchAsset") throw unavailable();
+    if (!["openConversation", "listRecoverableConversations", "reopenConversation", "sendConversation", "fetchAsset"].includes(method)) throw unavailable();
     const operationId = string(args.operationId, 64);
     if (!/^[a-f0-9-]{36}$/u.test(operationId) || peer.operations.has(operationId) || peer.operations.size >= 32) throw unavailable();
     const controller = new AbortController();
@@ -245,6 +247,15 @@ export const createSharedBridgeRequestHandler = (options: {
     const abort = (): void => controller.abort();
     response.once("close", abort);
     try {
+      if (method === "listRecoverableConversations") {
+        reply(response, await bridge.listRecoverableConversations(controller.signal));
+        return;
+      }
+      if (method === "reopenConversation") {
+        if (!isRecoveryId(args.registryId) || (args.provider !== "chatgpt" && args.provider !== "claude")) throw unavailable();
+        reply(response, await bridge.reopenConversation(args.registryId, args.provider, controller.signal));
+        return;
+      }
       if (method === "openConversation") {
         const result = await bridge.openConversation(provider(args.provider), controller.signal, args.binding === undefined ? undefined : binding(args.binding), args.fresh === true);
         reply(response, result);
@@ -310,7 +321,7 @@ const rpc = async function* (endpoint: string, token: string, clientId: string, 
       ...(signal ? { signal } : {}),
     }, (incoming) => { incoming.setTimeout(0); resolve(incoming); });
     outgoing.once("error", reject);
-    outgoing.setTimeout(method === "openConversation" ? 70_000 : 15_000, () => outgoing.destroy(unavailable()));
+    outgoing.setTimeout(["openConversation", "reopenConversation", "listRecoverableConversations"].includes(method) ? 140_000 : 15_000, () => outgoing.destroy(unavailable()));
     outgoing.end(body);
   });
   try {
@@ -505,6 +516,15 @@ export const createSharedBrowserBridgeClient = (options: {
         if (item.complete === true) return;
         const event = object(item.event);
         if (event.type === "chunk") yield { ...event, data: Buffer.from(string(event.data, maxBytes), "base64") } as BrowserAssetTransferEvent;
+        else if (event.type === "binding") {
+          const stableBinding = binding(event.binding);
+          if (!isStableRecoveryIdentity(stableBinding.provider, stableBinding.conversationUrl, stableBinding.conversationIdentity)) throw unavailable();
+          const ownerId = string(args.ownerId);
+          const previous = localBindings.get(ownerId);
+          if (!previous || previous.provider !== stableBinding.provider) throw unavailable();
+          localBindings.set(ownerId, stableBinding);
+          yield { type: "binding", sessionId: string(event.sessionId), binding: stableBinding };
+        }
         else if (event.type === "response") {
           const response = object(event.response);
           yield { type: "response", response: { ...response, agentId: args.agentId ?? args.ownerId } } as BrowserConversationEvent;
@@ -541,6 +561,31 @@ export const createSharedBrowserBridgeClient = (options: {
     resetPairing: async () => { await synchronize(); await invoke("resetPairing"); await poll(); },
     discover: () => enqueue("discover"),
     refreshLocalModelConfig: () => enqueue("refreshLocalModelConfig"),
+    listRecoverableConversations: async (signal) => {
+      await synchronize();
+      const operation = registerOperation(signal, true);
+      try {
+        const records = await invoke("listRecoverableConversations", { operationId: operation.operationId }, operation.controller.signal);
+        if (!validRecoverableConversations(records)) throw unavailable();
+        return structuredClone(records);
+      } finally { operation.dispose(); }
+    },
+    reopenConversation: async (registryId, value, signal) => {
+      if (!isRecoveryId(registryId) || (value !== "chatgpt" && value !== "claude")) throw unavailable();
+      await synchronize();
+      const operation = registerOperation(signal, true);
+      try {
+        const result = await invoke("reopenConversation", { registryId, provider: value, operationId: operation.operationId }, operation.controller.signal);
+        const parsed = parseBridgeClientMessage({ type: "provider.openConversation.result", protocolVersion: 9,
+          requestId: operation.operationId, provider: value, success: true, session: result });
+        if (closed || !parsed.success || parsed.message.type !== "provider.openConversation.result" || !parsed.message.session
+          || !isStableRecoveryIdentity(value, parsed.message.session.conversationUrl, parsed.message.session.conversationIdentity)) throw unavailable();
+        const opened = parsed.message.session;
+        current = { ...current, sessions: [...current.sessions.filter((session) => session.id !== opened.id), opened] };
+        emit();
+        return structuredClone(opened);
+      } finally { operation.dispose(); }
+    },
     openConversation: async (value, signal, preferredBinding, fresh) => {
       await synchronize();
       const operation = registerOperation(signal, true);

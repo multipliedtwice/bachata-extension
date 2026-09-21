@@ -1450,29 +1450,63 @@ test("a catalog written before the fix-run provenance column still opens", async
     const cycle = service.startCycle({ type: "review", repositoryBaseline: baselineAt() });
     service.bindRun({ runRef: "R00000001", cycleId: cycle.id, freshReview: true });
     service.recordRound({ runRef: "R00000001", executionRef: "E1", findings: [finding()] });
+    const identity = findingIdentity(finding());
+    service.resolve({ target: "finding", id: identity, action: "accept", resolvedBy: "owner" });
+    assert.equal(service.linkFixRun({ identity, runRef: "R00000002" }).ok, true);
     first.close();
 
-    const database = new DatabaseSync(path.join(root, "bachata-state.sqlite"));
-    database.exec("ALTER TABLE finding_fix_runs DROP COLUMN imported");
+    const databasePath = path.join(root, "bachata-state.sqlite");
+    const database = new DatabaseSync(databasePath);
     const applied = database
       .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")
       .all()
       .map((row) => Number(row.version));
     assert.ok(applied.includes(13), "migration 13 was never recorded");
-    database.exec("DELETE FROM schema_migrations WHERE version > 13");
+    database.exec(`
+      BEGIN IMMEDIATE;
+      DROP TABLE execution_evidence;
+      ALTER TABLE runs DROP COLUMN replay_source_settings_json;
+      DROP TABLE initiative_external_evidence;
+      ALTER TABLE runs DROP COLUMN run_settings_json;
+      ALTER TABLE finding_fix_runs DROP COLUMN imported;
+      DROP TABLE repository_active_initiative;
+      DELETE FROM schema_migrations WHERE version > 13;
+      COMMIT;
+    `);
     database.close();
 
     const reopened = createStateCatalog(root);
     const restored = serviceFor(reopened);
-    const identity = findingIdentity(finding());
-    restored.resolve({ target: "finding", id: identity, action: "accept", resolvedBy: "owner" });
+    assert.equal(restored.rounds(cycle.id).length, 1, "upgrade lost the existing review round");
+    assert.deepEqual(restored.fixRuns().map((item) => item.runRef), ["R00000002"]);
+    assert.deepEqual(restored.fixRuns().map((item) => item.imported), [undefined]);
     assert.equal(
-      restored.linkFixRun({ identity, runRef: "R00000002" }).ok,
+      restored.linkFixRun({ identity, runRef: "R00000003" }).ok,
       true,
       "an older catalog could not record a fix run after upgrade",
     );
-    assert.deepEqual(restored.fixRuns().map((item) => item.imported), [undefined]);
+    assert.deepEqual(restored.fixRuns().map((item) => item.imported), [undefined, undefined]);
     reopened.close();
+
+    const upgraded = new DatabaseSync(databasePath);
+    assert.deepEqual(
+      upgraded.prepare("SELECT version FROM schema_migrations ORDER BY version ASC").all()
+        .map((row) => Number(row.version)),
+      applied,
+    );
+    assert.deepEqual(
+      upgraded.prepare("PRAGMA table_info(execution_evidence)").all().map((row) => row.name),
+      ["evidence_id", "run_ref", "record_json"],
+    );
+    assert.deepEqual(upgraded.prepare("PRAGMA foreign_key_check").all(), []);
+    upgraded.close();
+
+    const again = createStateCatalog(root);
+    assert.deepEqual(
+      serviceFor(again).fixRuns().map((item) => item.runRef).sort(),
+      ["R00000002", "R00000003"],
+    );
+    again.close();
   });
 });
 

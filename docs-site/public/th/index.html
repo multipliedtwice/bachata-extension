@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bachata — ส่วนขยาย VS Code สำหรับเวิร์กโฟลว์ AI</title>
+<meta name="description" content="สร้างเวิร์กโฟลว์ AI ที่ทำซ้ำได้ใน VS Code ด้วย Bachata ประสานงาน Codex, Claude Code และแชทในเบราว์เซอร์ผ่านไปป์ไลน์การวางแผน การเขียนโค้ด และการตรวจ">
+<meta name="theme-color" content="#1f7a4d">
+<link rel="canonical" href="https://multipliedtwice.github.io/bachata-extension/th/">
+<link rel="alternate" hreflang="x-default" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="en" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="ru" href="https://multipliedtwice.github.io/bachata-extension/ru/">
+<link rel="alternate" hreflang="zh-Hans" href="https://multipliedtwice.github.io/bachata-extension/zh-cn/">
+<link rel="alternate" hreflang="pt-BR" href="https://multipliedtwice.github.io/bachata-extension/pt-br/">
+<link rel="alternate" hreflang="th" href="https://multipliedtwice.github.io/bachata-extension/th/">
+<link rel="alternate" hreflang="de" href="https://multipliedtwice.github.io/bachata-extension/de/">
+<link rel="sitemap" type="application/xml" href="sitemap.xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bachata">
+<meta property="og:title" content="Bachata — ส่วนขยาย VS Code สำหรับเวิร์กโฟลว์ AI">
+<meta property="og:description" content="สร้างเวิร์กโฟลว์ AI ที่ทำซ้ำได้ใน VS Code ด้วย Codex, Claude Code และแชทในเบราว์เซอร์">
+<meta property="og:url" content="https://multipliedtwice.github.io/bachata-extension/th/">
+<meta property="og:image" content="https://multipliedtwice.github.io/bachata-extension/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bachata ประสานงานผู้ช่วย AI ในขั้นตอนการวางแผน การเขียนโค้ด และการตรวจภายใน VS Code">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Bachata — ส่วนขยาย VS Code สำหรับเวิร์กโฟลว์ AI">
+<meta name="twitter:description" content="สร้างเวิร์กโฟลว์ AI ที่ทำซ้ำได้ใน VS Code ด้วย Codex, Claude Code และแชทในเบราว์เซอร์">
+<meta name="twitter:image" content="https://multipliedtwice.github.io/bachata-extension/assets/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Bachata",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "description": "A VS Code extension for coordinating AI assistants through reusable planning, coding and review pipelines.",
+  "url": "https://multipliedtwice.github.io/bachata-extension/",
+  "downloadUrl": "https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode",
+  "sameAs": "https://github.com/multipliedtwice/bachata-extension",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#top" aria-label="หน้าแรกเอกสาร Bachata">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8.75 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11M15.25 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11"/></svg>
+    <span>Bachata</span>
+  </a>
+  <nav aria-label="เมนูหลัก">
+    <a href="#getting-started">เริ่มต้นใช้งาน</a>
+    <a href="#pipelines">ไปป์ไลน์</a>
+    <a href="#results">ผลลัพธ์</a>
+    <a href="#token-efficiency">ประสิทธิภาพการใช้โทเคน</a>
+    <a href="#browser-bridge">Browser Bridge</a>
+    <a href="#reference">ข้อมูลอ้างอิง</a>
+    <a href="https://github.com/multipliedtwice/bachata-extension">GitHub</a>
+  </nav><nav class="language-switcher" aria-label="Language"><a href="https://multipliedtwice.github.io/bachata-extension/" hreflang="en">English</a><a href="https://multipliedtwice.github.io/bachata-extension/ru/" hreflang="ru">Русский</a><a href="https://multipliedtwice.github.io/bachata-extension/zh-cn/" hreflang="zh-Hans">简体中文</a><a href="https://multipliedtwice.github.io/bachata-extension/pt-br/" hreflang="pt-BR">Português (Brasil)</a><a href="https://multipliedtwice.github.io/bachata-extension/th/" hreflang="th" aria-current="true">ไทย</a><a href="https://multipliedtwice.github.io/bachata-extension/de/" hreflang="de">Deutsch</a></nav>
+</header>
+
+<div class="layout" id="top">
+  <aside class="toc" aria-label="ในหน้านี้">
+    <ol>
+      <li class="group">ภาพรวม</li>
+      <li><a href="#what-it-is">Bachata คืออะไร</a></li>
+      <li><a href="#requirements">สิ่งที่ต้องมี</a></li>
+      <li class="group">เริ่มต้นใช้งาน</li>
+      <li><a href="#install">การติดตั้ง</a></li>
+      <li><a href="#doctor">ตรวจความพร้อม</a></li>
+      <li><a href="#first-review">เริ่มการตรวจครั้งแรก</a></li>
+      <li class="group">การใช้งาน Bachata</li>
+      <li><a href="#workspace">แผงของ Bachata</a></li>
+      <li><a href="#pipelines">เลือกไปป์ไลน์</a></li>
+      <li><a href="#agents">กำหนดผู้ช่วย</a></li>
+      <li><a href="#run-contract">อ่านข้อกำหนดของการรัน</a></li>
+      <li><a href="#results">อ่านผลลัพธ์</a></li>
+      <li><a href="#direction">มุมมอง “ทิศทาง”</a></li>
+      <li><a href="#fix-and-apply">แก้ไขและนำไปใช้</a></li>
+      <li><a href="#fresh-review">รอบการตรวจใหม่</a></li>
+      <li><a href="#editor">แก้ไขไปป์ไลน์</a></li>
+      <li class="group">การออกแบบ</li>
+      <li><a href="#token-efficiency">การทำงานที่ประหยัดโทเคน</a></li>
+      <li class="group">Browser Bridge</li>
+      <li><a href="#browser-bridge">มันทำอะไร</a></li>
+      <li><a href="#bridge-install">ติดตั้ง Bridge</a></li>
+      <li><a href="#bridge-pair">จับคู่กับ VS Code</a></li>
+      <li><a href="#bridge-chat">เลือกแชท</a></li>
+      <li><a href="#bridge-other">เว็บไซต์อื่น</a></li>
+      <li><a href="#bridge-limits">ข้อจำกัด</a></li>
+      <li class="group">ข้อมูลอ้างอิง</li>
+      <li><a href="#reference">คำสั่ง</a></li>
+      <li><a href="#builtin-pipelines">ไปป์ไลน์ที่มีมาให้</a></li>
+      <li><a href="#settings">การตั้งค่าที่ใช้บ่อย</a></li>
+      <li><a href="#privacy">ความเป็นส่วนตัว</a></li>
+      <li><a href="#about-screenshots">เกี่ยวกับภาพหน้าจอ</a></li>
+    </ol>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <h1>สร้างเวิร์กโฟลว์ AI ของคุณเองสำหรับงานซอฟต์แวร์</h1>
+      <p class="lead">Bachata คือส่วนขยายของ VS Code ที่ให้ผู้ช่วย AI ทำงานร่วมกันตามขั้นตอนที่คุณจัดวาง: ตัวหนึ่งวางแผน อีกตัวโต้แย้ง ทั้งคู่ตรวจและแก้ไข แล้วคุณเป็นผู้ตัดสินว่าสิ่งใดสำคัญ</p>
+      <div class="buttons">
+        <a class="button primary" href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode">ติดตั้งสำหรับ VS Code</a>
+        <a class="button" href="https://chromewebstore.google.com/detail/bachata-browser-bridge/pkjbokfimenacagphechjmlogogghaip">ติดตั้ง Browser Bridge</a>
+        <a class="button" href="#getting-started">อ่านวิธีตั้งค่า</a>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <strong>รุ่นอัลฟา</strong>
+      Bachata เป็นรุ่นอัลฟา ไม่ใช่รุ่นเสถียร การตรวจสอบผู้ให้บริการ แพลตฟอร์ม และเบราว์เซอร์ยังไม่สมบูรณ์
+    </div>
+
+    <section class="part" id="what-it-is">
+      <p class="eyebrow">ภาพรวม</p>
+      <h2>Bachata คืออะไร</h2>
+      <p>ผู้ช่วย AI คือเครื่องมือที่คุณสั่งด้วยภาษาทั่วไปให้ช่วยงาน เช่น วางแผนฟีเจอร์ เขียนโค้ด หรือหาจุดบกพร่อง Bachata ทำงานอยู่ใน Visual Studio Code และประสานงานผู้ช่วยที่คุณมีอยู่แล้ว เช่น <strong>Codex</strong> และ <strong>Claude Code</strong>.</p>
+      <p>คุณจัดวางงานเป็น <strong>ไปป์ไลน์</strong>: ลำดับของขั้นตอน แต่ละขั้นมีบทบาท คำสั่ง และผู้ช่วยที่ลงมือทำ เช่น ผู้ตรวจสองคนอ่านโค้ดแยกกัน แล้วโต้แย้งข้อค้นพบของอีกฝ่ายจนกว่าจะเห็นตรงกัน หรือส่งข้อขัดแย้งนั้นมาให้คุณ</p>
+      <div class="cards">
+        <div class="card"><h3>กำหนดรูปแบบการทำงาน</h3><p>บทบาท คำสั่ง ลำดับขั้นตอน และจำนวนรอบการตรวจ</p></div>
+        <div class="card"><h3>เลือกว่าใครทำงาน</h3><p>กำหนด Codex, Claude Code หรือแชทในเบราว์เซอร์ให้แต่ละบทบาท</p></div>
+        <div class="card"><h3>นำกลับมาใช้และปรับแต่ง</h3><p>เริ่มจากไปป์ไลน์ที่มีมาให้ แก้ไขมัน หรือสร้างของคุณเอง</p></div>
+        <div class="card"><h3>ติดตามผลลัพธ์</h3><p>ข้อค้นพบ การตัดสินใจ และการเปลี่ยนแปลง พร้อมการตรวจสอบที่ทำงานจริง</p></div>
+      </div>
+      <p>Bachata ไม่ได้มาพร้อมบริการ AI หรือการสมัครสมาชิก และไม่เคยสร้างคอมมิต Git เลย AI ผิดพลาดได้แม้ผู้ช่วยจะเห็นตรงกัน และการรันที่เสร็จสิ้นไม่ใช่ข้อพิสูจน์ว่าโค้ดถูกต้อง</p>
+    </section>
+
+    <section class="part" id="requirements">
+      <h2>สิ่งที่ต้องมี</h2>
+      <ul>
+        <li>VS Code 1.101.0 ขึ้นไป</li>
+        <li>โฟลเดอร์ที่เปิดในหน้าต่าง VS Code ในเครื่องที่เชื่อถือได้ ไปป์ไลน์ทั่วไปไม่ต้องใช้ Git ส่วนการรันรายการงานต้องมีที่เก็บโค้ด Git และ Git 2.32 ขึ้นไป</li>
+        <li>Codex หรือ Claude Code ที่ติดตั้งและเข้าสู่ระบบแยกต่างหาก ติดตั้งทั้งสองตัวหากต้องการให้ผู้ช่วยสองรายตรวจทานกันและกัน</li>
+        <li>ไม่บังคับ: <a href="#browser-bridge">Browser Bridge</a> ส่วนขยาย Chrome เพื่อใช้ ChatGPT, Claude หรือเว็บแชทอื่นเป็นผู้เข้าร่วม</li>
+      </ul>
+    </section>
+
+    <section class="part" id="getting-started">
+      <p class="eyebrow">เริ่มต้นใช้งาน</p>
+      <h2 id="install">การติดตั้ง</h2>
+      <ol class="steps">
+        <li>การติดตั้ง <a href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode"><strong>Bachata จาก Visual Studio Marketplace</strong></a> สำหรับรุ่นออฟไลน์หรือรุ่นพัฒนา ให้เปิด Command Palette แล้วเรียก <strong>Extensions: Install from VSIX…</strong> จากนั้นเลือกไฟล์ <code>.vsix</code> ของ Bachata ที่ได้รับมา</li>
+        <li>เปิดโฟลเดอร์ที่ต้องการทำงานในหน้าต่าง VS Code ในเครื่องที่เชื่อถือได้</li>
+        <li>ติดตั้งและเข้าสู่ระบบ Codex หรือ Claude Code ผ่านขั้นตอนล็อกอินของ CLI นั้นเอง</li>
+      </ol>
+      <p>หากไม่มีที่เก็บโค้ด Git ไปป์ไลน์ทั่วไปยังทำงานได้ แต่การติดตามการเปลี่ยนแปลงผ่าน Git การตรวจขอบเขตการเขียน การส่งออกแพตช์ และการรวมการเปลี่ยนแปลงของที่เก็บโค้ดจะใช้ไม่ได้</p>
+      <p>Bachata จะเพิ่มไอคอน <strong>Bachata</strong> ในแถบกิจกรรม และเพิ่มคำแนะนำ <strong>เริ่มต้นใช้งาน Bachata</strong> ในหน้าต้อนรับของ VS Code</p>
+
+      <h3 id="doctor">ตรวจความพร้อมด้วยคำสั่งวินิจฉัย</h3>
+      <p>เรียกใช้ <strong>Bachata: วินิจฉัย</strong> การวินิจฉัยจะแยกสิ่งที่ขวางไปป์ไลน์ที่เลือกออกจากผู้ให้บริการเสริมที่ใช้ไม่ได้ และการตรวจที่ไม่ผ่านแต่ละรายการจะเสนอการกระทำโดยตรงพร้อมการตรวจซ้ำเฉพาะจุด</p>
+      <ul>
+        <li>Codex ถูกตรวจด้วยการจับมือแบบ app-server ไม่มีการสร้างเธรดและไม่มีการเรียกโมเดล</li>
+        <li>Claude Code ถูกตรวจด้วย <code>claude --version</code>.</li>
+        <li>การตรวจทำงานที่รากของพื้นที่ทำงานด้วยสภาพแวดล้อมที่จำกัด CLI ที่มีอยู่เฉพาะใน <code>PATH</code> ของเชลล์แบบโต้ตอบจะมองไม่เห็น ให้ตั้งค่า <code>bachata.codexCommand</code> หรือ <code>bachata.claudeCommand</code> เป็นพาธเต็มของไฟล์นั้น</li>
+      </ul>
+
+      <h3 id="first-review">เริ่มการตรวจครั้งแรก</h3>
+      <ol class="steps">
+        <li>เรียกใช้ <strong>Bachata: ตั้งค่า</strong> เลือก <strong>ตรวจโค้ด</strong> เส้นทางมาตรฐานยังมี <em>วางแผนการเปลี่ยนแปลง</em> และ <em>แก้จุดบกพร่อง</em> ส่วนการจัดการ TODO ผู้ให้บริการแบบเบราว์เซอร์ และไปป์ไลน์ที่กำหนดเองอยู่ใน <em>เวิร์กโฟลว์ขั้นสูง</em>.</li>
+        <li>เลือก <strong>ผู้ช่วยเดี่ยวแบบเร็ว</strong> (ผู้ให้บริการรายเดียวทำงาน) หรือ <strong>คู่ตรวจทานกัน</strong> (ผู้เข้าร่วมสองรายทำงานแยกกันและตรวจทานกันหนึ่งรอบ) หน้าตั้งค่าจะแสดงผู้ให้บริการที่พร้อม และสิ่งที่ขาดของรายที่ยังไม่พร้อม</li>
+        <li>อธิบายสิ่งที่ต้องการให้ตรวจในช่องพิมพ์ หรือจะเริ่มจากตัวแก้ไขก็ได้: <strong>Bachata: ตรวจไฟล์</strong>, <strong>ตรวจส่วนที่เลือก</strong>, <strong>ตรวจการเปลี่ยนแปลงที่ยังไม่คอมมิต</strong> และคำสั่งทำนองเดียวกันจะเตรียมฉบับร่างไว้โดยยังไม่ส่ง</li>
+        <li>เปิดการตั้งค่าของการรันแล้วอ่านข้อกำหนด: การรันนี้อ่านและเขียนอะไรได้ ผู้ให้บริการรายใดร่วมด้วย และมีการตรวจสอบใดทำงานบ้าง</li>
+        <li>กดส่ง เมื่อการรันเสร็จ ให้เปิดผลลัพธ์</li>
+      </ol>
+      <figure>
+        <a href="../img/th/composer.png"><img src="../img/th/composer.png" width="2560" height="1600" alt="แผง Bachata พร้อมการรันใหม่ ช่องพิมพ์มีคำขอว่า “Review src/checkout for bugs in how discounts and totals are calculated.” ไปป์ไลน์ที่เลือกคือ “Code review — reconcile findings” มี 3 ขั้นตอนและผู้เข้าร่วม 2 ราย เหนือช่องพิมพ์แสดงรายการการรันล่าสุด" loading="lazy"></a>
+        <figcaption>การรันใหม่ ตัวเลือกไปป์ไลน์, <strong>“ผู้ช่วย”</strong>, การตั้งค่าการรัน และปุ่มส่ง อยู่ใต้คำขอ ข้อมูลสาธิต</figcaption>
+      </figure>
+      <div class="note">
+        <strong>การตรวจเป็นแบบอ่านอย่างเดียว</strong>
+        มันเปลี่ยนที่เก็บโค้ดของคุณไม่ได้ การตรวจรอบเดียวไม่อาจพิสูจน์ว่าโค้ดถูกต้อง หลังจากคุณยอมรับการแก้ไขที่ตามมาแล้ว ให้ตรวจรอบใหม่กับโค้ดที่อัปเดตอีกครั้ง
+      </div>
+    </section>
+
+    <section class="part" id="workspace">
+      <p class="eyebrow">การใช้งาน Bachata</p>
+      <h2>แผงของ Bachata</h2>
+      <p>เปิดด้วย <strong>Bachata: เปิด</strong> หรือไอคอนในแถบกิจกรรม การรันแต่ละครั้งคือแท็บด้านบน และมีสามมุมมอง:</p>
+      <ul>
+        <li><strong>“แชท”</strong>: คำขอของคุณและคำตอบของผู้เข้าร่วมแต่ละรายตามลำดับ</li>
+        <li><strong>“การดำเนินการ”</strong>: ขั้นตอนของไปป์ไลน์พร้อมสถานะ และผลลัพธ์ของการรัน</li>
+        <li><strong>“ทิศทาง”</strong>: เป้าหมายของโครงการ การตัดสินใจที่รอคุณอยู่ และข้อค้นพบที่ยอมรับแล้วแต่ยังต้องแก้ ครอบคลุมทุกการรัน</li>
+      </ul>
+      <figure>
+        <a href="../img/th/run-transcript.png"><img src="../img/th/run-transcript.png" width="2560" height="1600" alt="มุมมอง “แชท” ของการรันที่เสร็จแล้ว Reviewer 1 รายงานสองปัญหา คือส่วนลดถูกใช้ซ้ำเมื่อลองใหม่ และการปัดเศษสกุลเงินก่อนคำนวณภาษี พร้อมเสนอให้เก็บตะกร้าที่หมดอายุเข้าคลัง Reviewer 2 เห็นด้วยกับทั้งสองปัญหา แต่ไม่เห็นด้วยเรื่องการเก็บตะกร้าเข้าคลัง ในรอบที่ 2 Reviewer 1 ทำเครื่องหมายว่าคำถามเรื่องตะกร้ายังไม่สะสางและรอผู้ใช้ตัดสิน การ์ดสรุประบุว่าผู้ตรวจทั้งสองได้ชุดข้อค้นพบเดียวกันในรอบที่ 2 จาก 10 พร้อมปุ่มเปิดผลลัพธ์" loading="lazy"></a>
+        <figcaption>มุมมอง “แชท” ของการตรวจแบบตรวจทานกันที่เสร็จแล้ว ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p><strong>“การรัน”</strong> จะเปิดลิ้นชักการรัน: ค้นหาการรันและพรอมต์ แสดงการรันที่เก็บเข้าคลัง และเปิด <strong>“ทิศทาง”</strong> เมนู <strong>…</strong> ของแต่ละการรันใช้เปลี่ยนชื่อ ทำสำเนา เก็บเข้าคลัง หรือลบได้</p>
+      <figure>
+        <a href="../img/th/run-drawer.png"><img src="../img/th/run-drawer.png" width="2560" height="1600" alt="ลิ้นชักการรันเปิดอยู่ทางซ้าย มีช่องค้นหา ช่องทำเครื่องหมายเพื่อแสดงการรันที่เก็บเข้าคลัง การรันสามรายการพร้อมสถานะ และลิงก์ไปยัง “ทิศทาง” ที่ด้านล่าง" loading="lazy"></a>
+        <figcaption>ลิ้นชักการรัน ข้อมูลสาธิต</figcaption>
+      </figure>
+    </section>
+
+    <section class="part" id="pipelines">
+      <h2>เลือกไปป์ไลน์</h2>
+      <p>ตัวเลือกไปป์ไลน์อยู่ใต้ช่องพิมพ์ การค้นหาครอบคลุมชื่อ รหัส คำอธิบาย และบทบาทของผู้เข้าร่วม ตัวกรองแยกเวิร์กโฟลว์ทั่วไป เฉพาะทาง และภายใน ส่วนไปป์ไลน์ที่กำหนดเองจะเพิ่ม <em>“กำหนดเอง”</em> และ <em>“ทั้งหมด”</em> ตัวเลือกนี้เลือก <em>งาน</em>; <strong>“ผู้ช่วย”</strong> เลือก <em>ผู้ให้บริการ</em>.</p>
+      <figure>
+        <a href="../img/th/pipeline-picker.png"><img src="../img/th/pipeline-picker.png" width="2560" height="1600" alt="ตัวเลือกไปป์ไลน์เปิดอยู่เหนือช่องพิมพ์ มีช่องค้นหาและรายการ: Code review — reconcile findings (เลือกอยู่), Code review and refinement, UI/UX review, Code review, Fix a bug, Implementation plan โดยแต่ละรายการบอกจำนวนขั้นตอนและผู้เข้าร่วม" loading="lazy"></a>
+        <figcaption>ตัวเลือกไปป์ไลน์ รายการแสดงไปป์ไลน์ที่มีมาให้ ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>แต่ละขั้นตอนในไปป์ไลน์เป็นหนึ่งในนี้:</p>
+      <ul>
+        <li><code>agent</code>: ผู้เข้าร่วมหนึ่งรายหรือมากกว่าลงมือหนึ่งตา จะทำขนานกันหรือทำจนกว่าจะเห็นตรงกันก็ได้</li>
+        <li><code>assignRoles</code>: ผูกบทบาทที่คุณกำหนดไว้เข้ากับผู้ช่วย</li>
+        <li><code>checklist</code>: แปลงข้อค้นพบที่ยอมรับแล้วเป็นรายการงานที่รัดกุม</li>
+        <li><code>executeChecklist</code>: ให้คอนโทรลเลอร์ดำเนินการรายการที่เลือก ต้องเป็นขั้นตอนสุดท้ายที่เปิดใช้</li>
+      </ul>
+      <p>จำนวนรอบการหาข้อสรุปมีขีดจำกัด เมื่อถึงขีดจำกัด ไปป์ไลน์จะระบุว่าจะเกิดอะไรขึ้น: ให้คนตัดสิน ถือว่าล้มเหลว หรือให้หัวหน้าชี้ขาด การเห็นตรงกันเป็นเพียงการเลือกผลลัพธ์ของการรันหนึ่ง ไม่ได้พิสูจน์ว่าผลนั้นถูกต้อง ดู <a href="#builtin-pipelines">รายการไปป์ไลน์ที่มีมาให้</a>.</p>
+    </section>
+
+    <section class="part" id="agents">
+      <h2>กำหนดผู้ช่วย</h2>
+      <p><strong>“ผู้ช่วย”</strong> แสดงทุกบทบาทที่ไปป์ไลน์ที่เลือกต้องใช้ เลือกผู้ให้บริการของแต่ละบทบาท และเลือกโมเดลหากผู้ให้บริการรายงานไว้ การเปลี่ยนแปลงมีผลกับการรันนี้และถูกทำเครื่องหมายว่ามอบหมายใหม่ <strong>“คืนค่าเริ่มต้น”</strong> จะคืนค่าตามที่ไปป์ไลน์กำหนดไว้เอง</p>
+      <figure>
+        <a href="../img/th/agents.png"><img src="../img/th/agents.png" width="2560" height="1600" alt="หน้าต่าง “ผู้ช่วย” ที่มีสองบทบาท Reviewer 1 ใช้ “ค่าเริ่มต้น · Codex CLI” กับโมเดลเริ่มต้น Reviewer 2 ใช้ “ค่าเริ่มต้น · Claude CLI” กับโมเดลเริ่มต้น ด้านล่างมีส่วนโมเดลในเครื่องที่ยุบอยู่" loading="lazy"></a>
+        <figcaption>แต่ละบทบาทได้ผู้ให้บริการและโมเดลหนึ่งชุด ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>Bachata ไม่ได้มาพร้อมรายชื่อโมเดล เมื่อ Codex แสดงรายการโมเดลของตัวเองได้ Bachata จะแสดงรายการนั้นและปฏิเสธโมเดลที่ Codex ที่ติดตั้งไว้ไม่มี หากผู้ให้บริการแสดงรายการโมเดลไม่ได้ ชื่อที่คุณพิมพ์จะถูกส่งไปตามนั้น Bachata ไม่เคยเปลี่ยนผู้ให้บริการหรือโมเดลแทนคุณ หากต้องการห้ามผู้ให้บริการรายใดทำงาน ให้เพิ่มไว้ใน <code>bachata.disabledProviders</code>.</p>
+    </section>
+
+    <section class="part" id="run-contract">
+      <h2>อ่านข้อกำหนดของการรัน</h2>
+      <p>ปุ่มรูปเฟืองข้างปุ่มส่งจะเปิด <strong>“การตั้งค่าการรัน”</strong>. <em>“ตัวเลือกการรัน”</em> (จำนวนรอบ โหมดจำนวนคงที่หรือจนกว่าจะไม่พบปัญหา และวิธีส่งมอบ) มีผลเฉพาะการรันนี้ <strong>“รายละเอียดการรัน”</strong> คือข้อกำหนดที่ Bachata สรุปไว้สำหรับการรันครั้งนี้โดยเฉพาะ:</p>
+      <ul>
+        <li><strong>“การรับประกัน”</strong>: การรันนี้ให้ผลลัพธ์แบบใดได้บ้าง เช่น <em>“อ่านอย่างเดียว”</em>;</li>
+        <li><strong>“ผู้ให้บริการ”</strong> และความพร้อมของแต่ละราย</li>
+        <li><strong>“ขอบเขตและคอมมิต”</strong>: ไดเรกทอรีทำงาน พาธที่เขียนได้ อ่านได้ และพาธที่ได้รับการป้องกัน Bachata ไม่เคยสร้างคอมมิต</li>
+        <li><strong>“การตรวจพิสูจน์”</strong>: มีการตรวจของคอนโทรลเลอร์ใดทำงานบ้าง ถ้ามี</li>
+        <li><strong>“ขีดจำกัดของการรัน”</strong>, <strong>“การตัดสินใจของคน”</strong>, <strong>“ทางเลือกสำรอง”</strong>, <strong>“การสิ้นสุด”</strong>;</li>
+        <li><strong>“ผู้ให้บริการแต่ละรายได้รับอะไร”</strong>: บริบทที่ส่งออก สิ่งที่ยกเว้น และสิ่งที่ปกปิด แยกตามผู้ให้บริการ</li>
+      </ul>
+      <figure>
+        <a href="../img/th/run-contract.png"><img src="../img/th/run-contract.png" width="2560" height="1600" alt="แผงการตั้งค่าการรันที่กางรายละเอียดของ “Code review — reconcile findings” ซึ่งระบุว่าเป็นการตรวจแบบอ่านอย่างเดียว การรับประกัน: การรันนี้อ่านขอบเขตที่เลือกได้และแก้ไขไฟล์ไม่ได้ ผู้ให้บริการ: Reviewer 1 บน Codex และ Reviewer 2 บน Claude Code พร้อมทั้งคู่ ขอบเขต: ไม่เขียนลงที่เก็บโค้ด พาธที่อ่านได้คือ src/checkout พาธที่ได้รับการป้องกันคือ .env และ .git ไม่สร้างคอมมิต การตรวจพิสูจน์: ไม่มีการตรวจของคอนโทรลเลอร์ ขีดจำกัด: 1 รอบ และไม่เกิน 10 รอบการหาข้อสรุปก่อนให้คนตัดสิน" loading="lazy"></a>
+        <figcaption>ข้อกำหนดของการรันแบบอ่านอย่างเดียวที่มีผู้ตรวจสองราย ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>หากมีสิ่งใดขวางการรัน เช่น ผู้ให้บริการที่ยังไม่พร้อมหรือนโยบายของที่เก็บโค้ดที่ปฏิเสธ ข้อกำหนดจะแสดงสิ่งนั้นไว้ และปุ่มส่งจะยังกดไม่ได้จนกว่าจะแก้ไขเสร็จ</p>
+    </section>
+
+    <section class="part" id="results">
+      <h2>อ่านผลลัพธ์</h2>
+      <p>เปิด <strong>“การดำเนินการ”</strong> (ไอคอนรายการบนแท็บของการรัน) หรือเลือก <strong>“เปิดผลลัพธ์”</strong> ในแชท ด้านบนแสดงแต่ละขั้นตอนของไปป์ไลน์พร้อมสถานะ แถบด้านล่างบอกว่าเลือกข้อค้นพบไว้กี่รายการ และเสนอไปป์ไลน์ถัดไป</p>
+      <figure>
+        <a href="../img/th/execution-view.png"><img src="../img/th/execution-view.png" width="2560" height="1600" alt="มุมมอง “การดำเนินการ” ขั้นตอนของไปป์ไลน์: 1 Independent review พร้อมผลจากผู้เข้าร่วม 2 ราย, 2 Cross-reference findings, 3 Surface material decisions ทั้งหมดเสร็จสิ้น แถบล่างระบุว่าเลือกไว้ 3 จาก 3 รายการ พร้อมปุ่มรายละเอียดการตรวจ ตัวเลือกไปป์ไลน์ถัดไปที่ตั้งเป็น Fix a bug และปุ่มเริ่มไปป์ไลน์ใหม่" loading="lazy"></a>
+        <figcaption>มุมมอง “การดำเนินการ”: ขั้นตอนและไปป์ไลน์ถัดไป ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p><strong>“รายละเอียดการตรวจ”</strong> จะเปิดผลลัพธ์ของการรัน:</p>
+      <ul>
+        <li><strong>“การประเมิน”</strong> เช่น <em>“เสร็จสิ้น · ตรวจโดยโมเดล · ยังไม่ได้พิสูจน์”</em> ซึ่งบอกว่าการรันนี้จบลงอย่างไร ไม่ได้บอกว่าซอฟต์แวร์ถูกต้องหรือไม่</li>
+        <li><strong>“คำวินิจฉัยสุดท้าย”</strong> และใครเป็นผู้ให้คำวินิจฉัย เช่น มติเป็นเอกฉันท์ของผู้ตรวจทั้งสองราย</li>
+        <li><strong>“ข้อค้นพบ”</strong> แบ่งเป็นข้อค้นพบที่ <em>ตรงกัน</em> (ยอมรับหลังการโต้แย้ง) และข้อค้นพบที่ <em>ยังไม่ตรงกัน</em> ซึ่งต้องให้คุณยืนยัน แต่ละรายการมีตำแหน่ง หลักฐาน และข้อโต้แย้งที่ถูกหยิบยกขึ้นมา</li>
+        <li><strong>“รายละเอียดการประเมิน”</strong>: ความเสี่ยงที่ยังไม่สะสาง ช่องว่างของหลักฐาน และบัญชีหลักฐาน (ไฟล์ที่เปลี่ยน การตรวจสอบ และที่มาของคำวินิจฉัย)</li>
+      </ul>
+      <figure>
+        <a href="../img/th/result-center.png"><img src="../img/th/result-center.png" width="2560" height="1600" alt="ผลลัพธ์การรัน: เสร็จสิ้น · ตรวจโดยโมเดล · ยังไม่ได้พิสูจน์ “ดูข้อค้นพบด้านล่าง การรันนี้ไม่มีอะไรให้นำไปใช้” คำวินิจฉัยสุดท้าย: ข้อค้นพบสองรายการได้รับการยอมรับหลังการโต้แย้ง หนึ่งข้อขัดแย้งต้องให้คุณตัดสิน โดยมติเป็นเอกฉันท์ของ Reviewer 1 (codex-app-server) และ Reviewer 2 (claude-code) ข้อค้นพบ: ดำเนินการได้ 2 รายการ ต้องให้คนตัดสิน 1 รายการ ข้อค้นพบที่ตรงกัน: “Discount applied twice on retry” ที่ src/checkout/applyCoupon.ts:42 และ “Currency rounding before tax” ที่ src/checkout/totals.ts:18 แต่ละรายการมีหลักฐานและข้อโต้แย้ง" loading="lazy"></a>
+        <figcaption>ผลลัพธ์การรันพร้อมข้อค้นพบที่ตรงกัน หลักฐาน และข้อโต้แย้ง ข้อมูลสาธิต</figcaption>
+      </figure>
+      <div class="note">
+        <strong>อะไรถึงนับว่าพิสูจน์แล้ว</strong>
+        การที่โมเดลบอกว่า “เทสต์ผ่าน” ไม่เคยถูกบันทึกเป็นการตรวจที่ผ่าน เฉพาะการตรวจที่คอนโทรลเลอร์เรียกใช้จริงเท่านั้นที่แสดงเป็นการตรวจ และแต่ละรายการจะระบุว่ารันอะไร หลักฐานที่ขาดก็ยังคงขาดอยู่
+      </div>
+      <p><strong>“คัดลอกผลลัพธ์”</strong> จะคัดลอกบทสรุปที่อ่านได้ <strong>“เพิ่มเติม”</strong> ใช้เผยแพร่ข้อค้นพบไปยังแผง Problems เปิดการควบคุมซอร์ส และส่งออกการรันเป็นชุดข้อมูล JSON รายงานหลักฐานแบบ Markdown หรือข้อค้นพบแบบ SARIF ไฟล์ส่งออกไม่มี URL บทสนทนาของผู้ให้บริการหรือรหัสเซสชัน</p>
+    </section>
+
+    <section class="part" id="direction">
+      <h2>มุมมอง “ทิศทาง”</h2>
+      <p>“ทิศทาง” เก็บสิ่งสำคัญไว้ข้ามการรัน คุณจึงไม่ต้องไล่อ่านบันทึกบทสนทนา เปิดได้จากด้านล่างของลิ้นชักการรัน โดยจะแสดงเป้าหมาย การกระทำถัดไปที่เป็นประโยชน์ และสิ่งที่ต้องให้คุณจัดการ:</p>
+      <ul>
+        <li><strong>“การตัดสินใจที่ต้องสะสาง”</strong>: คำถามที่ไปป์ไลน์หยิบยกขึ้นมาและเปลี่ยนทิศทาง พร้อมข้อแลกเปลี่ยนและหลักฐาน</li>
+        <li><strong>“ข้อค้นพบที่ต้องสะสาง”</strong>: ข้อค้นพบที่ผู้เข้าร่วมยังเห็นไม่ตรงกัน</li>
+        <li><strong>“ข้อค้นพบที่ยอมรับแล้วและรอการแก้ไข”</strong>, ทิศทางที่ยอมรับแล้วและเกณฑ์การยอมรับ ความคืบหน้าการตรวจ ชิ้นงาน และการตรวจของที่เก็บโค้ด</li>
+      </ul>
+      <figure>
+        <a href="../img/th/direction.png"><img src="../img/th/direction.png" width="2560" height="1600" alt="มุมมอง “ทิศทาง” หัวข้อ “Checkout totals are always correct” พร้อมปุ่มสะสางการตัดสินใจ การตัดสินใจที่ต้องสะสาง: Cart retention เสนอไว้ ที่ src/checkout “Should expired carts be deleted or archived?” พร้อมข้อแลกเปลี่ยนและปุ่มยอมรับ ปฏิเสธ เลื่อนออกไป แทนที่ และเปิดใหม่ ข้อค้นพบที่ต้องสะสาง: Shipping threshold ยังไม่สะสาง “Free shipping threshold ignores discounted total” พร้อมปุ่มชุดเดียวกันและปุ่มรวมเข้ากับรายการอื่น" loading="lazy"></a>
+        <figcaption>“ทิศทาง”: การตัดสินใจหนึ่งข้อและข้อค้นพบหนึ่งรายการที่รอคุณอยู่ ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>วิธีสะสางที่คุณบันทึกได้ เมื่อสถานะของรายการเอื้อให้ทำได้:</p>
+      <table>
+        <thead><tr><th>วิธีสะสาง</th><th>ความหมาย</th></tr></thead>
+        <tbody>
+          <tr><td><strong>ยอมรับ</strong></td><td>เป็นเรื่องจริงและ Bachata ควรดำเนินการตามนั้น</td></tr>
+          <tr><td><strong>ปฏิเสธ</strong></td><td>ไม่ใช่เรื่องจริง รายการจะออกจากส่วนที่ใช้งานอยู่และคงอยู่ในประวัติ</td></tr>
+          <tr><td><strong>เลื่อนออกไป</strong></td><td>เป็นเรื่องจริง แต่ยังไม่ใช่ตอนนี้</td></tr>
+          <tr><td><strong>แทนที่</strong></td><td>รายการที่ใหม่กว่าซึ่งมีอยู่แล้วเข้ามาแทนรายการนี้</td></tr>
+          <tr><td><strong>เปิดใหม่</strong></td><td>รายการที่ปิดไปแล้วกลับมาใช้งานอีกครั้ง ต้องมีเหตุผลเป็นลายลักษณ์อักษรและหลักฐานใหม่ที่มีน้ำหนัก</td></tr>
+        </tbody>
+      </table>
+      <p>คุณไม่จำเป็นต้องยอมรับข้อค้นพบที่ไปป์ไลน์ยอมรับไปแล้วหลังจากผู้เข้าร่วมมากกว่าหนึ่งรายโต้แย้ง คุณเข้ามาดูแลเฉพาะกรณียกเว้น ไม่มีอะไรถูกลบ รายการที่สะสางแล้วจะย้ายไปอยู่ในประวัติ</p>
+    </section>
+
+    <section class="part" id="fix-and-apply">
+      <h2>แก้ไขและนำไปใช้</h2>
+      <p>การตรวจแบบอ่านอย่างเดียวไม่ได้สร้างสิ่งที่นำไปใช้ได้ สิ่งที่สร้างการเปลี่ยนแปลงคือการรันแก้ไข ที่ข้อค้นพบซึ่งยอมรับแล้ว ให้เลือก <strong>“แก้ไขข้อค้นพบ”</strong> ใน “ทิศทาง” หรือเลือกไปป์ไลน์ที่เขียนได้ เช่น <em>Fix a bug</em> ให้เป็นไปป์ไลน์ถัดไปในมุมมองการดำเนินการ</p>
+      <figure>
+        <a href="../img/th/direction-fix.png"><img src="../img/th/direction-fix.png" width="2560" height="1600" alt="ส่วน “ข้อค้นพบที่ยอมรับแล้วและรอการแก้ไข (1)” ใน “ทิศทาง”: “Discount applied twice on retry” ยอมรับแล้ว “ไปป์ไลน์ยอมรับแล้ว ยังไม่เริ่มแก้ไข” พร้อมปุ่มปฏิเสธ เลื่อนออกไป แทนที่ เปิดใหม่ แก้ไขข้อค้นพบ และรวมเข้ากับรายการอื่น ด้านล่างคือทิศทางที่ยอมรับแล้ว “Apply each coupon once per order” เกณฑ์การยอมรับ “Retrying payment never changes the total” ข้อจำกัด “No change to the public checkout API” และความคืบหน้าการตรวจที่มีการถดถอยหนึ่งรายการ" loading="lazy"></a>
+        <figcaption>ข้อค้นพบที่ยอมรับแล้วและกำลังรอการแก้ไข ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>การรันแก้ไขจะได้รับพรอมต์ที่จำกัดอยู่ที่ข้อค้นพบนั้นรายการเดียว: หัวข้อ ตำแหน่ง หลักฐาน และข้อโต้แย้งที่ถูกหยิบยก Bachata เลือกไปป์ไลน์แก้ไขจาก <code>bachata.fixPipelineId</code> จากนั้นจากไปป์ไลน์ที่เลือกไว้ในการรันต้นทาง และสุดท้ายจากไปป์ไลน์ที่มีมาให้ชื่อ <code>managed-fix</code> ไปป์ไลน์แบบอ่านอย่างเดียวจะถูกปฏิเสธ</p>
+      <h3>การนำงานที่เก็บไว้ไปใช้</h3>
+      <p>เวิร์กโฟลว์บางแบบแก้ไขโฟลเดอร์ที่เลือกโดยตรง ส่วนแบบแยกส่วนจะเก็บการเปลี่ยนแปลงไว้ใน Git worktree ต่างหากจนกว่าคุณจะนำไปใช้ ข้อกำหนดของการรันจะบอกว่าเป็นแบบใด เมื่อคุณนำไปใช้:</p>
+      <ul>
+        <li>Bachata จะจัดงานนั้นเข้าสเตจในทรีทำงานของคุณบนสาขาปัจจุบัน และไม่สร้างคอมมิต คุณตรวจดูในการควบคุมซอร์สและคอมมิตเอง</li>
+        <li>การนำไปใช้จะถูกปฏิเสธเมื่อการตรวจพิสูจน์ล้าสมัย ล้มเหลว หรือถูกยกเลิก การนำการรันที่ยังสรุปไม่ได้ไปใช้ถือเป็นการข้ามข้อกำหนดโดยเจตนา</li>
+        <li>การนำไปใช้เพียงบางส่วนจะรันการตรวจของการรันนั้นซ้ำกับไบต์ที่คุณเลือกไว้พอดี</li>
+      </ul>
+    </section>
+
+    <section class="part" id="fresh-review">
+      <h2>รอบการตรวจใหม่</h2>
+      <p>การตรวจรอบใหม่จะเริ่มการตรวจอย่างอิสระกับสถานะปัจจุบันของที่เก็บโค้ด เซสชันของผู้ให้บริการจะถูกรีเซ็ต และไม่มีข้อสรุปเดิมถูกนำเข้าไปในพรอมต์ ข้อค้นพบเดิมจะถูกใช้เปรียบเทียบหลังการตรวจเท่านั้น ไม่ใช่ก่อนหน้า</p>
+      <p>เมื่อมีรอบที่สองในวงจรการตรวจเดียวกัน “ทิศทาง” จะรายงานสิ่งที่เปลี่ยนไป: ข้อค้นพบใหม่ ซ้ำ สะสางแล้ว และที่ถดถอย ข้อค้นพบที่เปิดใหม่เพราะหลักฐานใหม่ และการเปลี่ยนแปลงการตัดสินใจ ตัวตนของข้อค้นพบไม่ขึ้นกับถ้อยคำ การกล่าวซ้ำด้วยคำอื่นจึงนับเป็นข้อค้นพบเดียวที่เกิดขึ้นสองครั้ง</p>
+      <p>Bachata จะรายงานภาวะ <strong>อิ่มตัว</strong> ก็ต่อเมื่อการตรวจรอบใหม่หลายครั้งติดกันไม่ได้เพิ่มอะไรที่มีน้ำหนัก ข้อค้นพบที่ยอมรับแล้วถูกสะสาง การตัดสินใจหลักถูกปิด และการตรวจที่จำเป็นเป็นปัจจุบัน ภาวะอิ่มตัวหมายความว่าการตรวจซ้ำเลิกพบปัญหาที่มีน้ำหนักแล้ว ไม่ใช่ข้อพิสูจน์ความถูกต้อง</p>
+      <p>การตรวจรอบใหม่จะรันเฉพาะไปป์ไลน์แบบอ่านอย่างเดียวที่ให้ข้อค้นพบ ตั้งค่า <code>bachata.freshReviewPipelineId</code> เพื่อเลือกไปป์ไลน์เมื่อไปป์ไลน์ที่เลือกไว้ไม่เข้าเกณฑ์</p>
+    </section>
+
+    <section class="part" id="editor">
+      <h2>แก้ไขไปป์ไลน์</h2>
+      <p>ในการตั้งค่าการรัน ให้เลือก <strong>“แก้ไขไปป์ไลน์”</strong>, <strong>“ไปป์ไลน์ใหม่”</strong> หรือ <strong>“แยกสำเนาจากที่เลือก”</strong> การแก้ไขไปป์ไลน์ที่มีมาให้จะสร้างสำเนาขึ้นมา ตัวแก้ไขมีฟอร์ม <em>แบบมีโครงสร้าง</em> และโหมด <em>JSON</em> สำหรับกำหนดค่าที่แน่นอน ขั้นตอนสามารถจัดลำดับใหม่ ทำสำเนา และปิดใช้งานได้ <em>“กรอบความปลอดภัย”</em>, <em>“ผู้ช่วย”</em> และ <em>“บทบาท”</em> เป็นส่วนแยกต่างหาก</p>
+      <figure>
+        <a href="../img/th/pipeline-editor.png"><img src="../img/th/pipeline-editor.png" width="2560" height="1600" alt="ตัวแก้ไขไปป์ไลน์สำหรับ “Code review — reconcile findings สำเนา” ในโหมดมีโครงสร้าง ขั้นตอน: 1 Independent review, 2 Cross-reference findings (ถามหลังขั้นตอนนี้), 3 Surface material decisions โดยแต่ละขั้นเป็นตาของผู้ช่วย Reviewer 1 และ Reviewer 2 ส่วนที่ยุบไว้: รายละเอียดไปป์ไลน์ กรอบความปลอดภัย (ตรวจอย่างเดียว · ไม่มีการตรวจสอบ) ผู้ช่วย และบทบาท ปุ่ม: เพิ่มเติม ยกเลิก บันทึกและเลือกใช้" loading="lazy"></a>
+        <figcaption>ตัวแก้ไขไปป์ไลน์ ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>เปิด <code>bachata.advancedMode</code> เพื่อแสดงตัวแก้ไขแบบเต็ม: บทบาท การหาข้อสรุป ผลลัพธ์ที่มีชนิดข้อมูล จุดตัดสินใจของคน ความสามารถ โหมดสิทธิ์ นโยบายการอนุมัติ เทมเพลตพรอมต์ และนโยบายพาธ ไปป์ไลน์ส่งออกและนำเข้าเป็น JSON ได้ (เวอร์ชัน JSON ของไปป์ไลน์ <code>1</code>) การรันแต่ละครั้งจะเก็บสแนปช็อตของไปป์ไลน์ที่ใช้เริ่มต้นไว้อย่างแม่นยำ</p>
+    </section>
+
+    <section class="part" id="token-efficiency">
+      <p class="eyebrow">โครงการนำร่องในเครื่องที่ต้องเปิดเอง</p>
+      <h2>ลดการส่งบริบทซ้ำให้โมเดล</h2>
+      <p>ขณะนี้ Bachata มีการพัฒนาโหมดการทำงานที่ประหยัดโทเคนสำหรับ Claude Code และ Codex เป็นครั้งแรกในซอร์สโค้ด เป้าหมายคือส่งสถานะที่เล็กที่สุดแต่เพียงพอสำหรับการตัดสินใจถัดไป แทนการส่งคำตอบเดิมทั้งหมด ผลการตรวจพิสูจน์ และประวัติบทสนทนาซ้ำ ๆ</p>
+      <div class="note warn">
+        <strong>ปิดไว้โดยค่าเริ่มต้น</strong>
+        ลองใช้ <strong>“บริบทแบบประหยัด · ทดลอง”</strong> ในช่องพิมพ์ของหน้าการรันก่อนเริ่มรัน
+        โหมดนี้ใช้สถานะแบบมีขอบเขตและเซสชัน Claude/Codex ในเครื่องที่เริ่มใหม่ สำหรับการทำงาน TODO แบบเรียงลำดับ
+        ไม่รองรับไฟล์แนบ อาจลดบริบทที่ส่งซ้ำ ยังไม่มีการวัดว่าประหยัดได้เท่าใด
+        การตั้งค่าที่ใช้ไม่ได้จะแสดงเหตุผลและเริ่มการรันใหม่ในโหมด legacy
+        ช่องทำเครื่องหมายนี้บันทึกค่า <code>bachata.executionContextMode</code> ส่วนการตั้งค่าขั้นสูงยังคงค่าเริ่มต้นเดิม
+        <code>legacy</code> ยังเป็นค่าเริ่มต้น การรันที่กำลังทำงานอยู่และที่กู้คืนได้จะคงโหมดที่บันทึกไว้
+        เกณฑ์การปล่อยรุ่นของโครงการยังไม่ผ่าน และนี่ไม่ใช่การอ้างเรื่องโทเคน ต้นทุน ความหน่วง หรือคุณภาพ
+      </div>
+
+      <h3>ทำไมสิ่งนี้อาจช่วยได้</h3>
+      <ul>
+        <li>ผู้ให้บริการในเครื่องเก็บบทสนทนาไว้ได้ ขณะที่ Bachata ก็ส่งการส่งต่อสถานะอย่างชัดเจนไปด้วย</li>
+        <li>รอบการหาข้อสรุปอาจส่งคำตอบเต็มของผู้เข้าร่วมรายอื่นเข้าไปในรอบถัดไป</li>
+        <li>งานผ่านเบราว์เซอร์อาจต้องใช้คำตอบของโมเดลแยกกันสำหรับการเปลี่ยนแปลงและสำหรับการตรวจของคอนโทรลเลอร์ที่กำหนดไว้ล่วงหน้า</li>
+        <li>ขีดจำกัดจำนวนไบต์ในปัจจุบันกันไม่ให้ข้อมูลบานปลาย แต่ไม่ได้สร้างหลักฐานที่ย้อนกลับมาดูได้อย่างแม่นยำ</li>
+      </ul>
+
+      <h3>แผนการทยอยใช้งาน</h3>
+      <ol class="steps">
+        <li><strong>ทำแล้ว: เก็บหลักฐานที่รับไว้อย่างแม่นยำ</strong> จัดเก็บพรอมต์ที่ Bachata เป็นเจ้าของ คำตอบที่ได้รับ และหลักฐานของคอนโทรลเลอร์ ก่อนจะสร้างตัวอย่างแบบย่อ หากเก็บหลักฐานที่แม่นยำไม่ได้ การทำงานแบบย่อจะไม่เริ่มต้น</li>
+        <li><strong>ทำแล้วแต่ปิดไว้โดยค่าเริ่มต้น: นำร่องสถานะในเครื่องแบบมีขอบเขต</strong> เริ่มเซสชัน Claude Code หรือ Codex ใหม่ด้วยสถานะงานที่มีชนิดข้อมูล ผลสังเกตล่าสุดของคอนโทรลเลอร์ และการอ้างอิงหลักฐานตามขอบเขต โดยให้ขั้นตอนเดิมยังเป็นค่าเริ่มต้น</li>
+        <li><strong>ส่งต่อข้อสรุปอย่างปลอดภัย</strong> ส่งต่อข้อตกลง ข้อโต้แย้ง การระบุที่มา และการตัดสินใจที่ยังไม่สะสาง โดยไม่ถือว่าข้อคัดค้านที่ตกหล่นได้รับการสะสางแล้ว</li>
+        <li><strong>เพิ่มการเรียกคืนหลักฐานในเบราว์เซอร์และการรวมการกระทำอย่างปลอดภัย</strong> ให้คอนโทรลเลอร์เป็นผู้ให้หน้าหลักฐานที่แม่นยำ และรวมการเปลี่ยนแปลงเข้ากับการตรวจที่ได้รับอนุญาตแล้วเฉพาะในจุดที่ขอบเขตของการอนุมัติและการกู้คืนยังชัดเจน</li>
+      </ol>
+
+      <h3>ขอบเขตความปลอดภัย</h3>
+      <p>คอนโทรลเลอร์ยังคงดูแล Git ขอบเขตการเขียน การตรวจพิสูจน์ การรวมงาน และการกู้คืน สถานะที่ไม่ถูกต้อง ล้าสมัย ไม่สมบูรณ์ หรือใหญ่เกินไปจะถือว่าล้มเหลวโดยปลอดภัย หลักฐานที่รับไว้อย่างแม่นยำยังส่งออกได้ ประวัติส่วนตัวของผู้ให้บริการจะไม่ถูกอ้างว่าเก็บไว้แล้ว และไม่มีการเพิ่มชั้นเก็บเทเลเมทรีหรือการวัดระหว่างทำงานใด ๆ</p>
+      <p>อ่าน <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md">เอกสารออกแบบเชิงเทคนิค</a> และ <a href="https://arxiv.org/html/2609.20519v1">งานวิจัย SoL-Pi</a> จากภายนอกที่เป็นจุดตั้งต้นของการศึกษานี้ ผลที่รายงานในงานวิจัยไม่ใช่ผลของ Bachata</p>
+    </section>
+
+    <section class="part" id="browser-bridge">
+      <p class="eyebrow">Browser Bridge</p>
+      <h2>ใช้แชทในเบราว์เซอร์ของคุณจาก Bachata</h2>
+      <p>Bachata Browser Bridge เป็นส่วนขยาย Chrome แยกต่างหาก มันเชื่อม Bachata ใน VS Code เข้ากับเว็บแชท AI อย่าง ChatGPT และ Claude เพื่อให้บทสนทนาในเบราว์เซอร์เป็นผู้เข้าร่วมในไปป์ไลน์ได้ เมื่อขั้นตอนที่ใช้เบราว์เซอร์ทำงาน Bridge จะส่งข้อความไปยังแชทที่คุณเชื่อมไว้และนำคำตอบกลับมาที่ VS Code</p>
+      <p>คุณต้องใช้มันเฉพาะกับผู้เข้าร่วมแบบเบราว์เซอร์เท่านั้น Codex และ Claude Code ไม่ได้ใช้</p>
+      <div class="note">
+        <strong>สิ่งที่ Bridge ทำไม่ได้</strong>
+        มันอ่านไฟล์โครงการของคุณไม่ได้และรันคำสั่งไม่ได้ Bachata ใน VS Code เป็นผู้ตัดสินว่าข้อมูลโครงการใดถูกส่งออกและอนุญาตการเปลี่ยนแปลงใด ข้อความยังคงส่งไปยังผู้ให้บริการแชทที่คุณใช้ และไม่มีการเก็บเทเลเมทรี
+      </div>
+      <h3>สิ่งที่ต้องมี</h3>
+      <ul>
+        <li>Chrome 116 ขึ้นไป</li>
+        <li>หน้าต่าง VS Code ในเครื่องที่มี Bachata ทั้ง Remote SSH, WSL และ Codespaces เข้าถึงเบราว์เซอร์ในเครื่องไม่ได้</li>
+        <li>รุ่นของ Bridge ที่เวอร์ชันโปรโตคอลตรงกับรุ่น Bachata ของคุณ หากไม่ตรงกันจะถูกปฏิเสธ ไม่ใช่ลดความสามารถลง ให้อัปเกรดทั้งคู่พร้อมกัน</li>
+        <li>แท็บ ChatGPT หรือ Claude ที่เข้าสู่ระบบแล้ว หรือเว็บแชทอื่นที่คุณตั้งค่าเอง</li>
+      </ul>
+
+      <h3 id="bridge-install">ติดตั้ง Bridge</h3>
+      <ol class="steps">
+        <li>เปิด <a href="https://chromewebstore.google.com/detail/bachata-browser-bridge/pkjbokfimenacagphechjmlogogghaip"><strong>Bachata Browser Bridge ใน Chrome Web Store</strong></a>.</li>
+        <li>เลือก <strong>“เพิ่มใน Chrome”</strong> แล้วยืนยันการติดตั้ง</li>
+        <li>อัปเดต Bachata สำหรับ VS Code และ Browser Bridge ไปพร้อมกัน เพื่อให้เวอร์ชันโปรโตคอลตรงกัน</li>
+      </ol>
+      <p>สำหรับการติดตั้งแบบออฟไลน์หรือเพื่อการพัฒนา ให้ดาวน์โหลดไฟล์ ZIP และค่าตรวจสอบจาก <a href="https://github.com/multipliedtwice/bachata-browser-bridge/releases">หน้าเผยแพร่อย่างเป็นทางการ</a> ตรวจสอบด้วย <code>shasum -a 256 bachata-browser-bridge-&lt;version&gt;.zip</code> แตกไฟล์ แล้วโหลดโฟลเดอร์นั้นจาก <code>chrome://extensions</code> โดยเปิดโหมดนักพัฒนาไว้ การสร้างจากซอร์สจะได้โฟลเดอร์ <code>dist/</code> ที่โหลดได้ ส่วนรากของที่เก็บโค้ดโหลดไม่ได้</p>
+
+      <h3 id="bridge-pair">จับคู่กับ VS Code</h3>
+      <ol class="steps">
+        <li>ใน Bachata ให้เปิด <strong>“ผู้ช่วย”</strong> แล้วกำหนด <strong>Browser Bridge</strong> ให้บทบาทหนึ่ง ป้ายสถานะ Bridge จะปรากฏด้านบนของหน้าผู้ช่วย เมื่อยังไม่จับคู่จะขึ้นว่า <strong>“จับคู่ Bridge”</strong> ให้กดที่ป้ายนั้น</li>
+        <li>เลือก <strong>“คัดลอกรหัสจับคู่”</strong>. <strong>“ค้นหาเบราว์เซอร์”</strong> จะเริ่มค้นหาอีกครั้ง <strong>“รีเซ็ตการจับคู่”</strong> จะออกรหัสใหม่</li>
+        <li>เปิดหน้าต่าง Bridge ใน Chrome แล้วเลือก <strong>Paste &amp; connect</strong> หากคุณพิมพ์หรือวางรหัสลงในช่องเอง ให้เลือก <strong>“Connect to VS Code”</strong> แทน</li>
+      </ol>
+      <div class="pair">
+        <figure>
+          <a href="../img/th/bridge-pairing-vscode.png"><img src="../img/th/bridge-pairing-vscode.png" width="2560" height="1600" alt="หน้าต่าง “ผู้ช่วย” ใน VS Code โดยเลือกป้ายจับคู่ Bridge อยู่ ส่วนการเชื่อมต่อ Browser Bridge แสดงว่า “ตัดการเชื่อมต่อแล้ว” และ “จับคู่ส่วนขยาย Bachata Browser Bridge ด้วยรหัสนี้” พร้อมปุ่มคัดลอกรหัสจับคู่ ค้นหาเบราว์เซอร์ และรีเซ็ตการจับคู่ Reviewer 2 ถูกกำหนดให้ใช้ Browser Bridge โดยขึ้นว่า “เลือกบทสนทนา”" loading="lazy"></a>
+          <figcaption>ฝั่ง VS Code: คัดลอกรหัสจับคู่ ข้อมูลสาธิต</figcaption>
+        </figure>
+        <figure class="narrow">
+          <a href="../img/th/bridge-disconnected.png"><img src="../img/th/bridge-disconnected.png" width="760" height="1240" alt="Bridge popup, Disconnected. 'Copy the pairing token from Bachata’s Browser Bridge settings in VS Code.' A Pairing token field with Paste and Show, a Paste &amp; connect button, and a Connection settings disclosure. Below: Choose a chat, Refresh tabs, and Other websites." loading="lazy"></a>
+          <figcaption>ฝั่งเบราว์เซอร์: วางรหัสแล้วเชื่อมต่อ</figcaption>
+        </figure>
+      </div>
+      <p>ที่อยู่ในเครื่องจะถูกกรอกให้อัตโนมัติ เปิด <strong>“Connection settings”</strong> เฉพาะเมื่อ VS Code แสดงที่อยู่อื่น Bridge รองรับการเชื่อมต่อเดียว ดังนั้นในแต่ละโปรไฟล์ผู้ใช้จะมีหน้าต่าง VS Code เพียงหน้าต่างเดียวที่ครอบครอง Bridge ในเวลาหนึ่ง หน้าต่างอื่นยังใช้ Codex และ Claude Code ได้</p>
+
+      <h3 id="bridge-chat">เลือกแชท</h3>
+      <ol class="steps">
+        <li>เปิดบทสนทนาใน ChatGPT หรือ Claude แล้วเข้าสู่ระบบ</li>
+        <li>ในหน้าต่างนั้น ให้เลือก <strong>“Refresh tabs”</strong> แต่ละแถวแสดงผู้ให้บริการ ชื่อเรื่อง ความพร้อม และข้อจำกัดถ้ามี <strong>“Details”</strong> แสดงข้อมูลระบุตัวของแท็บและบทสนทนา</li>
+        <li>เลือก <strong>“Use this chat”</strong> ที่บทสนทนาซึ่งพร้อมใช้งาน ปุ่มนี้มีเฉพาะแถวที่พร้อมและเฉพาะขณะเชื่อมต่ออยู่เท่านั้น</li>
+        <li>ในส่วน <strong>“ผู้ช่วย”</strong>ของ Bachata ให้เลือกบทสนทนานั้นสำหรับบทบาทที่ใช้เบราว์เซอร์</li>
+      </ol>
+      <div class="pair">
+        <figure class="narrow">
+          <a href="../img/th/bridge-choose-chat.png"><img src="../img/th/bridge-choose-chat.png" width="760" height="1240" alt="หน้าต่าง Bridge สถานะ “Connected” รายการเลือกแชทแสดง “Checkout review” บน ChatGPT และ “Second opinion” บน Claude ทั้งคู่พร้อมใช้งาน พร้อมข้อความ “Automatic completion available” และปุ่ม “Use this chat” และมีแท็บ ChatGPT ที่ระบุว่า “Sign-in required” อินเทอร์เฟซของ Bridge มีเฉพาะภาษาอังกฤษ" loading="lazy"></a>
+          <figcaption>บทสนทนาที่พร้อมใช้งานจะมีปุ่ม <strong>“Use this chat”</strong> แท็บสาธิต</figcaption>
+        </figure>
+        <figure class="narrow">
+          <a href="../img/th/bridge-selected.png"><img src="../img/th/bridge-selected.png" width="760" height="750" alt="หน้าต่าง Bridge แสดงแชทที่เลือกไว้: “Checkout review” บน ChatGPT พร้อมใช้งาน มีปุ่มเลิกใช้และดูรายละเอียด และลิงก์เปลี่ยนบทสนทนา อินเทอร์เฟซของ Bridge มีเฉพาะภาษาอังกฤษ" loading="lazy"></a>
+          <figcaption>เมื่อผูกแล้ว หน้าต่างจะแสดงเฉพาะแชทนั้น <strong>“Change conversation”</strong> จะแสดงรายการทั้งหมดอีกครั้ง</figcaption>
+        </figure>
+      </div>
+      <figure>
+        <a href="../img/th/agents-browser.png"><img src="../img/th/agents-browser.png" width="2560" height="1600" alt="หน้าต่าง “ผู้ช่วย” พร้อมป้าย “เชื่อมต่อ Bridge แล้ว” Reviewer 1 ใช้ Codex CLI ส่วน Reviewer 2 ใช้ Browser Bridge กับบทสนทนา “ChatGPT · Checkout review” ปุ่มผู้ช่วยขึ้นว่า “ผู้ช่วย · มอบหมายใหม่ 1 รายการ”" loading="lazy"></a>
+        <figcaption>บทสนทนาในเบราว์เซอร์ที่มอบหมายให้ Reviewer 2 ข้อมูลสาธิต</figcaption>
+      </figure>
+      <p>การผูกยังอยู่แม้ปิดหน้าต่างหรือรีสตาร์ตโปรเซสเบื้องหลังของเบราว์เซอร์ คุณต้องผูกใหม่เฉพาะเมื่อแท็บถูกปิด เปลี่ยนไปเว็บอื่น หรือมีการเปลี่ยนบทสนทนาด้วยมือ</p>
+
+      <h3 id="bridge-other">เว็บแชทอื่น</h3>
+      <p>สำหรับเว็บไซต์อื่นนอกจาก ChatGPT และ Claude ให้เปิด <strong>เว็บไซต์อื่น</strong> ในหน้าต่างนั้นแล้วเลือก <strong>“Set up current website”</strong> จากนั้นอนุญาตต้นทางที่แสดงไว้ ปิดหน้าต่างแล้วใช้แผงตั้งค่าบนหน้าเว็บ: ตรวจหาอัตโนมัติหรือเลือกตัวควบคุมเอง (ช่องพิมพ์และพื้นที่บทสนทนาจำเป็นต้องมี ส่วนปุ่มส่ง ปุ่มหยุด และปุ่มเริ่มบทสนทนาใหม่ไม่บังคับ) แล้วตรวจความถูกต้อง การตรวจนี้ไม่ส่งข้อความแชท</p>
+      <figure class="narrow">
+        <a href="../img/th/bridge-other-websites.png"><img src="../img/th/bridge-other-websites.png" width="760" height="750" alt="หน้าต่าง Bridge ที่กางส่วนเว็บไซต์อื่นไว้: “Connect another chat website by choosing its controls. Each site needs your permission; supported actions vary. Choose models on the website.” ปุ่ม: “Set up current website” และ “Saved bindings” อินเทอร์เฟซของ Bridge มีเฉพาะภาษาอังกฤษ" loading="lazy"></a>
+        <figcaption>เว็บไซต์อื่นในหน้าต่าง Bridge</figcaption>
+      </figure>
+      <p>เว็บไซต์อื่นรับเฉพาะข้อความ ไม่รองรับรูปภาพและไฟล์ที่ดาวน์โหลดได้ เว็บที่ไม่มีปุ่มส่งและปุ่มหยุดที่ผ่านการตรวจจะใช้ได้กับงานที่ทำเอง แต่ใช้กับการรันแบบมีการจัดการที่ไม่มีคนดูแลไม่ได้ เว็บที่คุณยังไม่ผูกจะไม่ถูกค้นพบ และ Bridge จะไม่เปิดแท็บแบบนั้นให้คุณเอง</p>
+
+      <h3 id="bridge-limits">ข้อจำกัด</h3>
+      <ul>
+        <li>เว็บไซต์ของผู้ให้บริการเปลี่ยนได้โดยไม่แจ้งล่วงหน้า รุ่นของ Bridge ที่ใช้งานได้เป็นหลักฐานเฉพาะกับเวอร์ชันของเว็บที่เคยทดสอบไว้เท่านั้น</li>
+        <li>Bridge ไม่ทำการเข้าสู่ระบบหรือ CAPTCHA ให้อัตโนมัติ และไม่เพิ่มข้อความพรอมต์ที่ซ่อนไว้</li>
+        <li>หลังเกิดความล้มเหลว ขั้นตอนกู้คืนจะแสดงสิ่งที่บันทึกไว้ และไม่ส่งพรอมต์ซ้ำโดยอัตโนมัติ</li>
+      </ul>
+    </section>
+
+    <section class="part" id="reference">
+      <p class="eyebrow">ข้อมูลอ้างอิง</p>
+      <h2>คำสั่ง</h2>
+      <p>คำสั่งทั้งหมดอยู่ใน Command Palette ภายใต้ <strong>Bachata:</strong>.</p>
+      <table>
+        <thead><tr><th>คำสั่ง</th><th>มันทำอะไร</th></tr></thead>
+        <tbody>
+          <tr><td>เปิด</td><td>เปิดแผงของ Bachata</td></tr>
+          <tr><td>ตั้งค่า</td><td>เลือกเป้าหมายและจำนวนผู้ช่วยที่จะทำงานนั้น</td></tr>
+          <tr><td>วินิจฉัย</td><td>ตรวจผู้ให้บริการ Git และข้อกำหนดของไปป์ไลน์ พร้อมแนวทางแก้</td></tr>
+          <tr><td>ตรวจไฟล์ / ตรวจส่วนที่เลือก</td><td>เตรียมฉบับร่างการตรวจสำหรับไฟล์ปัจจุบันหรือส่วนที่เลือก</td></tr>
+          <tr><td>ตรวจส่วนต่างที่จัดเตรียมไว้ / ตรวจการเปลี่ยนแปลงที่ยังไม่คอมมิต</td><td>เตรียมฉบับร่างการตรวจสำหรับการเปลี่ยนแปลงในเครื่อง</td></tr>
+          <tr><td>ตรวจคอมมิต / ตรวจช่วงคอมมิต / ตรวจสาขาเทียบกับสาขาฐาน</td><td>เตรียมฉบับร่างการตรวจสำหรับประวัติ Git</td></tr>
+          <tr><td>เผยแพร่ข้อค้นพบไปยังแผง Problems</td><td>แสดงข้อค้นพบในแผง Problems</td></tr>
+          <tr><td>แก้ไขรายการวินิจฉัย</td><td>เตรียมฉบับร่างการแก้ไขสำหรับรายการวินิจฉัยจากตัวแก้ไขหรือแผง Problems</td></tr>
+          <tr><td>อธิบายไปป์ไลน์</td><td>อธิบายว่าไปป์ไลน์นั้นทำอะไร</td></tr>
+          <tr><td>ตัวตรวจของที่เก็บโค้ด / ตั้งค่าตัวตรวจและนโยบายของที่เก็บโค้ด</td><td>ประกาศการตรวจของที่เก็บโค้ดที่การรันสามารถเรียกใช้ได้</td></tr>
+          <tr><td>รัน TODO.md, ดูแผน TODO ล่วงหน้า, ทำต่อ / หยุด / ยกเลิกการรัน TODO, แสดงสถานะการรัน TODO</td><td>จัดลำดับงานจากไฟล์ <code>TODO.md</code> ของ Bachata ที่ได้รับมา</td></tr>
+          <tr><td>ปรับปรุงโครงการนี้</td><td>เรียกใช้เวิร์กโฟลว์การปรับปรุงตนเอง</td></tr>
+          <tr><td>เปิดดูชุดข้อมูลการรัน / เล่นซ้ำชุดข้อมูลการรัน</td><td>เปิดบันทึกการรันที่ส่งออกไว้</td></tr>
+          <tr><td>บันทึกหลักฐานภายนอก</td><td>บันทึกหลักฐานที่เกิดขึ้นนอก Bachata</td></tr>
+          <tr><td>ข้อมูลในเครื่อง</td><td>ตรวจดูและลบข้อมูลการรันในเครื่อง</td></tr>
+          <tr><td>สิทธิ์ครอบครองพื้นที่ทำงาน</td><td>แสดงว่าหน้าต่าง VS Code ใดสามารถรันงานในพื้นที่ทำงานนี้ได้</td></tr>
+          <tr><td>ล้างการกักกันทรัพยากร</td><td>ปลดทรัพยากรที่ใช้ร่วมกันซึ่งถูกกักกันไว้</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="builtin-pipelines">ไปป์ไลน์ที่มีมาให้</h3>
+      <table>
+        <thead><tr><th>ไปป์ไลน์</th><th>คำอธิบาย</th></tr></thead>
+        <tbody>
+          <tr><td>Code review</td><td>การตรวจแบบอ่านอย่างเดียวโดยผู้เข้าร่วมหนึ่งราย ข้อค้นพบมาจากแหล่งเดียว</td></tr>
+          <tr><td>Code review — reconcile findings</td><td>การตรวจแบบอ่านอย่างเดียวโดยผู้เข้าร่วมสองราย ใช้ได้ถึง 10 รอบเพื่อปรับข้อค้นพบให้ตรงกัน ต้องมี “ทิศทาง”</td></tr>
+          <tr><td>Code review and refinement</td><td>ผู้เข้าร่วมสองรายตรวจและปรับข้อค้นพบให้ตรงกันภายใน 4 รอบ จากนั้นผู้ลงมือจะแก้ข้อค้นพบที่ยืนยันแล้วภายในขอบเขตที่ประกาศไว้</td></tr>
+          <tr><td>UI/UX review</td><td>การตรวจแบบอ่านอย่างเดียวด้านการใช้งาน การเข้าถึง และลำดับชั้นทางสายตา โดยผู้ตรวจสองราย</td></tr>
+          <tr><td>Review and prepare tasks</td><td>ผู้เข้าร่วมสองรายปรับข้อค้นพบให้ตรงกัน แล้วจัดทำรายการงานที่เลือกได้</td></tr>
+          <tr><td>Identify decisions for you</td><td>ผู้เข้าร่วมสองรายปรับตัวเลือกที่ต้องใช้วิจารณญาณของคนให้ตรงกัน แบบอ่านอย่างเดียว</td></tr>
+          <tr><td>Implementation plan</td><td>จัดทำแผนการลงมือโดยไม่แก้ไขไฟล์</td></tr>
+          <tr><td>Implementation plan — reconcile proposals</td><td>ผู้วางแผนสองรายปรับแผนให้ตรงกันภายใน 10 รอบ ต้องมี “ทิศทาง”</td></tr>
+          <tr><td>Fix a bug</td><td>วินิจฉัยและลงมือแก้ไขด้วยผู้เข้าร่วมหนึ่งราย เรียกใช้การตรวจของคอนโทรลเลอร์ที่ประกาศไว้ และไม่สร้างคอมมิต</td></tr>
+          <tr><td>Fix a bug — reviewed tasks</td><td>ผู้เข้าร่วมสองรายปรับผลวินิจฉัยให้ตรงกัน จากนั้นคุณเลือกงานที่มีขอบเขตให้คอนโทรลเลอร์ลงมือ</td></tr>
+          <tr><td>Fix within a declared scope</td><td>ผู้ลงมือหนึ่งรายทำงานภายในพาธที่ตั้งค่าไว้ คอนโทรลเลอร์เรียกใช้การตรวจที่ประกาศไว้ ต้องมี “ทิศทาง”</td></tr>
+          <tr><td>Diagnose and fix — model review</td><td>ผู้เข้าร่วมสองรายปรับผลวินิจฉัยให้ตรงกัน ลงมือแก้ไข และตรวจงานนั้น การตรวจพิสูจน์คือการตรวจโดยโมเดล</td></tr>
+          <tr><td>Deliver a feature</td><td>ปรับความต้องการและการออกแบบให้ตรงกัน แล้วลงมือและตรวจภายในขอบเขตที่ประกาศไว้ พร้อมการตรวจของคอนโทรลเลอร์</td></tr>
+          <tr><td>Product direction review</td><td>ตรวจทางเลือกด้านผลิตภัณฑ์และปรับข้อเสนอแนะให้ตรงกัน ต้องมี “ทิศทาง”</td></tr>
+        </tbody>
+      </table>
+      <p>ไปป์ไลน์ที่ทำเครื่องหมายว่า <em>“ภายใน”</em> ในตัวเลือก คือขั้นตอนของคอนโทรลเลอร์สำหรับการจัดการ TODO และการปรับปรุงตนเอง</p>
+
+      <h3 id="settings">การตั้งค่าที่ใช้บ่อย</h3>
+      <table>
+        <thead><tr><th>การตั้งค่า</th><th>ค่าเริ่มต้น</th><th>จุดประสงค์</th></tr></thead>
+        <tbody>
+          <tr><td><code>bachata.codexCommand</code></td><td><code>codex</code></td><td>ไฟล์โปรแกรมสำหรับ app server ของ Codex</td></tr>
+          <tr><td><code>bachata.claudeCommand</code></td><td><code>claude</code></td><td>ไฟล์โปรแกรมสำหรับ Claude Code</td></tr>
+          <tr><td><code>bachata.preferredProvider</code></td><td><code>auto</code></td><td>ผู้ให้บริการที่จะใช้ก่อน เมื่อไปป์ไลน์เสนอมากกว่าหนึ่งราย</td></tr>
+          <tr><td><code>bachata.disabledProviders</code></td><td><code>[]</code></td><td>ผู้ให้บริการที่ Bachata ต้องไม่เรียกใช้</td></tr>
+          <tr><td><code>bachata.advancedMode</code></td><td><code>false</code></td><td>แสดงตัวแก้ไขไปป์ไลน์แบบเต็ม</td></tr>
+          <tr><td><code>bachata.notificationMode</code></td><td><code>material</code></td><td>Bachata จะแสดงการแจ้งเตือนแบบใด</td></tr>
+          <tr><td><code>bachata.fixPipelineId</code></td><td>เว้นว่าง</td><td>ไปป์ไลน์ที่ใช้สำหรับ <em>“แก้ไขข้อค้นพบ”</em>.</td></tr>
+          <tr><td><code>bachata.freshReviewPipelineId</code></td><td>เว้นว่าง</td><td>ไปป์ไลน์ที่ใช้ตรวจรอบใหม่เมื่อไปป์ไลน์ที่เลือกไม่เข้าเกณฑ์</td></tr>
+          <tr><td><code>bachata.maxPipelineIterations</code></td><td><code>10</code></td><td>จำนวนรอบต่อเนื่องสูงสุดของการรันหนึ่งครั้ง</td></tr>
+          <tr><td><code>bachata.browserBridgePort</code></td><td><code>43127</code></td><td>พอร์ต loopback ที่ Browser Bridge เชื่อมต่อไป</td></tr>
+          <tr><td><code>bachata.todoFile</code></td><td><code>TODO.md</code></td><td>รายการงานที่การจัดการ TODO ใช้</td></tr>
+        </tbody>
+      </table>
+      <p>การตั้งค่าที่ขยายสิ่งที่การรันทำได้ เช่น โหมดสิทธิ์และไดเรกทอรีทำงานภายนอก จะถูกอ่านจากการตั้งค่าของผู้ใช้หรือของเครื่องเท่านั้น ที่เก็บโค้ดที่คุณเปิดจึงให้สิทธิ์เพิ่มแก่ตัวเองไม่ได้</p>
+
+      <h3 id="privacy">ความเป็นส่วนตัว</h3>
+      <p>Bachata ทำงานกับสำเนาโค้ดในเครื่องของคุณ ไม่มีบัญชี Bachata บริการบนคลาวด์ หรือการเก็บเทเลเมทรี พรอมต์ โค้ดที่เลือก และคำตอบจะถูกส่งไปยังผู้ให้บริการที่คุณเลือก ข้อกำหนดของการรันจะแสดงว่าผู้ให้บริการแต่ละรายได้รับอะไรก่อนเริ่มรัน ข้อมูลรับรองของผู้ให้บริการยังอยู่กับ CLI หรือเซสชันเบราว์เซอร์ของผู้ให้บริการนั้นเอง</p>
+
+      <h3 id="about-screenshots">เกี่ยวกับภาพหน้าจอ</h3>
+      <p>ภาพหน้าจอแสดงแผง Bachata จริง (<code>dist/webview.js</code>) และหน้าต่าง Bridge จริง ซึ่งเรนเดอร์ใน Chrome นอก VS Code ด้วยสีของธีม Dark Modern ของ VS Code ส่วนที่เก็บโค้ด <em>demo-shop</em> รวมถึงการรัน ข้อค้นพบ การตัดสินใจ และแท็บแชท เป็นข้อมูลสาธิตที่สมมติขึ้น ใน VS Code แผงนี้จะปรากฏอยู่ในแท็บของตัวแก้ไข</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  Bachata ใช้สัญญาอนุญาต MIT ซอร์สโค้ด: <a href="https://github.com/multipliedtwice/bachata-extension">bachata-extension</a> · <a href="https://github.com/multipliedtwice/bachata-browser-bridge">bachata-browser-bridge</a>
+</footer>
+</body>
+</html>

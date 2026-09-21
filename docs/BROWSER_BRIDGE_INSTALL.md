@@ -46,3 +46,11 @@ Do not install a Bridge build from any other source. The Bridge holds a pairing 
 The Bridge and the extension agree on one browser protocol version. A mismatch is refused, not degraded. Upgrade both together.
 
 Provider websites change without notice. A working Bridge build is evidence for the exact provider build tested on the date recorded in `docs/COMPATIBILITY_MATRIX.md`, and for nothing else.
+
+## Recovering a created chat
+
+For ChatGPT and Claude tabs that Bachata creates, the Bridge remembers the stable conversation URL as soon as the submitted request passes its initial navigation checks. It keeps at most 50 such records. Closing the tab or timing out before the final reply does not remove an already saved record. A selected or discovered tab does not enter this catalogue.
+
+Controllers can list these records and reopen an explicitly selected record ID with `listRecoverableConversations()` and `reopenConversation(registryId, provider)`. This uses a matching inactive tab or creates a new inactive tab and verifies the conversation. The recovery API does not send a prompt. The VS Code runtime also persists an active agent's promoted exact binding before the final response, so existing binding-based reopening can use it after restart. These APIs are available on the direct server, recovery wrapper, and shared controller transport; there is no new chat-picker UI in this change.
+
+Recovery requires matching Bridge and extension builds, a valid retained URL, and a signed-in, ready provider page. It does not restore the previous window layout or recover a missing response into Bachata, and it does not confirm that a timed-out request stopped. A restart before the trusted route transition cannot recover an unpromoted tab.

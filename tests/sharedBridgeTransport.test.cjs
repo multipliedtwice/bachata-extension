@@ -66,6 +66,13 @@ const fixture = async (options = {}) => {
       assert.ok(bindings.has(owner));
       return found;
     },
+    listRecoverableConversations: async () => options.records ?? [],
+    reopenConversation: async (registryId, provider) => {
+      calls.push({ recovery: registryId, provider });
+      const record = options.records?.find((entry) => entry.id === registryId && entry.provider === provider);
+      if (!record) throw new Error("Unknown registry record");
+      return sessions.find((item) => item.conversationIdentity === record.conversationIdentity);
+    },
     openConversation: async (provider, signal) => {
       opens.push(signal);
       if (options.freshSession) {
@@ -90,6 +97,7 @@ const fixture = async (options = {}) => {
       signal.addEventListener("abort", stop, { once: true });
       try {
         yield { type: "session", sessionId: id };
+        if (options.promotedBinding) yield { type: "binding", sessionId: "promoted", binding: options.promotedBinding };
         if (signal.aborted) stop();
         await stoppedPromise;
         yield { type: "interrupted" };
@@ -406,4 +414,34 @@ test("closing during a delayed credential read waits for startup and never migra
     returnCredential?.(undefined);
     await owner.close();
   }
+});
+
+test("shared controller transports explicit recovery listing and reopening without a send", async () => {
+  const record = { id: "12345678-1234-4234-8234-123456789abc", provider: "chatgpt", conversationUrl: session("1").conversationUrl, conversationIdentity: session("1").conversationIdentity, createdAt: 1000, updatedAt: 1001 };
+  const owner = await fixture({ records: [record] });
+  const client = owner.client();
+  try {
+    await client.start();
+    assert.deepEqual(await client.listRecoverableConversations(), [record]);
+    assert.equal((await client.reopenConversation(record.id, "chatgpt")).conversationIdentity, record.conversationIdentity);
+    assert.deepEqual(owner.calls.filter((entry) => typeof entry === "object"), [{ recovery: record.id, provider: "chatgpt" }]);
+    await assert.rejects(client.reopenConversation("latest", "chatgpt"));
+  } finally { await client.close(); await owner.close(); }
+});
+
+test("shared transport forwards stable binding while a turn remains unfinished", async () => {
+  const binding = { provider: "chatgpt", conversationUrl: "https://chatgpt.com/c/promoted", conversationIdentity: "chatgpt:https://chatgpt.com/c/promoted", preferredTabId: 1 };
+  const owner = await fixture({ promotedBinding: binding });
+  const client = owner.client();
+  try {
+    await client.start();
+    client.bindSession("agent", "1");
+    const controller = new AbortController();
+    const iterator = client.sendConversation("agent", "prompt", "1", controller.signal)[Symbol.asyncIterator]();
+    assert.equal((await iterator.next()).value.type, "session");
+    assert.deepEqual((await iterator.next()).value, { type: "binding", sessionId: "promoted", binding });
+    controller.abort();
+    assert.equal((await iterator.next()).value.type, "interrupted");
+    assert.equal((await iterator.next()).done, true);
+  } finally { await client.close(); await owner.close(); }
 });

@@ -980,6 +980,58 @@ const composerPrimaryActionHtml = (panel: PanelState, draft: ConversationDraft):
   return `<button class="icon-button send-button icon-send" data-action="submit-message" data-delivery="${escapeAttribute(delivery)}" title="${escapeAttribute(title)}" aria-label="${escapeAttribute(label)}" aria-keyshortcuts="Control+Enter Meta+Enter" ${composerSubmitStateAttributes(blockers.length === 0 && !pending, blockers)}${pending ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>`;
 };
 
+const executionContextControl = (panel: PanelState, draft: ConversationDraft) => {
+  const context = panel.executionContext;
+  const pending = state.pendingExecutionContext;
+  const conversation = conversationById(activeId());
+  const unavailable = context?.unavailable ?? (!context?.pinned && (draft.selectedAttachmentIds.size > 0 || draft.pendingAttachments.size > 0) ? "attachments" : undefined);
+  const reasons = {
+    workflow: localize("Choose serial TODO Implementation."),
+    providers: localize("Choose local Claude/Codex for every role."),
+    workspace: localize("Choose a workspace folder."),
+    attachments: localize("Remove attachments to use efficient context."),
+  };
+  const unavailableReason = unavailable ? reasons[unavailable] : undefined;
+  const reason = !context ? localize("Loading context setting…")
+    : context.pinned ? [localize("This run keeps its recorded mode. Start a new run to change it."), unavailableReason].filter(Boolean).join(" ")
+    : unavailableReason !== undefined ? unavailableReason
+    : context.locked || panel.operationActive || panel.running || state.manager.readOnly || conversation?.archived || conversation?.running || conversation?.waitingForResources
+      ? localize("Context can be changed before a new run starts.")
+      : pending ? localize("Saving context default…")
+      : pendingPipelineSelection() ? localize("Wait for the pipeline selection.")
+      : undefined;
+  const mode = context?.pinned ? context.mode
+    : pending?.conversationId === activeId() ? pending.mode : context?.mode;
+  return { checked: mode === "localTodoStateV1" && (context?.pinned === true || !unavailable), reason };
+};
+
+const setExecutionContext = (checked: boolean): void => {
+  const panel = activePanel();
+  const context = panel.executionContext;
+  const control = executionContextControl(panel, draftFor(activeId()));
+  const mode = checked ? "localTodoStateV1" : "legacy";
+  if (control.reason || !context || !panel.selectedPipelineId || !panel.selectedPipelineHash || mode === context.defaultMode) return;
+  const id = requestId();
+  state.pendingExecutionContext = { requestId: id, conversationId: activeId(), mode };
+  postRuntime({ type: "executionContext.set", mode, expectedDefault: context.defaultMode,
+    pipelineId: panel.selectedPipelineId, pipelineHash: panel.selectedPipelineHash,
+    attachmentIds: Array.from(draftFor(activeId()).selectedAttachmentIds), requestId: id }, activeId());
+  scheduleRender();
+};
+
+const executionContextHtml = (panel: PanelState, draft: ConversationDraft): string => {
+  const control = executionContextControl(panel, draft);
+  const help = localize("Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.");
+  const savedDefault = !panel.executionContext?.pinned && panel.executionContext?.defaultMode === "localTodoStateV1" && !control.checked && !state.pendingExecutionContext
+    ? localize("Saved default is on; unavailable for this setup.") : "";
+  return `<div class="composer-context">
+    <label class="composer-context-label" for="execution-context-mode"><input id="execution-context-mode" type="checkbox"${control.checked ? " checked" : ""} aria-disabled="${control.reason ? "true" : "false"}" aria-describedby="execution-context-reason execution-context-help"><span>${escapeHtml(localize("Efficient context"))}</span></label>
+    <span class="composer-context-badge">${escapeHtml(localize("Experimental"))}</span>
+    <p id="execution-context-help" class="composer-context-help">${escapeHtml(help)}</p>
+    <p id="execution-context-reason" class="composer-context-reason" role="status">${escapeHtml([control.reason, savedDefault].filter(Boolean).join(" "))}</p>
+  </div>`;
+};
+
 const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const iterationLabel = iterationCountLabel(draft.iterationCount);
   const settingsLabel = localize("Iterations · {0}", iterationLabel);
@@ -999,6 +1051,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
       ${attachmentStripHtml(panel, draft)}
       <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(pipelinePromptPlaceholder(panel))}">${escapeHtml(draft.prompt)}</textarea>
       ${blockerNoteHtml}
+      ${executionContextHtml(panel, draft)}
       <div class="composer-toolbar">
         <button data-action="attachment-pick" class="icon-button composer-attachment-button" aria-label="${escapeAttribute(localize("Attach image, text, log, or specification"))}" title="${escapeAttribute(localize("Attach image, text, log, or specification"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>

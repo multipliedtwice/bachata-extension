@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bachata — 面向 VS Code 的 AI 工作流扩展</title>
+<meta name="description" content="用 Bachata 在 VS Code 中搭建可重复的 AI 工作流。在规划、编码和审查流程中协调 Codex、Claude Code 与浏览器对话。">
+<meta name="theme-color" content="#1f7a4d">
+<link rel="canonical" href="https://multipliedtwice.github.io/bachata-extension/zh-cn/">
+<link rel="alternate" hreflang="x-default" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="en" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="ru" href="https://multipliedtwice.github.io/bachata-extension/ru/">
+<link rel="alternate" hreflang="zh-Hans" href="https://multipliedtwice.github.io/bachata-extension/zh-cn/">
+<link rel="alternate" hreflang="pt-BR" href="https://multipliedtwice.github.io/bachata-extension/pt-br/">
+<link rel="alternate" hreflang="th" href="https://multipliedtwice.github.io/bachata-extension/th/">
+<link rel="alternate" hreflang="de" href="https://multipliedtwice.github.io/bachata-extension/de/">
+<link rel="sitemap" type="application/xml" href="sitemap.xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bachata">
+<meta property="og:title" content="Bachata — 面向 VS Code 的 AI 工作流扩展">
+<meta property="og:description" content="在 VS Code 中用 Codex、Claude Code 和浏览器对话搭建可重复的 AI 工作流。">
+<meta property="og:url" content="https://multipliedtwice.github.io/bachata-extension/zh-cn/">
+<meta property="og:image" content="https://multipliedtwice.github.io/bachata-extension/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bachata 在 VS Code 的规划、编码和审查步骤中协调 AI 助手。">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Bachata — 面向 VS Code 的 AI 工作流扩展">
+<meta name="twitter:description" content="在 VS Code 中用 Codex、Claude Code 和浏览器对话搭建可重复的 AI 工作流。">
+<meta name="twitter:image" content="https://multipliedtwice.github.io/bachata-extension/assets/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Bachata",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "description": "A VS Code extension for coordinating AI assistants through reusable planning, coding and review pipelines.",
+  "url": "https://multipliedtwice.github.io/bachata-extension/",
+  "downloadUrl": "https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode",
+  "sameAs": "https://github.com/multipliedtwice/bachata-extension",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#top" aria-label="Bachata 文档首页">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8.75 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11M15.25 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 1 0 0-11"/></svg>
+    <span>Bachata</span>
+  </a>
+  <nav aria-label="主导航">
+    <a href="#getting-started">开始使用</a>
+    <a href="#pipelines">流程</a>
+    <a href="#results">结果</a>
+    <a href="#token-efficiency">Token 效率</a>
+    <a href="#browser-bridge">Browser Bridge</a>
+    <a href="#reference">参考</a>
+    <a href="https://github.com/multipliedtwice/bachata-extension">GitHub</a>
+  </nav><nav class="language-switcher" aria-label="Language"><a href="https://multipliedtwice.github.io/bachata-extension/" hreflang="en">English</a><a href="https://multipliedtwice.github.io/bachata-extension/ru/" hreflang="ru">Русский</a><a href="https://multipliedtwice.github.io/bachata-extension/zh-cn/" hreflang="zh-Hans" aria-current="true">简体中文</a><a href="https://multipliedtwice.github.io/bachata-extension/pt-br/" hreflang="pt-BR">Português (Brasil)</a><a href="https://multipliedtwice.github.io/bachata-extension/th/" hreflang="th">ไทย</a><a href="https://multipliedtwice.github.io/bachata-extension/de/" hreflang="de">Deutsch</a></nav>
+</header>
+
+<div class="layout" id="top">
+  <aside class="toc" aria-label="本页内容">
+    <ol>
+      <li class="group">概览</li>
+      <li><a href="#what-it-is">Bachata 是什么</a></li>
+      <li><a href="#requirements">前置条件</a></li>
+      <li class="group">开始使用</li>
+      <li><a href="#install">安装</a></li>
+      <li><a href="#doctor">检查就绪状态</a></li>
+      <li><a href="#first-review">运行第一次审查</a></li>
+      <li class="group">使用 Bachata</li>
+      <li><a href="#workspace">Bachata 面板</a></li>
+      <li><a href="#pipelines">选择流程</a></li>
+      <li><a href="#agents">分配助手</a></li>
+      <li><a href="#run-contract">阅读运行约定</a></li>
+      <li><a href="#results">阅读结果</a></li>
+      <li><a href="#direction">“方向”视图</a></li>
+      <li><a href="#fix-and-apply">修复与应用</a></li>
+      <li><a href="#fresh-review">全新审查轮次</a></li>
+      <li><a href="#editor">编辑流程</a></li>
+      <li class="group">设计</li>
+      <li><a href="#token-efficiency">节省 Token 的执行方式</a></li>
+      <li class="group">Browser Bridge</li>
+      <li><a href="#browser-bridge">它的作用</a></li>
+      <li><a href="#bridge-install">安装 Bridge</a></li>
+      <li><a href="#bridge-pair">与 VS Code 配对</a></li>
+      <li><a href="#bridge-chat">选择对话</a></li>
+      <li><a href="#bridge-other">其他网站</a></li>
+      <li><a href="#bridge-limits">限制</a></li>
+      <li class="group">参考</li>
+      <li><a href="#reference">命令</a></li>
+      <li><a href="#builtin-pipelines">内置流程</a></li>
+      <li><a href="#settings">常用设置</a></li>
+      <li><a href="#privacy">隐私</a></li>
+      <li><a href="#about-screenshots">关于截图</a></li>
+    </ol>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <h1>为软件工作搭建属于你的 AI 工作流</h1>
+      <p class="lead">Bachata 是一个 VS Code 扩展，让 AI 助手按你编排的步骤协作：一个负责规划，另一个提出质疑，它们互相审查和修订，最终由你决定什么重要。</p>
+      <div class="buttons">
+        <a class="button primary" href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode">为 VS Code 安装</a>
+        <a class="button" href="https://chromewebstore.google.com/detail/bachata-browser-bridge/pkjbokfimenacagphechjmlogogghaip">安装 Browser Bridge</a>
+        <a class="button" href="#getting-started">阅读配置说明</a>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <strong>Alpha 候选版</strong>
+      Bachata 是 Alpha 候选版，不是稳定版。对提供方、平台和浏览器的验证尚未完成。
+    </div>
+
+    <section class="part" id="what-it-is">
+      <p class="eyebrow">概览</p>
+      <h2>Bachata 是什么</h2>
+      <p>AI 助手是你用日常语言请求帮助的工具，比如规划功能、编写代码或查找缺陷。Bachata 运行在 Visual Studio Code 内，协调你已有的助手，例如 <strong>Codex</strong> 和 <strong>Claude Code</strong>.</p>
+      <p>你把工作编排成一条 <strong>流程</strong>：一串步骤，每一步都有角色、指令以及执行它的助手。例如，两位审查者各自独立读代码，然后互相质疑对方的问题，直到达成一致或把分歧交给你。</p>
+      <div class="cards">
+        <div class="card"><h3>设定工作流</h3><p>角色、指令、步骤顺序和审查轮次。</p></div>
+        <div class="card"><h3>选择由谁来做</h3><p>为每个角色指派 Codex、Claude Code 或浏览器对话。</p></div>
+        <div class="card"><h3>复用并调整</h3><p>从内置流程开始，编辑它，或者新建自己的流程。</p></div>
+        <div class="card"><h3>跟踪结果</h3><p>问题、决策和改动，以及真正执行过的检查。</p></div>
+      </div>
+      <p>Bachata 不包含 AI 服务或订阅，也从不创建 Git 提交。即使助手意见一致，AI 仍可能出错；一次运行完成并不证明代码正确。</p>
+    </section>
+
+    <section class="part" id="requirements">
+      <h2>前置条件</h2>
+      <ul>
+        <li>VS Code 1.101.0 或更高版本。</li>
+        <li>在受信任的本地 VS Code 窗口中打开的文件夹。普通流程不需要 Git。任务清单执行需要 Git 仓库以及 Git 2.32 或更高版本。</li>
+        <li>已单独安装并登录的 Codex 或 Claude Code。若希望两个助手互相核查，请都安装。</li>
+        <li>可选： <a href="#browser-bridge">Browser Bridge</a> Chrome 扩展，用于把 ChatGPT、Claude 或其他对话网站作为参与者。</li>
+      </ul>
+    </section>
+
+    <section class="part" id="getting-started">
+      <p class="eyebrow">开始使用</p>
+      <h2 id="install">安装</h2>
+      <ol class="steps">
+        <li>安装 <a href="https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode"><strong>Visual Studio Marketplace 上的 Bachata</strong></a>。若使用离线或开发版本，请打开命令面板，运行 <strong>Extensions: Install from VSIX…</strong>，然后选择随附的 Bachata <code>.vsix</code> 文件。</li>
+        <li>在受信任的本地 VS Code 窗口中打开你要处理的文件夹。</li>
+        <li>通过各自 CLI 的登录流程安装并登录 Codex 或 Claude Code。</li>
+      </ol>
+      <p>没有 Git 仓库时，普通流程仍可运行，但基于 Git 的改动跟踪、写入范围校验、补丁导出和仓库改动收敛都不可用。</p>
+      <p>Bachata 会在活动栏添加一个 <strong>Bachata</strong> 图标，并在 VS Code 欢迎页添加 <strong>开始使用 Bachata</strong> 引导。</p>
+
+      <h3 id="doctor">用“诊断”检查就绪状态</h3>
+      <p>运行 <strong>Bachata: 诊断</strong>。诊断会把所选流程的阻塞项与不可用的可选提供方区分开，每一项未通过的检查都会给出可直接执行的操作和针对性的重新检查。</p>
+      <ul>
+        <li>Codex 通过 app-server 握手探测，不会创建会话线程，也不会调用模型。</li>
+        <li>Claude Code 通过 <code>claude --version</code>.</li>
+        <li>探测在工作区根目录以受限环境运行。只存在于交互式 shell 的 <code>PATH</code> 中的 CLI 是不可见的：请把 <code>bachata.codexCommand</code> 或 <code>bachata.claudeCommand</code> 设为它的绝对路径。</li>
+      </ul>
+
+      <h3 id="first-review">运行第一次审查</h3>
+      <ol class="steps">
+        <li>运行 <strong>Bachata: 设置</strong>。选择 <strong>审查代码</strong>。默认路径还提供 <em>规划改动</em> 和 <em>修复缺陷</em>；TODO 编排、浏览器提供方和自定义流程位于 <em>高级工作流</em>.</li>
+        <li>选择 <strong>单个快速助手</strong> （由一个提供方完成工作）或 <strong>交叉核查的一对</strong> （两个参与者分别工作并交叉核查一遍）。设置会列出已就绪的提供方，以及缺失的提供方还需要什么。</li>
+        <li>在输入框中描述你想审查的内容。也可以从编辑器开始： <strong>Bachata: 审查文件</strong>, <strong>审查所选内容</strong>, <strong>审查未提交的改动</strong> 等命令会准备草稿但不发送。</li>
+        <li>打开运行设置并阅读运行约定：本次运行可以读取和写入什么、有哪些提供方参与、会执行哪些检查。</li>
+        <li>发送。运行结束后打开结果。</li>
+      </ol>
+      <figure>
+        <a href="../img/zh-cn/composer.png"><img src="../img/zh-cn/composer.png" width="2560" height="1600" alt="Bachata 面板中的一次新运行。输入框中的请求是“Review src/checkout for bugs in how discounts and totals are calculated.”，所选流程为“Code review — reconcile findings”，共 3 个步骤、2 位参与者。输入框上方列出了近期运行。" loading="lazy"></a>
+        <figcaption>一次新运行。流程选择器、 <strong>“助手”</strong>、运行设置和发送按钮位于请求下方。演示数据。</figcaption>
+      </figure>
+      <div class="note">
+        <strong>审查是只读的。</strong>
+        它不能修改你的仓库。一遍审查无法证明代码正确：在采纳由此产生的修复后，请针对更新后的代码再做一次全新审查。
+      </div>
+    </section>
+
+    <section class="part" id="workspace">
+      <p class="eyebrow">使用 Bachata</p>
+      <h2>Bachata 面板</h2>
+      <p>用 <strong>Bachata: 打开</strong> 或活动栏图标打开它。每次运行是顶部的一个标签页。一次运行有三个视图：</p>
+      <ul>
+        <li><strong>“对话”</strong>：你的请求以及每位参与者的回答，按顺序排列。</li>
+        <li><strong>“执行”</strong>：流程各步骤及其状态，以及运行结果。</li>
+        <li><strong>“方向”</strong>：跨运行的项目目标、等待你处理的决策，以及仍待修复的已接受问题。</li>
+      </ul>
+      <figure>
+        <a href="../img/zh-cn/run-transcript.png"><img src="../img/zh-cn/run-transcript.png" width="2560" height="1600" alt="一次已完成运行的“对话”视图。Reviewer 1 报告了两个问题——重试时折扣被应用两次、税前货币取整，并建议归档过期购物车。Reviewer 2 同意这两个问题，但不同意归档购物车。在第 2 轮，Reviewer 1 将购物车问题标记为待用户决定。完成卡片显示两位审查者在第 2/10 轮得到相同的问题集合，并带有打开结果的按钮。" loading="lazy"></a>
+        <figcaption>一次完成的交叉核查审查的“对话”视图。演示数据。</figcaption>
+      </figure>
+      <p><strong>“运行”</strong> 会打开运行抽屉：搜索运行与提示词、显示已归档运行，并打开 <strong>“方向”</strong>。每次运行的 <strong>…</strong> 菜单可重命名、复制、归档或删除它。</p>
+      <figure>
+        <a href="../img/zh-cn/run-drawer.png"><img src="../img/zh-cn/run-drawer.png" width="2560" height="1600" alt="左侧打开的运行抽屉，包含搜索框、显示已归档运行的复选框、三次带状态的运行，底部有指向“方向”的链接。" loading="lazy"></a>
+        <figcaption>运行抽屉。演示数据。</figcaption>
+      </figure>
+    </section>
+
+    <section class="part" id="pipelines">
+      <h2>选择流程</h2>
+      <p>流程选择器位于输入框下方。搜索涵盖名称、ID、说明和参与者角色。筛选器把常用、专用和内部工作流分开；自定义流程会增加 <em>“自定义”</em> 和 <em>“全部”</em>。选择器选定的是 <em>工作内容</em>; <strong>“助手”</strong> 选定的是 <em>提供方</em>.</p>
+      <figure>
+        <a href="../img/zh-cn/pipeline-picker.png"><img src="../img/zh-cn/pipeline-picker.png" width="2560" height="1600" alt="输入框上方打开的流程选择器，含搜索框和列表：Code review — reconcile findings（已选中）、Code review and refinement、UI/UX review、Code review、Fix a bug、Implementation plan，每项都标有步骤数和参与者数。" loading="lazy"></a>
+        <figcaption>流程选择器。列表显示内置流程。演示数据。</figcaption>
+      </figure>
+      <p>流程中的每个步骤都是以下之一：</p>
+      <ul>
+        <li><code>agent</code>：一位或多位参与者进行一个回合，可并行进行，或持续到达成一致；</li>
+        <li><code>assignRoles</code>：把你定义的角色绑定到助手；</li>
+        <li><code>checklist</code>：把已接受的问题转为严格的任务项；</li>
+        <li><code>executeChecklist</code>：由控制器执行所选任务项。它必须是最后一个启用的步骤。</li>
+      </ul>
+      <p>一致性轮次有上限。达到轮次上限时，流程会规定接下来会发生什么：由人决定、失败，或由主导方裁定。达成一致只是选出某次运行的输出，并不证明该输出为真。参见 <a href="#builtin-pipelines">内置流程列表</a>.</p>
+    </section>
+
+    <section class="part" id="agents">
+      <h2>分配助手</h2>
+      <p><strong>“助手”</strong> 会列出所选流程需要的每个角色。为每个角色选择提供方，若提供方报告了模型，则再选择模型。改动仅对本次运行生效，并标记为已重新分配； <strong>“恢复默认”</strong> 可恢复流程自身的选择。</p>
+      <figure>
+        <a href="../img/zh-cn/agents.png"><img src="../img/zh-cn/agents.png" width="2560" height="1600" alt="含两个角色的“助手”弹出面板。Reviewer 1 使用“默认 · Codex CLI”和默认模型，Reviewer 2 使用“默认 · Claude CLI”和默认模型。底部是折叠的本地模型区域。" loading="lazy"></a>
+        <figcaption>每个角色都会得到一个提供方和一个模型。演示数据。</figcaption>
+      </figure>
+      <p>Bachata 不附带模型目录。当 Codex 能够列出其模型时，Bachata 会显示该列表，并拒绝已安装的 Codex 未提供的模型。当提供方无法列出模型时，你输入的名称会原样发送。Bachata 绝不会替你切换提供方或模型。要让某个提供方永不运行，请把它加入 <code>bachata.disabledProviders</code>.</p>
+    </section>
+
+    <section class="part" id="run-contract">
+      <h2>阅读运行约定</h2>
+      <p>发送按钮旁的齿轮按钮会打开 <strong>“运行设置”</strong>. <em>“运行选项”</em> （迭代次数、固定或直到无问题模式、交付方式）仅对本次运行生效。 <strong>“运行详情”</strong> 是 Bachata 为本次运行解析出的约定：</p>
+      <ul>
+        <li><strong>“保障”</strong>：本次运行能产生何种结果，例如 <em>“只读”</em>;</li>
+        <li><strong>“提供方”</strong> 及其就绪状态；</li>
+        <li><strong>“范围与提交”</strong>：工作目录、可写路径、可读路径和受保护路径。Bachata 绝不创建提交；</li>
+        <li><strong>“验证”</strong>：会执行哪些控制器检查（若有）；</li>
+        <li><strong>“运行上限”</strong>, <strong>“人工决策”</strong>, <strong>“回退方案”</strong>, <strong>“结束条件”</strong>;</li>
+        <li><strong>“每个提供方收到什么”</strong>：按提供方列出的外发上下文、排除项和脱敏项。</li>
+      </ul>
+      <figure>
+        <a href="../img/zh-cn/run-contract.png"><img src="../img/zh-cn/run-contract.png" width="2560" height="1600" alt="运行设置面板中展开的“Code review — reconcile findings”运行详情，标注为“审查 · 只读”。保障：本次运行可读取所选范围，不能修改文件。提供方：Reviewer 1 使用 Codex，Reviewer 2 使用 Claude Code，均已就绪。范围：不写入仓库，可读路径 src/checkout，受保护路径 .env 与 .git，不创建提交。验证：不执行控制器验证。运行上限：1 次迭代，人工决策前最多 10 轮一致性讨论。" loading="lazy"></a>
+        <figcaption>一次只读、双审查者运行的运行约定。演示数据。</figcaption>
+      </figure>
+      <p>若有任何因素阻塞运行，例如提供方未就绪或仓库策略拒绝，约定会将其列出，且发送按钮在问题解决前保持禁用。</p>
+    </section>
+
+    <section class="part" id="results">
+      <h2>阅读结果</h2>
+      <p>打开 <strong>“执行”</strong> （运行标签页上的列表图标），或在对话中选择 <strong>“打开结果”</strong> 。上方列出流程各步骤及其状态，底部栏显示已选中多少问题，并提供下一个流程。</p>
+      <figure>
+        <a href="../img/zh-cn/execution-view.png"><img src="../img/zh-cn/execution-view.png" width="2560" height="1600" alt="“执行”视图。流程步骤：1 Independent review（含 2 份参与者结果）、2 Cross-reference findings、3 Surface material decisions，全部已完成。底部栏显示已选择 3/3 个问题，并有“审查详情”、设为 Fix a bug 的下一个流程选择器，以及启动新流程按钮。" loading="lazy"></a>
+        <figcaption>“执行”视图：步骤与下一个流程。演示数据。</figcaption>
+      </figure>
+      <p><strong>“审查详情”</strong> 会打开运行结果：</p>
+      <ul>
+        <li><strong>“评估”</strong>，例如 <em>“已完成 · 模型已审查 · 未验证”</em>。它描述的是本次运行如何收尾，而不是软件是否正确。</li>
+        <li><strong>“最终裁定”</strong> 以及作出裁定的一方，例如两位审查者的一致意见。</li>
+        <li><strong>“问题”</strong>，分为 <em>已达成一致的</em> 问题（经质疑后被接受）和 <em>未达成一致的</em> 问题（需要你确认）。每个问题都带有位置、证据以及针对它提出的质疑。</li>
+        <li><strong>“评估详情”</strong>：未解决的风险、证据缺口，以及证据台账（改动文件、检查、裁定来源）。</li>
+      </ul>
+      <figure>
+        <a href="../img/zh-cn/result-center.png"><img src="../img/zh-cn/result-center.png" width="2560" height="1600" alt="运行结果：已完成 · 模型已审查 · 未验证。“请查看下面的问题。本次运行没有可应用的内容。”最终裁定：两个问题经质疑后被接受，一处分歧需要你决定，由 Reviewer 1（codex-app-server）与 Reviewer 2（claude-code）一致得出。问题：2 个可处理，1 个需人工判断。已达成一致的问题：位于 src/checkout/applyCoupon.ts:42 的“Discount applied twice on retry”和位于 src/checkout/totals.ts:18 的“Currency rounding before tax”，各自附有证据与质疑。" loading="lazy"></a>
+        <figcaption>含已达成一致的问题、证据与质疑的运行结果。演示数据。</figcaption>
+      </figure>
+      <div class="note">
+        <strong>什么才算已验证</strong>
+        模型说“测试通过”永远不会被记为通过的检查。只有控制器实际执行过的检查才会显示为检查，并且每一项都会写明执行了什么。缺失的证据就是缺失。
+      </div>
+      <p><strong>“复制结果”</strong> 会复制一份可读的摘要。 <strong>“更多”</strong> 可把问题发布到“问题”面板、打开源代码管理，并将运行导出为 JSON 包、Markdown 证据报告或 SARIF 问题清单。导出内容不包含提供方的对话 URL 或会话标识。</p>
+    </section>
+
+    <section class="part" id="direction">
+      <h2>“方向”视图</h2>
+      <p>“方向”跨运行保留重要内容，你无需翻阅对话记录。可从运行抽屉底部打开。它显示目标、下一步有用的操作，以及需要你处理的事项：</p>
+      <ul>
+        <li><strong>“待处理的决策”</strong>：流程提出的、会改变方向的问题，附带权衡与证据；</li>
+        <li><strong>“待处理的问题”</strong>：参与者未达成一致的问题；</li>
+        <li><strong>“待修复的已接受问题”</strong>、已接受的方向与验收标准、审查进度、工件，以及仓库检查。</li>
+      </ul>
+      <figure>
+        <a href="../img/zh-cn/direction.png"><img src="../img/zh-cn/direction.png" width="2560" height="1600" alt="标题为“Checkout totals are always correct”的“方向”视图，带有处理决策的按钮。待处理的决策：Cart retention，已提议，src/checkout，“Should expired carts be deleted or archived?”，附带权衡以及接受、拒绝、推迟、取代、重新打开按钮。待处理的问题：Shipping threshold，未解决，“Free shipping threshold ignores discounted total”，带有同样的按钮以及“合并到”。" loading="lazy"></a>
+        <figcaption>“方向”：一项决策和一个问题在等你处理。演示数据。</figcaption>
+      </figure>
+      <p>在条目状态允许时，你可以记录的处理方式：</p>
+      <table>
+        <thead><tr><th>处理方式</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td><strong>接受</strong></td><td>这是真实问题，Bachata 应据此行动。</td></tr>
+          <tr><td><strong>拒绝</strong></td><td>并非真实问题。它会离开活动区域，保留在历史中。</td></tr>
+          <tr><td><strong>推迟</strong></td><td>是真实问题，但现在不处理。</td></tr>
+          <tr><td><strong>取代</strong></td><td>已有的更新记录会取代这一条。</td></tr>
+          <tr><td><strong>重新打开</strong></td><td>已关闭的条目重新生效。需要书面理由和新的实质性证据。</td></tr>
+        </tbody>
+      </table>
+      <p>对于流程在多位参与者质疑后已经接受的问题，你无需再次接受。你只在例外情况下介入。没有任何内容会被删除；已处理的条目会进入历史。</p>
+    </section>
+
+    <section class="part" id="fix-and-apply">
+      <h2>修复与应用</h2>
+      <p>只读审查不会产生可应用的内容，改动由修复运行产生。在已接受的问题上，选择“方向”中的 <strong>“修复该问题”</strong> ，或在“执行”中把具备写入能力的流程（例如 <em>Fix a bug</em> ）设为下一个流程。</p>
+      <figure>
+        <a href="../img/zh-cn/direction-fix.png"><img src="../img/zh-cn/direction-fix.png" width="2560" height="1600" alt="“方向”中的“待修复的已接受问题（1）”部分：“Discount applied twice on retry”，已接受，“流程已接受；尚未开始修复”，带有拒绝、推迟、取代、重新打开、修复该问题和合并到等按钮。下方是已接受的方向“Apply each coupon once per order”、验收标准“Retrying payment never changes the total”、约束“No change to the public checkout API”，以及含一处回归的审查进度。" loading="lazy"></a>
+        <figcaption>一个等待修复的已接受问题。演示数据。</figcaption>
+      </figure>
+      <p>修复运行会得到仅限该问题的提示词：主题、位置、证据以及提出的质疑。Bachata 依次从 <code>bachata.fixPipelineId</code>、源运行中所选的流程，以及内置的 <code>managed-fix</code>中挑选修复流程。只读流程会被拒绝。</p>
+      <h3>应用保留的工作成果</h3>
+      <p>有些工作流会直接修改所选文件夹；隔离式工作流会把改动保存在单独的 Git 工作树中，直到你应用它们。运行约定会说明属于哪一种。应用时：</p>
+      <ul>
+        <li>Bachata 会在当前分支上把工作成果暂存到你的工作树，不创建提交。你在源代码管理中审查并自行提交。</li>
+        <li>当验证过期、失败或被取消时，应用会被拒绝。应用结论不明确的运行属于显式强制操作。</li>
+        <li>应用部分内容时，会针对你所选的确切字节重新执行该运行的检查。</li>
+      </ul>
+    </section>
+
+    <section class="part" id="fresh-review">
+      <h2>全新审查轮次</h2>
+      <p>全新审查会对当前仓库状态发起一次独立审查。提供方会话会被重置，先前结论不会带入提示词。先前的问题只在审查之后用于比较，绝不会在之前使用。</p>
+      <p>当同一审查周期内出现第二轮时，“方向”会报告变化：新增、重复、已解决和出现回归的问题，因新证据而重新打开的问题，以及决策变更。问题的身份不取决于措辞，因此换种说法的重复只是同一个问题的两次出现。</p>
+      <p>Bachata 只有在以下条件全部满足时才会报告 <strong>饱和</strong> ：连续多次全新审查未带来实质性新增、已接受的问题均已处理、核心决策已关闭，且所需检查为最新。饱和意味着反复审查已不再发现实质性问题，它不是正确性证明。</p>
+      <p>全新审查只会运行能产出问题的只读流程。当所选流程不符合条件时，请设置 <code>bachata.freshReviewPipelineId</code> 来指定一个。</p>
+    </section>
+
+    <section class="part" id="editor">
+      <h2>编辑流程</h2>
+      <p>在运行设置中选择 <strong>“编辑流程”</strong>, <strong>“新建流程”</strong> 或 <strong>“基于所选创建副本”</strong>。编辑内置流程会创建副本。编辑器提供 <em>结构化</em> 表单和用于精确定义的 <em>JSON</em> 模式。步骤可以重新排序、复制和禁用； <em>“安全边界”</em>, <em>“助手”</em> 和 <em>“角色”</em> 是独立的区域。</p>
+      <figure>
+        <a href="../img/zh-cn/pipeline-editor.png"><img src="../img/zh-cn/pipeline-editor.png" width="2560" height="1600" alt="结构化模式下“Code review — reconcile findings 副本”的流程编辑器。步骤：1 Independent review、2 Cross-reference findings（该步骤之后询问）、3 Surface material decisions，每一步都是 Reviewer 1 与 Reviewer 2 的助手回合。折叠区域：流程详情、安全边界（仅审查 · 无检查）、助手、角色。按钮：更多、取消、保存并选用。" loading="lazy"></a>
+        <figcaption>流程编辑器。演示数据。</figcaption>
+      </figure>
+      <p>开启 <code>bachata.advancedMode</code> 即可显示完整编辑器：角色、一致性、类型化输出、人工确认点、能力、权限模式、审批策略、提示词模板和路径策略。流程可以按 JSON 导出和导入（流程 JSON 版本 <code>1</code>）。每次运行都会保留其启动时的确切流程快照。</p>
+    </section>
+
+    <section class="part" id="token-efficiency">
+      <p class="eyebrow">需手动开启的本地试点</p>
+      <h2>减少重复发送的模型上下文</h2>
+      <p>Bachata 现已包含面向 Claude Code 与 Codex 的节省 Token 执行模式的首个源码实现。目标是只发送做出下一步决策所需的最小充分状态，而不是反复发送完整的历史回答、验证输出和对话记录。</p>
+      <div class="note warn">
+        <strong>默认关闭</strong>
+        在开始运行前，先试试运行输入框中的 <strong>“精简上下文 · 实验性”</strong> 。
+        该模式在串行 TODO 实现中使用有界状态和全新的本地 Claude/Codex 会话。
+        不支持附件。可能减少重复上下文，节省幅度尚未测量。
+        不符合条件的环境会说明原因，并以 legacy 模式启动新的运行。
+        该复选框保存的是 <code>bachata.executionContextMode</code>；高级设置中的默认值保持不变。
+        <code>legacy</code> 仍为默认值。正在进行和可恢复的运行会保留其记录的模式。
+        项目发布门槛尚未通过。不构成关于 Token、成本、延迟或质量的承诺。
+      </div>
+
+      <h3>这为什么可能有帮助</h3>
+      <ul>
+        <li>本地提供方可以保留对话，同时 Bachata 还会发送一次显式交接。</li>
+        <li>一致性轮次可能把其他参与者的完整回答带入后续轮次。</li>
+        <li>浏览器工作可能需要为一次修改和预先确定的控制器检查分别获取模型回复。</li>
+        <li>现有的字节上限能防止负载失控，但并不会产生可精确回溯的证据。</li>
+      </ul>
+
+      <h3>推进计划</h3>
+      <ol class="steps">
+        <li><strong>已实现：保留精确的已采信证据。</strong> 在生成精简预览之前，先存储 Bachata 自有的提示词、收到的回答和控制器证据。若无法保留精确证据，精简执行就不会启动。</li>
+        <li><strong>已实现但默认关闭：试点有界的本地状态。</strong> 以类型化的任务状态、最新的控制器观察结果和限定范围的证据引用启动全新的 Claude Code 或 Codex 会话。现有流程仍为默认。</li>
+        <li><strong>安全地传递一致意见。</strong> 传递已达成的共识、争议、归属和未决决策，同时不把被省略的异议当作已解决。</li>
+        <li><strong>增加浏览器侧的证据回溯与安全的动作合并。</strong> 让控制器提供精确的证据页，并且仅在审批与恢复边界清晰之处，才把修改与已授权的检查合并执行。</li>
+      </ol>
+
+      <h3>安全边界</h3>
+      <p>控制器仍然掌管 Git、写入范围、验证、集成与恢复。无效、过期、不完整或过大的状态一律按失败处理。精确的已采信证据仍可导出，提供方的私有历史不会被谎称为已捕获，也不会新增任何遥测或运行时测量层。</p>
+      <p>请阅读 <a href="https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md">技术设计文档</a> 以及促成这项探索的外部 <a href="https://arxiv.org/html/2609.20519v1">SoL-Pi 论文</a> 。论文中报告的结果并非 Bachata 的结果。</p>
+    </section>
+
+    <section class="part" id="browser-bridge">
+      <p class="eyebrow">Browser Bridge</p>
+      <h2>在 Bachata 中使用浏览器里的对话</h2>
+      <p>Bachata Browser Bridge 是一个独立的 Chrome 扩展。它把 VS Code 中的 Bachata 连接到 ChatGPT、Claude 等 AI 对话网站，使浏览器中的对话可以成为流程的参与者。运行浏览器步骤时，Bridge 会把消息发送到你已连接的对话，并把回复带回 VS Code。</p>
+      <p>只有使用浏览器参与者时才需要它。Codex 和 Claude Code 不会使用它。</p>
+      <div class="note">
+        <strong>Bridge 不能做什么</strong>
+        它不能读取你的项目文件，也不能执行命令。由 VS Code 中的 Bachata 决定发送哪些项目信息、允许哪些改动。消息仍会发送到你使用的对话服务商。没有任何遥测。
+      </div>
+      <h3>前置条件</h3>
+      <ul>
+        <li>Chrome 116 或更高版本。</li>
+        <li>一个装有 Bachata 的本地 VS Code 窗口。Remote SSH、WSL 和 Codespaces 无法访问本地浏览器。</li>
+        <li>协议版本与你的 Bachata 版本相匹配的 Bridge 版本。版本不匹配会被拒绝，而不是降级运行：请同时升级两者。</li>
+        <li>一个已登录的 ChatGPT 或 Claude 标签页，或你自行配置的其他对话网站。</li>
+      </ul>
+
+      <h3 id="bridge-install">安装 Bridge</h3>
+      <ol class="steps">
+        <li>打开 <a href="https://chromewebstore.google.com/detail/bachata-browser-bridge/pkjbokfimenacagphechjmlogogghaip"><strong>Chrome 应用商店中的 Bachata Browser Bridge</strong></a>.</li>
+        <li>选择 <strong>“添加至 Chrome”</strong>，然后确认安装。</li>
+        <li>请让 VS Code 版 Bachata 与 Browser Bridge 一同更新，使其协议版本保持一致。</li>
+      </ol>
+      <p>如需离线或开发安装，请从 <a href="https://github.com/multipliedtwice/bachata-browser-bridge/releases">官方发布页面</a>下载 ZIP 及其校验和，用 <code>shasum -a 256 bachata-browser-bridge-&lt;version&gt;.zip</code>校验，解压后从 <code>chrome://extensions</code> （需开启开发者模式）加载该文件夹。从源码构建会生成可加载的 <code>dist/</code> 文件夹；仓库根目录无法加载。</p>
+
+      <h3 id="bridge-pair">与 VS Code 配对</h3>
+      <ol class="steps">
+        <li>在 Bachata 中打开 <strong>“助手”</strong> ，把 <strong>Browser Bridge</strong> 分配给某个角色。“助手”顶部会出现 Bridge 状态标记；未配对时它显示为 <strong>“配对 Bridge”</strong>。点击它。</li>
+        <li>选择 <strong>“复制配对码”</strong>. <strong>“查找浏览器”</strong> 会重新开始查找； <strong>“重置配对”</strong> 会签发新的配对码。</li>
+        <li>在 Chrome 中打开 Bridge 弹出窗口并选择 <strong>Paste &amp; connect</strong>。如果你自己在输入框中键入或粘贴配对码，请改为选择 <strong>“Connect to VS Code”</strong> 。</li>
+      </ol>
+      <div class="pair">
+        <figure>
+          <a href="../img/zh-cn/bridge-pairing-vscode.png"><img src="../img/zh-cn/bridge-pairing-vscode.png" width="2560" height="1600" alt="VS Code 中选中 Bridge 配对标记的“助手”弹出面板。连接 Browser Bridge 的区域显示“已断开”和“使用此配对码配对 Bachata Browser Bridge 扩展。”，并带有复制配对码、查找浏览器和重置配对按钮。Reviewer 2 被指派到 Browser Bridge，显示“选择一个对话”。" loading="lazy"></a>
+          <figcaption>VS Code 一侧：复制配对码。演示数据。</figcaption>
+        </figure>
+        <figure class="narrow">
+          <a href="../img/zh-cn/bridge-disconnected.png"><img src="../img/zh-cn/bridge-disconnected.png" width="760" height="1240" alt="Bridge popup, Disconnected. 'Copy the pairing token from Bachata’s Browser Bridge settings in VS Code.' A Pairing token field with Paste and Show, a Paste &amp; connect button, and a Connection settings disclosure. Below: Choose a chat, Refresh tabs, and Other websites." loading="lazy"></a>
+          <figcaption>浏览器一侧：粘贴并连接。</figcaption>
+        </figure>
+      </div>
+      <p>本地地址会自动填入。只有当 VS Code 显示的地址不同时，才需要打开 <strong>“Connection settings”</strong> 。Bridge 只维持一个连接，因此每个用户配置下同一时间只有一个 VS Code 窗口拥有 Bridge；其他窗口仍可使用 Codex 和 Claude Code。</p>
+
+      <h3 id="bridge-chat">选择对话</h3>
+      <ol class="steps">
+        <li>打开 ChatGPT 或 Claude 的对话并登录。</li>
+        <li>在弹出窗口中选择 <strong>“Refresh tabs”</strong>。每一行显示提供方、标题、就绪状态以及可能的限制。 <strong>“Details”</strong> 会显示标签页与对话的身份信息。</li>
+        <li>选择 <strong>“Use this chat”</strong> 。只有就绪的行才提供该按钮，且仅在已连接时可用。</li>
+        <li>在 Bachata 的 <strong>“助手”</strong>中，为浏览器角色选择该对话。</li>
+      </ol>
+      <div class="pair">
+        <figure class="narrow">
+          <a href="../img/zh-cn/bridge-choose-chat.png"><img src="../img/zh-cn/bridge-choose-chat.png" width="760" height="1240" alt="Bridge 弹出窗口，状态为“Connected”。对话选择列表中有 ChatGPT 上的“Checkout review”和 Claude 上的“Second opinion”，两者均为就绪状态，标注“Automatic completion available”，并带有“Use this chat”按钮；另有一个标记为“Sign-in required”的 ChatGPT 标签页。Bridge 界面目前仅有英文。" loading="lazy"></a>
+          <figcaption>就绪的对话会提供 <strong>“Use this chat”</strong>。演示标签页。</figcaption>
+        </figure>
+        <figure class="narrow">
+          <a href="../img/zh-cn/bridge-selected.png"><img src="../img/zh-cn/bridge-selected.png" width="760" height="750" alt="Bridge 弹出窗口显示已选对话：ChatGPT 上的“Checkout review”，就绪，带有停止使用和详情按钮，以及更换对话的链接。Bridge 界面目前仅有英文。" loading="lazy"></a>
+          <figcaption>绑定之后，弹出窗口只显示该对话。 <strong>“Change conversation”</strong> 会重新显示完整列表。</figcaption>
+        </figure>
+      </div>
+      <figure>
+        <a href="../img/zh-cn/agents-browser.png"><img src="../img/zh-cn/agents-browser.png" width="2560" height="1600" alt="带有“Bridge 已连接”标记的“助手”弹出面板。Reviewer 1 使用 Codex CLI，Reviewer 2 使用 Browser Bridge，对话为“ChatGPT · Checkout review”。助手按钮显示“助手 · 已重新分配 1 个”。" loading="lazy"></a>
+        <figcaption>指派给 Reviewer 2 的浏览器对话。演示数据。</figcaption>
+      </figure>
+      <p>绑定在关闭弹出窗口和浏览器后台进程重启后依然有效。只有当标签页被关闭、跳转到其他网站，或其对话被手动更换时，才需要重新绑定。</p>
+
+      <h3 id="bridge-other">其他对话网站</h3>
+      <p>对于 ChatGPT 和 Claude 之外的网站，请在弹出窗口中打开 <strong>其他网站</strong> 并选择 <strong>“Set up current website”</strong>，然后允许所显示的来源。关闭弹出窗口，使用页面上的配置面板：自动检测或手动指定控件（输入框和对话区域为必需；发送、停止和新建对话控件为可选），然后进行校验。校验不会发送对话消息。</p>
+      <figure class="narrow">
+        <a href="../img/zh-cn/bridge-other-websites.png"><img src="../img/zh-cn/bridge-other-websites.png" width="760" height="750" alt="Bridge 弹出窗口中展开的其他网站区域：“Connect another chat website by choosing its controls. Each site needs your permission; supported actions vary. Choose models on the website.”按钮：“Set up current website”和“Saved bindings”。Bridge 界面目前仅有英文。" loading="lazy"></a>
+        <figcaption>弹出窗口中的其他网站。</figcaption>
+      </figure>
+      <p>其他网站只接收文本；不支持图片和可下载文件。没有经过验证的发送和停止控件的网站可用于手动流程，但不能用于无人值守的受管运行。未绑定的网站永远不会被发现，Bridge 也绝不会替你打开这样的标签页。</p>
+
+      <h3 id="bridge-limits">限制</h3>
+      <ul>
+        <li>提供方网站会在不通知的情况下变动。一个可用的 Bridge 版本只能证明它在受测的网站版本上可用。</li>
+        <li>Bridge 不会自动完成登录或验证码，也不会添加任何隐藏的提示词文本。</li>
+        <li>出错后，恢复流程会显示已记录的内容，绝不会自动重发提示词。</li>
+      </ul>
+    </section>
+
+    <section class="part" id="reference">
+      <p class="eyebrow">参考</p>
+      <h2>命令</h2>
+      <p>所有命令都在命令面板中，前缀为 <strong>Bachata:</strong>.</p>
+      <table>
+        <thead><tr><th>命令</th><th>它的作用</th></tr></thead>
+        <tbody>
+          <tr><td>打开</td><td>打开 Bachata 面板。</td></tr>
+          <tr><td>设置</td><td>选择目标，以及由多少个助手参与。</td></tr>
+          <tr><td>诊断</td><td>检查提供方、Git 和流程要求，并给出修复办法。</td></tr>
+          <tr><td>审查文件 / 审查所选内容</td><td>为当前文件或所选内容准备审查草稿。</td></tr>
+          <tr><td>审查暂存差异 / 审查未提交的改动</td><td>为本地改动准备审查草稿。</td></tr>
+          <tr><td>审查提交 / 审查提交范围 / 对照基线审查分支</td><td>为 Git 历史准备审查草稿。</td></tr>
+          <tr><td>将问题发布到“问题”面板</td><td>在“问题”面板中显示问题。</td></tr>
+          <tr><td>修复诊断项</td><td>为来自编辑器或“问题”面板的诊断项准备修复草稿。</td></tr>
+          <tr><td>解释流程</td><td>说明某个流程的作用。</td></tr>
+          <tr><td>仓库校验项 / 初始化校验项与仓库策略</td><td>声明运行可以执行的仓库检查。</td></tr>
+          <tr><td>运行 TODO.md、预览 TODO 计划、恢复 / 停止 / 放弃 TODO 运行、显示 TODO 运行状态</td><td>编排来自 <code>TODO.md</code> 文件。</td></tr>
+          <tr><td>改进此项目</td><td>运行自我改进工作流。</td></tr>
+          <tr><td>查看运行包 / 重放运行包</td><td>打开导出的运行记录。</td></tr>
+          <tr><td>记录外部证据</td><td>记录在 Bachata 之外产生的证据。</td></tr>
+          <tr><td>本地数据</td><td>查看并删除本地运行数据。</td></tr>
+          <tr><td>工作区归属</td><td>显示哪个 VS Code 窗口可以在此工作区执行工作。</td></tr>
+          <tr><td>解除资源隔离</td><td>解除被隔离的共享资源。</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="builtin-pipelines">内置流程</h3>
+      <table>
+        <thead><tr><th>流程</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>Code review</td><td>由一位参与者进行的只读审查。问题来自单一来源。</td></tr>
+          <tr><td>Code review — reconcile findings</td><td>由两位参与者进行的只读审查，最多 10 轮用于协调问题。需要“方向”。</td></tr>
+          <tr><td>Code review and refinement</td><td>两位参与者在最多 4 轮内审查并协调问题；随后由实现者在声明范围内修复已确认的问题。</td></tr>
+          <tr><td>UI/UX review</td><td>由两位审查者对易用性、无障碍和视觉层次进行只读审查。</td></tr>
+          <tr><td>Review and prepare tasks</td><td>两位参与者协调问题，然后准备可勾选的任务清单。</td></tr>
+          <tr><td>Identify decisions for you</td><td>两位参与者协调需要人工判断的选择。只读。</td></tr>
+          <tr><td>Implementation plan</td><td>在不修改文件的前提下产出实现计划。</td></tr>
+          <tr><td>Implementation plan — reconcile proposals</td><td>两位规划者在最多 10 轮内协调出一个计划。需要“方向”。</td></tr>
+          <tr><td>Fix a bug</td><td>由一位参与者诊断并实施修复。执行已声明的控制器检查；不创建提交。</td></tr>
+          <tr><td>Fix a bug — reviewed tasks</td><td>两位参与者协调诊断结果；你选择有界的任务交由控制器实现。</td></tr>
+          <tr><td>Fix within a declared scope</td><td>一位执行者在配置的路径内实现；控制器执行已声明的检查。需要“方向”。</td></tr>
+          <tr><td>Diagnose and fix — model review</td><td>两位参与者协调诊断、实施修复并进行审查。验证方式为模型审查。</td></tr>
+          <tr><td>Deliver a feature</td><td>协调需求与设计，然后在声明范围内实现并审查，同时执行控制器检查。</td></tr>
+          <tr><td>Product direction review</td><td>审查产品选择并协调建议。需要“方向”。</td></tr>
+        </tbody>
+      </table>
+      <p>在选择器中标记为 <em>“内部”</em> 的流程，是用于 TODO 编排和自我改进的控制器阶段。</p>
+
+      <h3 id="settings">常用设置</h3>
+      <table>
+        <thead><tr><th>设置项</th><th>默认值</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>bachata.codexCommand</code></td><td><code>codex</code></td><td>Codex app server 的可执行文件。</td></tr>
+          <tr><td><code>bachata.claudeCommand</code></td><td><code>claude</code></td><td>Claude Code 的可执行文件。</td></tr>
+          <tr><td><code>bachata.preferredProvider</code></td><td><code>auto</code></td><td>流程提供多个提供方时优先使用的那个。</td></tr>
+          <tr><td><code>bachata.disabledProviders</code></td><td><code>[]</code></td><td>Bachata 绝不能运行的提供方。</td></tr>
+          <tr><td><code>bachata.advancedMode</code></td><td><code>false</code></td><td>显示完整的流程编辑器。</td></tr>
+          <tr><td><code>bachata.notificationMode</code></td><td><code>material</code></td><td>Bachata 显示哪些通知。</td></tr>
+          <tr><td><code>bachata.fixPipelineId</code></td><td>留空</td><td>用于 <em>“修复该问题”</em>.</td></tr>
+          <tr><td><code>bachata.freshReviewPipelineId</code></td><td>留空</td><td>当所选流程不符合条件时，用于全新审查的流程。</td></tr>
+          <tr><td><code>bachata.maxPipelineIterations</code></td><td><code>10</code></td><td>单次运行允许的最大连续迭代次数。</td></tr>
+          <tr><td><code>bachata.browserBridgePort</code></td><td><code>43127</code></td><td>Browser Bridge 连接的本地回环端口。</td></tr>
+          <tr><td><code>bachata.todoFile</code></td><td><code>TODO.md</code></td><td>TODO 编排使用的任务清单。</td></tr>
+        </tbody>
+      </table>
+      <p>会扩大运行权限的设置（例如权限模式和外部工作目录）只从用户设置或计算机设置读取，因此你打开的仓库无法给自己授予更多权限。</p>
+
+      <h3 id="privacy">隐私</h3>
+      <p>Bachata 基于你的本地检出运行。没有 Bachata 账号、托管服务或遥测。提示词、所选代码和回答会发送给你选择的提供方；运行开始前，运行约定会显示每个提供方将收到什么。提供方的凭据始终留在其自身的 CLI 或浏览器会话中。</p>
+
+      <h3 id="about-screenshots">关于截图</h3>
+      <p>截图展示的是真实的 Bachata 面板（<code>dist/webview.js</code>）和真实的 Bridge 弹出窗口，它们在 VS Code 之外的 Chrome 中，使用 VS Code 的 Dark Modern 主题配色渲染。仓库 <em>demo-shop</em>及其运行、问题、决策和对话标签页都是虚构的演示数据。在 VS Code 中，该面板显示在编辑器标签页内。</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  Bachata 采用 MIT 许可证。源码： <a href="https://github.com/multipliedtwice/bachata-extension">bachata-extension</a> · <a href="https://github.com/multipliedtwice/bachata-browser-bridge">bachata-browser-bridge</a>
+</footer>
+</body>
+</html>

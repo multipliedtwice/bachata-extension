@@ -62,6 +62,8 @@ const installHostDoubles = (options = {}) => {
   const adapterControlHistory = [];
   const adapterContexts = new Map();
   const configuration = new Map(Object.entries(options.configuration ?? {}));
+  const configurationListeners = new Set();
+  const configurationWrites = [];
   const configurationDefaults = new Map(Object.entries(options.configurationDefaults ?? {}));
 
   const checkCommandPath = require.resolve("../../dist/process/checkCommand.js");
@@ -373,16 +375,23 @@ const installHostDoubles = (options = {}) => {
         inspect: (key) => ({
           defaultValue: configurationDefaults.get(key),
           globalValue: configuration.get(key),
+          ...options.configurationScopes?.[key],
         }),
-        update: async (key, value) => {
+        update: async (key, value, target) => {
+          configurationWrites.push({ key, value, target });
+          await options.beforeConfigurationUpdate?.({ key, value, target });
           configuration.set(key, value);
+          for (const listener of configurationListeners) listener({ affectsConfiguration: (name) => name === `bachata.${key}` });
         },
       }),
       onDidChangeWorkspaceFolders: (listener) => {
         workspaceFolderListeners.add(listener);
         return new Disposable(() => workspaceFolderListeners.delete(listener));
       },
-      onDidChangeConfiguration: () => new Disposable(() => undefined),
+      onDidChangeConfiguration: (listener) => {
+        configurationListeners.add(listener);
+        return new Disposable(() => configurationListeners.delete(listener));
+      },
       onDidGrantWorkspaceTrust: () => new Disposable(() => undefined),
     },
     window: {
@@ -458,6 +467,11 @@ const installHostDoubles = (options = {}) => {
     adapterControlHistory,
     adapterContexts,
     configuration,
+    configurationWrites,
+    changeConfiguration: (key, value) => {
+      configuration.set(key, value);
+      for (const listener of configurationListeners) listener({ affectsConfiguration: (name) => name === `bachata.${key}` });
+    },
     transcript,
     workspaceState,
     bridgeOptions,

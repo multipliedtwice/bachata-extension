@@ -29,6 +29,20 @@ window.acquireVsCodeApi = function () {
   };
 };
 </script>
+<script>
+(() => {
+  const locale = new URLSearchParams(location.search).get("locale");
+  if (!locale) return;
+  const request = new XMLHttpRequest();
+  request.open("GET", `../../l10n/bundle.l10n.${locale}.json`, false);
+  request.send();
+  const node = document.createElement("script");
+  node.type = "application/json";
+  node.id = "bachata-localization";
+  node.textContent = JSON.stringify({ locale, messages: JSON.parse(request.responseText) });
+  document.head.appendChild(node);
+})();
+</script>
 <script src="../../dist/vendor/prism/prism.js"></script>
 <script src="../../dist/webview-behavior.js"></script>
 <script src="../../dist/webview.js"></script>

@@ -12098,3 +12098,164 @@ test("a readiness blocker names its problem in the composer rather than the gene
     assert.match(harness.document.root.innerHTML, /<span title="Resolve this before the run can start\.">Codex: codex unavailable<\/span><button type="button" data-action="readiness-remediate"/u);
   } finally { harness.restore(); }
 });
+
+const contextPanel = (executionContext = {}) => panelState({
+  executionContext: { defaultMode: "legacy", mode: "legacy", pinned: false, locked: false, ...executionContext },
+});
+const contextRequests = (harness) => harness.messages.filter((entry) => entry.type === "conversation.runtime" && entry.message.type === "executionContext.set");
+const contextSnapshot = (harness, panel) => harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
+const changeContext = (harness, checked) => {
+  const checkbox = harness.document.getElementById("execution-context-mode");
+  checkbox.checked = checked;
+  harness.document.root.dispatch("change", { target: checkbox });
+};
+
+test("efficient context is a visible named checkbox, defaults off, and links help and unavailable reasons", () => {
+  const harness = bootWebview(managerState(), contextPanel());
+  try {
+    const checkbox = harness.document.getElementById("execution-context-mode");
+    assert.ok(checkbox.closest(".composer"));
+    assert.equal(checkbox.getAttribute("type"), "checkbox");
+    assert.equal(checkbox.checked, false);
+    assert.match(harness.document.root.innerHTML, /for="execution-context-mode"[^>]*>.*Efficient context/u);
+    assert.equal(checkbox.getAttribute("aria-disabled"), "false");
+    assert.equal(checkbox.getAttribute("aria-describedby"), "execution-context-reason execution-context-help");
+    assert.match(harness.document.getElementById("execution-context-help").textContent, /Savings are not yet measured/u);
+    assert.match(harness.document.root.innerHTML, /Experimental/u);
+    assert.equal(contextRequests(harness).length, 0);
+  } finally { harness.restore(); }
+});
+
+test("efficient context dispatches once, blocks rapid changes and Send, survives rerenders, and awaits matching host reply", () => {
+  const harness = bootWebview(managerState(), contextPanel());
+  try {
+    changeContext(harness, true);
+    const sent = contextRequests(harness)[0];
+    assert.equal(sent.message.mode, "localTodoStateV1");
+    assert.equal(sent.message.expectedDefault, "legacy");
+    assert.equal(sent.message.pipelineHash, customAHash);
+    assert.deepEqual(sent.message.attachmentIds, []);
+    for (let index = 0; index < 3; index += 1) {
+      contextSnapshot(harness, contextPanel());
+      assert.equal(harness.document.getElementById("execution-context-mode").checked, true);
+      changeContext(harness, false);
+    }
+    assert.equal(contextRequests(harness).length, 1);
+    assert.match(harness.document.root.innerHTML, /Wait for the context setting to be saved/u);
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId: "stale", status: "completed" } });
+    assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "true");
+    contextSnapshot(harness, contextPanel({ defaultMode: "localTodoStateV1", mode: "localTodoStateV1" }));
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId: sent.message.requestId, status: "completed" } });
+    assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
+    changeContext(harness, true);
+    assert.equal(contextRequests(harness).length, 1);
+    changeContext(harness, false);
+    assert.equal(contextRequests(harness).length, 2);
+    assert.equal(contextRequests(harness)[1].message.expectedDefault, "localTodoStateV1");
+  } finally { harness.restore(); }
+});
+
+for (const unavailable of ["workflow", "providers", "workspace", "attachments"]) {
+  test(`efficient context never shows ineligible ${unavailable} as active and prevents native activation`, () => {
+    const harness = bootWebview(managerState(), contextPanel({ defaultMode: "localTodoStateV1", mode: "legacy", unavailable }));
+    try {
+      const checkbox = harness.document.getElementById("execution-context-mode");
+      assert.equal(checkbox.checked, false);
+      assert.equal(checkbox.getAttribute("aria-disabled"), "true");
+      checkbox.focus();
+      assert.equal(harness.document.activeElement.id, "execution-context-mode");
+      let prevented = false;
+      harness.document.root.dispatch("click", { target: checkbox, preventDefault: () => { prevented = true; } });
+      assert.equal(prevented, true);
+      changeContext(harness, true);
+      assert.equal(contextRequests(harness).length, 0);
+      assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+      assert.match(harness.document.getElementById("execution-context-reason").textContent, /Saved default is on/u);
+    } finally { harness.restore(); }
+  });
+}
+
+test("failed context save restores host state and keeps the control usable", () => {
+  const harness = bootWebview(managerState(), contextPanel());
+  try {
+    changeContext(harness, true);
+    const { requestId } = contextRequests(harness)[0].message;
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId, status: "failed", message: "Settings refused" } });
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+    assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
+    assert.match(harness.document.root.innerHTML, /Settings refused/u);
+  } finally { harness.restore(); }
+});
+
+for (const mode of ["legacy", "localTodoStateV1"]) {
+  test(`run patch displays pinned ${mode} through changed defaults and recovery rerenders`, () => {
+    const pinned = { defaultMode: mode === "legacy" ? "localTodoStateV1" : "legacy", mode, pinned: true, locked: true,
+      ...(mode === "localTodoStateV1" ? { unavailable: "workspace" } : {}) };
+    const harness = bootWebview(managerState(), contextPanel());
+    try {
+      harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "run.patch", running: true, workflowStatus: "running", executionContext: pinned } });
+      assert.equal(harness.document.getElementById("execution-context-mode").checked, mode === "localTodoStateV1");
+      contextSnapshot(harness, contextPanel(pinned));
+      assert.match(harness.document.getElementById("execution-context-reason").textContent, /recorded mode/u);
+      if (mode === "localTodoStateV1") assert.match(harness.document.getElementById("execution-context-reason").textContent, /Choose a workspace folder/u);
+      changeContext(harness, mode !== "localTodoStateV1");
+      assert.equal(contextRequests(harness).length, 0);
+    } finally { harness.restore(); }
+  });
+}
+
+test("adding and removing draft attachments updates efficient context without setting writes", () => {
+  const panel = contextPanel({ defaultMode: "localTodoStateV1", mode: "localTodoStateV1" });
+  const harness = bootWebview(managerState(), panel);
+  try {
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: {
+      type: "attachment.added", clientId: "upload", attachment: { id: "spec", taskId: "run-1", name: "spec.txt", mimeType: "text/plain", size: 4, path: "/workspace/spec.txt", createdAt: "2026-09-21T00:00:00.000Z" },
+    } });
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+    assert.match(harness.document.getElementById("execution-context-reason").textContent, /Remove attachments/u);
+    contextSnapshot(harness, panel);
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "attachment.removed", attachmentId: "spec" } });
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, true);
+    assert.equal(contextRequests(harness).length, 0);
+  } finally { harness.restore(); }
+});
+
+test("removing a run with a pending context request releases the composer lock", () => {
+  const harness = bootWebview(managerState(), contextPanel());
+  try {
+    changeContext(harness, true);
+    const manager = managerState();
+    manager.conversations = manager.conversations.map((conversation) => ({ ...conversation, id: "run-2" }));
+    manager.activeConversationId = "run-2";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-2", message: { type: "state.snapshot", state: contextPanel() } });
+    assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
+    changeContext(harness, true);
+    assert.equal(contextRequests(harness).length, 2);
+  } finally { harness.restore(); }
+});
+
+for (const summary of [{ running: true }, { waitingForResources: true }]) {
+  test(`manager admission locks efficient context before the runtime patch: ${JSON.stringify(summary)}`, () => {
+    const manager = managerState();
+    Object.assign(manager.conversations[0], summary);
+    const harness = bootWebview(manager, contextPanel());
+    try {
+      assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "true");
+      changeContext(harness, true);
+      assert.equal(contextRequests(harness).length, 0);
+    } finally { harness.restore(); }
+  });
+}
+
+
+test("manager refusal releases a pending context request without changing the saved mode", () => {
+  const harness = bootWebview(managerState(), contextPanel());
+  try {
+    changeContext(harness, true);
+    harness.sendWindowMessage({ type: "manager.error", message: "Workspace is read-only" });
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+    assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
+  } finally { harness.restore(); }
+});

@@ -1781,7 +1781,7 @@ export const createCodexAppServerAdapter = (
       }
     };
 
-    void execute();
+    void execute().catch((error: unknown) => queue.fail(error));
     return queue.iterable;
   };
 

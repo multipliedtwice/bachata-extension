@@ -46,6 +46,7 @@ export type MessageDelivery = "immediate" | "queue" | "interrupt";
 export type EvidenceExportFormat = ExportFormat;
 
 export type RuntimeOperation =
+  | "executionContext.set"
   | "pipeline.run"
   | "pipeline.select"
   | "pipeline.validate"
@@ -64,6 +65,7 @@ export type RuntimeOperation =
  * life of the panel. Naming the set here is what lets the dispatcher answer every one of them.
  */
 export const RUNTIME_OPERATIONS: readonly RuntimeOperation[] = [
+  "executionContext.set",
   "pipeline.run",
   "pipeline.select",
   "pipeline.validate",
@@ -308,6 +310,13 @@ export type PendingHumanGate = {
 };
 
 export type PanelState = {
+  executionContext?: {
+    defaultMode: import("../runtime/executionContextEligibility").ExecutionContextMode;
+    mode: import("../runtime/executionContextEligibility").ExecutionContextMode;
+    pinned: boolean;
+    locked: boolean;
+    unavailable?: import("../runtime/executionContextEligibility").ExecutionContextUnavailable;
+  };
   taskId: string;
   operationActive?: boolean;
   workspaceRoots: string[];
@@ -717,6 +726,7 @@ export type WebviewToExtensionMessage =
       requiredCleanPasses?: number;
       requestId?: string;
     }
+  | { type: "executionContext.set"; mode: "legacy" | "localTodoStateV1"; expectedDefault: "legacy" | "localTodoStateV1"; pipelineId: string; pipelineHash: string; attachmentIds: string[]; requestId: string }
   | { type: "pipeline.select"; pipelineId: string; requestId?: string }
   | { type: "pipeline.validate"; pipeline: JsonValue; requestId: string }
   | {
@@ -816,6 +826,7 @@ export type ExtensionToWebviewMessage =
     }
   | {
       type: "run.patch";
+      executionContext?: PanelState["executionContext"];
       running: boolean;
       operationActive?: boolean;
       workflowStatus: WorkflowStatus;
@@ -1437,6 +1448,22 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
         ? { browserSessionId: value.browserSessionId }
         : {}),
     };
+  }
+
+  if (value.type === "executionContext.set") {
+    const requestId = parseRequestId(value.requestId);
+    const pipelineId = parseIdentifier(value.pipelineId);
+    if (!hasOnlyKeys(value, ["type", "mode", "expectedDefault", "pipelineId", "pipelineHash", "attachmentIds", "requestId"])
+      || (value.mode !== "legacy" && value.mode !== "localTodoStateV1")
+      || (value.expectedDefault !== "legacy" && value.expectedDefault !== "localTodoStateV1")
+      || !requestId || !pipelineId || typeof value.pipelineHash !== "string"
+      || !/^[a-f0-9]{64}$/u.test(value.pipelineHash)
+      || !Array.isArray(value.attachmentIds) || value.attachmentIds.length > 20
+      || !value.attachmentIds.every((id): id is string => typeof id === "string" && !!parseIdentifier(id))) {
+      throw new Error("Invalid executionContext.set message");
+    }
+    return { type: "executionContext.set", mode: value.mode, expectedDefault: value.expectedDefault,
+      pipelineId, pipelineHash: value.pipelineHash, attachmentIds: value.attachmentIds, requestId };
   }
 
   if (value.type === "pipeline.select") {

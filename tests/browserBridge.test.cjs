@@ -2321,3 +2321,117 @@ test("a credential-verified outdated browser receives a safe update reason", { t
     assert.equal(bridge.getStatus().error, "Update Browser Bridge to connect.");
   } finally { socket?.close(); await bridge.close(); }
 });
+
+const recoveryRecord = () => ({
+  id: "12345678-1234-4234-8234-123456789abc", provider: "chatgpt",
+  conversationUrl: session().conversationUrl, conversationIdentity: session().conversationIdentity,
+  createdAt: 1000, updatedAt: 1001,
+});
+const answerRecoveryList = async (collector, socket) => {
+  const request = await collector.next((value) => value.type === "provider.listRecoverableConversations");
+  socket.send(JSON.stringify({ type: "provider.listRecoverableConversations.result", protocolVersion, requestId: request.requestId, records: [recoveryRecord()] }));
+};
+
+test("controller lists and explicitly reopens a registry ID without sending a prompt", async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const reopening = bridge.reopenConversation(recoveryRecord().id, "chatgpt");
+    await answerRecoveryList(connected.collector, socket);
+    const request = await connected.collector.next((value) => value.type === "provider.reopenConversation");
+    assert.equal(request.registryId, recoveryRecord().id);
+    assert.equal(request.provider, "chatgpt");
+    socket.send(JSON.stringify({ type: "provider.openConversation.result", protocolVersion, requestId: request.requestId, provider: "chatgpt", success: true, session: session() }));
+    assert.deepEqual(await reopening, session());
+    assert.equal(connected.collector.seen().some((value) => value.type === "conversation.send"), false);
+    await assert.rejects(bridge.reopenConversation("latest", "chatgpt"), /Invalid recovery selection/);
+  } finally { socket?.close(); await bridge.close(); }
+});
+
+test("controller rejects a recovered session with another canonical conversation identity", async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const reopening = bridge.reopenConversation(recoveryRecord().id, "chatgpt");
+    const refusal = assert.rejects(reopening, /identity does not match/);
+    await answerRecoveryList(connected.collector, socket);
+    const request = await connected.collector.next((value) => value.type === "provider.reopenConversation");
+    socket.send(JSON.stringify({ type: "provider.openConversation.result", protocolVersion, requestId: request.requestId, provider: "chatgpt", success: true,
+      session: { ...session(), conversationUrl: "https://chatgpt.com/c/other", conversationIdentity: "chatgpt:https://chatgpt.com/c/other" } }));
+    await refusal;
+  } finally { socket?.close(); await bridge.close(); }
+});
+
+test("recovery listing cancels and disconnects pending requests without reopening", async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const controller = new AbortController();
+    const list = bridge.listRecoverableConversations(controller.signal);
+    const cancelled = assert.rejects(list, /cancelled/);
+    controller.abort();
+    await cancelled;
+    const waiting = assert.rejects(bridge.listRecoverableConversations(), /disconnected/i);
+    socket.close();
+    await waiting;
+    assert.equal(connected.collector.seen().some((value) => value.type === "provider.reopenConversation"), false);
+  } finally { socket?.close(); await bridge.close(); }
+});
+
+const initialRecoverySession = () => {
+  const initial = { ...session(), conversationUrl: "https://chatgpt.com/", conversationIdentity: "chatgpt:https://chatgpt.com/" };
+  initial.id = `chatgpt:${initial.tabId}:${initial.documentToken}:${encodeURIComponent(initial.conversationIdentity)}`;
+  return initial;
+};
+
+test("controller exposes the trusted stable binding before completion and retains it after disconnect", async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const initial = await publishSession(bridge, socket, initialRecoverySession());
+    const initialBinding = bridge.bindSession("recovery-owner", initial.id);
+    const iterator = bridge.sendConversation("recovery-agent", "private", initial.id, new AbortController().signal, [], undefined, { ownerId: "recovery-owner" })[Symbol.asyncIterator]();
+    assert.equal((await iterator.next()).value.type, "session");
+    const request = await connected.collector.next((value) => value.type === "conversation.send");
+    socket.send(JSON.stringify({ type: "conversation.binding", protocolVersion, requestId: request.requestId, agentId: request.agentId, sessionId: request.sessionId, session: { ...session(), status: "streaming" } }));
+    const promoted = (await iterator.next()).value;
+    assert.equal(promoted.type, "binding");
+    assert.equal(promoted.binding.conversationIdentity, session().conversationIdentity);
+    assert.equal(promoted.sessionId, session().id);
+    assert.equal(bridge.getStatus().selectedSessionId, session().id);
+    bridge.bindConversation("recovery-owner", promoted.binding);
+    assert.equal(bridge.resolveBoundSession("recovery-owner", initialBinding)?.conversationIdentity, session().conversationIdentity);
+    const closed = assert.rejects(iterator.next(), /unconfirmed/);
+    socket.close();
+    await closed;
+    assert.equal(promoted.binding.conversationUrl, session().conversationUrl);
+  } finally { socket?.close(); await bridge.close(); }
+});
+
+for (const changed of ["documentId", "documentToken", "tabId"]) {
+  test(`early binding refuses a different ${changed}`, async () => {
+    const { bridge } = await createStartedBridge();
+    let socket;
+    try {
+      const connected = await connectAndPair(bridge);
+      socket = connected.socket;
+      const initial = await publishSession(bridge, socket, initialRecoverySession());
+      bridge.bindSession("owner", initial.id);
+      const iterator = bridge.sendConversation("agent", "private", initial.id, new AbortController().signal, [], undefined, { ownerId: "owner" })[Symbol.asyncIterator]();
+      await iterator.next();
+      const request = await connected.collector.next((value) => value.type === "conversation.send");
+      const refused = assert.rejects(iterator.next(), /trusted initial transition/);
+      socket.send(JSON.stringify({ type: "conversation.binding", protocolVersion, requestId: request.requestId, agentId: request.agentId, sessionId: request.sessionId,
+        session: { ...session(), [changed]: changed === "tabId" ? 100 : "other", status: "streaming" } }));
+      await refused;
+    } finally { socket?.close(); await bridge.close(); }
+  });
+}

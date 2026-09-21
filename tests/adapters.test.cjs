@@ -1917,7 +1917,37 @@ test("Claude turn completes when the CLI keeps running after its result", async 
 });
 
 for (const provider of ["codex", "claude"]) {
-  test(`${provider} fresh execution-state dispatch never resumes a seeded provider conversation`, async () => {
+  test(`${provider} rejects invalid session modes before provider startup`, { timeout: 10_000 * slowPlatformFactor }, async (t) => {
+    const processScope = require("../dist/process/processScope.js");
+    const spawn = t.mock.method(processScope, "spawnScopedProviderProcess", () => {
+      assert.fail("Invalid session mode must not spawn a provider");
+    });
+    const adapter = provider === "codex" ? createCodex() : createClaude();
+    const fresh = { ...request("must refuse"), sessionMode: "freshExecutionState" };
+    delete fresh.sessionId;
+    try {
+      for (const sessionId of ["seeded", undefined]) {
+        for (const invalid of [
+          { ...fresh, sessionId },
+          Object.assign(Object.create({ sessionId }), fresh),
+        ]) {
+          await assert.rejects(
+            collect(adapter.send(invalid, new AbortController().signal)),
+            /resume identifier/u,
+          );
+        }
+      }
+      await assert.rejects(
+        collect(adapter.send({ ...fresh, sessionMode: "unknown" }, new AbortController().signal)),
+        /Unknown adapter session mode/u,
+      );
+    } finally {
+      await adapter.dispose();
+      assert.equal(spawn.mock.callCount(), 0);
+    }
+  });
+
+  test(`${provider} fresh execution-state dispatch never resumes a seeded provider conversation`, { timeout: 30_000 * slowPlatformFactor }, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-fresh-session-"));
     const recordPath = path.join(root, "requests.jsonl");
     const previous = process.env.MOCK_RECORD_PATH;

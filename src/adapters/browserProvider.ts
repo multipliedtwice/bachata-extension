@@ -151,6 +151,10 @@ export const createBrowserProviderAdapter = (
           deadlineAt,
           { ownerId, requestId },
         )) {
+          if (event.type === "binding") {
+            queue.push({ type: "browserBinding", sessionId: event.sessionId, binding: event.binding });
+            continue;
+          }
           if (event.type === "session") {
             acceptedByBridge = true;
             queue.push({ type: "session", sessionId: event.sessionId });

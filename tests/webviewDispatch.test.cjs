@@ -106,3 +106,11 @@ test("an unroutable message is reported with what arrived", () => {
   const error = unsupportedWebviewMessage({ type: "pipeline.detonate" });
   assert.match(error.message, /Unsupported webview message: \{"type":"pipeline\.detonate"\}/u);
 });
+
+test("efficient context writes require a writable host, serialize, and settle failures", () => {
+  const plan = webviewDispatchPlan({ type: "executionContext.set", requestId: "setting-request" });
+  assert.equal(webviewMessageDomain("executionContext.set"), "catalog");
+  assert.equal(requiresWritableHost("executionContext.set"), true);
+  assert.equal(plan.serialize, true);
+  assert.equal(plan.settlesOnFailure, true);
+});

@@ -81,6 +81,7 @@
     "docs/STABLE_RELEASE_GATE.md",
     "docs/STATE.md",
     "docs/SUPPORT_MATRIX.md",
+    "docs/TOKEN_EFFICIENT_HARNESS.md",
     "docs/UI_REAUDIT_REPAIRS.md",
     "docs/VERIFIERS.md",
     "l10n",
@@ -489,13 +490,6 @@
         "title": "Bachata",
         "order": 1,
         "properties": {
-          "bachata.executionContextMode": {
-            "type": "string",
-            "enum": ["legacy", "localTodoStateV1"],
-            "default": "legacy",
-            "description": "%configuration.bachata.executionContextMode.description%",
-            "order": 0
-          },
           "bachata.advancedMode": {
             "type": "boolean",
             "default": false,
@@ -1194,6 +1188,13 @@
         "title": "%configuration.group.4.title%",
         "order": 4,
         "properties": {
+          "bachata.executionContextMode": {
+            "type": "string",
+            "enum": ["legacy", "localTodoStateV1"],
+            "default": "legacy",
+            "description": "%configuration.bachata.executionContextMode.description%",
+            "order": 0
+          },
           "bachata.maxPipelineIterations": {
             "type": "number",
             "minimum": 1,

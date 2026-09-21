@@ -360,3 +360,25 @@ test("browser image submission refuses excluded outside paths and redirected par
     assert.equal(submitted, 1);
   } finally { await adapter.dispose(); await rm(parent, { recursive: true, force: true }); }
 });
+
+test("browser adapter forwards a stable binding before a later turn failure", async () => {
+  const selected = session("chatgpt");
+  const binding = { provider: "chatgpt", conversationUrl: "https://chatgpt.com/c/promoted", conversationIdentity: "chatgpt:https://chatgpt.com/c/promoted", preferredTabId: selected.tabId };
+  const bridge = {
+    getStatus: () => ({ enabled: true, connected: true, sessions: [selected], selectedSessionId: selected.id }),
+    sendConversation: async function* () {
+      yield { type: "session", sessionId: selected.id };
+      yield { type: "binding", sessionId: "promoted-session", binding };
+      throw new Error("turn timed out");
+    },
+    interrupt: async () => undefined,
+  };
+  addBindingMethods(bridge);
+  const adapter = createBrowserChatGptAdapter({ id: "chatgpt", bridge, turnTimeoutMs: 10000 });
+  const events = [];
+  try {
+    await assert.rejects(async () => { for await (const event of adapter.send(request({ sessionId: selected.id }), new AbortController().signal)) events.push(event); }, /turn timed out/);
+    assert.deepEqual(events.find((event) => event.type === "browserBinding"), { type: "browserBinding", sessionId: "promoted-session", binding });
+    assert.equal(events.some((event) => event.type === "captured"), false);
+  } finally { await adapter.dispose(); }
+});

@@ -62,6 +62,9 @@ test("settings stay grouped with advanced limits separated from essentials", () 
 
   const essentials = Object.keys(groups[0].properties);
   assert.ok(essentials.length <= 12, "the first settings group is not a short list");
+  const advanced = groups[titles.indexOf("Bachata: Advanced")].properties;
+  assert.equal(advanced["bachata.executionContextMode"].default, "legacy");
+  assert.deepEqual(advanced["bachata.executionContextMode"].enum, ["legacy", "localTodoStateV1"]);
   assert.ok(essentials.includes("bachata.codexCommand"));
   assert.ok(essentials.includes("bachata.defaultPipelineIterations"));
   assert.ok(essentials.includes("bachata.preferredProvider"));
@@ -362,4 +365,16 @@ test("the heavy graph-context dependencies stay behind a lazy require", () => {
       `${relative} pulls ts-morph into the activation path`,
     );
   });
+});
+
+test("efficient context is a visible experiment with bounded scope and no measured savings claim", () => {
+  for (const file of ["README.md", "docs-site/public/index.html", "docs/TOKEN_EFFICIENT_HARNESS.md", "CHANGELOG.md"]) {
+    const contents = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
+    assert.match(contents, /Efficient context/u, file);
+    assert.match(contents, /[Ee]xperimental/u, file);
+    assert.match(contents, /[Ss]avings (?:are )?(?:not yet|not) measured/u, file);
+    assert.match(contents, /[Rr]ecorded mode/u, file);
+  }
+  const messages = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));
+  assert.match(messages["configuration.bachata.executionContextMode.description"], /Runs composer/u);
 });

@@ -103,6 +103,7 @@ export type SendRequest = AdapterSessionMode & {
 };
 
 export type AgentEvent =
+  | { type: "browserBinding"; sessionId: string; binding: BrowserConversationBinding }
   | { type: "session"; sessionId: string }
   | { type: "text"; text: string }
   | { type: "replace"; text: string }

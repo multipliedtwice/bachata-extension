@@ -509,6 +509,13 @@ type LocalModelConsumerState = {
 };
 
 type PanelState = {
+  executionContext?: {
+    defaultMode: "legacy" | "localTodoStateV1";
+    mode: "legacy" | "localTodoStateV1";
+    pinned: boolean;
+    locked: boolean;
+    unavailable?: "workflow" | "providers" | "workspace" | "attachments";
+  };
   taskId: string;
   operationActive?: boolean;
   workspaceRoots: string[];
@@ -1060,6 +1067,7 @@ type RuntimeMessage =
   | { type: "transcript.prepend"; entries: TranscriptEntry[]; total: number; hasMore: boolean }
   | {
       type: "run.patch";
+      executionContext?: PanelState["executionContext"];
       running: boolean;
       operationActive?: boolean;
       workflowStatus: WorkflowStatus;
@@ -1078,7 +1086,7 @@ type RuntimeMessage =
   | {
       type: "operation.result";
       requestId: string;
-      operation: "pipeline.run" | "pipeline.select" | "pipeline.validate" | "pipeline.save" | "pipeline.delete" | "pipeline.import" | "pipeline.fork" | "pipeline.export";
+      operation: "executionContext.set" | "pipeline.run" | "pipeline.select" | "pipeline.validate" | "pipeline.save" | "pipeline.delete" | "pipeline.import" | "pipeline.fork" | "pipeline.export";
       status: "accepted" | "completed" | "cancelled" | "failed";
       message?: string;
       pipeline?: PipelineDefinition;

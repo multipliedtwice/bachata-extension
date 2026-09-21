@@ -1,3 +1,4 @@
+import { executionContextAssignments, executionContextUnavailable } from "./executionContextEligibility";
 import { executionContextModeForRun } from "./settingsSnapshot";
 import { createLocalExecutionState, localExecutionScope, type LocalExecutionState } from "./localExecutionState";
 import { evidenceDigest, withControllerEvidence, type ExecutionEvidenceRecord } from "../state/executionEvidence";
@@ -1815,6 +1816,25 @@ export const createRuntime = (
     return activeRunSettings;
   };
 
+  const refreshExecutionContext = (): void => {
+    const pipeline = selectedPipelineSnapshot?.definition;
+    const pinned = activeRunSettings ?? resumableWorkflowData?.runSettings ?? recordedRunSettings;
+    const isPinned = pinned !== undefined || resumableWorkflowData !== undefined;
+    const unavailable = executionContextUnavailable(
+      pipeline ? assignedPipelineDefinition(pipeline, activeAssignments()) : undefined,
+      !!state.workingDirectory,
+      resumableWorkflowData?.attachmentIds.length ?? 0,
+    );
+    const defaultMode = executionContextModeForRun(liveConfigurationReader("executionContextMode", "legacy"));
+    state.executionContext = {
+      defaultMode,
+      mode: isPinned ? executionContextModeForRun("legacy", pinned) : unavailable ? "legacy" : defaultMode,
+      pinned: isPinned,
+      locked: isPinned || agentAssignmentRefusal() !== undefined,
+      ...(unavailable ? { unavailable } : {}),
+    };
+  };
+
   const endRunSettings = (): void => {
     activeRunSettings = undefined;
   };
@@ -1916,6 +1936,7 @@ export const createRuntime = (
     workflowActive || anyAgentRunning() || activeForegroundOperations > 0;
 
   const emitSnapshot = (): void => {
+    refreshExecutionContext();
     refreshRuntimeLimits();
     refreshReadiness();
     refreshAgentAssignments();
@@ -2067,6 +2088,11 @@ export const createRuntime = (
         refreshSelectorHealingConfiguration();
       })
     : undefined;
+  const executionContextConfigurationSubscription = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration("bachata.executionContextMode")) {
+      void awaitInitialization().then(() => { if (!disposed) emitSnapshot(); }, () => undefined);
+    }
+  });
   let bridgeStatusSubscription: { dispose: () => void } | undefined;
 
   const validatePipeline = createPipelineValidator((pipeline) =>
@@ -3701,7 +3727,9 @@ export const createRuntime = (
   };
 
   const postRunState = (): void => {
+    refreshExecutionContext();
     post({
+      ...(state.executionContext ? { executionContext: state.executionContext } : {}),
       type: "run.patch",
       running: state.running,
       workflowStatus: state.workflowStatus,
@@ -5094,6 +5122,12 @@ export const createRuntime = (
             throw new Error(action.message);
           }
           if (action.kind === "failure") throw new Error(action.message);
+          if (action.kind === "browserBinding") {
+            bridge.bindConversation(`${runtimeOwnerId}:${agentId}`, action.binding);
+            patchAgent(agentId, { sessionId: action.sessionId, browserBinding: action.binding });
+            await persistNow();
+            continue;
+          }
           if (action.kind === "session") {
             if (localExecution) {
               await localExecution.locator(agentId, action.sessionId);
@@ -7432,7 +7466,12 @@ export const createRuntime = (
 
         const initialCheckpoint =
           options.resume?.checkpoint ?? emptyPipelineResumeState();
+        const restoringSettings = recordedRun !== undefined || recordedRunSettings !== undefined;
         const runSettings = beginRunSettings(recordedRun?.runSettings);
+        if ((recordedRun !== undefined && recordedRun.runSettings === undefined)
+          || (!restoringSettings && executionContextUnavailable(pipeline, !!workspaceRoot, attachmentIds.length))) {
+          runSettings.values.executionContextMode = "legacy";
+        }
         refreshReadiness();
         const droppedSettings = droppedRunSettings(
           recordedRun?.rejectedRunSettings,
@@ -7505,20 +7544,10 @@ export const createRuntime = (
         localExecution = undefined;
         localExecutionBaseline = undefined;
         if (runSettings.values.executionContextMode === "localTodoStateV1" && pipeline.id === "todo-implementation") {
-          const assigned = Object.fromEntries(pipeline.steps.flatMap((entry) => entry.type === "assignRoles" ? entry.roleAssignments.map((item) => [item.role, item.agentId]) : []));
-          const assignments = { planner: assigned.lead ?? "", worker: assigned.worker ?? "", reviewer: assigned.reviewer ?? "" };
-          const allLocal = Object.values(assignments).every((agentId) => ["claude-code", "codex-app-server"].includes(definitions[agentId]?.adapter ?? ""));
-          if (!allLocal) throw new Error("Compact TODO mode requires local Claude Code or Codex assignments; provider changes require explicit recovery");
-          if (allLocal) {
-            if (!workspaceRoot || attachmentPaths.length > 0) throw new Error("Compact TODO mode requires a workspace and no attachments");
-            const enabled = pipeline.steps.filter((entry) => entry.enabled);
-            if (enabled.length !== 4 || enabled.some((entry, index) => entry.id !== ["assign-roles", "lead-plan", "worker-implementation", "lead-review"][index]
-              || entry.humanGate !== "none"
-              || (index === 0 ? entry.type !== "assignRoles" : entry.type !== "agent"
-                || entry.consensus || entry.parallel || entry.participants.length !== 1
-                || entry.participants[0] !== ["", "lead", "worker", "reviewer"][index]))) {
-              throw new Error("Compact TODO mode requires the serial planner, worker, reviewer workflow");
-            }
+          const unavailable = executionContextUnavailable(pipeline, !!workspaceRoot, attachmentIds.length);
+          if (unavailable) throw new Error(`Compact TODO mode is unavailable: ${unavailable}; keep the recorded setup for recovery`);
+          const assignments = executionContextAssignments(pipeline);
+          if (workspaceRoot) {
             const baseline = await captureManagedRepositoryBaseline(workspaceRoot, controller.signal);
             const taskDigest = evidenceDigest(redactText(prompt));
             localExecutionPolicyIdentity = () => evidenceDigest(JSON.stringify({ policy: pipeline.managedPolicy, constraints: runConstraints, authority: captureRunSettings(liveConfigurationReader).authority }));
@@ -10760,6 +10789,31 @@ export const createRuntime = (
       case "workflow.restart":
       case "workflow.discard":
         return await handleRunMessage(message);
+      case "executionContext.set": {
+        const refusal = agentAssignmentRefusal();
+        if (refusal || recordedRunSettings || activeRunSettings) throw new Error(vscode.l10n.t("Start a new run to change efficient context."));
+        const pipeline = selectedPipelineSnapshot?.definition;
+        if (!pipeline || pipeline.id !== message.pipelineId || selectedPipelineSnapshot?.hash !== message.pipelineHash) {
+          throw new Error(vscode.l10n.t("The run setup changed. Choose efficient context again."));
+        }
+        if (message.attachmentIds.some((id) => !state.attachments.some((attachment) => attachment.id === id))) {
+          throw new Error(vscode.l10n.t("The selected attachments changed."));
+        }
+        const unavailable = executionContextUnavailable(assignedPipelineDefinition(pipeline, activeAssignments()), !!state.workingDirectory, message.attachmentIds.length);
+        if (message.mode === "localTodoStateV1" && unavailable) throw new Error(vscode.l10n.t("Efficient context is unavailable for this setup. Check the composer reason."));
+        const config = vscode.workspace.getConfiguration("bachata");
+        const current = executionContextModeForRun(config.get("executionContextMode", "legacy"));
+        if (current !== message.mode) {
+          if (current !== message.expectedDefault) throw new Error(vscode.l10n.t("The context default changed. Try again."));
+          const scope = config.inspect("executionContextMode");
+          const target = scope?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+            : scope?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+          await config.update("executionContextMode", message.mode, target);
+        }
+        if (!disposed) emitSnapshot();
+        postOperationResult(message.requestId, "executionContext.set", "completed");
+        return;
+      }
       case "pipeline.select":
       case "pipeline.validate":
       case "pipeline.save":
@@ -11517,6 +11571,7 @@ export const createRuntime = (
       // re-derived on read rather than only when a snapshot was last emitted.
       refreshAgentAssignments();
       refreshLocalInterpreter();
+      refreshExecutionContext();
       return { ...structuredClone(state), operationActive: runtimeOperationActive() };
     },
     // With no explicit id, the answer is about the pipeline this runtime would actually
@@ -11595,6 +11650,7 @@ export const createRuntime = (
           providerRegistrySubscription.dispose();
           localModelSubscription?.dispose();
           browserSelectorHealingConfigurationSubscription?.dispose();
+          executionContextConfigurationSubscription.dispose();
           const workflow = activeWorkflow;
           workflowController?.abort();
           foregroundControllers.forEach((controller) => controller.abort());

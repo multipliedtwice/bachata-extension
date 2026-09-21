@@ -79,6 +79,7 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
     const previousRunning = panel.running;
     const previousWorkflowStatus = panel.workflowStatus;
     const hadPendingGate = Boolean(panel.pendingGate);
+    if (message.executionContext) panel.executionContext = message.executionContext;
     panel.running = message.running;
     setOptionalProperty(panel, "operationActive", message.operationActive);
     panel.workflowStatus = message.workflowStatus;
@@ -139,7 +140,12 @@ const applyRuntimeMessage = (conversationId: string, message: RuntimeMessage): v
   } else if (message.type === "bridge.patch") {
     panel.browserBridge = message.status;
   } else if (message.type === "operation.result") {
-    if (message.operation === "pipeline.run") {
+    if (message.operation === "executionContext.set") {
+      if (state.pendingExecutionContext?.requestId === message.requestId && state.pendingExecutionContext.conversationId === conversationId) {
+        delete state.pendingExecutionContext;
+        if (message.status === "failed" && message.message) state.errors.set(conversationId, message.message);
+      }
+    } else if (message.operation === "pipeline.run") {
       const pending = state.pendingRuns.get(message.requestId);
       if (pending) {
         if (message.status === "accepted") {

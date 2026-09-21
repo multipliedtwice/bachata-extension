@@ -307,12 +307,32 @@ window.__scenes = {
     send({ ...manager, direction }, panel);
     await settle();
     if (!document.getElementById("run-drawer")) click('[data-action="run-drawer-toggle"]');
+    await settle();
     click(".run-drawer-direction");
   },
   async editor() {
-    await this.composer();
+    const { manager, panel, definition } = await baseStates();
+    send(manager, panel);
     await settle();
-    click('[data-action="pipeline-edit"]');
+    click('[data-action="pipeline-picker-toggle"]');
+    await settle();
+    click('[data-action="pipeline-row-menu"][data-pipeline-id="review-only"]');
+    await settle();
+    click('[data-action="pipeline-row-fork"][data-pipeline-id="review-only"]');
+    await settle();
+    const forked = [...window.__posted].reverse().find((entry) => entry?.message?.type === "pipeline.fork");
+    if (!forked) throw new Error("no pipeline.fork request");
+    window.__send({
+      type: "conversation.message",
+      conversationId: forked.conversationId,
+      message: {
+        type: "operation.result",
+        operation: "pipeline.fork",
+        status: "completed",
+        requestId: forked.message.requestId,
+        pipeline: { ...definition, id: `${definition.id}-custom`, name: `${definition.name} copy` },
+      },
+    });
   },
 };
 

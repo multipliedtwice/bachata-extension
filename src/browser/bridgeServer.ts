@@ -1,3 +1,4 @@
+import { isRecoveryId, isStableRecoveryIdentity, type RecoverableConversation } from "./recovery";
 import { browserBindingForSession, browserConversationClaimKey, resolveBrowserSession } from "./conversationOwnership";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
@@ -44,6 +45,7 @@ export type BrowserBridgeStatus = {
 };
 
 export type BrowserConversationEvent =
+  | { type: "binding"; sessionId: string; binding: BrowserConversationBinding }
   | { type: "session"; sessionId: string }
   | { type: "submitted" }
   | { type: "text"; mode: "append" | "replace"; text: string }
@@ -90,6 +92,8 @@ export type BrowserBridgeServer = {
   resetPairing: () => Promise<void>;
   discover: () => void;
   refreshLocalModelConfig: () => void;
+  listRecoverableConversations: (signal?: AbortSignal) => Promise<RecoverableConversation[]>;
+  reopenConversation: (registryId: string, provider: "chatgpt" | "claude", signal?: AbortSignal) => Promise<BrowserSession>;
   openConversation: (
     provider: BrowserProvider,
     signal?: AbortSignal,
@@ -175,6 +179,7 @@ type PendingConversation = {
   boundSessionIds: Set<string>;
   reservedConversationKeys: Set<string>;
   transitionSession?: BrowserSession;
+  promotedBindingSession?: BrowserSession;
 };
 
 type PendingAssetReveal = {
@@ -186,6 +191,7 @@ type PendingAssetReveal = {
 };
 
 type PendingProviderOpen = {
+  expectedIdentity?: string;
   requestId: string;
   provider: BrowserProvider;
   timer: NodeJS.Timeout;
@@ -284,6 +290,11 @@ export const createBrowserBridgeServer = (
   const pendingAssetTransfers = new Map<string, PendingAssetTransfer>();
   const pendingAssetReveals = new Map<string, PendingAssetReveal>();
   const pendingProviderOpens = new Map<string, PendingProviderOpen>();
+  const pendingRecoveryLists = new Map<string, { resolve: (records: RecoverableConversation[]) => void; reject: (error: Error) => void; cleanup: () => void }>();
+  const rejectRecoveryLists = (error: Error): void => {
+    for (const request of pendingRecoveryLists.values()) { request.cleanup(); request.reject(error); }
+    pendingRecoveryLists.clear();
+  };
   const bindingOwnerByConversation = new Map<string, string>();
   const bindingChanges = new Map<string, { previousKey?: string; targetKey?: string }>();
   const bindingPromotions = new Map<string, { previousKey: string; binding: BrowserConversationBinding }>();
@@ -637,6 +648,7 @@ export const createBrowserBridgeServer = (
   };
 
   const rejectPendingProviderOpens = (error: Error): void => {
+    rejectRecoveryLists(error);
     Array.from(pendingProviderOpens.keys()).forEach((requestId) => {
       removePendingProviderOpen(requestId)?.reject(error);
     });
@@ -833,6 +845,8 @@ export const createBrowserBridgeServer = (
     operation: PendingConversation,
     response: CapturedResponse,
   ): boolean => {
+    if (operation.promotedBindingSession && (response.finalConversationIdentity !== operation.promotedBindingSession.conversationIdentity
+      || response.finalConversationUrl !== operation.promotedBindingSession.conversationUrl)) return false;
     if (response.provider !== operation.session.provider) {
       return false;
     }
@@ -892,6 +906,43 @@ export const createBrowserBridgeServer = (
       return;
     }
 
+    if (message.type === "provider.listRecoverableConversations.result") {
+      const request = pendingRecoveryLists.get(message.requestId);
+      if (request) { pendingRecoveryLists.delete(message.requestId); request.cleanup(); request.resolve(structuredClone(message.records)); }
+      return;
+    }
+    if (message.type === "conversation.binding") {
+      const operation = pending.get(message.requestId);
+      if (!operation) return;
+      const session = message.session;
+      if (!matchesOperation(operation, message) || !operation.allowSessionTransition
+        || session.provider !== operation.session.provider || session.tabId !== operation.session.tabId
+        || session.frameId !== operation.session.frameId || session.documentId !== operation.session.documentId
+        || session.documentToken !== operation.session.documentToken
+        || !supportedInitialTransition(session.provider, operation.session.conversationUrl, session.conversationUrl)
+        || session.id !== sessionIdFor(session.provider, session.tabId, session.documentToken, session.conversationIdentity)
+        || (operation.transitionSession && operation.transitionSession.conversationIdentity !== session.conversationIdentity)
+        || (operation.promotedBindingSession && operation.promotedBindingSession.conversationIdentity !== session.conversationIdentity)
+        || (pendingBySession.has(session.id) && pendingBySession.get(session.id) !== operation.requestId)) {
+        settleUnconfirmed(operation, new Error("Browser binding does not match the trusted initial transition; remote termination is unconfirmed"));
+        return;
+      }
+      if (operation.promotedBindingSession) return;
+      try {
+        const binding = bindingForSession(session);
+        promoteOperationBinding(operation, binding);
+        operation.promotedBindingSession = structuredClone(session);
+        operation.transitionSession = structuredClone(session);
+        operation.boundSessionIds.add(session.id);
+        pendingBySession.set(session.id, operation.requestId);
+        sessions = [...sessions.filter((candidate) => candidate.tabId !== session.tabId), structuredClone(session)];
+        if (selectedSessionId === operation.session.id) selectedSessionId = session.id;
+        operation.queue.push({ type: "binding", sessionId: session.id, binding });
+      } catch (error) {
+        settleUnconfirmed(operation, error);
+      }
+      return;
+    }
     if (message.type === "provider.openConversation.result") {
       const request = pendingProviderOpens.get(message.requestId);
       if (!request || request.provider !== message.provider) {
@@ -905,6 +956,11 @@ export const createBrowserBridgeServer = (
         completed.reject(
           new Error(`${message.code ?? "OPEN_CONVERSATION_FAILED"}: ${message.message ?? "The provider conversation could not be opened"}`),
         );
+        return;
+      }
+      if (completed.expectedIdentity !== undefined && (message.session.conversationIdentity !== completed.expectedIdentity
+        || !isStableRecoveryIdentity(message.provider, message.session.conversationUrl, message.session.conversationIdentity))) {
+        completed.reject(new Error("The recovered provider conversation identity does not match"));
         return;
       }
       sessions = [
@@ -1706,6 +1762,121 @@ export const createBrowserBridgeServer = (
     })();
     return reserveOperation;
   };
+  const openConversation = (provider: BrowserProvider, signal?: AbortSignal, preferredBinding?: BrowserConversationBinding, fresh = false, registryId?: string): Promise<BrowserSession> => {
+    if (!authenticated || !socket) {
+      return Promise.reject(new Error("Browser bridge is not connected"));
+    }
+    if (signal?.aborted) {
+      return Promise.reject(new Error("Opening the provider conversation was cancelled"));
+    }
+    if (pendingProviderOpens.size >= 32) return Promise.reject(new Error("Too many provider provisioning requests"));
+    const expectedIdentity = !fresh && preferredBinding && isStableRecoveryIdentity(provider, preferredBinding.conversationUrl, preferredBinding.conversationIdentity)
+      ? preferredBinding.conversationIdentity : undefined;
+    const requestId = randomUUID();
+    return new Promise<BrowserSession>((resolve, reject) => {
+      const cancelRemote = (): void => {
+        if (!authenticated || !socket) {
+          return;
+        }
+        try {
+          send({
+            type: "provider.cancelOpenConversation",
+            protocolVersion: browserProtocolVersion,
+            requestId,
+          });
+        } catch {
+          // EX-AUD-13. Telling the browser to stop opening is best effort: a send that
+          // fails means the socket is already gone, which is itself the cancellation.
+        }
+      };
+      const timer = setTimeout(() => {
+        const pendingOpen = removePendingProviderOpen(requestId);
+        if (!pendingOpen) {
+          return;
+        }
+        cancelRemote();
+        pendingOpen.reject(
+          new Error("Opening the provider conversation timed out"),
+        );
+      }, providerOpenTimeoutMs);
+      const abortListener = signal
+        ? (): void => {
+            const pendingOpen = removePendingProviderOpen(requestId);
+            if (!pendingOpen) {
+              return;
+            }
+            cancelRemote();
+            pendingOpen.reject(
+              new Error("Opening the provider conversation was cancelled"),
+            );
+          }
+        : undefined;
+      pendingProviderOpens.set(requestId, {
+        requestId,
+        provider,
+        ...(expectedIdentity === undefined ? {} : { expectedIdentity }),
+        timer,
+        ...(signal === undefined ? {} : { signal }),
+        ...(abortListener === undefined ? {} : { abortListener }),
+        resolve,
+        reject,
+      });
+      signal?.addEventListener("abort", abortListener as () => void, { once: true });
+      try {
+        let preferredOrigin: string | undefined;
+        if (preferredBinding?.provider === provider) {
+          try {
+            preferredOrigin = new URL(preferredBinding.conversationUrl).origin;
+          } catch {
+            preferredOrigin = undefined;
+          }
+        }
+        if (registryId !== undefined) {
+          if (provider === "generic") throw new Error("Generic conversations cannot be recovered from the registry");
+          send({ type: "provider.reopenConversation", protocolVersion: browserProtocolVersion, requestId, provider, registryId });
+        } else send({
+          type: "provider.openConversation",
+          protocolVersion: browserProtocolVersion,
+          requestId,
+          provider,
+          ...(preferredBinding?.preferredTabId === undefined
+            ? {}
+            : { preferredTabId: preferredBinding.preferredTabId }),
+          ...(preferredOrigin ? { preferredOrigin } : {}),
+          ...(preferredBinding?.provider === provider
+            ? { preferredConversationIdentity: preferredBinding.conversationIdentity }
+            : {}),
+          ...(fresh ? { fresh: true } : {}),
+        });
+      } catch (error) {
+        removePendingProviderOpen(requestId)?.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    });
+  };
+
+  const listRecoverableConversations = (signal?: AbortSignal): Promise<RecoverableConversation[]> => {
+    if (!authenticated || !socket || signal?.aborted) return Promise.reject(new Error("Browser recovery is unavailable"));
+    if (pendingRecoveryLists.size >= 32) return Promise.reject(new Error("Too many browser recovery requests"));
+    const requestId = randomUUID();
+    return new Promise((resolve, reject) => {
+      const fail = (error: Error): void => {
+        const request = pendingRecoveryLists.get(requestId);
+        if (!request) return;
+        pendingRecoveryLists.delete(requestId);
+        request.cleanup();
+        reject(error);
+      };
+      const abort = (): void => fail(new Error("Browser recovery was cancelled"));
+      const timer = setTimeout(() => fail(new Error("Listing recoverable conversations timed out")), providerOpenTimeoutMs);
+      pendingRecoveryLists.set(requestId, { resolve, reject, cleanup: () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); } });
+      signal?.addEventListener("abort", abort, { once: true });
+      try { send({ type: "provider.listRecoverableConversations", protocolVersion: browserProtocolVersion, requestId }); }
+      catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
+    });
+  };
+
   const bridge: OwnedBrowserBridgeServer = {
     reserve,
     start: () => {
@@ -1806,91 +1977,13 @@ export const createBrowserBridgeServer = (
       if (!authenticated || !socket || !socket.isOpen()) return;
       sendLocalModelConfig(socket);
     },
-    openConversation: (provider, signal, preferredBinding, fresh = false) => {
-      if (!authenticated || !socket) {
-        return Promise.reject(new Error("Browser bridge is not connected"));
-      }
-      if (signal?.aborted) {
-        return Promise.reject(new Error("Opening the provider conversation was cancelled"));
-      }
-      const requestId = randomUUID();
-      return new Promise<BrowserSession>((resolve, reject) => {
-        const cancelRemote = (): void => {
-          if (!authenticated || !socket) {
-            return;
-          }
-          try {
-            send({
-              type: "provider.cancelOpenConversation",
-              protocolVersion: browserProtocolVersion,
-              requestId,
-            });
-          } catch {
-            // EX-AUD-13. Telling the browser to stop opening is best effort: a send that
-            // fails means the socket is already gone, which is itself the cancellation.
-          }
-        };
-        const timer = setTimeout(() => {
-          const pendingOpen = removePendingProviderOpen(requestId);
-          if (!pendingOpen) {
-            return;
-          }
-          cancelRemote();
-          pendingOpen.reject(
-            new Error("Opening the provider conversation timed out"),
-          );
-        }, providerOpenTimeoutMs);
-        const abortListener = signal
-          ? (): void => {
-              const pendingOpen = removePendingProviderOpen(requestId);
-              if (!pendingOpen) {
-                return;
-              }
-              cancelRemote();
-              pendingOpen.reject(
-                new Error("Opening the provider conversation was cancelled"),
-              );
-            }
-          : undefined;
-        pendingProviderOpens.set(requestId, {
-          requestId,
-          provider,
-          timer,
-          ...(signal === undefined ? {} : { signal }),
-          ...(abortListener === undefined ? {} : { abortListener }),
-          resolve,
-          reject,
-        });
-        signal?.addEventListener("abort", abortListener as () => void, { once: true });
-        try {
-          let preferredOrigin: string | undefined;
-          if (preferredBinding?.provider === provider) {
-            try {
-              preferredOrigin = new URL(preferredBinding.conversationUrl).origin;
-            } catch {
-              preferredOrigin = undefined;
-            }
-          }
-          send({
-            type: "provider.openConversation",
-            protocolVersion: browserProtocolVersion,
-            requestId,
-            provider,
-            ...(preferredBinding?.preferredTabId === undefined
-              ? {}
-              : { preferredTabId: preferredBinding.preferredTabId }),
-            ...(preferredOrigin ? { preferredOrigin } : {}),
-            ...(preferredBinding?.provider === provider
-              ? { preferredConversationIdentity: preferredBinding.conversationIdentity }
-              : {}),
-            ...(fresh ? { fresh: true } : {}),
-          });
-        } catch (error) {
-          removePendingProviderOpen(requestId)?.reject(
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        }
-      });
+    openConversation,
+    listRecoverableConversations,
+    reopenConversation: async (registryId, provider, signal) => {
+      if (!isRecoveryId(registryId) || (provider !== "chatgpt" && provider !== "claude")) throw new Error("Invalid recovery selection");
+      const record = (await listRecoverableConversations(signal)).find((entry) => entry.id === registryId && entry.provider === provider);
+      if (!record) throw new Error("The selected recoverable conversation is unavailable");
+      return await openConversation(provider, signal, record, false, registryId);
     },
     bindSession: (ownerId, sessionId) => {
       const session = sessions.find((candidate) => candidate.id === sessionId);

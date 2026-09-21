@@ -45,6 +45,7 @@ export const WEBVIEW_MESSAGE_DOMAIN: Readonly<Record<WebviewMessageType, Webview
   "workflow.resume": "run",
   "workflow.restart": "run",
   "workflow.discard": "run",
+  "executionContext.set": "catalog",
   "pipeline.select": "catalog",
   "pipeline.validate": "catalog",
   "pipeline.save": "catalog",
@@ -87,6 +88,7 @@ export const webviewMessageDomain = (type: string): WebviewMessageDomain | undef
  */
 export const SERIALIZED_WEBVIEW_MESSAGE_TYPES: readonly WebviewMessageType[] = [
   "availability.check",
+  "executionContext.set",
   "pipeline.select",
   "pipeline.validate",
   "pipeline.save",

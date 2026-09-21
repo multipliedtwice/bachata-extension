@@ -1,3 +1,6 @@
+import { isStableRecoveryIdentity, validRecoverableConversations, type RecoverableConversation } from "./recovery";
+export type { RecoverableConversation } from "./recovery";
+
 export const browserProtocolVersion = 9 as const;
 
 export type BrowserProvider = "chatgpt" | "claude" | "generic";
@@ -110,6 +113,15 @@ export type CapturedResponse = {
 };
 
 export type BridgeClientMessage =
+  | { type: "provider.listRecoverableConversations.result"; protocolVersion: 9; requestId: string; records: RecoverableConversation[] }
+  | {
+      type: "conversation.binding";
+      protocolVersion: 9;
+      requestId: string;
+      agentId: string;
+      sessionId: string;
+      session: BrowserSession;
+    }
   | { type: "bridge.pair"; protocolVersion: 9; token: string }
   | {
       type: "bridge.authenticate";
@@ -224,6 +236,8 @@ export type BridgeClientMessage =
   | { type: "bridge.disconnect"; protocolVersion: 9 };
 
 export type BridgeServerMessage =
+  | { type: "provider.listRecoverableConversations"; protocolVersion: 9; requestId: string }
+  | { type: "provider.reopenConversation"; protocolVersion: 9; requestId: string; provider: "chatgpt" | "claude"; registryId: string }
   | {
       type: "bridge.paired";
       protocolVersion: 9;
@@ -605,6 +619,20 @@ const parseMessage = (value: unknown): BridgeClientMessage => {
         ? { selectedSessionId: value.selectedSessionId }
         : {}),
     };
+  }
+  if (value.type === "provider.listRecoverableConversations.result") {
+    if (!hasOnlyKeys(value, ["type", "protocolVersion", "requestId", "records"])
+      || !isNonEmptyString(value.requestId) || value.requestId.length > 256
+      || !validRecoverableConversations(value.records)) throw new Error("Invalid provider.listRecoverableConversations.result message");
+    return { type: value.type, protocolVersion: 9, requestId: value.requestId, records: value.records };
+  }
+  if (value.type === "conversation.binding") {
+    const session = parseSession(value.session);
+    if (!hasOnlyKeys(value, ["type", "protocolVersion", "requestId", "agentId", "sessionId", "session"])
+      || !isNonEmptyString(value.requestId) || !isNonEmptyString(value.agentId) || !isNonEmptyString(value.sessionId)
+      || !session || !isStableRecoveryIdentity(session.provider, session.conversationUrl, session.conversationIdentity)
+      || (session.status !== "streaming" && session.status !== "ready")) throw new Error("Invalid conversation.binding message");
+    return { type: value.type, protocolVersion: 9, requestId: value.requestId, agentId: value.agentId, sessionId: value.sessionId, session };
   }
   if (value.type === "provider.openConversation.result") {
     if (

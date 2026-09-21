@@ -7592,3 +7592,40 @@ details.direction-evidence > ul,
 .iteration-picker-stops {
   margin-top: 2px;
 }
+
+.composer-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 10px;
+}
+.composer-context-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.composer-context-label input {
+  margin: 0;
+  accent-color: var(--vscode-focusBorder);
+}
+.composer-context-label input[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.composer-context-badge {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+.composer-context-help,
+.composer-context-reason {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--vscode-descriptionForeground);
+}
+.composer-context-reason:empty {
+  display: none;
+}

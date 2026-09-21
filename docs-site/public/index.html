@@ -7,6 +7,13 @@
 <meta name="description" content="Build repeatable AI workflows in VS Code with Bachata. Coordinate Codex, Claude Code and browser chats across planning, coding and review pipelines.">
 <meta name="theme-color" content="#1f7a4d">
 <link rel="canonical" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="x-default" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="en" href="https://multipliedtwice.github.io/bachata-extension/">
+<link rel="alternate" hreflang="ru" href="https://multipliedtwice.github.io/bachata-extension/ru/">
+<link rel="alternate" hreflang="zh-Hans" href="https://multipliedtwice.github.io/bachata-extension/zh-cn/">
+<link rel="alternate" hreflang="pt-BR" href="https://multipliedtwice.github.io/bachata-extension/pt-br/">
+<link rel="alternate" hreflang="th" href="https://multipliedtwice.github.io/bachata-extension/th/">
+<link rel="alternate" hreflang="de" href="https://multipliedtwice.github.io/bachata-extension/de/">
 <link rel="sitemap" type="application/xml" href="sitemap.xml">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Bachata">
@@ -56,7 +63,7 @@
     <a href="#browser-bridge">Browser Bridge</a>
     <a href="#reference">Reference</a>
     <a href="https://github.com/multipliedtwice/bachata-extension">GitHub</a>
-  </nav>
+  </nav><nav class="language-switcher" aria-label="Language"><a href="https://multipliedtwice.github.io/bachata-extension/" hreflang="en" aria-current="true">English</a><a href="https://multipliedtwice.github.io/bachata-extension/ru/" hreflang="ru">Русский</a><a href="https://multipliedtwice.github.io/bachata-extension/zh-cn/" hreflang="zh-Hans">简体中文</a><a href="https://multipliedtwice.github.io/bachata-extension/pt-br/" hreflang="pt-BR">Português (Brasil)</a><a href="https://multipliedtwice.github.io/bachata-extension/th/" hreflang="th">ไทย</a><a href="https://multipliedtwice.github.io/bachata-extension/de/" hreflang="de">Deutsch</a></nav>
 </header>
 
 <div class="layout" id="top">
@@ -331,7 +338,13 @@
       <p>Bachata now includes the first source implementation of a token-efficient execution mode for Claude Code and Codex. The goal is to send the smallest sufficient state for the next decision instead of repeatedly sending complete earlier answers, verification output and conversation history.</p>
       <div class="note warn">
         <strong>Off by default</strong>
-        Set <code>bachata.executionContextMode</code> to <code>localTodoStateV1</code> to opt in for local TODO implementation. <code>legacy</code> remains the default. Project release gates remain pending, and this is not a token, cost, latency or quality claim.
+        Try <strong>Efficient context · Experimental</strong> in the Runs composer before starting a run.
+        Uses bounded state and fresh local Claude/Codex sessions for serial TODO Implementation.
+        No attachments. May reduce repeated context. Savings are not yet measured.
+        Unavailable setups show a reason and start new runs in legacy mode.
+        The checkbox saves <code>bachata.executionContextMode</code>; Advanced settings keep the same default.
+        <code>legacy</code> stays default. Active and recoverable runs keep their recorded mode.
+        Project release gates remain pending. No token, cost, latency or quality claim.
       </div>
 
       <h3>Why this can help</h3>

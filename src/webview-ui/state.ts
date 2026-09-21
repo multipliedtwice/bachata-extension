@@ -209,6 +209,7 @@ const state: {
   scrollPositions: Map<string, { top: number; distanceFromBottom: number; following: boolean }>;
   pendingEditorOperation?: PendingEditorOperation;
   pendingRuns: Map<string, PendingRunRequest>;
+  pendingExecutionContext?: { requestId: string; conversationId: string; mode: "legacy" | "localTodoStateV1" };
   pendingPipelineSelections: Map<string, { conversationId: string; pipelineId: string; nextAction?: "edit" }>;
   pendingAgentProviders: Map<string, { conversationId: string; agentId: string; adapter: string; overridden: boolean }>;
   pendingAgentModels: Map<string, { conversationId: string; agentId: string; adapter: string; model?: string }>;

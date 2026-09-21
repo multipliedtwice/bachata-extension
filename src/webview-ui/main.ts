@@ -2350,6 +2350,9 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     announceManagerTransition(previousManager, message.state);
     pruneResultSelections(message.state.conversations);
     const conversationIds = new Set(message.state.conversations.map((conversation) => conversation.id));
+    if (state.pendingExecutionContext && !conversationIds.has(state.pendingExecutionContext.conversationId)) {
+      delete state.pendingExecutionContext;
+    }
     Array.from(state.scrollPositions.keys()).forEach((key) => {
       if (!conversationIds.has(key.split(":", 1)[0] ?? "")) state.scrollPositions.delete(key);
     });
@@ -2435,6 +2438,7 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
     state.pendingApprovals.clear();
     state.pendingAgentProviders.clear();
     state.pendingAgentModels.clear();
+    delete state.pendingExecutionContext;
     state.managerError = message.message;
     scheduleRender();
   }

@@ -21,10 +21,14 @@ for (const mode of ["legacy", "localTodoStateV1"]) {
     harness = loadRuntimeHarness({
       purgeCompiledModules: true,
       workspaceDirectories: [root],
-      configuration: { executionContextMode: mode, codexWorkspaceScope: "wholeWorkingDirectory" },
+      configuration: { executionContextMode: "legacy", codexWorkspaceScope: "wholeWorkingDirectory" },
       onAdapterSend: ({ agentId, request }) => {
         harness.adapterControls.get(agentId).release.resolve();
         requests.push(request);
+        const context = harness.runtime.getState().executionContext;
+        assert.equal(context.mode, mode);
+        assert.equal(context.pinned, true);
+        assert.equal(context.locked, true);
         let answer;
         if (mode === "localTodoStateV1") {
           assert.equal(request.sessionMode, "freshExecutionState");
@@ -43,7 +47,10 @@ for (const mode of ["legacy", "localTodoStateV1"]) {
           }
         } else {
           assert.equal(request.sessionMode, undefined);
-          if (requests.length === 1) answer = "Legacy plan marker";
+          if (requests.length === 1) {
+            harness.changeConfiguration("executionContextMode", "localTodoStateV1");
+            answer = "Legacy plan marker";
+          }
           else if (requests.length === 2) {
             assert.ok(request.prompt.includes("Legacy plan marker"));
             fs.writeFileSync(path.join(root, "src", "feature.txt"), "ready\n");
@@ -62,6 +69,12 @@ for (const mode of ["legacy", "localTodoStateV1"]) {
     try {
       await harness.runtime.handleMessage({ type: "ready" });
       await harness.runtime.configure({ workingDirectory: root, pipelineId: "todo-implementation" });
+      if (mode === "localTodoStateV1") {
+        const selected = harness.runtime.getState();
+        await harness.runtime.handleMessage({ type: "executionContext.set", mode, expectedDefault: "legacy",
+          pipelineId: selected.selectedPipelineId, pipelineHash: selected.selectedPipelineHash,
+          attachmentIds: [], requestId: "enable-before-run" });
+      }
       const result = await harness.runtime.runPipeline("Implement src/feature.txt so it contains ready.", [], { allowedPaths: ["src"], writeScope: "configured" });
       assert.equal(result.status, "completed");
       assert.equal(requests.length, 3);

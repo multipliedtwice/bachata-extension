@@ -346,6 +346,16 @@ with the provider's CLI or browser session.
 Read [Privacy](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/PRIVACY.md), [Security](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SECURITY.md), and
 [No telemetry](https://github.com/multipliedtwice/bachata-extension/blob/main/NO_TELEMETRY.md) for the full boundaries.
 
+## Efficient context — experimental
+
+Try **Efficient context · Experimental** in the Runs composer before starting a run.
+Uses bounded state and fresh local Claude/Codex sessions. May reduce repeated context.
+Savings are not yet measured. Works with serial TODO Implementation, no attachments.
+Other setups show why it is unavailable and use legacy mode for new runs.
+
+Off by default. The control saves `bachata.executionContextMode`; Advanced settings keep the
+same default. Active, resumed and restarted runs keep their recorded mode.
+
 ## Current status
 
 Bachata is currently a closed-alpha candidate, not a stable public release.
@@ -358,10 +368,8 @@ remains a roadmap requirement. The current one-run benchmark has no recorded res
 and supports no quality claim. See [Roadmap](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/ROADMAP.md) and
 [benchmark limits](https://github.com/multipliedtwice/bachata-extension/blob/main/benchmarks/README.md).
 
-The first token-efficient harness slice is implemented behind `bachata.executionContextMode`:
-`legacy` stays default; `localTodoStateV1` uses exact local evidence, bounded controller state and
-fresh Claude/Codex conversations for local TODO implementation. Project release gates remain
-pending. Compact peer handoffs and browser changes remain proposals. No token or cost claim. See
+The local TODO context pilot ships in source. Compact peer handoffs and browser changes
+remain proposals. Project release gates remain pending. See
 the [public documentation](https://multipliedtwice.github.io/bachata-extension/#token-efficiency)
 and [technical design](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md).
 

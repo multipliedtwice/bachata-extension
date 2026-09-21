@@ -289,3 +289,18 @@ test("the first turn after resuming into an already prompted step is told the ea
     assert.ok(prompts[2].startsWith(`${RESUMED_STEP_NOTICE}\n\nSecond: the task\n`), prompts[2]);
   });
 });
+
+test("runtime persists a promoted browser binding even when the turn fails before a response", async () => {
+  const first = browserSession("initial", "initial", 1);
+  const tracked = trackedBridge(() => first);
+  const binding = { provider: "chatgpt", conversationUrl: "https://chatgpt.com/c/promoted-before-timeout", conversationIdentity: "chatgpt:https://chatgpt.com/c/promoted-before-timeout", preferredTabId: 1 };
+  await withHarness(browserOnlyPipeline(), tracked.bridge, () => ({ events: [
+    { type: "browserBinding", sessionId: "promoted-session", binding },
+    { type: "error", message: "Browser turn timed out before final response" },
+  ] }), async (harness) => {
+    await run(harness).catch(() => undefined);
+    const snapshots = [...harness.workspaceState.values()];
+    assert.ok(snapshots.some((value) => value?.agents?.chatgpt?.browserBinding?.conversationIdentity === binding.conversationIdentity), JSON.stringify(snapshots).slice(0, 1500));
+    assert.ok(snapshots.some((value) => value?.agents?.chatgpt?.sessionId === "promoted-session"));
+  });
+});

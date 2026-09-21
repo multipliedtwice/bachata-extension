@@ -42,12 +42,10 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
 
 ### Bounded execution state pilot
 
-- [ ] **EX-BOUNDED-STATE-01 / bounded execution state pilot:** verify the opt-in local TODO
-  implementation against the authoritative dependency-equipped checkout. Run formatting, lint,
-  type checks, no-telemetry, build, adapter/runtime/catalog/command-output/export regression files,
-  and the full required suite under safe resource conditions. Lead runs the authored Cypress
-  export journey. Keep `legacy` default; make no provider-quality or token/cost/latency claim.
-  Existing native ignored-write coverage remains EX-G6-09.
+- [ ] **EX-BOUNDED-STATE-01 / bounded execution state pilot:** lead run + review authored Cypress
+  export journey and `tests/cypress/efficient-context.cy.cjs` Runs control journey under safe
+  resource conditions. Keep `legacy` default. No provider-quality,
+  token, cost or latency claim. Native ignored-write gap remains EX-G6-09.
 
 ### P2: expanded evidence authority
 

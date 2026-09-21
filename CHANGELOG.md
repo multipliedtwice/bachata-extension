@@ -6,6 +6,13 @@
 
 - Added a GitHub Pages overview and technical design for a token-efficient harness based on durable exact evidence, bounded execution state, structured peer projections, recallable browser observations, and safe action fusion. The first local TODO slice is implemented off by default; later mechanisms remain proposals. No Bachata token or cost reduction claim.
 
+### Runs context control
+
+- Added visible **Efficient context · Experimental** checkbox in Runs. Same Advanced default.
+  Local Claude/Codex, serial TODO Implementation, no attachments. Shows unavailable reason.
+  Bounded state and fresh sessions may reduce repeated context. Savings not yet measured.
+  Off by default. New runs pin the choice; active and recoverable runs keep recorded mode.
+
 ### Local TODO execution state
 
 - Added `bachata.executionContextMode` with `legacy` default and opt-in `localTodoStateV1`: exact admitted local evidence, strict controller-owned state, bounded recall, fresh Claude/Codex dispatches, awaited recovery boundaries and explicit evidence export. Existing controller checks and revision budgets remain. Full project verification requires the dependency-equipped checkout.

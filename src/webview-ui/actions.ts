@@ -246,6 +246,12 @@ if (typeof window.matchMedia === "function") {
  * that follows then finds the state already correct and does nothing.
  */
 root.addEventListener("click", (event) => {
+  if (event.target instanceof HTMLInputElement && event.target.id === "execution-context-mode"
+    && executionContextControl(activePanel(), draftFor(activeId())).reason) {
+    event.preventDefault();
+    declineDisabledControl(event.target);
+    return;
+  }
   const summary = event.target instanceof Element ? event.target.closest("summary") : null;
   const details = summary?.parentElement instanceof HTMLDetailsElement
     ? summary.parentElement
@@ -1467,6 +1473,11 @@ root.addEventListener("input", (event) => {
 root.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+  if (target.id === "execution-context-mode" && target instanceof HTMLInputElement) {
+    setExecutionContext(target.checked);
+    target.checked = executionContextControl(activePanel(), draftFor(activeId())).checked;
+    return;
+  }
   if (declineDisabledControl(target)) return;
   if (handleAgentSelectionChange(target)) return;
   if (

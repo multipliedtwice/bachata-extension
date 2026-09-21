@@ -79,6 +79,7 @@ export const emptyTurnStream = (): TurnStreamState => ({ streamedBytes: 0 });
  * every other action is delivery the composition root owns.
  */
 export type TurnStreamAction =
+  | { kind: "browserBinding"; sessionId: string; binding: BrowserConversationBinding }
   | { kind: "ignore" }
   | { kind: "session"; sessionId: string }
   | { kind: "append"; text: string }
@@ -107,6 +108,8 @@ export const turnStreamStep = (
     },
   });
   switch (event.type) {
+    case "browserBinding":
+      return { state, action: { kind: "browserBinding", sessionId: event.sessionId, binding: event.binding } };
     case "session":
       return { state, action: { kind: "session", sessionId: event.sessionId } };
     case "text": {

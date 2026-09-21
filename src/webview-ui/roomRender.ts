@@ -454,6 +454,9 @@ const sendBlockers = (
 ): SendBlocker[] => {
   const conversation = conversationById(conversationId);
   const blockers: SendBlocker[] = [];
+  if (state.pendingExecutionContext) {
+    blockers.push({ condition: localize("Saving context default…"), requirement: localize("Wait for the context setting to be saved.") });
+  }
   if (conversation?.archived === true) {
     blockers.push({
       condition: localize("This run is archived and read-only."),
