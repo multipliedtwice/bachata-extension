@@ -133,6 +133,12 @@ use:
 - **Selector healing** lets the Browser Bridge recover a page control when a saved
   selector stops matching.
 
+The interpreter also has an internal, optional typed-decision adapter seam for testing
+decision runtimes such as Laya. It is not a shipped Laya backend: no checkpoint, Python
+runtime or endpoint is included, normal Qwen/Ollama and LM Studio behavior is unchanged,
+and invalid or uncertain adapter output falls back to the existing path. See the
+[Laya compatibility boundary](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SEMANTIC_INTERPRETER.md#laya-compatibility-seam-only-not-an-available-backend).
+
 With a pipeline selected, turn either one on under **Agents → Local models**. See
 [Local models](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SEMANTIC_INTERPRETER.md).
 

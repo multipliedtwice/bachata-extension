@@ -1,6 +1,7 @@
 import { isExecutableEvidence, requestEvidenceLines } from "./requestEvidence";
 import { normalizeLocalModelEndpoint } from "./localModelEndpoint";
 import type { InterpretationCandidate } from "./localInterpretation";
+import type { TypedDecisionAdapter } from "./localTypedDecision";
 import {
   actionRisk,
   BrowserActionCandidate,
@@ -23,6 +24,7 @@ export type SemanticInterpreterOptions = {
   maxInputBytes: number;
   allowRemote: boolean;
   managedContextActions?: boolean | undefined;
+  decisionAdapter?: TypedDecisionAdapter | undefined;
 };
 
 const isLoopbackHostname = (hostname: string): boolean => {
@@ -108,6 +110,7 @@ export const interpretBrowserActions = async (
           : {}),
       },
       signal,
+      options.decisionAdapter,
     );
     const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const semanticContextActions: BrowserControlAction[] = [];

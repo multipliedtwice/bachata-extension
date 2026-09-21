@@ -226,6 +226,12 @@
         <figcaption>Cada papel recebe um provedor e um modelo. Dados de demonstração.</figcaption>
       </figure>
       <p>O Bachata não traz catálogo de modelos. Quando o Codex consegue listar seus modelos, o Bachata mostra essa lista e recusa um modelo que o Codex instalado não ofereça. Quando um provedor não consegue listar modelos, o nome digitado é enviado como escrito. O Bachata nunca troca o provedor ou o modelo por você. Para impedir que um provedor rode, inclua-o em <code>bachata.disabledProviders</code>.</p>
+      <h3>Optional typed-decision adapter</h3>
+      <p>The browser action interpreter also exposes a guarded, controller-injected adapter seam for experiments such as Laya's <code>system_one</code> decision shape. It receives only bounded, read-only controller candidates and may accept only a complete, high-confidence classification of those existing IDs. Invalid, ambiguous, oversized or late responses fall back to the existing local model path and deterministic extraction.</p>
+      <div class="note warn">
+        <strong>Compatibility boundary</strong>
+        Bachata does not ship Laya, a checkpoint, a Python runtime, an HTTP service or a model switch. Qwen/Ollama and LM Studio behavior stays unchanged. This seam is not a Laya compatibility, accuracy, latency or token-savings claim.
+      </div>
     </section>
 
     <section class="part" id="run-contract">

@@ -7,6 +7,7 @@
 ### Documentation
 
 - Added a GitHub Pages overview and technical design for a token-efficient harness based on durable exact evidence, bounded execution state, structured peer projections, recallable browser observations, and safe action fusion. The first local TODO slice is implemented off by default; later mechanisms remain proposals. No Bachata token or cost reduction claim.
+- Documented the guarded, optional typed-decision adapter seam for Laya-style `system_one` experiments. It is not a shipped runtime or backend; no Laya compatibility, accuracy, latency or token-savings claim is made.
 
 ### Runs context control
 

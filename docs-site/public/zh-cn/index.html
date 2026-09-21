@@ -226,6 +226,12 @@
         <figcaption>每个角色都会得到一个提供方和一个模型。演示数据。</figcaption>
       </figure>
       <p>Bachata 不附带模型目录。当 Codex 能够列出其模型时，Bachata 会显示该列表，并拒绝已安装的 Codex 未提供的模型。当提供方无法列出模型时，你输入的名称会原样发送。Bachata 绝不会替你切换提供方或模型。要让某个提供方永不运行，请把它加入 <code>bachata.disabledProviders</code>.</p>
+      <h3>Optional typed-decision adapter</h3>
+      <p>The browser action interpreter also exposes a guarded, controller-injected adapter seam for experiments such as Laya's <code>system_one</code> decision shape. It receives only bounded, read-only controller candidates and may accept only a complete, high-confidence classification of those existing IDs. Invalid, ambiguous, oversized or late responses fall back to the existing local model path and deterministic extraction.</p>
+      <div class="note warn">
+        <strong>Compatibility boundary</strong>
+        Bachata does not ship Laya, a checkpoint, a Python runtime, an HTTP service or a model switch. Qwen/Ollama and LM Studio behavior stays unchanged. This seam is not a Laya compatibility, accuracy, latency or token-savings claim.
+      </div>
     </section>
 
     <section class="part" id="run-contract">

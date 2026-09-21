@@ -3,7 +3,7 @@
 Every advertised provider needs a recorded integration mode and a completed usage-terms review before a stable release claims support for it.
 
 
-Artifacts under test: Bachata VSIX `4493c49b9ad01e69e22e8d6ff0a04d92c38d2ce6a1e369796ed8f865db9315f2`, Browser Bridge ZIP `9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16`.
+Artifacts under test: Bachata VSIX `a0146c2ba7db749b433edac764cffaf2a9135c798202ded962c2c1688fa19118`, Browser Bridge ZIP `9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16`.
 
 Every record in this file is void unless it names one of those hashes. A record produced from a rebuild is void.
 
