@@ -57,6 +57,20 @@ const runJob = async (job, timeoutMs, activeScopes) => {
   }
 };
 
+const runBatch = async (jobs, concurrency, timeoutMs, activeScopes) => {
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length) {
+      const index = next;
+      next += 1;
+      await runJob(jobs[index], timeoutMs, activeScopes);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(jobs.length, concurrency) }, () => worker()),
+  );
+};
+
 const run = async () => {
   const jobs = await readJobs();
   const concurrency = Math.min(
@@ -74,17 +88,13 @@ const run = async () => {
     },
   };
   const termination = installTerminationHandlers({ getProcessScope: () => aggregateScope, graceMs });
-  let next = 0;
-  const worker = async () => {
-    while (next < jobs.length) {
-      const index = next;
-      next += 1;
-      await runJob(jobs[index], timeoutMs, activeScopes);
-    }
-  };
+  const aggregateNames = new Set(["test:coverage:source", "test:coverage:critical"]);
+  const aggregateJobs = jobs.filter((job) => aggregateNames.has(job.name));
+  const focusedJobs = jobs.filter((job) => !aggregateNames.has(job.name));
   try {
     await withWorktreeLock({ label: "coverage suite" }, async () => {
-      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+      await runBatch(aggregateJobs, 2, timeoutMs, activeScopes);
+      await runBatch(focusedJobs, concurrency, timeoutMs, activeScopes);
     });
   } finally {
     termination.remove();
