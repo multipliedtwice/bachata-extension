@@ -279,6 +279,8 @@ test("every distribution carries the lockfile while packaging still pins VSCE ex
     "packaging must not invoke vscode:prepublish itself; VSCE already runs it, and running it twice doubles the whole test suite",
   );
   assert.match(packageJson.scripts["vscode:prepublish"], /check:lockfile/u);
+  assert.match(packageJson.scripts["vscode:prepublish"], /build:emit/u);
+  assert.doesNotMatch(packageJson.scripts["vscode:prepublish"], /npm (?:run )?test/u);
   assert.equal(packageJson.devDependencies["@vscode/vsce"], "3.9.2");
   assert.match(lockCheckSource, /No package-lock\.json is present/u);
   assert.doesNotMatch(

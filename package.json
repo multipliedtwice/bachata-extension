@@ -1552,7 +1552,7 @@
     "watch": "node scripts/build.mjs --watch",
     "test:unit": "node scripts/run-test-files.mjs tests",
     "test": "npm run check:no-telemetry && npm run check:managed-fallback && npm run test:source-distribution && npm run build && npm run check:policy-docs && npm run test:webview-layout && npm run check:build-facts && npm run test:managed-modules && npm run test:managed-worktree && npm run test:unit",
-    "vscode:prepublish": "npm run check:lockfile && npm run check:release-metadata:identity && npm run test",
+    "vscode:prepublish": "npm run check:lockfile && npm run check:release-metadata:identity && npm run build:emit",
     "check:lockfile": "node scripts/check-lockfile.mjs",
     "check:contract-parity": "node scripts/verify-contract-parity.mjs",
     "check:release-metadata": "node scripts/check-release-metadata.mjs --stage=all",
