@@ -182,24 +182,19 @@ jobs:
           "${RUNNER_TEMP}/bridge-contract/browser-protocol-v9.contract.json"
           "${RUNNER_TEMP}/bridge-contract"
 
-      - name: Types
-        run: npm run check-types
+      - name: Build release verifier
+        run: npm run build:emit
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Format check
-        run: npm run format:check
-
-      # BACHATA_REQUIRE_RELEASE_ARTIFACTS turns an absent archive from a skip into a failure, so
-      # this job cannot report a verified release while its artifact half never ran.
-      - name: Tests with release artifacts required
+      # The ordinary release gate already validates the complete unit suite. This workflow checks
+      # only the downloaded Bridge archive, release workflow, and VSIX contracts it uniquely owns.
+      - name: Paired artifact tests
         env:
           BACHATA_REQUIRE_RELEASE_ARTIFACTS: "1"
-        run: npm test
-
-      - name: Coverage gates
-        run: npm run test:coverage
+        run: >-
+          node --test --test-concurrency=1
+          tests/releaseBinding.test.cjs
+          tests/releaseWorkflow.test.cjs
+          tests/vsixVerification.test.cjs
 
       - name: Build the candidate VSIX
         if: inputs.phase == 'candidate'

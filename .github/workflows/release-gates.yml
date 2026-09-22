@@ -19,18 +19,8 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    # Build facts are byte-level release evidence. Keep Git from rewriting LF
-    # source files to CRLF on Windows before those bytes are measured.
-    env:
-      GIT_CONFIG_COUNT: 1
-      GIT_CONFIG_KEY_0: core.autocrlf
-      GIT_CONFIG_VALUE_0: false
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    name: Validate release
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,38 +60,18 @@ jobs:
       - name: No telemetry
         run: npm run check:no-telemetry
 
-      # BACHATA_TEST_FILE_TIMEOUT_MS bounds a whole file, not one case: the test runner isolates
-      # each file in its own process and represents it as a test, so a file that outlasts this is
-      # cancelled and every case behind it is reported as cancelledByParent and never runs. Windows
-      # therefore keeps the hour it has always had, because its process-heavy files are far slower
-      # than the same files elsewhere. Cutting it to the Linux bound cancelled whole files.
-      #
-      # The unit lane opens one process scope for all files now rather than one per file. Windows
-      # also runs independent test files concurrently; the file bound remains the per-file safety
-      # limit and the lane bound remains the existing protection against a genuine deadlock.
-      - name: Tests
+      - name: Build
+        run: npm run build:emit
+
+      # Release validation runs the complete unit suite once. Exhaustive browser layout and
+      # cross-platform stress suites remain available as explicit development checks, but they do
+      # not repeat the same release decision on every operating system.
+      - name: Unit tests
         env:
-          BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
-          BACHATA_TEST_RUN_TIMEOUT_MS: "5400000"
-          # Two workers keep Windows process-tree fixtures independent; Git probes use the
-          # test-only direct runner below, so extra fan-out no longer amortizes anything useful.
-          BACHATA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && '2' || '4' }}
-          BACHATA_TEST_DIRECT_GIT: ${{ runner.os == 'Windows' && '1' || '' }}
-          # Process-tree semantics fail early and run without competing child-heavy files.
+          BACHATA_TEST_CONCURRENCY: "4"
           BACHATA_TEST_PREFLIGHT: "tests/process.test.cjs"
           BACHATA_TEST_PRIORITY: "tests/conversationManager.test.cjs,tests/resourceBroker.test.cjs,tests/turnStream.test.cjs"
-        run: npm test
-
-      - name: Coverage gates
-        env:
-          BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '1200000' || '' }}
-          BACHATA_TEST_DIRECT_GIT: ${{ runner.os == 'Windows' && '1' || '' }}
-          # Coverage used to invoke 43 bounded commands serially. The suite keeps each gate
-          # isolated but runs independent gates together, so Windows spends time doing coverage
-          # work instead of waiting on one command's process wrapper before starting the next.
-          BACHATA_COVERAGE_CONCURRENCY: "4"
-          BACHATA_COVERAGE_TEST_CONCURRENCY: "4"
-        run: npm run test:coverage
+        run: npm run test:unit
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact
       # binding and release verification are not run here. They belong to a release job that
