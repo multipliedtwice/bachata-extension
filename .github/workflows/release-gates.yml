@@ -76,13 +76,14 @@ jobs:
       # therefore keeps the hour it has always had, because its process-heavy files are far slower
       # than the same files elsewhere. Cutting it to the Linux bound cancelled whole files.
       #
-      # What stops a hang from running for hours is the lane cap, not the file bound. The unit lane
-      # opens one process scope for all files now rather than one per file, so this cap is what the
-      # four hour Windows job actually needed.
+      # The unit lane opens one process scope for all files now rather than one per file. Windows
+      # also runs independent test files concurrently; the file bound remains the per-file safety
+      # limit and the lane bound remains the existing protection against a genuine deadlock.
       - name: Tests
         env:
           BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
           BACHATA_TEST_RUN_TIMEOUT_MS: "5400000"
+          BACHATA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && '8' || '1' }}
           BACHATA_TEST_PRIORITY: "tests/conversationManager.test.cjs,tests/resourceBroker.test.cjs,tests/turnStream.test.cjs"
         run: npm test
 

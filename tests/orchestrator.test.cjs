@@ -2510,8 +2510,9 @@ test("orchestration checks do not inherit arbitrary extension secrets", async ()
     // This asserts environment isolation, not process latency. The ceiling only has to
     // exceed the time a loaded machine needs to start one Node process, so it is generous
     // enough that a slow start cannot turn an isolation check into a timeout.
-    const result = await runCommand(
-      `${JSON.stringify(process.execPath)} -e "process.stdout.write(process.env.BACHATA_ORCHESTRATION_SECRET || '')"`,
+    const result = await runProcess(
+      process.execPath,
+      ["-e", "process.stdout.write(process.env.BACHATA_ORCHESTRATION_SECRET || '')"],
       { cwd, timeoutMs: 120_000, maxOutputBytes: 10_000 },
     );
     assert.equal(result.timedOut ?? false, false, "the isolation check must complete, not time out");
@@ -3691,7 +3692,9 @@ test("an editor that moves after approval does not change which repository Impro
     const improved = await controller.improve({ workspaceRoot: repositoryA });
     assert.ok(trustReads >= 2, "the move never landed inside the startup window");
     assert.equal(editorRoot, repositoryB, "the test never moved the editor");
-    const canonical = (value) => realpathSync(value);
+    const canonical = (value) => process.platform === "win32"
+      ? realpathSync.native(value)
+      : realpathSync(value);
     assert.equal(
       canonical(improved.ledger.workspaceRoot),
       canonical(repositoryA),

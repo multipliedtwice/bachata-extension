@@ -11,7 +11,7 @@ import { gitAdministrationClaim } from "../concurrency/repositoryResources";
 import { ResourceBroker } from "../concurrency/resourceBroker";
 import { gitProcessEnvironment } from "../process/safeEnvironment";
 import { evaluateGitVersionSupport } from "../process/gitVersionSupport";
-import { runProcess } from "./commandRunner";
+import { runProcess, type CommandExecution, type CommandExecutionOptions } from "./commandRunner";
 import { legacyStorageIdentity, taskStorageIdentity } from "./identity";
 import { canonicalizePath, isPathInside } from "../pipeline/catalogStorage";
 import {
@@ -68,8 +68,9 @@ const executeGit = async (
   trimOutput = true,
   environment?: NodeJS.ProcessEnv,
   signal?: AbortSignal,
+  processRunner: (executable: string, args: string[], options: CommandExecutionOptions) => Promise<CommandExecution> = runProcess,
 ): Promise<string> => {
-  const result = await runProcess(executable, args, {
+  const result = await processRunner(executable, args, {
     cwd,
     timeoutMs,
     maxOutputBytes: 2_097_152,
@@ -230,10 +231,12 @@ export const createWorktreeManager = (
     signal?: () => AbortSignal | undefined;
     gitExecutable?: string;
     gitArgumentsPrefix?: string[];
+    processRunner?: (executable: string, args: string[], options: CommandExecutionOptions) => Promise<CommandExecution>;
   } = {},
 ): WorktreeManager => {
   const gitExecutable = options.gitExecutable ?? "git";
   const gitArgumentsPrefix = options.gitArgumentsPrefix ?? [];
+  const processRunner = options.processRunner ?? runProcess;
   let gitVersionConfirmed = false;
   const runsRoot = path.resolve(storageRoot, "orchestration", "runs");
   const git = (
@@ -251,6 +254,7 @@ export const createWorktreeManager = (
     trimOutput,
     environment,
     signal,
+    processRunner,
   );
 
   const cleanupGit = (
@@ -266,6 +270,8 @@ export const createWorktreeManager = (
     timeoutMs,
     trimOutput,
     environment,
+    undefined,
+    processRunner,
   );
 
 

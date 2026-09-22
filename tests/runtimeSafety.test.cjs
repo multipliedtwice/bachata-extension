@@ -656,7 +656,8 @@ test("coverage gates source files and critical modules separately", async () => 
   // The lane opens one scope for every test file rather than one per file. A scope per file paid a
   // powershell.exe launch and a csc.exe compile 232 times on Windows, which is what made that lane
   // run for hours while Linux finished in minutes.
-  assert.match(isolatedRunnerSource, /--test-concurrency=1/u);
+  assert.match(isolatedRunnerSource, /BACHATA_TEST_CONCURRENCY/u);
+  assert.match(isolatedRunnerSource, /--test-concurrency=\$\{String\(concurrency\)\}/u);
   assert.match(isolatedRunnerSource, /BACHATA_TEST_RUN_TIMEOUT_MS/u);
   assert.match(isolatedRunnerSource, /--test-timeout=\$\{String\(timeoutMs\)\}/u);
   // The Job Object helper is compiled once and cached by a hash of its own source, because a scope

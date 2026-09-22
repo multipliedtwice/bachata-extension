@@ -50,8 +50,8 @@ files.splice(0, files.length, ...orderedFiles(files));
 // One process scope covers the whole lane instead of one per file. The node test runner already
 // forks a child process per test file, so per-file isolation is unchanged, but a per-file scope
 // paid the Windows Job Object setup — a powershell.exe launch and a runtime C# compile — 232 times
-// over. That overhead, not the tests, was the difference between a 36 minute Linux lane and a four
-// hour Windows one.
+// over. Independent files can run concurrently inside that scope; Windows uses eight workers
+// because serialising every Git-heavy file turns a normal suite into hours of runner time.
 //
 // The bound splits in two as a result. BACHATA_TEST_FILE_TIMEOUT_MS still bounds a whole file: the
 // runner isolates each file in its own process and represents it as a test, so --test-timeout cuts
@@ -60,6 +60,10 @@ files.splice(0, files.length, ...orderedFiles(files));
 // separately by BACHATA_TEST_RUN_TIMEOUT_MS, and that cap, not the file bound, is what keeps a hang
 // from occupying a runner for hours.
 const timeoutMs = Math.max(10_000, Number(process.env.BACHATA_TEST_FILE_TIMEOUT_MS ?? 600_000));
+const concurrency = Math.max(
+  1,
+  Math.floor(Number(process.env.BACHATA_TEST_CONCURRENCY ?? (process.platform === "win32" ? 8 : 1))),
+);
 const runTimeoutMs = Math.max(
   timeoutMs,
   Number(process.env.BACHATA_TEST_RUN_TIMEOUT_MS ?? 3_600_000),
@@ -76,7 +80,7 @@ const run = async (label) => {
     process.execPath,
     [
       "--test",
-      "--test-concurrency=1",
+      `--test-concurrency=${String(concurrency)}`,
       `--test-timeout=${String(timeoutMs)}`,
       ...files,
     ],
