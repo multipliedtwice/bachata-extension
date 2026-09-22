@@ -265,6 +265,11 @@ test("a resume that failed before replacing its own record puts that record back
       .restoreResume,
     false,
   );
+  assert.equal(
+    pipelineFailurePlan({ accepted: false, recoveryEstablished: false, resuming: false, restarting: true })
+      .restoreResume,
+    true,
+  );
 });
 
 // A persisted execution plan is read back from disk, so its shape is not guaranteed by anything on
@@ -288,6 +293,23 @@ test("a recorded execution plan is read back as it was written", () => {
       iterationMode: "untilClean",
       requiredCleanPasses: 2,
       trackWorkspaceChanges: true,
+    },
+  );
+  assert.deepEqual(
+    parseRunExecutionPlan({
+      iterationCount: 3,
+      iterationMode: "untilClean",
+      requiredCleanPasses: 2,
+      iterationIndex: 2,
+      consecutiveCleanPasses: 1,
+    }),
+    {
+      iterationCount: 3,
+      iterationMode: "untilClean",
+      requiredCleanPasses: 2,
+      trackWorkspaceChanges: true,
+      iterationIndex: 2,
+      consecutiveCleanPasses: 1,
     },
   );
 });
@@ -314,6 +336,12 @@ test("a plan that did not survive persistence is refused whole", () => {
     ["no clean passes", { ...valid, requiredCleanPasses: undefined }],
     ["fractional clean passes", { ...valid, requiredCleanPasses: 1.5 }],
     ["zero clean passes", { ...valid, requiredCleanPasses: 0 }],
+    ["fractional iteration index", { ...valid, iterationIndex: 1.5 }],
+    ["zero iteration index", { ...valid, iterationIndex: 0 }],
+    ["iteration index beyond count", { ...valid, iterationIndex: 2 }],
+    ["fractional consecutive clean passes", { ...valid, consecutiveCleanPasses: 0.5 }],
+    ["negative consecutive clean passes", { ...valid, consecutiveCleanPasses: -1 }],
+    ["consecutive clean passes at requirement", { ...valid, consecutiveCleanPasses: 1 }],
   ]) {
     assert.equal(parseRunExecutionPlan(value), undefined, label);
   }
@@ -333,4 +361,15 @@ test("a recorded execution plan travels with the resumable record, as a copy", (
   const carried = workflow({ executionPlan });
   assert.deepEqual(carried.executionPlan, executionPlan);
   assert.notEqual(carried.executionPlan, executionPlan, "the plan is shared with the caller");
+});
+
+test("a workspace baseline travels with the resumable record as a clone", () => {
+  const workspaceChangeBaseline = {
+    isGitRepository: true,
+    head: "abc",
+    entries: [{ path: "src/a.ts", status: "M" }],
+  };
+  const carried = workflow({ workspaceChangeBaseline });
+  assert.deepEqual(carried.workspaceChangeBaseline, workspaceChangeBaseline);
+  assert.notEqual(carried.workspaceChangeBaseline, workspaceChangeBaseline);
 });
