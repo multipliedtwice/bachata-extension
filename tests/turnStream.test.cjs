@@ -234,6 +234,23 @@ test("no preferred tab is carried when the person never chose one", () => {
   assert.equal("preferredTabId" in binding, false);
 });
 
+test("a provisional browser capture carries its document token", () => {
+  const binding = capturedBrowserBinding({
+    adapterType: "chatgpt-browser",
+    response: capturedResponse({
+      finalConversationUrl: "https://chatgpt.com/",
+      finalConversationIdentity: "provisional-conversation",
+    }),
+    provisionalDocumentToken: "document-1",
+  });
+  assert.deepEqual(binding, {
+    provider: "chatgpt",
+    conversationUrl: "https://chatgpt.com/",
+    conversationIdentity: "provisional-conversation",
+    provisionalDocumentToken: "document-1",
+  });
+});
+
 test("a local adapter binds nothing even if it captured a response", () => {
   assert.equal(
     capturedBrowserBinding({ adapterType: "claude-code", response: capturedResponse() }),
