@@ -92,6 +92,10 @@ jobs:
         env:
           BACHATA_COMMAND_TIMEOUT_MS: ${{ runner.os == 'Windows' && '1200000' || '' }}
           BACHATA_TEST_DIRECT_GIT: ${{ runner.os == 'Windows' && '1' || '' }}
+          # Coverage used to invoke 43 bounded commands serially. The suite keeps each gate
+          # isolated but runs independent gates together, so Windows spends time doing coverage
+          # work instead of waiting on one command's process wrapper before starting the next.
+          BACHATA_COVERAGE_CONCURRENCY: "4"
         run: npm run test:coverage
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact

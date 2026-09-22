@@ -331,11 +331,11 @@ test("coverage gates source files and critical modules separately", async () => 
   const declaredGates = Object.keys(packageJson.scripts)
     .filter((name) => name.startsWith("test:coverage:"))
     .sort();
-  const invokedGates = [...packageJson.scripts["test:coverage"].matchAll(
-    /npm run (test:coverage:[a-z-]+)/gu,
-  )].map((match) => match[1]).sort();
-  assert.deepEqual(invokedGates, declaredGates);
-  assert.match(packageJson.scripts["test:coverage"], /^npm run build && /u);
+  const coverageSuite = await loadSource("scripts/run-coverage-suite.mjs");
+  assert.match(packageJson.scripts["test:coverage"], /^npm run build && node scripts\/run-coverage-suite\.mjs$/u);
+  assert.match(coverageSuite, /name\.startsWith\("test:coverage:"\)/u);
+  assert.match(coverageSuite, /boundedPrefix/u);
+  assert.ok(declaredGates.length > 0);
   assert.match(packageJson.scripts["test:coverage:source"], /--test-coverage-exclude=tests\/\*\*/u);
   assert.match(packageJson.scripts["test:coverage:source"], /--test-coverage-exclude=scripts\/\*\*/u);
   assert.match(packageJson.scripts["test:coverage:source"], /dist\/runtime\/createRuntime\.js/u);
