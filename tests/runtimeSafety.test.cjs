@@ -642,6 +642,7 @@ test("coverage gates source files and critical modules separately", async () => 
   assert.doesNotMatch(isolatedRunnerSource, /--test-force-exit/u);
   assert.match(isolatedRunnerSource, /BACHATA_TEST_FILE_TIMEOUT_MS/u);
   assert.match(isolatedRunnerSource, /BACHATA_TEST_PRIORITY/u);
+  assert.match(isolatedRunnerSource, /BACHATA_TEST_PREFLIGHT/u);
   assert.match(isolatedRunnerSource, /priorityNames/u);
   assert.match(isolatedRunnerSource, /fileRank/u);
   assert.match(isolatedRunnerSource, /spawnProcessScope/u);

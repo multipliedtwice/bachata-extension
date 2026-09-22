@@ -17,6 +17,14 @@ const priorityNames = (process.env.BACHATA_TEST_PRIORITY ?? "")
   .map((value) => value.trim().replaceAll("\\", "/"))
   .filter(Boolean);
 const priorityRank = new Map(priorityNames.map((name, index) => [name, index]));
+const preflightNames = new Set((process.env.BACHATA_TEST_PREFLIGHT ?? "")
+  .split(",")
+  .map((value) => value.trim().replaceAll("\\", "/"))
+  .filter(Boolean));
+const named = (file, names) => {
+  const normalized = file.replaceAll("\\", "/");
+  return names.has(normalized) || names.has(path.basename(normalized));
+};
 const fileRank = (file) => {
   const normalized = file.replaceAll("\\", "/");
   const basename = path.basename(normalized);
@@ -47,7 +55,7 @@ if (files.length === 0) {
 }
 files.splice(0, files.length, ...orderedFiles(files));
 
-// One process scope covers the whole lane instead of one per file. The node test runner already
+// One process scope covers each lane phase instead of one per file. The node test runner already
 // forks a child process per test file, so per-file isolation is unchanged, but a per-file scope
 // paid the Windows Job Object setup — a powershell.exe launch and a runtime C# compile — 232 times
 // over. Independent files can run concurrently inside that scope; Windows defaults to two
@@ -75,14 +83,14 @@ const termination = installTerminationHandlers({
   graceMs,
 });
 
-const run = async (label) => {
+const run = async (label, selectedFiles, selectedConcurrency) => {
   activeProcessScope = spawnProcessScope(
     process.execPath,
     [
       "--test",
-      `--test-concurrency=${String(concurrency)}`,
+      `--test-concurrency=${String(selectedConcurrency)}`,
       `--test-timeout=${String(timeoutMs)}`,
-      ...files,
+      ...selectedFiles,
     ],
     {
       stdio: "inherit",
@@ -117,10 +125,19 @@ const run = async (label) => {
 };
 
 await withWorktreeLock({ label: "unit tests" }, async () => {
-  const label = `${String(files.length)} test files`;
+  const preflightFiles = files.filter((file) => named(file, preflightNames));
+  const concurrentFiles = files.filter((file) => !named(file, preflightNames));
   try {
-    process.stdout.write(`\n[test-run] ${label}\n`);
-    await run(label);
+    if (preflightFiles.length > 0) {
+      const label = `${String(preflightFiles.length)} preflight test file(s)`;
+      process.stdout.write(`\n[test-run] ${label}\n`);
+      await run(label, preflightFiles, 1);
+    }
+    if (concurrentFiles.length > 0) {
+      const label = `${String(concurrentFiles.length)} test files`;
+      process.stdout.write(`\n[test-run] ${label}\n`);
+      await run(label, concurrentFiles, concurrency);
+    }
   } finally {
     termination.remove();
   }

@@ -87,6 +87,8 @@ jobs:
           # test-only direct runner below, so extra fan-out no longer amortizes anything useful.
           BACHATA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && '2' || '4' }}
           BACHATA_TEST_DIRECT_GIT: ${{ runner.os == 'Windows' && '1' || '' }}
+          # Process-tree semantics fail early and run without competing child-heavy files.
+          BACHATA_TEST_PREFLIGHT: "tests/process.test.cjs"
           BACHATA_TEST_PRIORITY: "tests/conversationManager.test.cjs,tests/resourceBroker.test.cjs,tests/turnStream.test.cjs"
         run: npm test
 
