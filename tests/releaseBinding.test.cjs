@@ -984,25 +984,38 @@ test("two copies of the pinned Bridge are refused even when identical", async ()
 
 test("interrupting release verification removes every temporary directory it took", () => {
   const prefixes = ["bachata-release-verify-", "bachata-vsix-"];
-  const before = fs.readdirSync(os.tmpdir())
+  // The unit lane runs independent files concurrently. Keep this child in a private temp
+  // root, otherwise a VSIX verification in another file can create a matching directory
+  // between the before/after snapshots and make this lifecycle assertion report a false leak.
+  const isolatedTemp = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-release-interrupt-"));
+  const before = fs.readdirSync(isolatedTemp)
     .filter((name) => prefixes.some((prefix) => name.startsWith(prefix)));
-  const child = spawnSync(process.execPath, [
-    "-e",
-    [
-      "const { spawn } = require('node:child_process');",
-      `const child = spawn(process.execPath, [${JSON.stringify(path.join(root, "scripts", "release-verify.mjs"))}], { cwd: ${JSON.stringify(root)}, stdio: 'ignore' });`,
-      "setTimeout(() => { child.kill('SIGINT'); }, 1500);",
-      "child.on('exit', () => process.exit(0));",
-    ].join("\n"),
-  ], { encoding: "utf8", timeout: 60_000 });
-  assert.equal(child.status, 0, child.stderr ?? "");
-  const after = fs.readdirSync(os.tmpdir())
-    .filter((name) => prefixes.some((prefix) => name.startsWith(prefix)));
-  assert.deepEqual(
-    after.filter((name) => !before.includes(name)),
-    [],
-    "an interrupted verification left an artifact snapshot or a VSIX extraction behind",
-  );
+  try {
+    const child = spawnSync(process.execPath, [
+      "-e",
+      [
+        "const { spawn } = require('node:child_process');",
+        `const child = spawn(process.execPath, [${JSON.stringify(path.join(root, "scripts", "release-verify.mjs"))}], { cwd: ${JSON.stringify(root)}, stdio: 'ignore' });`,
+        "setTimeout(() => { child.kill('SIGINT'); }, 1500);",
+        "child.on('exit', () => process.exit(0));",
+      ].join("\n"),
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 60_000,
+      env: { ...process.env, TMPDIR: isolatedTemp, TMP: isolatedTemp, TEMP: isolatedTemp },
+    });
+    assert.equal(child.status, 0, child.stderr ?? "");
+    const after = fs.readdirSync(isolatedTemp)
+      .filter((name) => prefixes.some((prefix) => name.startsWith(prefix)));
+    assert.deepEqual(
+      after.filter((name) => !before.includes(name)),
+      [],
+      "an interrupted verification left an artifact snapshot or a VSIX extraction behind",
+    );
+  } finally {
+    fs.rmSync(isolatedTemp, { recursive: true, force: true });
+  }
 });
 
 test("the binder script refuses to run while a lock is held and leaves no staging file", requiresPinnedBridgeArchive, async () => {
