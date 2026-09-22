@@ -1,8 +1,10 @@
 import { managedCommitMode, shouldCreateManagedCommit, type ManagedCommitMode } from "./managedCommitPolicy";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmod, constants, copyFile, lstat, mkdir, mkdtemp, open, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 
 import { isPathInsideRoot } from "../process/pathBoundary";
 import { parsePorcelainStatusRecords } from "../readiness/gitStatus";
@@ -21,6 +23,60 @@ import {
   type PatchFileSummary,
   type PatchSelection,
 } from "./patchSelection";
+
+const execFileAsync = promisify(execFile);
+const outputText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  return Buffer.isBuffer(value) ? value.toString("utf8") : "";
+};
+const boundedOutput = (value: unknown, maximumBytes: number): { text: string; truncated: boolean } => {
+  const text = outputText(value);
+  return { text, truncated: Buffer.byteLength(text, "utf8") > maximumBytes };
+};
+
+const directTestProcessRunner = async (
+  executable: string,
+  args: string[],
+  options: CommandExecutionOptions,
+): Promise<CommandExecution> => {
+  try {
+    const result = await execFileAsync(executable, args, {
+      cwd: options.cwd,
+      env: options.environment,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: options.timeoutMs,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    const stdout = boundedOutput(result.stdout, options.maxOutputBytes);
+    const stderr = boundedOutput(result.stderr, options.maxOutputBytes);
+    return {
+      exitCode: 0,
+      stdout: stdout.text,
+      stderr: stderr.text,
+      timedOut: false,
+      cancelled: false,
+      cleanupConfirmed: true,
+      stdoutTruncated: stdout.truncated,
+      stderrTruncated: stderr.truncated,
+    };
+  } catch (error) {
+    const details = typeof error === "object" && error !== null ? error : {};
+    const code = "code" in details ? details.code : undefined;
+    const stdout = boundedOutput("stdout" in details ? details.stdout : "", options.maxOutputBytes);
+    const stderr = boundedOutput("stderr" in details ? details.stderr : "", options.maxOutputBytes);
+    return {
+      ...(typeof code === "number" ? { exitCode: code } : {}),
+      stdout: stdout.text,
+      stderr: stderr.text,
+      timedOut: code === "ETIMEDOUT",
+      cancelled: options.signal?.aborted === true,
+      cleanupConfirmed: true,
+      stdoutTruncated: stdout.truncated,
+      stderrTruncated: stderr.truncated,
+    };
+  }
+};
 
 export { taskStorageIdentity } from "./identity";
 
@@ -236,7 +292,8 @@ export const createWorktreeManager = (
 ): WorktreeManager => {
   const gitExecutable = options.gitExecutable ?? "git";
   const gitArgumentsPrefix = options.gitArgumentsPrefix ?? [];
-  const processRunner = options.processRunner ?? runProcess;
+  const processRunner = options.processRunner
+    ?? (process.env.BACHATA_TEST_DIRECT_GIT === "1" ? directTestProcessRunner : runProcess);
   let gitVersionConfirmed = false;
   const runsRoot = path.resolve(storageRoot, "orchestration", "runs");
   const git = (

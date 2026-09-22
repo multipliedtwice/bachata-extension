@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { promisify } from "node:util";
 
 import { acquireWorktreeLock } from "./lib/worktreeLock.mjs";
 
@@ -18,41 +17,6 @@ try {
   const require = createRequire(import.meta.url);
   const { createWorktreeManager } = require(path.join(root, "dist", "orchestrator", "worktreeManager.js"));
   const { gitProcessEnvironment } = require(path.join(root, "dist", "process", "safeEnvironment.js"));
-  const execFileAsync = promisify(execFile);
-  const directProcessRunner = async (executable, args, options) => {
-    const text = (value) => typeof value === "string" ? value : value?.toString("utf8") ?? "";
-    try {
-      const result = await execFileAsync(executable, args, {
-        cwd: options.cwd,
-        env: options.environment,
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-        timeout: options.timeoutMs,
-        ...(options.signal ? { signal: options.signal } : {}),
-      });
-      return {
-        exitCode: 0,
-        stdout: text(result.stdout),
-        stderr: text(result.stderr),
-        timedOut: false,
-        cancelled: false,
-        cleanupConfirmed: true,
-        stdoutTruncated: false,
-        stderrTruncated: false,
-      };
-    } catch (error) {
-      return {
-        ...(typeof error?.code === "number" ? { exitCode: error.code } : {}),
-        stdout: text(error?.stdout),
-        stderr: text(error?.stderr),
-        timedOut: error?.code === "ETIMEDOUT",
-        cancelled: options.signal?.aborted === true,
-        cleanupConfirmed: true,
-        stdoutTruncated: false,
-        stderrTruncated: false,
-      };
-    }
-  };
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-managed-worktree-"));
   const repository = path.join(temporary, "repo");
   const storage = path.join(temporary, "storage");
@@ -74,7 +38,7 @@ try {
     git("commit", "--quiet", "-m", "baseline");
     const baseline = git("rev-parse", "HEAD");
 
-    const manager = createWorktreeManager(storage, { processRunner: directProcessRunner });
+    const manager = createWorktreeManager(storage);
     const run = await manager.prepareRun(repository, "managed-no-commit");
     assert.ok(run.integrationTree);
     const task = await manager.prepareTask(run, "task-1");
