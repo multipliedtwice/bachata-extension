@@ -4,6 +4,7 @@ const test = require("node:test");
 const {
   impliedWriteScope,
   isPairPipeline,
+  executeIterationSequence,
   iterationEndEvent,
   iterationFailurePlan,
   iterationStartEvent,
@@ -110,4 +111,58 @@ test("a failure with no checkpoint is a failure that drops the queued directory"
     assert.equal(plan.message, "text");
     assert.equal(plan.dropPendingWorkingDirectory, true);
   }
+});
+
+test("iteration execution starts from the plan and stops on failed or human-decided results", async () => {
+  const seen = [];
+  const failed = await executeIterationSequence(
+    { iterationCount: 3, iterationMode: "fixed", requiredCleanPasses: 1 },
+    async (displayIndex, iterationPlan) => {
+      seen.push({ displayIndex, iterationPlan });
+      return displayIndex === 1
+        ? { status: "completed", completionReason: "humanDecision" }
+        : { status: "failed" };
+    },
+  );
+  assert.equal(failed.length, 1);
+  assert.deepEqual(seen[0], {
+    displayIndex: 1,
+    iterationPlan: {
+      iterationCount: 3,
+      iterationMode: "fixed",
+      requiredCleanPasses: 1,
+      iterationIndex: 1,
+      consecutiveCleanPasses: 0,
+    },
+  });
+
+  const stopped = await executeIterationSequence(
+    { iterationCount: 3, iterationMode: "fixed", requiredCleanPasses: 1 },
+    async (displayIndex) => ({ status: displayIndex === 2 ? "failed" : "completed" }),
+  );
+  assert.equal(stopped.length, 2);
+});
+
+test("until-clean execution resets and then counts clean passes from a resumed plan", async () => {
+  const seen = [];
+  const results = await executeIterationSequence(
+    {
+      iterationCount: 5,
+      iterationMode: "untilClean",
+      requiredCleanPasses: 2,
+      iterationIndex: 2,
+      consecutiveCleanPasses: 1,
+    },
+    async (displayIndex, iterationPlan) => {
+      seen.push({ displayIndex, iterationPlan });
+      return displayIndex === 2
+        ? { status: "completed", workspaceChanged: true }
+        : { status: "completed", workspaceChanged: false };
+    },
+  );
+  assert.equal(results.length, 3);
+  assert.deepEqual(seen.map(({ displayIndex, iterationPlan }) => [
+    displayIndex,
+    iterationPlan.consecutiveCleanPasses,
+  ]), [[2, 1], [3, 0], [4, 1]]);
 });
