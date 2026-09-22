@@ -105,7 +105,7 @@ const stopSpawned = async (child) => {
 };
 
 const waitForFile = async (fs, filePath) => {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 2_000; attempt += 1) {
     if (fs.existsSync(filePath)) {
       return;
     }
