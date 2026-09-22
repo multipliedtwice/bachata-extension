@@ -83,7 +83,9 @@ jobs:
         env:
           BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
           BACHATA_TEST_RUN_TIMEOUT_MS: "5400000"
-          BACHATA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && '8' || '1' }}
+          # The local full lane passes with eight independent file workers on all supported OSes.
+          # Serialising macOS/Linux needlessly turns the same suite into a long queue.
+          BACHATA_TEST_CONCURRENCY: "8"
           BACHATA_TEST_DIRECT_GIT: ${{ runner.os == 'Windows' && '1' || '' }}
           BACHATA_TEST_PRIORITY: "tests/conversationManager.test.cjs,tests/resourceBroker.test.cjs,tests/turnStream.test.cjs"
         run: npm test
