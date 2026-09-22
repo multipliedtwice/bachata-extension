@@ -59,4 +59,3 @@ The working tree was clean, so these values also describe commit c2aaeb27df9767b
 | Staged VSIX | bachata-vscode-0.7.6.vsix, 14.10 MB, SHA-256 a0146c2ba7db749b433edac764cffaf2a9135c798202ded962c2c1688fa19118 |
 | Pinned Browser Bridge ZIP | bachata-browser-bridge-0.7.0.zip, 1.09 MB, SHA-256 9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16 |
 | Test run | not collected in this generation |
-
