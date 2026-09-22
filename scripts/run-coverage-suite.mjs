@@ -37,9 +37,14 @@ const isolatedEnvironment = async () => {
   };
 };
 
-const runJob = async (job, timeoutMs, activeScopes) => {
+const runJob = async (job, timeoutMs, activeScopes, testConcurrency) => {
   const isolated = await isolatedEnvironment();
-  const scope = spawnProcessScope(process.execPath, job.args, {
+  const args = testConcurrency === undefined
+    ? job.args
+    : job.args.map((argument) => argument.startsWith("--test-concurrency=")
+      ? `--test-concurrency=${String(testConcurrency)}`
+      : argument);
+  const scope = spawnProcessScope(process.execPath, args, {
     cwd: root,
     env: isolated.environment,
     shell: process.platform === "win32",
@@ -57,13 +62,13 @@ const runJob = async (job, timeoutMs, activeScopes) => {
   }
 };
 
-const runBatch = async (jobs, concurrency, timeoutMs, activeScopes) => {
+const runBatch = async (jobs, concurrency, timeoutMs, activeScopes, testConcurrency) => {
   let next = 0;
   const worker = async () => {
     while (next < jobs.length) {
       const index = next;
       next += 1;
-      await runJob(jobs[index], timeoutMs, activeScopes);
+      await runJob(jobs[index], timeoutMs, activeScopes, testConcurrency);
     }
   };
   await Promise.all(
@@ -78,6 +83,7 @@ const run = async () => {
     numberFromEnvironment("BACHATA_COVERAGE_CONCURRENCY", 4),
   );
   const timeoutMs = numberFromEnvironment("BACHATA_COMMAND_TIMEOUT_MS", 600_000);
+  const aggregateTestConcurrency = numberFromEnvironment("BACHATA_COVERAGE_TEST_CONCURRENCY", 2);
   const activeScopes = new Set();
   const aggregateScope = {
     terminate: async (signalGraceMs) => {
@@ -93,7 +99,7 @@ const run = async () => {
   const focusedJobs = jobs.filter((job) => !aggregateNames.has(job.name));
   try {
     await withWorktreeLock({ label: "coverage suite" }, async () => {
-      await runBatch(aggregateJobs, 2, timeoutMs, activeScopes);
+      await runBatch(aggregateJobs, 2, timeoutMs, activeScopes, aggregateTestConcurrency);
       await runBatch(focusedJobs, concurrency, timeoutMs, activeScopes);
     });
   } finally {

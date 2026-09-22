@@ -42,6 +42,7 @@ import {
 } from "../process/boundedOutput";
 import { spawnProcessScope } from "../process/processScope";
 import { gitProcessEnvironment } from "../process/safeEnvironment";
+import { runDirectTestGit } from "../process/directTestGit";
 import { isPathInsideRoot } from "../process/pathBoundary";
 import {
   BrowserActionCandidate,
@@ -710,6 +711,23 @@ const runProcess = async (
 ): Promise<ProcessResult> => {
   if (options.signal.aborted) {
     throw new Error("Browser action was interrupted");
+  }
+  if (process.env.BACHATA_TEST_DIRECT_GIT === "1" && command === "git") {
+    const result = await runDirectTestGit(args, {
+      cwd: workingDirectory,
+      environment: gitProcessEnvironment(workingDirectory),
+      timeoutMs: processTimeoutMs,
+      maxOutputBytes: maximumOutputBytes,
+      signal: options.signal,
+      ...(stdin !== undefined ? { stdin } : {}),
+    });
+    return {
+      exitCode: result.exitCode ?? 1,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      stdoutTruncated: result.stdoutTruncated,
+      stderrTruncated: result.stderrTruncated,
+    };
   }
   const stdout = createBoundedBuffer(maximumOutputBytes);
   const stderr = createBoundedBuffer(maximumOutputBytes);

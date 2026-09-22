@@ -83,9 +83,9 @@ jobs:
         env:
           BACHATA_TEST_FILE_TIMEOUT_MS: ${{ runner.os == 'Windows' && '3600000' || '600000' }}
           BACHATA_TEST_RUN_TIMEOUT_MS: "5400000"
-          # Windows needs eight workers to amortize its process-heavy file lane. POSIX runners
-          # use four: higher fan-out starves the process-tree fixtures they intentionally spawn.
-          BACHATA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && '8' || '4' }}
+          # Two workers keep Windows process-tree fixtures independent; Git probes use the
+          # test-only direct runner below, so extra fan-out no longer amortizes anything useful.
+          BACHATA_TEST_CONCURRENCY: ${{ runner.os == 'Windows' && '2' || '4' }}
           BACHATA_TEST_DIRECT_GIT: ${{ runner.os == 'Windows' && '1' || '' }}
           BACHATA_TEST_PRIORITY: "tests/conversationManager.test.cjs,tests/resourceBroker.test.cjs,tests/turnStream.test.cjs"
         run: npm test
@@ -98,6 +98,7 @@ jobs:
           # isolated but runs independent gates together, so Windows spends time doing coverage
           # work instead of waiting on one command's process wrapper before starting the next.
           BACHATA_COVERAGE_CONCURRENCY: "4"
+          BACHATA_COVERAGE_TEST_CONCURRENCY: "4"
         run: npm run test:coverage
 
       # The pinned Bridge archive is produced by the browser-bridge repository, so artifact

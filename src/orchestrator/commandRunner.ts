@@ -27,6 +27,7 @@ import type { VerifierDescriptor, VerifierRegistry } from "./verifierRegistry";
 import { loadVerifierRegistry } from "./verifierRegistryStore";
 import { verifierRegistryDigest } from "./verifierApproval";
 import { isRestrictedWorkspacePath, normalizeWorkspaceRelativePath } from "../browser/mutationPolicy";
+import { runDirectTestGit } from "../process/directTestGit";
 
 export type CommandExecutionOptions = {
   cwd: string;
@@ -204,7 +205,18 @@ export const runProcess = async (
   executable: string,
   args: string[],
   options: CommandExecutionOptions,
-): Promise<CommandExecution> => execute(executable, args, options);
+): Promise<CommandExecution> => {
+  if (process.env.BACHATA_TEST_DIRECT_GIT === "1" && executable === "git") {
+    return runDirectTestGit(args, {
+      cwd: options.cwd,
+      timeoutMs: options.timeoutMs,
+      maxOutputBytes: options.maxOutputBytes,
+      ...(options.environment ? { environment: options.environment } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+  return execute(executable, args, options);
+};
 
 export const runCommand = async (
   command: string,

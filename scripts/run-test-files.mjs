@@ -50,8 +50,8 @@ files.splice(0, files.length, ...orderedFiles(files));
 // One process scope covers the whole lane instead of one per file. The node test runner already
 // forks a child process per test file, so per-file isolation is unchanged, but a per-file scope
 // paid the Windows Job Object setup — a powershell.exe launch and a runtime C# compile — 232 times
-// over. Independent files can run concurrently inside that scope; Windows uses eight workers
-// because serialising every Git-heavy file turns a normal suite into hours of runner time.
+// over. Independent files can run concurrently inside that scope; Windows defaults to two
+// workers because its process-tree fixtures become unreliable under a larger fan-out.
 //
 // The bound splits in two as a result. BACHATA_TEST_FILE_TIMEOUT_MS still bounds a whole file: the
 // runner isolates each file in its own process and represents it as a test, so --test-timeout cuts
@@ -62,7 +62,7 @@ files.splice(0, files.length, ...orderedFiles(files));
 const timeoutMs = Math.max(10_000, Number(process.env.BACHATA_TEST_FILE_TIMEOUT_MS ?? 600_000));
 const concurrency = Math.max(
   1,
-  Math.floor(Number(process.env.BACHATA_TEST_CONCURRENCY ?? (process.platform === "win32" ? 8 : 1))),
+  Math.floor(Number(process.env.BACHATA_TEST_CONCURRENCY ?? (process.platform === "win32" ? 2 : 1))),
 );
 const runTimeoutMs = Math.max(
   timeoutMs,
