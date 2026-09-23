@@ -11,11 +11,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 | Fact | Value |
 | --- | --- |
-| Extension version | 0.7.6 |
-| Pinned Browser Bridge version | 0.7.0 |
+| Extension version | 0.7.7 |
+| Pinned Browser Bridge version | 0.7.1 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 903 |
-| Maintained source manifest SHA-256 (Git-tracked) | 09e89796584eae68687047fa16338f3b3267cac0b4449954e378b3913810612b |
+| Maintained source files (Git-tracked) | 929 |
+| Maintained source manifest SHA-256 (Git-tracked) | 64923b06888cf91d8081cd1e9653eda2244048de4b5f3764c604f526cc22846c |
 | Contributed settings | 115 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -38,11 +38,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 64591496518502d54052c1ce34a6dbac91ade352.
+The working tree was modified, so these values describe the working tree and not commit 73894bf9feaf7f0aa6594afea86cd3db72cde591.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 64591496518502d54052c1ce34a6dbac91ade352 |
+| Revision | 73894bf9feaf7f0aa6594afea86cd3db72cde591 |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 929 |
 | Platform | Darwin 24.5.0 arm64 |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | bachata-vscode-0.7.6.vsix, 14.11 MB, SHA-256 880c5228b49424333d165fafd55df14a3d17a860eb302c305bfc12e37ddabc8e |
-| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.7.0.zip, 1.09 MB, SHA-256 9336931a8e35920fe64ba4fef9f3960be6cf61261086f47df04f9ebb36425e16 |
+| Staged VSIX | no bachata-vscode-0.7.7.vsix is staged |
+| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.7.1.zip, 1.09 MB, SHA-256 1069f196999d9aa2a703dbfc1d759fa377eb84856db57eda8774b2144efc6b39 |
 | Test run | not collected in this generation |
 

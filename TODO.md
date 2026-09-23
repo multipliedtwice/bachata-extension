@@ -42,10 +42,13 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
 
 ### Bounded execution state pilot
 
-- [ ] **EX-BOUNDED-STATE-01 / frozen pilot Cypress:** lead run + review authored Cypress export
-  journey and `tests/cypress/efficient-context.cy.cjs` (hidden while off, shown while on, turn
-  off) under safe resource conditions. Pilot frozen; keep `legacy` default. No provider-quality,
-  token, cost or latency claim. Native ignored-write gap remains EX-G6-09.
+- [ ] **EX-BOUNDED-STATE-01 / frozen pilot export journey:** make
+  `tests/cypress/execution-result-hierarchy.cy.cjs` pass, then lead runs it. 28 of 29 cases fail:
+  result details are collapsed by default (since d1a0b18) and the spec expects them open, so it
+  never finds `.result-primary-actions`, `.ruling-compare`, `result-copy` or finding selects. Open
+  **Review details** in setup; keep the toggle case asserting the collapsed start. Pilot frozen;
+  keep `legacy` default. No provider-quality, token, cost or latency claim. Native ignored-write
+  gap remains EX-G6-09.
 - [ ] **EX-BROWSER-OBS-01 / Browser Bridge observation handles:** Bachata owns the managed
   browser tool loop, so SoL-Pi ObservationPack fits there: large DOM, diff and verifier output
   becomes controller evidence; prompt carries a compact head/tail and stable handle; model

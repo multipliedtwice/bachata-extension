@@ -1,6 +1,6 @@
 {
   "browserBridgePackage": "bachata-browser-bridge",
-  "browserBridgeVersion": "0.7.0",
+  "browserBridgeVersion": "0.7.1",
   "protocolVersion": 9,
   "contractFile": "browser-protocol-v9.contract.json",
   "sha256": "721b7d9593712ae3c41be7f9c7afbe8e669bcbbee87af6a058c9c50ea2a7009f"

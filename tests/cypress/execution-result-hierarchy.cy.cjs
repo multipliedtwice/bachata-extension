@@ -121,7 +121,7 @@ const boot = (outcome = "inconclusive", theme = "light", font = 13) => {
     };
     win.__bootExecution();
   });
-  cy.get('[data-action="room-view"][data-view="execution"]').click();
+  cy.get('.run-tab.selected .run-tab-tools [data-action="room-view"][data-view="execution"]').click();
 };
 
 const expectContained = (element, container) => {
@@ -289,7 +289,7 @@ describe("Execution result document hierarchy", { browser: "chrome" }, () => {
       cy.get(`[data-message-id="${id}"]`).focus();
       pressEnter();
       cy.get(`[data-entry="${id}"]`).should("be.focused");
-      cy.get('[data-action="room-view"][data-view="execution"]').click();
+      cy.get('.run-tab.selected .run-tab-tools [data-action="room-view"][data-view="execution"]').click();
     }
   });
 

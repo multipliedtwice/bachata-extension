@@ -97,7 +97,7 @@ export type BachataExtensionApi = {
     conversationId: string;
     status: "completed" | "interrupted";
     answer: string;
-  }>; 
+  }>;
   withBrowserBridge?: ConversationManager["withBrowserBridge"];
   getBrowserBridgeStatus?: NonNullable<ConversationManager["getBrowserBridgeStatus"]>;
   resetBrowserBridgePairing?: NonNullable<ConversationManager["resetBrowserBridgePairing"]>;

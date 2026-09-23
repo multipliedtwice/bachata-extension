@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.7 — Frozen efficient context and four-digit Bridge pairing
+
+### Browser Bridge pairing
+
+- Pairing uses a four-digit one-time code, shown in **Agents** and in run details, and entered in Browser Bridge 0.7.1. Pair with Browser Bridge 0.7.1 or later; earlier Bridge builds accept only the former 43-character token.
+
 ### Runs context control
 
 - Froze the local Efficient context pilot. Offline runs with real Claude Code and Codex found no saving: every recorded run was correct in both modes, and efficient mode's median provider input was equal or higher. The **Efficient context · Experimental** control is hidden while off and appears in **Agents** only while the Advanced setting has it on. Legacy stays default; recorded mode is kept.
