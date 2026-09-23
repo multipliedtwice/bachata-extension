@@ -933,6 +933,7 @@ const agentsPickerHtml = (panel: PanelState): string => {
     ${assignments.discovering ? `<p class="agents-constraint" ${liveRegionAttributes("agents:discovery", "status", "discovering")}>${escapeHtml(localize("Discovering agents on this machine…"))}</p>` : ""}
     ${assignments.constraint ? `<p class="agents-constraint">${escapeHtml(assignments.constraint)}</p>` : ""}
     <div class="agents-slot-list">${assignments.slots.map((slot) => agentSlotHtml(slot, panel, providerLocked, modelLocked)).join("")}</div>
+    ${executionContextHtml(panel, draftFor(activeId()))}
     ${bridgeNeeded ? `<details class="agents-local-settings" ${disclosureAttributes("agents:local-settings")}>${localModelsSummaryHtml(panel)}${localModels}</details>` : ""}
   </div>`;
   return `<div class="agents-picker" data-agents-picker>${button}${popover}</div>`;
@@ -1019,7 +1020,13 @@ const setExecutionContext = (checked: boolean): void => {
   scheduleRender();
 };
 
+const executionContextVisible = (panel: PanelState): boolean => {
+  const context = panel.executionContext;
+  return context !== undefined && (context.unavailable !== "workflow" || context.mode === "localTodoStateV1");
+};
+
 const executionContextHtml = (panel: PanelState, draft: ConversationDraft): string => {
+  if (!executionContextVisible(panel)) return "";
   const control = executionContextControl(panel, draft);
   const help = localize("Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.");
   const savedDefault = !panel.executionContext?.pinned && panel.executionContext?.defaultMode === "localTodoStateV1" && !control.checked && !state.pendingExecutionContext
@@ -1051,7 +1058,6 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
       ${attachmentStripHtml(panel, draft)}
       <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(pipelinePromptPlaceholder(panel))}">${escapeHtml(draft.prompt)}</textarea>
       ${blockerNoteHtml}
-      ${executionContextHtml(panel, draft)}
       <div class="composer-toolbar">
         <button data-action="attachment-pick" class="icon-button composer-attachment-button" aria-label="${escapeAttribute(localize("Attach image, text, log, or specification"))}" title="${escapeAttribute(localize("Attach image, text, log, or specification"))}"><i class="codicon codicon-add" aria-hidden="true"></i></button>
         <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.txt,.log,.md,.json" multiple hidden>

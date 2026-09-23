@@ -7598,7 +7598,8 @@ details.direction-evidence > ul,
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  padding: 6px 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--bachata-border);
 }
 .composer-context-label {
   display: inline-flex;

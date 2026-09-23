@@ -354,10 +354,10 @@ Read [Privacy](https://github.com/multipliedtwice/bachata-extension/blob/main/do
 
 ## Efficient context — experimental
 
-Try **Efficient context · Experimental** in the Runs composer before starting a run.
+Try **Efficient context · Experimental** in the Runs composer **Agents** menu before starting a run.
 Uses bounded state and fresh local Claude/Codex sessions. May reduce repeated context.
 Savings are not yet measured. Works with serial TODO Implementation, no attachments.
-Other setups show why it is unavailable and use legacy mode for new runs.
+Other workflows hide it; other setups show why it is unavailable. Both use legacy mode for new runs.
 
 Off by default. The control saves `bachata.executionContextMode`; Advanced settings keep the
 same default. Active, resumed and restarted runs keep their recorded mode.

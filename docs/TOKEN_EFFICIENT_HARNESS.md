@@ -5,14 +5,15 @@ require the dependency-equipped checkout. No token, cost, or latency claim.
 
 ## Runs control
 
-- Runs composer: **Efficient context · Experimental**. Visible before Send. Keyboard checkbox.
+- Runs composer, Agents popover: **Efficient context · Experimental**. Keyboard checkbox.
+  Shown only for TODO Implementation. Other workflows hide it.
 - Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation.
   May reduce repeated context. Savings are not yet measured.
 - One default: `bachata.executionContextMode`. Advanced setting stays. Off by default.
 - Host checks current pipeline, providers, workspace and selected attachments. Stale setup refuses.
 - One pending write in the panel. Wait for host reply before another toggle or Send.
   Host serializes writes, checks expected default, skips equal values, preserves setting scope.
-- Unsupported setup: unchecked, unavailable, reason shown. Saved default stays unchanged.
+- Unsupported providers, workspace or attachments: unchecked, unavailable, reason shown. Saved default stays unchanged.
   New ineligible run pins `legacy`. Supported new run pins the saved default.
 - Active, recovered and replayed runs stay locked to recorded mode. Old checkpoints use legacy.
   Resume and restart never take a changed default. Unsupported pinned setup still refuses.

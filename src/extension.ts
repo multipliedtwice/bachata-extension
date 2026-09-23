@@ -20,10 +20,12 @@ import { runLocalModelAnswer } from "./browser/localModelBroker";
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { registerAdapterType, AdapterRegistration } from "./adapters/registry";
+import { pathInsideRelative } from "./process/pathBoundary";
 import { registerCommands } from "./commands/registerCommands";
 import { registerReadOnlyCommands } from "./commands/registerReadOnlyCommands";
 import { createOnboardingTracker } from "./onboarding/tracker";
@@ -86,6 +88,16 @@ export type BachataExtensionApi = {
     adapterType: string,
     registration: AdapterRegistration,
   ) => { dispose: () => void };
+  runPipeline?: (request: {
+    pipelineId: string;
+    prompt: string;
+    title?: string;
+    workingDirectory?: string;
+  }) => Promise<{
+    conversationId: string;
+    status: "completed" | "interrupted";
+    answer: string;
+  }>;
   humanE2e?: HumanE2eApi;
 };
 
@@ -982,6 +994,54 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
       });
     }));
     const activeManager = manager;
+    const runPipeline: NonNullable<BachataExtensionApi["runPipeline"]> = async (request) => {
+      if (!vscode.workspace.isTrusted) {
+        throw new Error("Trust this workspace before starting a programmatic Bachata run");
+      }
+      const pipelineId = request.pipelineId.trim();
+      const prompt = request.prompt.trim();
+      if (!pipelineId || !prompt) {
+        throw new Error("Programmatic Bachata runs require a pipeline id and prompt");
+      }
+      const root = await realpath(workspaceRoot());
+      const workingDirectory = await realpath(request.workingDirectory ?? root);
+      if (pathInsideRelative(root, workingDirectory) === undefined) {
+        throw new Error("Programmatic Bachata run directory must stay inside the current workspace");
+      }
+      const pipelineSnapshot = await activeManager.resolvePipelineSnapshotInScope(
+        workingDirectory,
+        pipelineId,
+        { requireCurrentCatalog: true, rejectChecklist: true },
+      );
+      const conversation = await activeManager.createConversation({
+        title: request.title?.trim() || pipelineSnapshot.definition.name,
+        input: prompt,
+        pipelineId,
+        pipelineSnapshot,
+        iterationCount: 1,
+        workingDirectory,
+        pipelineScopeRoot: workingDirectory,
+      });
+      const result = await activeManager.runConversation(
+        conversation.id,
+        prompt,
+        [],
+        1,
+        {
+          pipelineSnapshot,
+          requirePipelineHash: pipelineSnapshot.hash,
+          composerAuthorized: true,
+          commitMode: "never",
+        },
+      );
+      return {
+        conversationId: result.conversationId,
+        status: result.pipeline.status,
+        answer: Object.values(result.pipeline.answers)
+          .flatMap((answers) => Object.values(answers))
+          .at(-1) ?? "",
+      };
+    };
     const humanE2e =
       process.env.BACHATA_HUMAN_E2E === "1" &&
       // `--extensionTestsPath` puts the host in Test mode, not Development mode, so a suite driven
@@ -999,6 +1059,7 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
       : undefined;
     return {
       registerAdapter: registerAdapterType,
+      runPipeline,
       ...(humanE2e ? { humanE2e } : {}),
     };
   } catch (error) {

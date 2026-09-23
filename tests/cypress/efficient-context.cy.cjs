@@ -19,7 +19,9 @@ describe("Efficient context in Runs", { browser: "chrome" }, () => {
           win.__panelState.executionContext = { defaultMode: "legacy", mode: "legacy", pinned: false, locked: false };
           win.__boot();
         });
-        cy.get(".composer-context").should("be.visible").within(() => {
+        cy.get(".composer-context").should("not.exist");
+        cy.get('[data-action="agents-picker-toggle"]').first().click();
+        cy.get(".agents-popover .composer-context").should("be.visible").within(() => {
           cy.contains("Efficient context").should("be.visible");
           cy.contains("Experimental").should("be.visible");
           cy.contains("Savings are not yet measured.").should("be.visible");
