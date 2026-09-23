@@ -226,7 +226,7 @@ class FakeRoot extends FakeHTMLElement {
     document.elements = new Map([["root", this]]);
     // Open and close tags both, so an element knows what contains it. `closest` walks that chain,
     // and a popover is identified by the container it sits in rather than by its own class.
-    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span|strong)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span|strong)>/g;
+    const expression = /<(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span|strong|output)\b([^>]*)>|<\/(button|input|textarea|select|details|summary|section|article|footer|div|main|aside|p|pre|h1|h2|h3|ul|ol|li|small|span|strong|output)>/g;
     const open = [];
     for (const match of value.matchAll(expression)) {
       if (match[3] !== undefined) {
@@ -7662,8 +7662,8 @@ test("each notification action is described by its own row, and that row exists"
 /**
  * Copying the pairing code.
  *
- * The code carries a version, a validated loopback port, and the token. The popup reconstructs the
- * fixed scheme, host and path, so dynamically allocated Bridge servers need no copied URL.
+ * The default endpoint needs only the four-digit code. A custom endpoint additionally carries a
+ * validated loopback port; the popup reconstructs the fixed scheme, host and path.
  */
 const bridgePanelWithToken = (token, endpoint = "ws://127.0.0.1:43127/bachata-browser-bridge-v9") => panelState({
   browserBridge: {
@@ -7684,13 +7684,18 @@ const openBridgeInspector = (harness) => {
 };
 
 test("copying the pairing code includes the Bridge port without carrying a URL", async () => {
-  const token = "a".repeat(43);
+  const token = "1234";
   const harness = bootWebview(
     managerState(),
     bridgePanelWithToken(token, "ws://127.0.0.1:64782/bachata-browser-bridge-v9"),
   );
   try {
     openBridgeInspector(harness);
+    const displayed = harness.document.root.querySelector(".bridge-pairing-code");
+    assert.ok(displayed, "the pairing code is not visible in the inspector");
+    assert.equal(displayed.textContent, token);
+    assert.equal(displayed.querySelectorAll(".bridge-pairing-code-digit").length, 4);
+    assert.equal(displayed.getAttribute("aria-label"), "1 2 3 4");
     const button = harness.document.root.querySelector('[data-action="bridge-copy-token"]');
     assert.ok(button, "the pairing token has no copy control");
     button.click();
@@ -7728,7 +7733,7 @@ test("with no pairing token there is no copy control and nothing reaches the cli
 });
 
 test("a refused clipboard says so instead of reporting a copy that did not happen", async () => {
-  const token = "a".repeat(43);
+  const token = "1234";
   const harness = bootWebview(managerState(), bridgePanelWithToken(token));
   try {
     harness.clipboard.refuse = true;
@@ -7736,7 +7741,7 @@ test("a refused clipboard says so instead of reporting a copy that did not happe
     const button = harness.document.root.querySelector('[data-action="bridge-copy-token"]');
     button.click();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(harness.clipboard.writes, [`v9.43127.${token}`], "the write was never attempted");
+    assert.deepEqual(harness.clipboard.writes, [token], "the write was never attempted");
     assert.match(
       harness.document.liveStatus.textContent,
       /failed/iu,
@@ -9138,7 +9143,7 @@ test("pipeline picker ranks multi-participant writers first and single-participa
 
 test("Browser Bridge activation starts discovery and shows pairing under the header status", () => {
   const panel = cliAssignmentPanel();
-  panel.browserBridge = { enabled: true, connected: false, sessions: [], endpoint: "ws://127.0.0.1:43127", pairingToken: "PAIRING_FIXTURE" };
+  panel.browserBridge = { enabled: true, connected: false, sessions: [], endpoint: "ws://127.0.0.1:43127", pairingToken: "5274" };
   const harness = bootWebview(managerState(), panel);
   try {
     harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
@@ -9150,6 +9155,10 @@ test("Browser Bridge activation starts discovery and shows pairing under the hea
     assert.equal(chip.getAttribute("aria-expanded"), "true");
     assert.ok(harness.document.getElementById("agents-bridge-panel"));
     assert.match(harness.document.root.innerHTML, /Connect Browser Bridge/u);
+    const displayed = harness.document.root.querySelector("#agents-bridge-panel .bridge-pairing-code");
+    assert.ok(displayed, "the pairing code is not visible in the Agents bridge panel");
+    assert.equal(displayed.textContent, "5274");
+    assert.equal(displayed.querySelectorAll(".bridge-pairing-code-digit").length, 4);
     assert.ok(harness.document.root.querySelector('#agents-bridge-panel [data-action="bridge-copy-token"]'));
     assert.ok(harness.document.getElementById("agents-model-menu-builder"));
     assert.equal(harness.document.root.querySelector('[data-action="agents-model-apply"]'), null);
@@ -12102,6 +12111,7 @@ test("a readiness blocker names its problem in the composer rather than the gene
 const contextPanel = (executionContext = {}) => panelState({
   executionContext: { defaultMode: "legacy", mode: "legacy", pinned: false, locked: false, ...executionContext },
 });
+const onPanel = (executionContext = {}) => contextPanel({ defaultMode: "localTodoStateV1", mode: "localTodoStateV1", ...executionContext });
 const contextRequests = (harness) => harness.messages.filter((entry) => entry.type === "conversation.runtime" && entry.message.type === "executionContext.set");
 const contextSnapshot = (harness, panel) => harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "state.snapshot", state: panel } });
 const openAgents = (harness) => harness.document.root.querySelector('[data-action="agents-picker-toggle"]').click();
@@ -12116,48 +12126,49 @@ const changeContext = (harness, checked) => {
   harness.document.root.dispatch("change", { target: checkbox });
 };
 
-test("efficient context is a visible named checkbox, defaults off, and links help and unavailable reasons", () => {
-  const harness = bootContext(managerState(), contextPanel());
+test("frozen efficient context stays hidden while off and shows a named checkbox while on", () => {
+  const off = bootContext(managerState(), contextPanel());
+  try {
+    assert.equal(off.document.getElementById("execution-context-mode"), null);
+    assert.doesNotMatch(off.document.root.innerHTML, /Efficient context/u);
+  } finally { off.restore(); }
+  const harness = bootContext(managerState(), onPanel());
   try {
     const checkbox = harness.document.getElementById("execution-context-mode");
     assert.ok(checkbox.closest(".agents-popover"));
     assert.equal(checkbox.getAttribute("type"), "checkbox");
-    assert.equal(checkbox.checked, false);
+    assert.equal(checkbox.checked, true);
     assert.match(harness.document.root.innerHTML, /for="execution-context-mode"[^>]*>.*Efficient context/u);
     assert.equal(checkbox.getAttribute("aria-disabled"), "false");
     assert.equal(checkbox.getAttribute("aria-describedby"), "execution-context-reason execution-context-help");
-    assert.match(harness.document.getElementById("execution-context-help").textContent, /Savings are not yet measured/u);
+    assert.match(harness.document.getElementById("execution-context-help").textContent, /An offline pilot found no saving/u);
     assert.match(harness.document.root.innerHTML, /Experimental/u);
     assert.equal(contextRequests(harness).length, 0);
   } finally { harness.restore(); }
 });
 
-test("efficient context dispatches once, blocks rapid changes and Send, survives rerenders, and awaits matching host reply", () => {
-  const harness = bootContext(managerState(), contextPanel());
+test("efficient context dispatches once, blocks rapid changes and Send, survives rerenders, and hides after turning off", () => {
+  const harness = bootContext(managerState(), onPanel());
   try {
-    changeContext(harness, true);
+    changeContext(harness, false);
     const sent = contextRequests(harness)[0];
-    assert.equal(sent.message.mode, "localTodoStateV1");
-    assert.equal(sent.message.expectedDefault, "legacy");
+    assert.equal(sent.message.mode, "legacy");
+    assert.equal(sent.message.expectedDefault, "localTodoStateV1");
     assert.equal(sent.message.pipelineHash, customAHash);
     assert.deepEqual(sent.message.attachmentIds, []);
     for (let index = 0; index < 3; index += 1) {
-      contextSnapshot(harness, contextPanel());
-      assert.equal(harness.document.getElementById("execution-context-mode").checked, true);
-      changeContext(harness, false);
+      contextSnapshot(harness, onPanel());
+      assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+      changeContext(harness, true);
     }
     assert.equal(contextRequests(harness).length, 1);
     assert.match(harness.document.root.innerHTML, /Wait for the context setting to be saved/u);
     harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId: "stale", status: "completed" } });
     assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "true");
-    contextSnapshot(harness, contextPanel({ defaultMode: "localTodoStateV1", mode: "localTodoStateV1" }));
+    contextSnapshot(harness, contextPanel());
     harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId: sent.message.requestId, status: "completed" } });
-    assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
-    changeContext(harness, true);
+    assert.equal(harness.document.getElementById("execution-context-mode"), null);
     assert.equal(contextRequests(harness).length, 1);
-    changeContext(harness, false);
-    assert.equal(contextRequests(harness).length, 2);
-    assert.equal(contextRequests(harness)[1].message.expectedDefault, "localTodoStateV1");
   } finally { harness.restore(); }
 });
 
@@ -12192,12 +12203,12 @@ for (const unavailable of ["providers", "workspace", "attachments"]) {
 }
 
 test("failed context save restores host state and keeps the control usable", () => {
-  const harness = bootContext(managerState(), contextPanel());
+  const harness = bootContext(managerState(), onPanel());
   try {
-    changeContext(harness, true);
+    changeContext(harness, false);
     const { requestId } = contextRequests(harness)[0].message;
     harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId, status: "failed", message: "Settings refused" } });
-    assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, true);
     assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
     assert.match(harness.document.root.innerHTML, /Settings refused/u);
   } finally { harness.restore(); }
@@ -12238,16 +12249,16 @@ test("adding and removing draft attachments updates efficient context without se
 });
 
 test("removing a run with a pending context request releases the composer lock", () => {
-  const harness = bootContext(managerState(), contextPanel());
+  const harness = bootContext(managerState(), onPanel());
   try {
-    changeContext(harness, true);
+    changeContext(harness, false);
     const manager = managerState();
     manager.conversations = manager.conversations.map((conversation) => ({ ...conversation, id: "run-2" }));
     manager.activeConversationId = "run-2";
     harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
-    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-2", message: { type: "state.snapshot", state: contextPanel() } });
+    harness.sendWindowMessage({ type: "conversation.message", conversationId: "run-2", message: { type: "state.snapshot", state: onPanel() } });
     assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
-    changeContext(harness, true);
+    changeContext(harness, false);
     assert.equal(contextRequests(harness).length, 2);
   } finally { harness.restore(); }
 });
@@ -12256,10 +12267,10 @@ for (const summary of [{ running: true }, { waitingForResources: true }]) {
   test(`manager admission locks efficient context before the runtime patch: ${JSON.stringify(summary)}`, () => {
     const manager = managerState();
     Object.assign(manager.conversations[0], summary);
-    const harness = bootContext(manager, contextPanel());
+    const harness = bootContext(manager, onPanel());
     try {
       assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "true");
-      changeContext(harness, true);
+      changeContext(harness, false);
       assert.equal(contextRequests(harness).length, 0);
     } finally { harness.restore(); }
   });
@@ -12267,11 +12278,11 @@ for (const summary of [{ running: true }, { waitingForResources: true }]) {
 
 
 test("manager refusal releases a pending context request without changing the saved mode", () => {
-  const harness = bootContext(managerState(), contextPanel());
+  const harness = bootContext(managerState(), onPanel());
   try {
-    changeContext(harness, true);
+    changeContext(harness, false);
     harness.sendWindowMessage({ type: "manager.error", message: "Workspace is read-only" });
-    assert.equal(harness.document.getElementById("execution-context-mode").checked, false);
+    assert.equal(harness.document.getElementById("execution-context-mode").checked, true);
     assert.equal(harness.document.getElementById("execution-context-mode").getAttribute("aria-disabled"), "false");
   } finally { harness.restore(); }
 });

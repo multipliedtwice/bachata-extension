@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { randomUUID } = require("node:crypto");
-const { parseExecutionProposal, parseExecutionState, reduceExecutionProposal, strictExecutionJson, executionAllowedActions, EXECUTION_LIMITS } = require("../dist/pipeline/executionState.js");
+const { parseExecutionProposal, parseFramedExecutionProposal, parseExecutionState, reduceExecutionProposal, strictExecutionJson, executionAllowedActions, EXECUTION_LIMITS } = require("../dist/pipeline/executionState.js");
 const { executionPrompt, projectExecutionState } = require("../dist/pipeline/executionProjection.js");
 const { pureState, proposal, planOperation } = require("./support/executionFixture.cjs");
 
@@ -26,6 +26,17 @@ test("strict proposal and stored-state parsing refuse unknown fields, duplicates
   assert.throws(() => parseExecutionState({ ...state, allowedActions: ["approveCompletion"] }), /controller derived/);
   assert.throws(() => parseExecutionState({ ...state, extra: true }), /unknown/);
   assert.throws(() => parseExecutionState({ ...state, checks: Array.from({ length: 17 }, (_, i) => ({ ...state.checks[0], id: `c${i}` })) }));
+});
+
+test("framed proposals are extracted, never repaired", () => {
+  const valid = proposal(pureState());
+  const body = JSON.stringify(valid);
+  assert.deepEqual(parseFramedExecutionProposal(`Fixed \`<\` to \`<=\` at line 3.\n\n\`\`\`json\n${body}\n\`\`\``), valid);
+  assert.deepEqual(parseFramedExecutionProposal(`Done.\n${body}\nNothing else changed.`), valid);
+  assert.deepEqual(parseFramedExecutionProposal(body), valid);
+  assert.throws(() => parseFramedExecutionProposal(`\`\`\`json\n${body.replace('"version":1', '"version":1,"version":1')}\n\`\`\``), /duplicate/);
+  assert.throws(() => parseFramedExecutionProposal(`\`\`\`json\n${JSON.stringify({ ...valid, extra: true })}\n\`\`\``));
+  assert.throws(() => parseFramedExecutionProposal("Fixed it."), /Execution state refused/);
 });
 
 test("one revision accepts at most one proposal; stale, wrong-owner, invalid and unauthorized proposals do not mutate input", () => {

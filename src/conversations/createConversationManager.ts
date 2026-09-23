@@ -24,6 +24,7 @@ import type { WorkspaceWriteScope } from "../adapters/types";
 import {
   createBrowserBridgeServer,
 } from "../browser/bridgeServer";
+import type { BrowserBridgeServer, BrowserBridgeStatus } from "../browser/bridgeServer";
 import { createBrowserBridgeRecovery } from "../browser/bridgeRecovery";
 import { BrowserConversationBinding } from "../browser/protocol";
 import { DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES } from "../browser/limits";
@@ -464,6 +465,9 @@ export type ChecklistPreflightContext = {
 };
 
 export type ConversationManager = {
+  withBrowserBridge: <T>(run: (bridge: BrowserBridgeServer) => Promise<T>) => Promise<T>;
+  getBrowserBridgeStatus?: () => BrowserBridgeStatus;
+  resetBrowserBridgePairing?: () => Promise<BrowserBridgeStatus>;
   handleMessage: (message: unknown) => Promise<void>;
   attachWebview: (webview: vscode.Webview) => vscode.Disposable;
   getState: () => ConversationManagerState;
@@ -7649,6 +7653,20 @@ export const createConversationManager = (
   };
 
   return {
+    getBrowserBridgeStatus: () => sharedBridge.getStatus(),
+    resetBrowserBridgePairing: async () => {
+      await sharedBridge.resetPairing();
+      return sharedBridge.getStatus();
+    },
+    withBrowserBridge: async (run) => {
+      if (disposed) throw new Error("Bachata manager is disposed");
+      const available = await sharedBridge.ensureAvailable();
+      const status = sharedBridge.getStatus();
+      if (!available || !status.enabled || !status.connected) {
+        throw new Error("Bachata Browser Bridge is not connected");
+      }
+      return run(sharedBridge);
+    },
     handleMessage,
     attachWebview,
     getState: () => structuredClone(state),

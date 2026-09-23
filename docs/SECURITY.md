@@ -87,13 +87,13 @@ Do not turn a documented boundary into broader restriction without concrete fail
 
 - loopback only;
 - exact Chrome extension origin pinned at pairing;
-- one-use pairing token;
+- four-digit, one-use pairing code valid until use, reset, or Bridge shutdown, with a global three-failure lockout;
 - persistent connection token;
 - strict schemas and byte limits;
 - exact provider, tab, frame, document, and conversation binding;
 - cancellable bounded provisioning;
 - strict recoverable endpoint validation.
-- pairing code may select one numeric loopback port; scheme, host, and Protocol v9 path stay fixed.
+- default-port pairing needs only four digits; a custom-port code may select one numeric loopback port while scheme, host, and Protocol v9 path stay fixed.
 
 ## Residual risk
 

@@ -1,7 +1,8 @@
 # Bounded execution state
 
-Local TODO slice implemented in source. `legacy` remains default. Full dependency-backed gates
-pending. Other domains remain design only.
+Local TODO slice implemented in source, then frozen: offline pilot found no saving. See
+[Pilot result](./TOKEN_EFFICIENT_HARNESS.md#pilot-result). `legacy` remains default. Other domains
+remain design only.
 
 ## Implemented contract
 

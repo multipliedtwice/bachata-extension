@@ -1,14 +1,15 @@
 # Token-efficient harness
 
-Status: first local TODO slice implemented in source, off by default. Full project gates still
-require the dependency-equipped checkout. No token, cost, or latency claim.
+Status: local TODO slice implemented, off by default, **frozen**. Offline pilot showed no saving.
+See [Pilot result](#pilot-result). No token, cost, or latency claim.
 
 ## Runs control
 
-- Runs composer, Agents popover: **Efficient context · Experimental**. Keyboard checkbox.
-  Shown only for TODO Implementation. Other workflows hide it.
+- Frozen: control hidden while off. Opt in only via Advanced setting.
+- While on: Runs composer, Agents popover shows **Efficient context · Experimental**, checked,
+  so it can be turned off. Other workflows hide it. Keyboard checkbox.
 - Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation.
-  May reduce repeated context. Savings are not yet measured.
+  No saving measured; see Pilot result.
 - One default: `bachata.executionContextMode`. Advanced setting stays. Off by default.
 - Host checks current pipeline, providers, workspace and selected attachments. Stale setup refuses.
 - One pending write in the panel. Wait for host reply before another toggle or Send.
@@ -137,7 +138,7 @@ content digest, scope, and freshness. It is a reference, not proof supplied by a
 
 | Path | First change | Main risk |
 | --- | --- | --- |
-| Local Claude/Codex | fresh sessions + bounded execution state | startup cost can erase savings on short tasks |
+| Local Claude/Codex | fresh sessions + bounded execution state — frozen, no saving shown | Bachata prompt is 1–3% of provider input; CLI loop owns the rest |
 | Consensus pipeline | structured peer projection | reducer can hide a decisive disagreement |
 | Browser Bridge | observation handles + state-aware rollover | website retains hidden conversation state |
 | Managed browser mutation | action + declared verification fusion | unsafe coupling across an approval boundary |
@@ -155,7 +156,7 @@ content digest, scope, and freshness. It is a reference, not proof supplied by a
 
 ## Rollout
 
-1. Local bounded-state pilot on one managed workflow: implemented off by default; project gates pending.
+1. Local bounded-state pilot on one managed workflow: implemented off by default; frozen after pilot result.
 2. Structured consensus projection.
 3. Browser observation handles and state-aware rollover.
 4. Safe action fusion.
@@ -181,6 +182,38 @@ measurement layer.
 SoL-Pi reports lower token traffic and cost on its Pi-based evaluation, with a quality tradeoff at
 its complete efficiency setting. Those are paper results, not Bachata results. Bachata has different
 providers, session behavior, pipelines, browser control, audit requirements, and safety gates.
+
+## Pilot result
+
+Offline runs, `scripts/context-mode-benchmark.cjs`, records in `benchmarks/context-mode/runs/`.
+Real local Claude/Codex, `todo-implementation`, tasks `fix-window`, `ledger-fees`,
+`pagination-pages`. Hidden behaviour check per task. Token counts from provider session logs.
+
+- Quality: every recorded run correct in both modes. One earlier efficient run failed on the
+  framing defect below; its record was overwritten.
+- Every run single pass: 3 calls, no Lead reject. Trap prompts did not force revision.
+- Median provider input, efficient vs legacy: +1% (`ledger-fees`), +5% (`pagination-pages`).
+  Uncached input +35% and +21%. Output −12% and −17%.
+- Estimate: Bachata prompt bytes ÷ 4 ≈ 1–3% of provider input. Rest is inside Claude Code / Codex tool
+  loops: system prompt, tool schemas, file reads, tool results.
+- First run found a defect: framed JSON (prose + fence) refused. Fixed: extract, still strict.
+
+Why no saving:
+
+- SoL-Pi saves inside the agent tool loop: ObservationPack, evidence reducer, action fusion,
+  online compaction of one persistent, cache-aware session. Most gain from compaction on long
+  runs. SoL-Pi harness has no plan/implement/review role handoffs.
+- This slice acts only at role handoff, 3 calls per run. It cannot reach the CLI loop.
+- Fresh session per dispatch drops provider prompt cache and repays CLI base prompt. Paper keeps
+  one session and prices cache rewrite before compacting.
+
+Consequence:
+
+- Local slice frozen. Legacy stays default; its session resume keeps provider cache warm.
+- Browser observation handles (mechanism 3) fit where Bachata owns the tool loop. Measure that
+  share before building.
+- Structured consensus projection (mechanism 2) waits on a measured Bachata share per round.
+- Untested: long revision loops. Not shown to occur on these tasks.
 
 ## Locked pilot decisions
 

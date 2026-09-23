@@ -1,0 +1,92 @@
+{
+  "taskId": "fix-window",
+  "mode": "legacy",
+  "pipelineId": "todo-implementation",
+  "recordedAt": "2026-09-23T02:01:38.327Z",
+  "status": "completed",
+  "durationMs": 80134,
+  "changedFiles": [
+    "src/window.ts"
+  ],
+  "scopeHeld": true,
+  "referenceMatch": true,
+  "verification": [
+    "Controller verification passed for every declared check.",
+    "Controller verification passed for every declared check."
+  ],
+  "interactions": [],
+  "calls": [
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 524,
+      "sessionMode": "existing",
+      "resumedSession": false,
+      "sessionIds": [
+        "01a0cbfe-09c2-7873-b8ce-aa7ceb13b112"
+      ],
+      "startedAt": 1790128818341,
+      "status": "completed",
+      "answerBytes": 1577,
+      "durationMs": 60301
+    },
+    {
+      "agentId": "claude",
+      "adapter": "claude-code",
+      "promptBytes": 2473,
+      "sessionMode": "existing",
+      "resumedSession": false,
+      "sessionIds": [
+        "9dcf2473-38c5-43ef-acfd-39b3f8d13d58"
+      ],
+      "startedAt": 1790128878839,
+      "status": "completed",
+      "answerBytes": 244,
+      "durationMs": 11473
+    },
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 5870,
+      "sessionMode": "existing",
+      "resumedSession": true,
+      "sessionIds": [
+        "01a0cbfe-09c2-7873-b8ce-aa7ceb13b112"
+      ],
+      "startedAt": 1790128892442,
+      "status": "completed",
+      "answerBytes": 280,
+      "durationMs": 5754
+    }
+  ],
+  "promptBytesTotal": 8867,
+  "providerUsage": {
+    "sessions": [
+      {
+        "adapter": "codex-app-server",
+        "id": "01a0cbfe-09c2-7873-b8ce-aa7ceb13b112",
+        "usage": {
+          "inputTotal": 87867,
+          "cacheRead": 57984,
+          "cacheWrite": 0,
+          "output": 1580
+        }
+      },
+      {
+        "adapter": "claude-code",
+        "id": "9dcf2473-38c5-43ef-acfd-39b3f8d13d58",
+        "usage": {
+          "inputTotal": 93560,
+          "cacheRead": 65274,
+          "cacheWrite": 28280,
+          "output": 429
+        }
+      }
+    ],
+    "complete": true,
+    "inputTotal": 181427,
+    "uncachedInput": 58169,
+    "output": 2009
+  },
+  "correct": true
+}

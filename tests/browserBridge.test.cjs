@@ -110,7 +110,7 @@ const createStartedBridge = async (overrides = {}) => {
 const connectAndPair = async (bridge) => {
   const initial = bridge.getStatus();
   assert.match(initial.endpoint, /^ws:\/\/127\.0\.0\.1:\d+\/bachata-browser-bridge-v9$/);
-  assert.ok(initial.pairingToken);
+  assert.match(initial.pairingToken, /^[0-9]{4}$/);
 
   const socket = new WebSocket(initial.endpoint);
   const collector = createCollector(socket);
@@ -637,6 +637,41 @@ test("browser bridge rejects an invalid pairing token", async () => {
   }
 });
 
+test("pairing failures lock the one-time code across separate connections", async () => {
+  const { bridge } = await createStartedBridge({ maxPairingFailures: 3 });
+  const sockets = [];
+  try {
+    const originalCode = bridge.getStatus().pairingToken;
+    assert.match(originalCode, /^[0-9]{4}$/);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const socket = new WebSocket(bridge.getStatus().endpoint);
+      sockets.push(socket);
+      const collector = createCollector(socket);
+      await new Promise((resolve, reject) => {
+        socket.addEventListener("open", resolve, { once: true });
+        socket.addEventListener("error", reject, { once: true });
+      });
+      socket.send(JSON.stringify({
+        type: "bridge.pair",
+        protocolVersion,
+        token: "99999",
+      }));
+      const error = await collector.next((value) => value.type === "bridge.error");
+      assert.equal(error.code, "PAIRING_REJECTED");
+      socket.close();
+    }
+    assert.equal(bridge.getStatus().pairingToken, undefined);
+    assert.match(bridge.getStatus().error, /locked after too many attempts/iu);
+
+    await bridge.resetPairing();
+    assert.match(bridge.getStatus().pairingToken, /^[0-9]{4}$/);
+    assert.notEqual(bridge.getStatus().pairingToken, originalCode);
+  } finally {
+    sockets.forEach((socket) => socket.close());
+    await bridge.close();
+  }
+});
+
 test("browser protocol rejects a selected session missing from the session list", () => {
   const parsed = parseBridgeClientMessage({
     type: "provider.status",
@@ -969,6 +1004,17 @@ test("Browser Bridge pairing token disappears when it expires", async () => {
       status = bridge.getStatus();
     }
     assert.equal(status.pairingToken, undefined, "the pairing token must not outlive its window");
+    assert.equal(status.pairingExpiresAt, undefined);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("Browser Bridge pairing code has no default expiry", async () => {
+  const { bridge } = await createStartedBridge({ pairingTtlMs: undefined });
+  try {
+    const status = bridge.getStatus();
+    assert.match(status.pairingToken, /^[0-9]{4}$/);
     assert.equal(status.pairingExpiresAt, undefined);
   } finally {
     await bridge.close();

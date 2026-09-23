@@ -183,10 +183,11 @@ const closeMenusWithin = (surface: HTMLElement | null): void => {
 };
 
 const bridgePairingCode = (endpoint: string | undefined, token: string): string => {
-  if (!/^[A-Za-z0-9_-]{43}$/u.test(token)) return token;
+  if (!/^(?:[0-9]{4}|[A-Za-z0-9_-]{43})$/u.test(token)) return token;
   const match = /^ws:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/bachata-browser-bridge-v9$/u.exec(endpoint ?? "");
   if (!match) return token;
   const port = Number.parseInt(match[1] ?? "", 10);
+  if (port === 43_127) return token;
   return port <= 65_535 ? `v9.${String(port)}.${token}` : token;
 };
 

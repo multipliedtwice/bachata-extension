@@ -1,6 +1,6 @@
 import { isRecoveryId, isStableRecoveryIdentity, type RecoverableConversation } from "./recovery";
 import { browserBindingForSession, browserConversationClaimKey, resolveBrowserSession } from "./conversationOwnership";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { createSharedBridgeRequestHandler } from "./sharedBridgeTransport";
 
@@ -148,6 +148,7 @@ export type BrowserBridgeServerOptions = {
   log: (message: string) => void;
   onStatusChange: (status: BrowserBridgeStatus) => void;
   pairingTtlMs?: number | undefined;
+  maxPairingFailures?: number | undefined;
   maxMessageBytes?: number | undefined;
   preAuthenticationMaxMessageBytes?: number | undefined;
   interruptTimeoutMs?: number | undefined;
@@ -232,6 +233,7 @@ const endpointPath = "/bachata-browser-bridge-v9";
 const extensionOriginPattern = /^chrome-extension:\/\/[a-p]{32}$/u;
 
 const secureToken = (): string => randomBytes(32).toString("base64url");
+const pairingCode = (): string => randomInt(10_000).toString().padStart(4, "0");
 
 // Token comparison is length-checked first, then constant-time. `!==` short-circuits on the
 // first differing character, and while a loopback WebSocket is a poor oracle, every other
@@ -253,7 +255,8 @@ export const createBrowserBridgeServer = (
   options: BrowserBridgeServerOptions,
 ): OwnedBrowserBridgeServer => {
   const log = (message: string): void => options.log(redactText(message));
-  const pairingTtlMs = options.pairingTtlMs ?? 10 * 60_000;
+  const pairingTtlMs = options.pairingTtlMs;
+  const maxPairingFailures = options.maxPairingFailures ?? 3;
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_BROWSER_BRIDGE_MAX_MESSAGE_BYTES;
   const preAuthenticationMaxMessageBytes = Math.min(
     maxMessageBytes,
@@ -274,7 +277,9 @@ export const createBrowserBridgeServer = (
   let startOperation: Promise<void> | undefined;
   let port: number | undefined;
   let pairingToken: string | undefined;
-  let pairingExpiresAt = 0;
+  let pairingExpiresAt: number | undefined;
+  let pairingFailures = 0;
+  let previousPairingCode: string | undefined;
   let pairingExpirationTimer: NodeJS.Timeout | undefined;
   let connectionToken: string | undefined;
   let connectionOrigin: string | undefined;
@@ -359,9 +364,9 @@ export const createBrowserBridgeServer = (
   };
 
   const status = (): BrowserBridgeStatus => {
-    if (pairingToken && Date.now() > pairingExpiresAt) {
+    if (pairingToken && pairingExpiresAt !== undefined && Date.now() > pairingExpiresAt) {
       pairingToken = undefined;
-      pairingExpiresAt = 0;
+      pairingExpiresAt = undefined;
     }
     // A pairing token is only meaningful while there is an endpoint to present it to. A
     // browser cannot pair against a server that never started or has been closed, so no
@@ -369,13 +374,13 @@ export const createBrowserBridgeServer = (
     if (!endpointAvailable()) {
       clearPairingExpirationTimer();
       pairingToken = undefined;
-      pairingExpiresAt = 0;
+      pairingExpiresAt = undefined;
     }
     return {
       enabled: options.enabled,
       ...(endpointAvailable() ? { endpoint: `ws://127.0.0.1:${String(port)}${endpointPath}` } : {}),
       ...(pairingToken === undefined ? {} : { pairingToken }),
-      ...(pairingExpiresAt > 0
+      ...(pairingExpiresAt !== undefined
         ? { pairingExpiresAt: new Date(pairingExpiresAt).toISOString() }
         : {}),
       connected: authenticated && Boolean(socket),
@@ -679,23 +684,28 @@ export const createBrowserBridgeServer = (
     }
   };
 
-  const setPairingToken = (token: string, expiresAt: number): void => {
+  const setPairingToken = (token: string, expiresAt?: number): void => {
     clearPairingExpirationTimer();
     pairingToken = token;
     pairingExpiresAt = expiresAt;
+    if (expiresAt === undefined) return;
     const remainingMs = Math.max(0, expiresAt - Date.now());
     pairingExpirationTimer = setTimeout(() => {
       pairingExpirationTimer = undefined;
       if (pairingToken === token) {
         pairingToken = undefined;
-        pairingExpiresAt = 0;
+        pairingExpiresAt = undefined;
         emitStatus();
       }
     }, remainingMs);
   };
 
   const createPairingToken = (): void => {
-    setPairingToken(secureToken(), Date.now() + pairingTtlMs);
+    pairingFailures = 0;
+    let nextCode = pairingCode();
+    while (nextCode === previousPairingCode) nextCode = pairingCode();
+    previousPairingCode = nextCode;
+    setPairingToken(nextCode, pairingTtlMs === undefined ? undefined : Date.now() + pairingTtlMs);
   };
 
   const disconnect = (reason?: string): void => {
@@ -1395,21 +1405,34 @@ export const createBrowserBridgeServer = (
       }
       if (message.type === "bridge.pair") {
         const acceptedOrigin = originForConnection(connection);
+        const pairingIsCurrent = Boolean(pairingToken)
+          && (pairingExpiresAt === undefined || Date.now() <= pairingExpiresAt);
         if (
           !acceptedOrigin ||
           !extensionOriginPattern.test(acceptedOrigin) ||
-          !pairingToken ||
-          Date.now() > pairingExpiresAt ||
+          !pairingIsCurrent ||
           !secretMatches(message.token, pairingToken)
         ) {
+          if (pairingIsCurrent) {
+            pairingFailures += 1;
+            if (pairingFailures >= maxPairingFailures) {
+              clearPairingExpirationTimer();
+              pairingToken = undefined;
+              pairingExpiresAt = undefined;
+              lastError = "Pairing code locked after too many attempts. Generate a new code.";
+              emitStatus();
+            }
+          }
           sendProtocolError(
             connection,
             "PAIRING_REJECTED",
-            "Pairing token is invalid or expired",
+            pairingIsCurrent && pairingFailures < maxPairingFailures
+              ? "Pairing code is invalid"
+              : "Pairing code is invalid, expired, or locked",
           );
           return;
         }
-        const acceptedPairingToken = pairingToken;
+        const acceptedPairingToken = message.token;
         const acceptedPairingExpiresAt = pairingExpiresAt;
         const previousConnectionToken = connectionToken;
         const previousConnectionOrigin = connectionOrigin;
@@ -1417,7 +1440,7 @@ export const createBrowserBridgeServer = (
         const generation = authenticationGeneration;
         clearPairingExpirationTimer();
         pairingToken = undefined;
-        pairingExpiresAt = 0;
+        pairingExpiresAt = undefined;
         await enqueueAuthentication(async () => {
           try {
             await options.secretStore.store(
@@ -1438,7 +1461,7 @@ export const createBrowserBridgeServer = (
               generation === authenticationGeneration &&
               !authenticated &&
               !pairingToken &&
-              acceptedPairingExpiresAt > Date.now()
+              (acceptedPairingExpiresAt === undefined || acceptedPairingExpiresAt > Date.now())
             ) {
               setPairingToken(acceptedPairingToken, acceptedPairingExpiresAt);
             }
@@ -1471,7 +1494,7 @@ export const createBrowserBridgeServer = (
               generation === authenticationGeneration &&
               !authenticated &&
               !pairingToken &&
-              acceptedPairingExpiresAt > Date.now()
+              (acceptedPairingExpiresAt === undefined || acceptedPairingExpiresAt > Date.now())
             ) {
               setPairingToken(acceptedPairingToken, acceptedPairingExpiresAt);
             }
@@ -1539,7 +1562,7 @@ export const createBrowserBridgeServer = (
           connectionOrigin = storedOrigin;
           clearPairingExpirationTimer();
           pairingToken = undefined;
-          pairingExpiresAt = 0;
+          pairingExpiresAt = undefined;
           authenticateConnection(connection);
           connection.send(
             JSON.stringify({
@@ -1915,7 +1938,7 @@ export const createBrowserBridgeServer = (
           reserveOperation = undefined;
           clearPairingExpirationTimer();
           pairingToken = undefined;
-          pairingExpiresAt = 0;
+          pairingExpiresAt = undefined;
           emitStatus();
           throw error;
         }
@@ -1939,7 +1962,7 @@ export const createBrowserBridgeServer = (
       connections.forEach((connection) => connection.close());
       clearPairingExpirationTimer();
       pairingToken = undefined;
-      pairingExpiresAt = 0;
+      pairingExpiresAt = undefined;
       // A reset cannot repair an endpoint that does not exist, so the reason the endpoint
       // is unavailable survives the reset instead of being replaced by a clean state that
       // offers a token nothing can use.
@@ -2247,7 +2270,7 @@ export const createBrowserBridgeServer = (
         authenticationTimers.clear();
         clearPairingExpirationTimer();
         pairingToken = undefined;
-        pairingExpiresAt = 0;
+        pairingExpiresAt = undefined;
         messageRates.clear();
         preAuthenticationMessages.clear();
         queuedMessageCounts.clear();

@@ -33,7 +33,7 @@ Initiative, cycle, artifact, decision, external evidence, finding history, and r
 - Export is filtered by `.bachata/export-policy.json` like every other Bachata export, previewed in an editor, and written only after you confirm.
 - Post-alpha work is tracked in [Roadmap](ROADMAP.md).
 
-Bounded execution state for model turns, kept apart from the audit plane, is designed in [Bounded execution state](BOUNDED_EXECUTION_STATE.md). The local TODO slice is implemented behind `bachata.executionContextMode: localTodoStateV1`. Default is `legacy`. Other proposed domains remain unimplemented.
+Bounded execution state for model turns, kept apart from the audit plane, is designed in [Bounded execution state](BOUNDED_EXECUTION_STATE.md). The local TODO slice is implemented behind `bachata.executionContextMode: localTodoStateV1` and frozen after an offline pilot found no saving ([Pilot result](TOKEN_EFFICIENT_HARNESS.md#pilot-result)). Default is `legacy`. Other proposed domains remain unimplemented.
 
 ## Stored state
 

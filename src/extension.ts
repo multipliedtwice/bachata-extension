@@ -97,7 +97,10 @@ export type BachataExtensionApi = {
     conversationId: string;
     status: "completed" | "interrupted";
     answer: string;
-  }>;
+  }>; 
+  withBrowserBridge?: ConversationManager["withBrowserBridge"];
+  getBrowserBridgeStatus?: NonNullable<ConversationManager["getBrowserBridgeStatus"]>;
+  resetBrowserBridgePairing?: NonNullable<ConversationManager["resetBrowserBridgePairing"]>;
   humanE2e?: HumanE2eApi;
 };
 
@@ -1042,6 +1045,28 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
           .at(-1) ?? "",
       };
     };
+    const withBrowserBridge: NonNullable<BachataExtensionApi["withBrowserBridge"]> = async (run) => {
+      if (!vscode.workspace.isTrusted) {
+        throw new Error("Trust this workspace before using the Bachata Browser Bridge");
+      }
+      return activeManager.withBrowserBridge(run);
+    };
+    const getBrowserBridgeStatus: NonNullable<BachataExtensionApi["getBrowserBridgeStatus"]> = () => {
+      if (!vscode.workspace.isTrusted) {
+        throw new Error("Trust this workspace before using the Bachata Browser Bridge");
+      }
+      const status = activeManager.getBrowserBridgeStatus?.();
+      if (!status) throw new Error("Bachata Browser Bridge status is unavailable");
+      return status;
+    };
+    const resetBrowserBridgePairing: NonNullable<BachataExtensionApi["resetBrowserBridgePairing"]> = async () => {
+      if (!vscode.workspace.isTrusted) {
+        throw new Error("Trust this workspace before using the Bachata Browser Bridge");
+      }
+      const status = await activeManager.resetBrowserBridgePairing?.();
+      if (!status) throw new Error("Bachata Browser Bridge pairing is unavailable");
+      return status;
+    };
     const humanE2e =
       process.env.BACHATA_HUMAN_E2E === "1" &&
       // `--extensionTestsPath` puts the host in Test mode, not Development mode, so a suite driven
@@ -1060,6 +1085,9 @@ export const activate = async (context: vscode.ExtensionContext): Promise<Bachat
     return {
       registerAdapter: registerAdapterType,
       runPipeline,
+      withBrowserBridge,
+      getBrowserBridgeStatus,
+      resetBrowserBridgePairing,
       ...(humanE2e ? { humanE2e } : {}),
     };
   } catch (error) {

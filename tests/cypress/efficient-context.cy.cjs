@@ -19,30 +19,36 @@ describe("Efficient context in Runs", { browser: "chrome" }, () => {
           win.__panelState.executionContext = { defaultMode: "legacy", mode: "legacy", pinned: false, locked: false };
           win.__boot();
         });
-        cy.get(".composer-context").should("not.exist");
         cy.get('[data-action="agents-picker-toggle"]').first().click();
-        cy.get(".agents-popover .composer-context").should("be.visible").within(() => {
+        cy.get(".agents-popover").should("be.visible");
+        cy.get(".composer-context").should("not.exist");
+        cy.window().then((win) => {
+          win.__panelState.executionContext = { defaultMode: "localTodoStateV1", mode: "localTodoStateV1", pinned: false, locked: false };
+          win.__boot();
+        });
+        cy.get(".agents-popover .composer-context").scrollIntoView().should("be.visible").within(() => {
           cy.contains("Efficient context").should("be.visible");
           cy.contains("Experimental").should("be.visible");
-          cy.contains("Savings are not yet measured.").should("be.visible");
+          cy.contains("An offline pilot found no saving.").should("be.visible");
         });
-        cy.get("#execution-context-mode").should("not.be.checked").focus();
+        cy.get("#execution-context-mode").should("be.checked").focus();
         cy.focused().should("have.id", "execution-context-mode");
         space();
-        cy.get("#execution-context-mode").should("be.checked").and("have.attr", "aria-disabled", "true");
+        cy.get("#execution-context-mode").should("not.be.checked").and("have.attr", "aria-disabled", "true");
         cy.window().then((win) => {
           expect(contextRequests(win)).to.have.length(1);
+          expect(contextRequests(win)[0].message.mode).to.equal("legacy");
           win.__boot();
         });
         space();
         cy.window().then((win) => {
           expect(contextRequests(win)).to.have.length(1);
           const request = contextRequests(win)[0];
-          win.__panelState.executionContext = { defaultMode: "localTodoStateV1", mode: "localTodoStateV1", pinned: false, locked: false };
+          win.__panelState.executionContext = { defaultMode: "legacy", mode: "legacy", pinned: false, locked: false };
           win.__boot();
           win.__send({ type: "conversation.message", conversationId: "run-1", message: { type: "operation.result", operation: "executionContext.set", requestId: request.message.requestId, status: "completed" } });
         });
-        cy.get("#execution-context-mode").should("be.checked").and("have.attr", "aria-disabled", "false");
+        cy.get("#execution-context-mode").should("not.exist");
         cy.window().then((win) => {
           win.__panelState.executionContext = { defaultMode: "localTodoStateV1", mode: "legacy", pinned: false, locked: false, unavailable: "providers" };
           win.__boot();

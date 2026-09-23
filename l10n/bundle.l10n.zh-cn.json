@@ -285,7 +285,7 @@
   "Unresolved": "未解决",
   "Unresolved risks": "未解决的风险",
   "Update initiative": "更新计划",
-  "Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.": "在 TODO 实现中使用有界状态和全新的本地 Claude/Codex 会话，可能减少重复上下文。节省幅度尚未测量。更改对新的运行生效。",
+  "Frozen experiment. Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. An offline pilot found no saving. Changes apply to new runs.": "已冻结的实验。在 TODO 实现中使用有界状态和全新的本地 Claude/Codex 会话。离线试点未发现节省。更改适用于新的运行。",
   "Validation": "校验",
   "Verification": "验证",
   "Verification checks, one id = command per line": "验证检查，每行一条，格式为 id = 命令",

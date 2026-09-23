@@ -1,0 +1,11 @@
+{
+  "id": "ledger-fees",
+  "kind": "fix",
+  "title": "Exact ledger fees",
+  "fixture": "context-mode/fixtures/ledger-fees",
+  "prompt": "The ledger balance is off by a cent for some card entries and for refunds. Make src/ledger.js follow docs/LEDGER.md. Change src/ledger.js only.",
+  "answerKey": {
+    "expectedChangedFiles": ["src/ledger.js"],
+    "checkScript": "check.cjs"
+  }
+}

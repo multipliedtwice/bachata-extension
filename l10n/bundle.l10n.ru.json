@@ -285,7 +285,7 @@
   "Unresolved": "Не разрешено",
   "Unresolved risks": "Неразрешённые риски",
   "Update initiative": "Обновить инициативу",
-  "Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.": "Использует ограниченное состояние и новые локальные сеансы Claude/Codex для выполнения TODO. Может уменьшить повторный контекст. Экономия пока не измерена. Изменения действуют для новых запусков.",
+  "Frozen experiment. Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. An offline pilot found no saving. Changes apply to new runs.": "Замороженный эксперимент. Использует ограниченное состояние и новые локальные сессии Claude/Codex для выполнения TODO. Офлайн-пилот не показал экономии. Изменения применяются к новым запускам.",
   "Validation": "Проверка корректности",
   "Verification": "Проверка",
   "Verification checks, one id = command per line": "Проверки, по одной строке вида идентификатор = команда",

@@ -1,5 +1,5 @@
 {
-  "configuration.bachata.executionContextMode.description": "Default for new runs. Also controlled by Efficient context (Experimental) in the Runs composer Agents menu. localTodoStateV1 uses bounded state and fresh local Claude/Codex sessions for serial TODO Implementation with no attachments. May reduce repeated context; savings are not yet measured. Legacy stays default. Active and recoverable runs keep their recorded mode.",
+  "configuration.bachata.executionContextMode.description": "Default for new runs. Frozen: an offline pilot found no saving. While on, Efficient context (Experimental) appears in the Runs composer Agents menu to turn it off. localTodoStateV1 uses bounded state and fresh local Claude/Codex sessions for serial TODO Implementation with no attachments. No saving measured. Legacy stays default. Active and recoverable runs keep their recorded mode.",
   "command.bachata.bootstrapConfiguration.title": "Bootstrap Verifiers and Repository Policy",
   "command.bachata.doctor.title": "Doctor",
   "command.bachata.explainPipeline.title": "Explain Pipeline",

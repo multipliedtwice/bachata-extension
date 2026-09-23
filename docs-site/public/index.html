@@ -339,18 +339,15 @@
     </section>
 
     <section class="part" id="token-efficiency">
-      <p class="eyebrow">Opt-in local pilot</p>
+      <p class="eyebrow">Frozen local pilot</p>
       <h2>Use less repeated model context</h2>
       <p>Bachata now includes the first source implementation of a token-efficient execution mode for Claude Code and Codex. The goal is to send the smallest sufficient state for the next decision instead of repeatedly sending complete earlier answers, verification output and conversation history.</p>
       <div class="note warn">
-        <strong>Off by default</strong>
-        Try <strong>Efficient context · Experimental</strong> in the Runs composer before starting a run.
-        Uses bounded state and fresh local Claude/Codex sessions for serial TODO Implementation.
-        No attachments. May reduce repeated context. Savings are not yet measured.
-        Unavailable setups show a reason and start new runs in legacy mode.
-        The checkbox saves <code>bachata.executionContextMode</code>; Advanced settings keep the same default.
-        <code>legacy</code> stays default. Active and recoverable runs keep their recorded mode.
-        Project release gates remain pending. No token, cost, latency or quality claim.
+        <strong>Frozen: no saving found</strong>
+        An offline pilot with real Claude Code and Codex runs found no saving. After one output-format fix, every recorded run was correct in both modes, and the efficient mode's median provider input was equal or higher.
+        Bachata's own prompts were about 1–3% of what the providers processed; the rest happens inside the Claude Code and Codex tool loops, which this slice cannot reach.
+        The <strong>Efficient context · Experimental</strong> control is hidden while it is off. The Advanced setting <code>bachata.executionContextMode</code> still opts in; while it is on, the control appears in the Runs composer <strong>Agents</strong> menu so it can be turned off.
+        <code>legacy</code> stays default. Active and recoverable runs keep their recorded mode. No token, cost, latency or quality claim.
       </div>
 
       <h3>Why this can help</h3>
@@ -364,7 +361,7 @@
       <h3>Rollout</h3>
       <ol class="steps">
         <li><strong>Implemented: preserve exact admitted evidence.</strong> Store Bachata-owned prompts, returned answers and controller evidence before compact previews are produced. If exact evidence cannot be retained, compact execution does not start.</li>
-        <li><strong>Implemented off by default: pilot bounded local state.</strong> Start fresh Claude Code or Codex sessions with typed task state, the latest controller observation and scoped evidence references. Keep the current flow as the default.</li>
+        <li><strong>Implemented, then frozen: pilot bounded local state.</strong> Start fresh Claude Code or Codex sessions with typed task state, the latest controller observation and scoped evidence references. Keep the current flow as the default. The offline pilot found no saving, so this step is frozen.</li>
         <li><strong>Project consensus safely.</strong> Carry agreements, disputes, attribution and unresolved decisions without treating omitted objections as resolved.</li>
         <li><strong>Add browser recall and safe action fusion.</strong> Let the controller provide exact evidence pages and combine mutation with already authorized checks only where approval and recovery boundaries remain clear.</li>
       </ol>

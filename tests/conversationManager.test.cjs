@@ -888,6 +888,22 @@ const waitFor = async (condition, timeoutMs = 5_000) => {
   }
 };
 
+test("direct Browser Bridge callback uses the active paired bridge", async () => {
+  const harness = loadHarness();
+  try {
+    await harness.manager.handleMessage({ type: "manager.ready" });
+    assert.equal(harness.manager.getBrowserBridgeStatus().connected, true);
+    const value = await harness.manager.withBrowserBridge(async (bridge) => {
+      assert.equal(bridge.getStatus().connected, true);
+      return "bridge-ready";
+    });
+    assert.equal(value, "bridge-ready");
+  } finally {
+    harness.subscription.dispose();
+    await harness.manager.dispose();
+  }
+});
+
 test("history search matches full runtime transcript evidence", async () => {
   const harness = loadHarness();
   try {

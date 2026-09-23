@@ -793,6 +793,19 @@ const agentsBridgeChipHtml = (bridge: BrowserBridgeStatus): string => {
   return `<button type="button" id="agents-bridge-chip" class="agents-bridge-chip" data-action="agents-bridge-toggle" data-bridge-state="${escapeAttribute(chipState)}" ${expandedControlAttributes(state.agentsBridgeOpen === true, "agents-bridge-panel")} title="${escapeAttribute(localize("Browser Bridge status and pairing"))}"><i class="codicon codicon-circle-filled agents-bridge-dot" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
 };
 
+const bridgePairingCodeHtml = (bridge: BrowserBridgeStatus): string => {
+  const code = bridge.connected ? undefined : bridge.pairingToken;
+  if (!code) return "";
+  const accessibleCode = Array.from(code).join(" ");
+  if (!/^[0-9]{4}$/u.test(code)) {
+    return `<code class="bridge-pairing-code bridge-pairing-code-legacy" aria-label="${escapeAttribute(accessibleCode)}">${escapeHtml(code)}</code>`;
+  }
+  const digits = Array.from(code)
+    .map((digit) => `<span class="bridge-pairing-code-digit" aria-hidden="true">${digit}</span>`)
+    .join("");
+  return `<output class="bridge-pairing-code" aria-label="${escapeAttribute(accessibleCode)}">${digits}</output>`;
+};
+
 const agentsBridgePanelHtml = (panel: PanelState): string => {
   const bridge = panel.browserBridge;
   const presentation = browserBridgePresentation(bridge, "agents:bridge");
@@ -805,7 +818,7 @@ const agentsBridgePanelHtml = (panel: PanelState): string => {
   const actions = bridge.enabled
     ? `<div class="compact-actions">${pairing ? `<button type="button" data-action="bridge-copy-token">${escapeHtml(localize("Copy pairing code"))}</button>` : ""}${bridge.connected ? "" : `<button type="button" data-action="bridge-discover">${escapeHtml(localize("Find browser"))}</button>`}<button type="button" data-action="bridge-reset"${runConfigurationLocked(panel) ? " disabled" : ""}>${escapeHtml(localize("Reset pairing"))}</button></div>`
     : "";
-  return `<section id="agents-bridge-panel" class="agents-bridge-setup" aria-label="${escapeAttribute(localize("Browser Bridge"))}"><h3>${escapeHtml(bridge.connected ? localize("Browser Bridge") : localize("Connect Browser Bridge"))}</h3><p class="muted">${presentation.statusHtml}</p>${presentation.reasonHtml}${instruction ? `<p>${escapeHtml(instruction)}</p>` : ""}${actions}</section>`;
+  return `<section id="agents-bridge-panel" class="agents-bridge-setup" aria-label="${escapeAttribute(localize("Browser Bridge"))}"><h3>${escapeHtml(bridge.connected ? localize("Browser Bridge") : localize("Connect Browser Bridge"))}</h3><p class="muted">${presentation.statusHtml}</p>${presentation.reasonHtml}${instruction ? `<p>${escapeHtml(instruction)}</p>` : ""}${bridgePairingCodeHtml(bridge)}${actions}</section>`;
 };
 
 // Local models are a property of the machine, not of a role, so they read as their own section
@@ -1022,13 +1035,15 @@ const setExecutionContext = (checked: boolean): void => {
 
 const executionContextVisible = (panel: PanelState): boolean => {
   const context = panel.executionContext;
-  return context !== undefined && (context.unavailable !== "workflow" || context.mode === "localTodoStateV1");
+  if (!context) return false;
+  if (context.mode === "localTodoStateV1" || state.pendingExecutionContext?.conversationId === activeId()) return true;
+  return context.defaultMode === "localTodoStateV1" && context.unavailable !== "workflow";
 };
 
 const executionContextHtml = (panel: PanelState, draft: ConversationDraft): string => {
   if (!executionContextVisible(panel)) return "";
   const control = executionContextControl(panel, draft);
-  const help = localize("Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.");
+  const help = localize("Frozen experiment. Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. An offline pilot found no saving. Changes apply to new runs.");
   const savedDefault = !panel.executionContext?.pinned && panel.executionContext?.defaultMode === "localTodoStateV1" && !control.checked && !state.pendingExecutionContext
     ? localize("Saved default is on; unavailable for this setup.") : "";
   return `<div class="composer-context">

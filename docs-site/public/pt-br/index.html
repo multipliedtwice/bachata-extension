@@ -339,18 +339,15 @@
     </section>
 
     <section class="part" id="token-efficiency">
-      <p class="eyebrow">Piloto local opcional</p>
+      <p class="eyebrow">Piloto local congelado</p>
       <h2>Use menos contexto repetido de modelo</h2>
       <p>O Bachata agora inclui a primeira implementação em código de um modo de execução econômico em tokens para Claude Code e Codex. O objetivo é enviar o menor estado suficiente para a próxima decisão, em vez de reenviar repetidamente respostas anteriores completas, saída de verificação e histórico da conversa.</p>
       <div class="note warn">
-        <strong>Desligado por padrão</strong>
-        Experimente <strong>“Contexto econômico · Experimental”</strong> no campo de mensagem das execuções antes de iniciar uma execução.
-        O modo usa estado limitado e novas sessões locais do Claude/Codex para a implementação serial de TODO.
-        Sem anexos. Pode reduzir contexto repetido. A economia ainda não foi medida.
-        Configurações incompatíveis mostram o motivo e iniciam novas execuções no modo legacy.
-        A caixa de seleção salva <code>bachata.executionContextMode</code>; nas configurações avançadas o padrão continua o mesmo.
-        <code>legacy</code> continua sendo o padrão. Execuções ativas e recuperáveis mantêm o modo registrado.
-        Os critérios de lançamento do projeto ainda estão pendentes. Nenhuma afirmação sobre tokens, custo, latência ou qualidade.
+        <strong>Congelado: nenhuma economia encontrada</strong>
+        Um piloto offline com execuções reais do Claude Code e do Codex não encontrou economia. Após uma correção no formato de resposta, toda execução registrada ficou correta nos dois modos, e a entrada mediana no provedor do modo econômico foi igual ou maior.
+        Os prompts do próprio Bachata foram cerca de 1–3% do que os provedores processaram; o restante acontece dentro dos ciclos de ferramentas do Claude Code e do Codex, que esta etapa não alcança.
+        O controle <strong>“Contexto econômico · Experimental”</strong> fica oculto enquanto está desligado. A configuração avançada <code>bachata.executionContextMode</code> ainda permite ativá-lo; enquanto estiver ligado, o controle aparece no compositor de Runs, no menu <strong>“Agentes”</strong> para que possa ser desligado.
+        <code>legacy</code> continua como padrão. Execuções ativas e recuperáveis mantêm o modo registrado. Nenhuma afirmação sobre tokens, custo, latência ou qualidade.
       </div>
 
       <h3>Por que isso pode ajudar</h3>
@@ -364,7 +361,7 @@
       <h3>Implantação</h3>
       <ol class="steps">
         <li><strong>Implementado: preservar as evidências admitidas exatas.</strong> Armazenar prompts do Bachata, respostas recebidas e evidências do controlador antes de gerar prévias compactas. Se as evidências exatas não puderem ser mantidas, a execução compacta não começa.</li>
-        <li><strong>Implementado e desligado por padrão: piloto de estado local limitado.</strong> Iniciar novas sessões do Claude Code ou do Codex com estado de tarefa tipado, a observação mais recente do controlador e referências de evidência delimitadas. O fluxo atual continua como padrão.</li>
+        <li><strong>Implementado e depois congelado: piloto de estado local limitado.</strong> Iniciar sessões novas do Claude Code ou do Codex com estado de tarefa tipado, a última observação do controlador e referências de evidência delimitadas. O fluxo atual continua como padrão. O piloto offline não encontrou economia, então esta etapa está congelada.</li>
         <li><strong>Projetar o consenso com segurança.</strong> Levar adiante acordos, divergências, autoria e decisões pendentes sem tratar objeções omitidas como resolvidas.</li>
         <li><strong>Acrescentar recuperação no navegador e fusão segura de ações.</strong> Deixar o controlador fornecer páginas de evidência exatas e combinar alteração com verificações já autorizadas somente onde os limites de aprovação e recuperação permaneçam claros.</li>
       </ol>

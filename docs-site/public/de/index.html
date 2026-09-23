@@ -339,18 +339,15 @@
     </section>
 
     <section class="part" id="token-efficiency">
-      <p class="eyebrow">Lokaler Pilot zum Zuschalten</p>
+      <p class="eyebrow">Eingefrorener lokaler Pilot</p>
       <h2>Weniger wiederholten Modellkontext senden</h2>
       <p>Bachata enthält nun die erste Quellimplementierung eines token-effizienten Ausführungsmodus für Claude Code und Codex. Ziel ist, den kleinsten ausreichenden Zustand für die nächste Entscheidung zu senden, statt vollständige frühere Antworten, Prüfausgaben und Gesprächsverlauf immer wieder zu übertragen.</p>
       <div class="note warn">
-        <strong>Standardmäßig aus</strong>
-        Probieren Sie <strong>„Sparsamer Kontext · Experimentell“</strong> im Eingabefeld der Durchläufe aus, bevor Sie einen Durchlauf starten.
-        Der Modus nutzt begrenzten Zustand und neue lokale Claude-/Codex-Sitzungen für die serielle TODO-Umsetzung.
-        Keine Anhänge. Kann wiederholten Kontext verringern. Die Ersparnis ist noch nicht gemessen.
-        Nicht geeignete Setups nennen einen Grund und starten neue Durchläufe im Legacy-Modus.
-        Das Kontrollkästchen speichert <code>bachata.executionContextMode</code>; in den erweiterten Einstellungen bleibt der Standard derselbe.
-        <code>legacy</code> bleibt der Standard. Aktive und wiederherstellbare Durchläufe behalten ihren aufgezeichneten Modus.
-        Die Release-Kriterien des Projekts stehen noch aus. Keine Aussage über Token, Kosten, Latenz oder Qualität.
+        <strong>Eingefroren: keine Einsparung gefunden</strong>
+        Ein Offline-Pilot mit echten Claude-Code- und Codex-Läufen fand keine Einsparung. Nach einer Korrektur des Antwortformats war jeder aufgezeichnete Lauf in beiden Modi korrekt, und die mittlere Provider-Eingabe des sparsamen Modus war gleich oder höher.
+        Bachatas eigene Prompts machten etwa 1–3 % dessen aus, was die Provider verarbeiteten; der Rest entsteht in den Werkzeugschleifen von Claude Code und Codex, die dieser Ausschnitt nicht erreicht.
+        Das Steuerelement <strong>„Sparsamer Kontext · Experimentell“</strong> ist ausgeblendet, solange es aus ist. Die erweiterte Einstellung <code>bachata.executionContextMode</code> schaltet es weiterhin zu; solange es an ist, wird das Steuerelement im Runs-Eingabebereich im Menü <strong>„Agenten“</strong> angezeigt, damit es sich ausschalten lässt.
+        <code>legacy</code> bleibt Standard. Aktive und wiederherstellbare Läufe behalten ihren aufgezeichneten Modus. Keine Aussage zu Tokens, Kosten, Latenz oder Qualität.
       </div>
 
       <h3>Warum das helfen kann</h3>
@@ -364,7 +361,7 @@
       <h3>Einführung</h3>
       <ol class="steps">
         <li><strong>Umgesetzt: exakte zugelassene Nachweise bewahren.</strong> Von Bachata gehaltene Prompts, erhaltene Antworten und Controller-Nachweise speichern, bevor kompakte Vorschauen entstehen. Können exakte Nachweise nicht bewahrt werden, startet die kompakte Ausführung nicht.</li>
-        <li><strong>Umgesetzt, standardmäßig aus: begrenzter lokaler Zustand als Pilot.</strong> Neue Sitzungen von Claude Code oder Codex mit typisiertem Aufgabenzustand, der jüngsten Controller-Beobachtung und begrenzten Nachweisverweisen starten. Der bisherige Ablauf bleibt der Standard.</li>
+        <li><strong>Umgesetzt, dann eingefroren: begrenzter lokaler Zustand als Pilot.</strong> Neue Claude-Code- oder Codex-Sitzungen mit typisiertem Aufgabenzustand, der letzten Controller-Beobachtung und begrenzten Belegverweisen starten. Der bisherige Ablauf bleibt Standard. Der Offline-Pilot fand keine Einsparung, daher ist dieser Schritt eingefroren.</li>
         <li><strong>Konsens sicher weitertragen.</strong> Einigungen, Streitpunkte, Zuordnung und ungeklärte Entscheidungen weitertragen, ohne ausgelassene Einwände als geklärt zu behandeln.</li>
         <li><strong>Abruf im Browser und sicheres Zusammenführen von Aktionen ergänzen.</strong> Den Controller exakte Nachweisseiten liefern lassen und eine Änderung nur dort mit bereits genehmigten Prüfungen verbinden, wo die Grenzen von Genehmigung und Wiederherstellung klar bleiben.</li>
       </ol>

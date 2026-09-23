@@ -372,7 +372,7 @@ test("efficient context is a visible experiment with bounded scope and no measur
     const contents = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
     assert.match(contents, /Efficient context/u, file);
     assert.match(contents, /[Ee]xperimental/u, file);
-    assert.match(contents, /[Ss]avings (?:are )?(?:not yet|not) measured/u, file);
+    assert.match(contents, /[Ss]avings (?:are )?(?:not yet|not) measured|[Nn]o saving/u, file);
     assert.match(contents, /[Rr]ecorded mode/u, file);
   }
   const messages = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.nls.json"), "utf8"));

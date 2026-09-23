@@ -1,0 +1,92 @@
+{
+  "taskId": "ledger-fees",
+  "mode": "legacy",
+  "pipelineId": "todo-implementation",
+  "recordedAt": "2026-09-23T02:11:45.346Z",
+  "status": "completed",
+  "durationMs": 206322,
+  "changedFiles": [
+    "src/ledger.js"
+  ],
+  "scopeHeld": true,
+  "checkPassed": true,
+  "correct": true,
+  "verification": [
+    "Controller verification passed for every declared check.",
+    "Controller verification passed for every declared check."
+  ],
+  "interactions": [],
+  "calls": [
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 553,
+      "sessionMode": "existing",
+      "resumedSession": false,
+      "sessionIds": [
+        "01a0cc05-60b2-7632-afcb-dc11988dc90a"
+      ],
+      "startedAt": 1790129299085,
+      "status": "completed",
+      "answerBytes": 3029,
+      "durationMs": 116304
+    },
+    {
+      "agentId": "claude",
+      "adapter": "claude-code",
+      "promptBytes": 3954,
+      "sessionMode": "existing",
+      "resumedSession": false,
+      "sessionIds": [
+        "9054e531-4493-4514-8257-2e571dcbb4e2"
+      ],
+      "startedAt": 1790129415578,
+      "status": "completed",
+      "answerBytes": 1050,
+      "durationMs": 61269
+    },
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 8157,
+      "sessionMode": "existing",
+      "resumedSession": true,
+      "sessionIds": [
+        "01a0cc05-60b2-7632-afcb-dc11988dc90a"
+      ],
+      "startedAt": 1790129480639,
+      "status": "completed",
+      "answerBytes": 334,
+      "durationMs": 24540
+    }
+  ],
+  "promptBytesTotal": 12664,
+  "providerUsage": {
+    "sessions": [
+      {
+        "adapter": "codex-app-server",
+        "id": "01a0cc05-60b2-7632-afcb-dc11988dc90a",
+        "usage": {
+          "inputTotal": 121220,
+          "cacheRead": 106112,
+          "cacheWrite": 0,
+          "output": 3829
+        }
+      },
+      {
+        "adapter": "claude-code",
+        "id": "9054e531-4493-4514-8257-2e571dcbb4e2",
+        "usage": {
+          "inputTotal": 172557,
+          "cacheRead": 139213,
+          "cacheWrite": 33334,
+          "output": 3997
+        }
+      }
+    ],
+    "complete": true,
+    "inputTotal": 293777,
+    "uncachedInput": 48452,
+    "output": 7826
+  }
+}

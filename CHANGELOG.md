@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Runs context control
+
+- Froze the local Efficient context pilot. Offline runs with real Claude Code and Codex found no saving: every recorded run was correct in both modes, and efficient mode's median provider input was equal or higher. The **Efficient context · Experimental** control is hidden while off and appears in **Agents** only while the Advanced setting has it on. Legacy stays default; recorded mode is kept.
+- Fixed efficient-mode runs failing when a provider framed its JSON proposal with prose or a code fence. The proposal is extracted and still parsed strictly.
+
 ## 0.7.6 — Efficient context and recoverable browser conversations
 
 ### Documentation

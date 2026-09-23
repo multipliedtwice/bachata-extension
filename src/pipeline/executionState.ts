@@ -1,4 +1,5 @@
 import { evidenceDigest, evidenceObject, exactKeys } from "../state/executionEvidence";
+import { jsonCandidates } from "./output";
 
 export const EXECUTION_LIMITS = {
   prompt: 128 * 1024,
@@ -184,6 +185,17 @@ export const parseExecutionProposal = (source: string): ExecutionProposal => {
     version: 1, dispatchId: id(value.dispatchId), baseRevision: num(value.baseRevision), procedure: id(value.procedure),
     operations, result: { status: result.status, summary: str(result.summary) }, ...(recall ? { recall } : {}),
   };
+};
+export const parseFramedExecutionProposal = (source: string): ExecutionProposal => {
+  let failure: unknown;
+  for (const candidate of jsonCandidates(source)) {
+    try {
+      return parseExecutionProposal(candidate);
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  throw failure;
 };
 export const executionAllowedActions = (state: ExecutionState): string[] => {
   if (state.phase === "complete" || state.phase === "recovery") return [];

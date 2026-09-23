@@ -1406,7 +1406,7 @@
   "Use the default · {0}": "Use the default · {0}",
   "Use the provider default": "Use the provider default",
   "Use “{0}”": "Use “{0}”",
-  "Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.": "Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.",
+  "Frozen experiment. Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. An offline pilot found no saving. Changes apply to new runs.": "Frozen experiment. Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. An offline pilot found no saving. Changes apply to new runs.",
   "Validate a JSON output artifact": "Validate a JSON output artifact",
   "Validation": "Validation",
   "Validation errors": "Validation errors",

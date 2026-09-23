@@ -354,13 +354,14 @@ Read [Privacy](https://github.com/multipliedtwice/bachata-extension/blob/main/do
 
 ## Efficient context — experimental
 
-Try **Efficient context · Experimental** in the Runs composer **Agents** menu before starting a run.
-Uses bounded state and fresh local Claude/Codex sessions. May reduce repeated context.
-Savings are not yet measured. Works with serial TODO Implementation, no attachments.
-Other workflows hide it; other setups show why it is unavailable. Both use legacy mode for new runs.
+Frozen. An offline pilot found no saving: after one framing fix, every recorded run was correct
+in both modes, and efficient mode's median provider input was equal or higher. See
+[Token-efficient harness](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/TOKEN_EFFICIENT_HARNESS.md#pilot-result).
 
-Off by default. The control saves `bachata.executionContextMode`; Advanced settings keep the
-same default. Active, resumed and restarted runs keep their recorded mode.
+Off by default, and the **Efficient context · Experimental** control is hidden while it is off.
+The Advanced setting `bachata.executionContextMode` still opts in. While it is on, the control
+appears in the Runs composer **Agents** menu so it can be turned off. It works only with serial TODO
+Implementation, local Claude/Codex, a workspace folder and no attachments. Active, resumed and restarted runs keep their recorded mode.
 
 ## Current status
 

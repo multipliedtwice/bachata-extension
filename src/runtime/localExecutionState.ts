@@ -6,7 +6,7 @@ import {
   type ExecutionEvidenceStore, type EvidenceScope, type EvidencePage, type EvidenceStoreOptions,
 } from "../state/executionEvidence";
 import {
-  EXECUTION_LIMITS, executionAllowedActions, parseExecutionProposal, parseExecutionState,
+  EXECUTION_LIMITS, executionAllowedActions, parseExecutionState, parseFramedExecutionProposal,
   reduceExecutionProposal, strictExecutionJson,
   type ExecutionState, type ExecutionRole, type ExecutionProposal,
 } from "../pipeline/executionState";
@@ -122,7 +122,7 @@ export const createLocalExecutionState = async (storageDirectory: string, seed: 
     await invalidate(observed);
     if (state.pending?.status === "settled" && state.pending.procedure === input.procedure && state.recall.length === 0 && state.pending.answerRef) {
       const answer = await evidence.read(state.pending.answerRef, "controller");
-      return { status: "completed", answer: resultForPipeline(state, parseExecutionProposal(answer.content)) };
+      return { status: "completed", answer: resultForPipeline(state, parseFramedExecutionProposal(answer.content)) };
     }
     if (state.phase === "complete") throw new Error("Completed execution cannot dispatch another turn");
     if (input.role === "planner" && state.phase !== "planning") throw new Error("Planner is not authorized after the plan was accepted");
@@ -164,7 +164,7 @@ export const createLocalExecutionState = async (storageDirectory: string, seed: 
       if (answerId === undefined) throw new Error("Exact answer was not archived");
       const answer = { id: answerId };
       if (result.status !== "completed") throw new Error("Compact dispatch interrupted; outcome remains uncertain");
-      const proposal = parseExecutionProposal((await evidence.read(answer.id, "controller")).content);
+      const proposal = parseFramedExecutionProposal((await evidence.read(answer.id, "controller")).content);
       const audit = await input.audit();
       const manifest = await evidence.manifest();
       const known = manifest.records.filter((record) => record.readers.includes(input.role));

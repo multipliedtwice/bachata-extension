@@ -6398,6 +6398,40 @@ details.direction-evidence > ul,
   margin-bottom: 12px;
 }
 
+.bridge-pairing-code {
+  display: flex;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px 0 6px;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-editor-font-family);
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+
+.bridge-pairing-code-digit {
+  display: grid;
+  width: 34px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 7px;
+  background: var(--vscode-input-background);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bridge-pairing-code-legacy {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 7px;
+  background: var(--vscode-input-background);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-minimap button span,
   .direction-secondary-toggle .codicon,

@@ -62,7 +62,7 @@ const balancedSpan = (source: string, open: number): string | undefined => {
  * outermost balanced object or array. Nothing is repaired; a candidate that does not parse is
  * still a failure.
  */
-const jsonCandidates = (value: string): string[] => {
+export const jsonCandidates = (value: string): string[] => {
   const candidates = [stripFence(value)];
   const trimmed = value.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/iu);

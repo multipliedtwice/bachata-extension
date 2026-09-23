@@ -339,18 +339,15 @@
     </section>
 
     <section class="part" id="token-efficiency">
-      <p class="eyebrow">需手动开启的本地试点</p>
+      <p class="eyebrow">已冻结的本地试点</p>
       <h2>减少重复发送的模型上下文</h2>
       <p>Bachata 现已包含面向 Claude Code 与 Codex 的节省 Token 执行模式的首个源码实现。目标是只发送做出下一步决策所需的最小充分状态，而不是反复发送完整的历史回答、验证输出和对话记录。</p>
       <div class="note warn">
-        <strong>默认关闭</strong>
-        在开始运行前，先试试运行输入框中的 <strong>“精简上下文 · 实验性”</strong> 。
-        该模式在串行 TODO 实现中使用有界状态和全新的本地 Claude/Codex 会话。
-        不支持附件。可能减少重复上下文，节省幅度尚未测量。
-        不符合条件的环境会说明原因，并以 legacy 模式启动新的运行。
-        该复选框保存的是 <code>bachata.executionContextMode</code>；高级设置中的默认值保持不变。
-        <code>legacy</code> 仍为默认值。正在进行和可恢复的运行会保留其记录的模式。
-        项目发布门槛尚未通过。不构成关于 Token、成本、延迟或质量的承诺。
+        <strong>已冻结：未发现节省</strong>
+        使用真实 Claude Code 和 Codex 运行的离线试点没有发现节省。修复一次回答格式问题后，每次记录的运行在两种模式下都正确，而精简模式的提供方输入中位数持平或更高。
+        Bachata 自己的提示词约占提供方处理量的 1–3%；其余部分发生在 Claude Code 和 Codex 的工具循环内部，这一实现无法触及。
+         <strong>“精简上下文 · 实验性”</strong> 控件在关闭时隐藏。高级设置 <code>bachata.executionContextMode</code> 仍可开启；开启时，该控件会出现在 Runs 输入区的 <strong>“助手”</strong> 菜单中，以便将其关闭。
+        <code>legacy</code> 仍是默认值。活动中和可恢复的运行保留其记录的模式。不对 token、成本、延迟或质量作任何声明。
       </div>
 
       <h3>这为什么可能有帮助</h3>
@@ -364,7 +361,7 @@
       <h3>推进计划</h3>
       <ol class="steps">
         <li><strong>已实现：保留精确的已采信证据。</strong> 在生成精简预览之前，先存储 Bachata 自有的提示词、收到的回答和控制器证据。若无法保留精确证据，精简执行就不会启动。</li>
-        <li><strong>已实现但默认关闭：试点有界的本地状态。</strong> 以类型化的任务状态、最新的控制器观察结果和限定范围的证据引用启动全新的 Claude Code 或 Codex 会话。现有流程仍为默认。</li>
+        <li><strong>已实现，随后冻结：试点有界的本地状态。</strong> 以类型化的任务状态、最新的控制器观察和有范围的证据引用启动新的 Claude Code 或 Codex 会话。当前流程仍为默认。离线试点未发现节省，因此此步骤已冻结。</li>
         <li><strong>安全地传递一致意见。</strong> 传递已达成的共识、争议、归属和未决决策，同时不把被省略的异议当作已解决。</li>
         <li><strong>增加浏览器侧的证据回溯与安全的动作合并。</strong> 让控制器提供精确的证据页，并且仅在审批与恢复边界清晰之处，才把修改与已授权的检查合并执行。</li>
       </ol>

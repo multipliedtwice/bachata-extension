@@ -119,7 +119,17 @@ const installHostDoubles = (options = {}) => {
   };
 
   const registryPath = require.resolve("../../dist/adapters/registry.js");
-  injectModule(registryPath, {
+  const loadRealRegistry = () => {
+    const injected = require.cache[registryPath];
+    try {
+      return requireWithVscode(registryPath);
+    } finally {
+      require.cache[registryPath] = injected;
+    }
+  };
+  injectModule(registryPath, options.wrapRealAdapterRegistry ? {
+    createAdapterRegistry: () => options.wrapRealAdapterRegistry(loadRealRegistry().createAdapterRegistry()),
+  } : {
     createAdapterRegistry: () => ({
       types: () => ["codex-app-server", "claude-code", "chatgpt-browser", "claude-browser"],
       validatePipeline: () => [],

@@ -42,10 +42,25 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
 
 ### Bounded execution state pilot
 
-- [ ] **EX-BOUNDED-STATE-01 / bounded execution state pilot:** lead run + review authored Cypress
-  export journey and `tests/cypress/efficient-context.cy.cjs` Runs control journey under safe
-  resource conditions. Keep `legacy` default. No provider-quality,
+- [ ] **EX-BOUNDED-STATE-01 / frozen pilot Cypress:** lead run + review authored Cypress export
+  journey and `tests/cypress/efficient-context.cy.cjs` (hidden while off, shown while on, turn
+  off) under safe resource conditions. Pilot frozen; keep `legacy` default. No provider-quality,
   token, cost or latency claim. Native ignored-write gap remains EX-G6-09.
+- [ ] **EX-BROWSER-OBS-01 / Browser Bridge observation handles:** Bachata owns the managed
+  browser tool loop, so SoL-Pi ObservationPack fits there: large DOM, diff and verifier output
+  becomes controller evidence; prompt carries a compact head/tail and stable handle; model
+  recalls exact slices by handle. Spec first (design mechanism 3). Web chats keep no local token
+  log, so first extend the offline benchmark script to record bytes Bachata sends per managed
+  browser turn and their growth across turns; proceed only if large observations dominate.
+  - Paths: docs, src/browser, tests
+  - Verify: bachata:project-checks
+- [ ] **EX-CONSENSUS-SHARE-01 / measure before consensus projection:** extend the offline
+  benchmark script (today `todo-implementation` fix tasks only) to a consensus pipeline (Code
+  review reconcile) with local Claude/Codex participants. Report Bachata prompt share of
+  provider input per round. Structured consensus projection (design mechanism 2) only if that
+  share is material; otherwise drop it.
+  - Paths: benchmarks, scripts/context-mode-benchmark.cjs
+  - Verify: none
 
 ### P2: expanded evidence authority
 

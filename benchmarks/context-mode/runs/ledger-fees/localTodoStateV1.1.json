@@ -1,0 +1,102 @@
+{
+  "taskId": "ledger-fees",
+  "mode": "localTodoStateV1",
+  "pipelineId": "todo-implementation",
+  "recordedAt": "2026-09-23T02:14:50.349Z",
+  "status": "completed",
+  "durationMs": 184706,
+  "changedFiles": [
+    "src/ledger.js"
+  ],
+  "scopeHeld": true,
+  "checkPassed": true,
+  "correct": true,
+  "verification": [
+    "Controller verification passed for every declared check.",
+    "Controller verification passed for every declared check."
+  ],
+  "interactions": [],
+  "calls": [
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 7511,
+      "sessionMode": "freshExecutionState",
+      "resumedSession": false,
+      "sessionIds": [
+        "01a0cc08-8701-74d3-b9af-b193ac480d22"
+      ],
+      "startedAt": 1790129506021,
+      "status": "completed",
+      "answerBytes": 1803,
+      "durationMs": 76069
+    },
+    {
+      "agentId": "claude",
+      "adapter": "claude-code",
+      "promptBytes": 9262,
+      "sessionMode": "freshExecutionState",
+      "resumedSession": false,
+      "sessionIds": [
+        "3a678229-e8c3-4569-8654-f661d1eaf7fb"
+      ],
+      "startedAt": 1790129582441,
+      "status": "completed",
+      "answerBytes": 819,
+      "durationMs": 60251
+    },
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 9658,
+      "sessionMode": "freshExecutionState",
+      "resumedSession": false,
+      "sessionIds": [
+        "01a0cc0a-ac9b-7833-a207-8ec380bc16cd"
+      ],
+      "startedAt": 1790129646441,
+      "status": "completed",
+      "answerBytes": 313,
+      "durationMs": 43613
+    }
+  ],
+  "promptBytesTotal": 26431,
+  "providerUsage": {
+    "sessions": [
+      {
+        "adapter": "codex-app-server",
+        "id": "01a0cc08-8701-74d3-b9af-b193ac480d22",
+        "usage": {
+          "inputTotal": 49875,
+          "cacheRead": 39168,
+          "cacheWrite": 0,
+          "output": 2003
+        }
+      },
+      {
+        "adapter": "claude-code",
+        "id": "3a678229-e8c3-4569-8654-f661d1eaf7fb",
+        "usage": {
+          "inputTotal": 143618,
+          "cacheRead": 105636,
+          "cacheWrite": 37974,
+          "output": 4171
+        }
+      },
+      {
+        "adapter": "codex-app-server",
+        "id": "01a0cc0a-ac9b-7833-a207-8ec380bc16cd",
+        "usage": {
+          "inputTotal": 54075,
+          "cacheRead": 34560,
+          "cacheWrite": 0,
+          "output": 1042
+        }
+      }
+    ],
+    "complete": true,
+    "inputTotal": 247568,
+    "uncachedInput": 68204,
+    "output": 7216
+  }
+}

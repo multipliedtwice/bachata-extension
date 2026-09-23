@@ -1,0 +1,92 @@
+{
+  "taskId": "ledger-fees",
+  "mode": "legacy",
+  "pipelineId": "todo-implementation",
+  "recordedAt": "2026-09-23T02:30:42.908Z",
+  "status": "completed",
+  "durationMs": 202513,
+  "changedFiles": [
+    "src/ledger.js"
+  ],
+  "scopeHeld": true,
+  "checkPassed": true,
+  "correct": true,
+  "verification": [
+    "Controller verification passed for every declared check.",
+    "Controller verification passed for every declared check."
+  ],
+  "interactions": [],
+  "calls": [
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 553,
+      "sessionMode": "existing",
+      "resumedSession": false,
+      "sessionIds": [
+        "01a0cc16-c955-7693-a9d9-122626a3ce17"
+      ],
+      "startedAt": 1790130440510,
+      "status": "completed",
+      "answerBytes": 2878,
+      "durationMs": 111369
+    },
+    {
+      "agentId": "claude",
+      "adapter": "claude-code",
+      "promptBytes": 3803,
+      "sessionMode": "existing",
+      "resumedSession": false,
+      "sessionIds": [
+        "e180499a-8b13-4107-b0ce-d4a78ea00351"
+      ],
+      "startedAt": 1790130552256,
+      "status": "completed",
+      "answerBytes": 1366,
+      "durationMs": 67101
+    },
+    {
+      "agentId": "codex",
+      "adapter": "codex-app-server",
+      "promptBytes": 8322,
+      "sessionMode": "existing",
+      "resumedSession": true,
+      "sessionIds": [
+        "01a0cc16-c955-7693-a9d9-122626a3ce17"
+      ],
+      "startedAt": 1790130620995,
+      "status": "completed",
+      "answerBytes": 376,
+      "durationMs": 21765
+    }
+  ],
+  "promptBytesTotal": 12678,
+  "providerUsage": {
+    "sessions": [
+      {
+        "adapter": "codex-app-server",
+        "id": "01a0cc16-c955-7693-a9d9-122626a3ce17",
+        "usage": {
+          "inputTotal": 92573,
+          "cacheRead": 74880,
+          "cacheWrite": 0,
+          "output": 3838
+        }
+      },
+      {
+        "adapter": "claude-code",
+        "id": "e180499a-8b13-4107-b0ce-d4a78ea00351",
+        "usage": {
+          "inputTotal": 171223,
+          "cacheRead": 138458,
+          "cacheWrite": 32755,
+          "output": 4345
+        }
+      }
+    ],
+    "complete": true,
+    "inputTotal": 263796,
+    "uncachedInput": 50458,
+    "output": 8183
+  }
+}

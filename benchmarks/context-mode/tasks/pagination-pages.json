@@ -1,0 +1,11 @@
+{
+  "id": "pagination-pages",
+  "kind": "fix",
+  "title": "Pagination drops items",
+  "fixture": "context-mode/fixtures/pagination-pages",
+  "prompt": "With 10 items and page size 3, render shows only 3 pages and item 10 never appears. Fix src/pagination.js only.",
+  "answerKey": {
+    "expectedChangedFiles": ["src/pagination.js"],
+    "checkScript": "check.cjs"
+  }
+}

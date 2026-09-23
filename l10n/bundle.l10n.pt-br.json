@@ -285,7 +285,7 @@
   "Unresolved": "Não resolvido",
   "Unresolved risks": "Riscos não resolvidos",
   "Update initiative": "Atualizar iniciativa",
-  "Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. May reduce repeated context. Savings are not yet measured. Changes apply to new runs.": "Usa estado limitado e novas sessões locais do Claude/Codex para a implementação de TODO. Pode reduzir contexto repetido. A economia ainda não foi medida. As mudanças valem para novas execuções.",
+  "Frozen experiment. Uses bounded state and fresh local Claude/Codex sessions for TODO Implementation. An offline pilot found no saving. Changes apply to new runs.": "Experimento congelado. Usa estado limitado e novas sessões locais do Claude/Codex na implementação de TODO. Um piloto offline não encontrou economia. As alterações valem para novas execuções.",
   "Validation": "Validação",
   "Verification": "Verificação",
   "Verification checks, one id = command per line": "Verificações, uma por linha no formato id = comando",
