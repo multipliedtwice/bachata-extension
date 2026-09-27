@@ -15,7 +15,7 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 | Pinned Browser Bridge version | 0.7.1 |
 | Browser protocol version | 9 |
 | Maintained source files (Git-tracked) | 933 |
-| Maintained source manifest SHA-256 (Git-tracked) | 455c8035860779cfcfd58ae36eaaf69f89b248afc7582842f3c925d6f8b9cbd2 |
+| Maintained source manifest SHA-256 (Git-tracked) | bc4005197fc9610fcdaf3b923357d04d8cf576c5ec714389b814d49c7edf0a1e |
 | Contributed settings | 115 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -38,11 +38,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit dab62a6fdd3d2f1cdeca1912227867897207c29b.
+The working tree was modified, so these values describe the working tree and not commit c3a05d8a6ec8649a54da4c3f0ed3818bacc8c11d.
 
 | Observation | Value |
 | --- | --- |
-| Revision | dab62a6fdd3d2f1cdeca1912227867897207c29b |
+| Revision | c3a05d8a6ec8649a54da4c3f0ed3818bacc8c11d |
 | Working tree | modified |
 | Maintained source files (working tree, what source:export carries) | 933 |
 | Platform | Windows_NT 10.0.26200 x64 |
