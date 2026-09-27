@@ -143,6 +143,16 @@ test("Chrome errors name the failing request and the provider's own reason", asy
       ? { ok: true, json: async () => ({ access_token: "fixture-access" }) }
       : { ok: false, status: 400, json: async () => ({ error: { status: "FAILED_PRECONDITION", message: "Version must be greater" } }) }),
   }), /Chrome Web Store upload request failed: HTTP 400 \(FAILED_PRECONDITION: Version must be greater\)/u);
+  calls = 0;
+  await assert.rejects(publishChromeStore({
+    bytes: Buffer.from("zip"), version: "0.7.0", env,
+    request: async () => (calls++ === 0
+      ? { ok: true, json: async () => ({ access_token: "fixture-access" }) }
+      : { ok: false, status: 400, json: async () => ({ error: {
+        status: "INVALID_ARGUMENT", message: "The uploaded package was invalid.",
+        details: [{ fieldViolations: [{ field: "manifest", description: `Unsupported permission; ${env.CWS_CLIENT_SECRET}` }] }],
+      } }) }),
+  }), (error) => error.message.includes("manifest: Unsupported permission") && !error.message.includes(env.CWS_CLIENT_SECRET));
   await assert.rejects(publishChromeStore({
     bytes: Buffer.from("zip"), version: "0.7.0", env,
     request: async () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError("html"); } }),

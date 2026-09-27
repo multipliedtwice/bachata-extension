@@ -13,12 +13,28 @@ export const publishChromeStore = async ({ bytes, version, env, request = fetch,
   const providerReason = async (response) => {
     const body = await response.json().catch(() => undefined);
     const error = body?.error;
+    const details = [];
+    const collectDetails = (value, depth = 0) => {
+      if (depth > 4 || value == null) return;
+      if (Array.isArray(value)) {
+        value.forEach((entry) => collectDetails(entry, depth + 1));
+      } else if (typeof value === "object") {
+        for (const [key, entry] of Object.entries(value)) {
+          if (/^(message|description|reason|field|subject|details|violations|fieldViolations|errors)$/u.test(key)) {
+            collectDetails(entry, depth + 1);
+          }
+        }
+      } else if (typeof value === "string" && value.trim()) {
+        details.push(value.trim());
+      }
+    };
+    collectDetails(error?.details);
     const reason = typeof error === "string"
       ? [error, body.error_description]
-      : [error?.status, error?.message];
+      : [error?.status, error?.message, ...details];
     const text = reason.filter((part) => typeof part === "string" && part.trim()).join(": ");
     const redacted = secrets.reduce((value, secret) => value.split(secret).join("[redacted]"), text)
-      .replace(/ya29\.[\w.-]+/gu, "[redacted]").replace(/\s+/gu, " ").slice(0, 300);
+      .replace(/ya29\.[\w.-]+/gu, "[redacted]").replace(/\s+/gu, " ").slice(0, 600);
     return redacted ? ` (${redacted})` : "";
   };
   const json = async (stage, url, options) => {

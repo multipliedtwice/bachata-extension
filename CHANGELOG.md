@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.7.8 — Compact runs and message input
+
+- Refined the compact run header and action menu for narrow VS Code panels.
+- Added queued messages and direct voice dictation for local CLI conversations.
+- Improved browser conversation recovery and Windows transcript index writes.
+- Requires Browser Bridge 0.7.2 for browser chat workflows.
+
 ## 0.7.7 — Frozen efficient context and four-digit Bridge pairing
 
 ### Browser Bridge pairing
