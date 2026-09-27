@@ -221,7 +221,6 @@ window.addEventListener("resize", () => {
       return scroll !== null && menu.dataset.anchorStripWidth !== String(scroll.clientWidth);
     });
   if (movedMenu) closeMenusWithin(root);
-  updateRunTabStripLayout();
   const focused = document.activeElement instanceof HTMLElement
     ? document.activeElement.closest<HTMLElement>(".run-tab") : null;
   revealRunTab(focused ?? root.querySelector<HTMLElement>(".run-tab.selected"));
@@ -654,6 +653,12 @@ root.addEventListener("click", (event) => {
     vscode.postMessage({ type: "cycle.close" });
   } else if (action === "cycle-rebaseline") {
     vscode.postMessage({ type: "cycle.rebaseline" });
+  } else if (action === "run-menu-notifications-toggle") {
+    const panel = root.querySelector<HTMLElement>("#run-menu-notifications");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    state.disclosureStates.set(`compact-notifications:${activeId()}`, !panel.hidden);
+    target.setAttribute("aria-expanded", String(!panel.hidden));
   } else if (action === "notification-settings") {
     openDialog({ kind: "notificationSettings", title: localize("Notifications"), message: "", confirmLabel: localize("Close") });
   } else if (action === "notification-open") {
@@ -1044,7 +1049,8 @@ root.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     postRuntime({ type: "attachment.remove", attachmentId: target.dataset.attachmentId });
-  } else if (action === "submit-message") submitMessage();
+  } else if (action === "voice-toggle") toggleDictation();
+  else if (action === "submit-message") submitMessage();
   else if (action === "interrupt-run") {
     if (pendingInterrupts.has(activeId())) return;
     pendingInterrupts.add(activeId());
@@ -1122,7 +1128,32 @@ root.addEventListener("click", (event) => {
         }
       });
     });
-  } else if (action === "queue-cancel" && target.dataset.messageId) postRuntime({ type: "queue.cancel", messageId: target.dataset.messageId });
+  } else if (action === "queue-edit" && target.dataset.messageId) {
+    const queued = activePanel().queuedMessages.find((item) => item.id === target.dataset.messageId);
+    if (queued) {
+      queueEditingId = queued.id;
+      queueEditingPrompt = queued.prompt;
+      focusAfterRender(() => root.querySelector<HTMLTextAreaElement>(".queue-edit-prompt")?.focus());
+    }
+  }
+  else if (action === "queue-edit-dismiss") {
+    queueEditingId = undefined;
+    queueEditingPrompt = "";
+    scheduleRender();
+  }
+  else if (action === "queue-edit-save" && target.dataset.messageId) {
+    const prompt = queueEditingPrompt.trim();
+    if (!prompt) {
+      announceStatus(localize("Enter a message before saving."));
+      return;
+    }
+    postRuntime({ type: "queue.update", messageId: target.dataset.messageId, prompt });
+    queueEditingId = undefined;
+    queueEditingPrompt = "";
+    scheduleRender();
+  }
+  else if (action === "queue-promote" && target.dataset.messageId) postRuntime({ type: "queue.promote", messageId: target.dataset.messageId });
+  else if (action === "queue-cancel" && target.dataset.messageId) postRuntime({ type: "queue.cancel", messageId: target.dataset.messageId });
   else if (action === "queue-resume") postRuntime({ type: "queue.resume" });
   else if (action === "workflow-resume") postRuntime({ type: "workflow.resume" });
   else if (action === "workflow-restart") postRuntime({ type: "workflow.restart" });
@@ -1440,6 +1471,8 @@ root.addEventListener("input", (event) => {
     else scheduleDraftSave(activeId(), target.value);
     refreshComposerSubmitState();
     if (wasEmpty !== (target.value.trim().length === 0)) scheduleRender();
+  } else if (target.dataset.queueEditInput) {
+    queueEditingPrompt = target.value;
   } else if (target.id === "run-search") {
     state.roomSearch = target.value;
     queueHistorySearch();

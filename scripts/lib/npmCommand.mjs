@@ -11,12 +11,23 @@
  * Arguments stay an array. Under `shell: true` Windows joins them for `cmd.exe`, so every caller
  * here passes plain npm subcommands and flags with no spaces or shell metacharacters in them.
  */
-const isWindows = process.platform === "win32";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
-export const npmExecutable = isWindows ? "npm.cmd" : "npm";
+const isWindows = process.platform === "win32";
+const windowsNpm = () => {
+  const directories = (process.env.Path ?? process.env.PATH ?? "").split(path.delimiter);
+  for (const directory of directories) {
+    const candidate = path.join(directory.replace(/^"|"$/gu, ""), "npm.cmd");
+    if (existsSync(candidate)) return "npm.cmd";
+  }
+  return "npm.exe";
+};
+
+export const npmExecutable = isWindows ? windowsNpm() : "npm";
 
 export const npmSpawnOptions = (options = {}) => ({
   ...options,
   windowsHide: true,
-  ...(isWindows ? { shell: true } : {}),
+  ...(npmExecutable === "npm.cmd" ? { shell: true } : {}),
 });

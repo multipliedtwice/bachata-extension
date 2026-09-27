@@ -4,6 +4,15 @@ const test = require("node:test");
 const { parseBridgeClientMessage } = require("../dist/browser/protocol.js");
 const { parseWebviewMessage } = require("../dist/webview/protocol.js");
 
+test("queue edits require a nonempty prompt and identify the queued item", () => {
+  assert.deepEqual(parseWebviewMessage({ type: "queue.update", messageId: "pending-1", prompt: "  revised  " }), {
+    success: true,
+    message: { type: "queue.update", messageId: "pending-1", prompt: "  revised  " },
+  });
+  assert.equal(parseWebviewMessage({ type: "queue.update", messageId: "pending-1", prompt: " " }).success, false);
+  assert.equal(parseWebviewMessage({ type: "queue.promote", messageId: "" }).success, false);
+});
+
 test("message parser validates and deduplicates dynamic recipients", () => {
   const result = parseWebviewMessage({
     type: "message.send",
@@ -204,6 +213,30 @@ test("browser protocol contract matches the VS Code implementation", () => {
       `Rejected client fixture ${fixture.type}: ${parsed.error ?? "unknown error"}`,
     );
   }
+});
+
+test("Bridge status carries an observed Chat picker without accepting extra fields", () => {
+  const session = {
+    id: "chatgpt:10:doc:chatgpt%3Ahttps%3A%2F%2Fchatgpt.com%2F",
+    provider: "chatgpt",
+    tabId: 10,
+    frameId: 0,
+    documentToken: "doc",
+    conversationUrl: "https://chatgpt.com/",
+    conversationIdentity: "chatgpt:https://chatgpt.com/",
+    chatConfiguration: { mode: "Chat", pickerLabel: "Instant" },
+    status: "ready",
+    createdAt: "2026-09-25T00:00:00.000Z",
+    updatedAt: "2026-09-25T00:00:01.000Z",
+  };
+  const status = { type: "provider.status", protocolVersion: 9, sessions: [session], selectedSessionId: session.id };
+  assert.equal(parseBridgeClientMessage(status).success, true);
+  assert.equal(parseBridgeClientMessage({ ...status, sessions: [{ ...session,
+    chatConfiguration: { mode: "Unknown", pickerLabel: "", diagnostic: "picker=missing" },
+  }] }).success, true);
+  assert.equal(parseBridgeClientMessage({ ...status, sessions: [{ ...session,
+    chatConfiguration: { ...session.chatConfiguration, unexpected: true },
+  }] }).success, false);
 });
 
 test("webview protocol accepts provider asset reveal requests", () => {

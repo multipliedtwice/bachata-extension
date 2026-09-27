@@ -251,7 +251,11 @@ window.__panelState = {
       },
     ],
   },
-  queuedMessages: [],
+  queuedMessages: [
+    { id: "queued-1", kind: "pipeline", pipelineId: "custom-a", prompt: "Finish the current path and verify the result", recipients: [], mode: "implementation", attachmentIds: [], iterationCount: 1, createdAt: timestamp },
+    { id: "queued-2", kind: "pipeline", pipelineId: "custom-a", prompt: "Return a ZIP archive with the source and a short README", recipients: [], mode: "implementation", attachmentIds: [], iterationCount: 1, createdAt: timestamp },
+    { id: "queued-3", kind: "pipeline", pipelineId: "custom-a", prompt: "Summarize the changes in Markdown and include the relevant diff", recipients: [], mode: "implementation", attachmentIds: [], iterationCount: 1, createdAt: timestamp },
+  ],
   queuePaused: false,
 };
 
@@ -381,6 +385,30 @@ window.__boot = () => {
     type: "conversation.message",
     conversationId: "run-1",
     message: { type: "state.snapshot", state: window.__panelState },
+  });
+};
+
+window.__bootWarning = () => {
+  window.__send({ type: "manager.snapshot", state: window.__managerState });
+  window.__send({
+    type: "conversation.message",
+    conversationId: "run-1",
+    message: {
+      type: "state.snapshot",
+      state: {
+        ...window.__panelState,
+        readiness: {
+          status: "needsSetup",
+          findings: [{
+            id: "adapter.claude",
+            label: "Reviewer 2",
+            status: "needsSetup",
+            detail: "claude did not answer: claude: spawn claude ENOENT",
+            remediationId: "provider.install.claude",
+          }],
+        },
+      },
+    },
   });
 };
 

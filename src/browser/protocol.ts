@@ -89,6 +89,7 @@ export type BrowserSession = {
   conversationUrl: string;
   conversationIdentity: string;
   title?: string;
+  chatConfiguration?: { mode: "Chat" | "Work" | "Unknown"; pickerLabel: string; diagnostic?: string };
   capabilities?: BrowserSessionCapabilities;
   status: BrowserSessionStatus;
   createdAt: string;
@@ -536,6 +537,7 @@ const parseSession = (value: unknown): BrowserSession | undefined => {
       "conversationUrl",
       "conversationIdentity",
       "title",
+      "chatConfiguration",
       "capabilities",
       "status",
       "createdAt",
@@ -550,6 +552,12 @@ const parseSession = (value: unknown): BrowserSession | undefined => {
     !isNonEmptyString(value.conversationUrl) ||
     !isNonEmptyString(value.conversationIdentity) ||
     (value.title !== undefined && !isString(value.title)) ||
+    (value.chatConfiguration !== undefined && (!isRecord(value.chatConfiguration)
+      || !hasOnlyKeys(value.chatConfiguration, ["mode", "pickerLabel", "diagnostic"])
+      || (value.chatConfiguration.mode !== "Chat" && value.chatConfiguration.mode !== "Work"
+        && value.chatConfiguration.mode !== "Unknown")
+      || !isString(value.chatConfiguration.pickerLabel)
+      || (value.chatConfiguration.diagnostic !== undefined && !isString(value.chatConfiguration.diagnostic)))) ||
     (value.capabilities !== undefined && !isSessionCapabilities(value.capabilities)) ||
     !statuses.has(value.status as BrowserSessionStatus) ||
     !isIsoDate(value.createdAt) ||

@@ -32,6 +32,8 @@ test("domains group the messages one part of the runtime answers", () => {
   assert.equal(webviewMessageDomain("bridge.discover"), "browser");
   assert.equal(webviewMessageDomain("transcript.loadOlder"), "transcript");
   assert.equal(webviewMessageDomain("queue.resume"), "queue");
+  assert.equal(webviewMessageDomain("queue.update"), "queue");
+  assert.equal(webviewMessageDomain("queue.promote"), "queue");
   assert.equal(webviewMessageDomain("attachment.remove"), "attachment");
   assert.equal(webviewMessageDomain("approval.respond"), "approval");
 });

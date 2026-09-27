@@ -118,7 +118,11 @@ for (const name of ["../x", "a/../b", "./x", "a//b", "a/NUL.ts", "a/trailing.", 
 }
 
 for (const defect of ["missing-version", "stale-version", "late-edit", "symlink", "read-only", "scope", "mixed", "control-and-asset", "broken-zip", "unsupported-archive", "ambiguous-root", "binary"]) {
-  test(`refuses ${defect} and preserves all workspace contents`, async () => {
+  test(`refuses ${defect} and preserves all workspace contents`, async (context) => {
+    if (defect === "symlink" && process.platform === "win32") {
+      context.skip("symbolic-link permissions vary on Windows");
+      return;
+    }
     const state = await workspace();
     try {
       let name = "source.zip";

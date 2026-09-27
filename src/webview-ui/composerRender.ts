@@ -1069,6 +1069,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
   // One rounded surface holds the attachments, the borderless prompt and the compact toolbar; the
   // send control is an arrow icon carrying its Send/Queue/Interrupt name for assistive tech.
   return `<footer class="composer">
+    ${queueHtml(panel)}
     <div class="composer-surface">
       ${attachmentStripHtml(panel, draft)}
       <textarea id="composer-prompt" maxlength="${String(BACHATA_TEXT_LIMITS.preparedDraftUnits)}" aria-label="${escapeAttribute(localize("Run input"))}" placeholder="${escapeAttribute(pipelinePromptPlaceholder(panel))}">${escapeHtml(draft.prompt)}</textarea>
@@ -1080,6 +1081,7 @@ const composerHtml = (panel: PanelState, draft: ConversationDraft): string => {
         ${agentsPickerHtml(panel)}
         <button data-action="composer-settings-toggle" class="icon-button composer-settings-button" title="${escapeAttribute(settingsLabel)}" aria-label="${escapeAttribute(settingsLabel)}" ${expandedControlAttributes(state.composerSettingsOpen, "composer-settings")}><i class="codicon codicon-refresh" aria-hidden="true"></i>${draft.iterationCount > 1 ? `<span class="iteration-picker-value" aria-hidden="true">${String(draft.iterationCount)}</span>` : ""}</button>
         <div class="composer-send">
+          <button data-action="voice-toggle" class="icon-button composer-voice-button${dictationActive && dictationConversationId === activeId() ? " is-listening" : ""}" aria-label="${escapeAttribute(dictationActive && dictationConversationId === activeId() ? localize("Stop voice input") : localize("Start voice input"))}" title="${escapeAttribute(dictationActive && dictationConversationId === activeId() ? localize("Stop voice input") : localize("Start voice input"))}" aria-pressed="${dictationActive && dictationConversationId === activeId() ? "true" : "false"}"><i class="codicon codicon-mic" aria-hidden="true"></i></button>
           ${composerPrimaryActionHtml(panel, draft)}
         </div>
       </div>

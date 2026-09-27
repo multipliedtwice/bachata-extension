@@ -113,7 +113,7 @@ test("open Bachata panel is serialized and rebound after an Extension Host resta
   assert.equal(restored.panel.webview.options.retainContextWhenHidden, true);
   assert.deepEqual(
     restored.panel.webview.options.localResourceRoots.map((entry) => entry.fsPath),
-    ["/extension/dist", "/workspace-state", "/global-state"],
+    [path.join("/extension", "dist"), "/workspace-state", "/global-state"],
   );
 
   await restored.receive({ type: "manager.ready" });

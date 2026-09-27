@@ -23,16 +23,34 @@ const notificationLevelLabel: Record<"decision" | "material" | "routine", string
  * an `aria-label` carrying the whole line made a screen reader read that line twice, once from the
  * paragraph and once from the button, which is the duplication this centre exists to avoid.
  */
-const notificationBellHtml = (): string => {
-  const center = notificationCenterState();
+const notificationContentsHtml = (center: NotificationCenterState, textIdPrefix: string): string => {
   const unread = center.unread;
   const list = center.events.length === 0
     ? `<p class="notification-empty">${escapeHtml(center.mode === "off" ? localize("Notifications are off.") : localize("No notifications."))}</p>`
     : `<ul class="notification-list">${center.events
-        .map((entry) => `<li class="notification-${escapeAttribute(entry.level)}${entry.read ? "" : " unread"}">${entry.read ? "" : `<strong class="notification-unread-flag">${escapeHtml(localize("Unread"))}</strong>`}<span class="notification-level">${escapeHtml(notificationLevelLabel[entry.level])}</span><p id="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(entry.text)}</p><div class="compact-actions"><button data-action="notification-open" data-record="${escapeAttribute(entry.id)}" aria-describedby="${escapeAttribute(`notification-text:${entry.id}`)}">${escapeHtml(notificationActionLabel[entry.action])}</button></div></li>`)
+        .map((entry) => `<li class="notification-${escapeAttribute(entry.level)}${entry.read ? "" : " unread"}">${entry.read ? "" : `<strong class="notification-unread-flag">${escapeHtml(localize("Unread"))}</strong>`}<span class="notification-level">${escapeHtml(notificationLevelLabel[entry.level])}</span><p id="${escapeAttribute(`${textIdPrefix}:${entry.id}`)}">${escapeHtml(entry.text)}</p><div class="compact-actions"><button data-action="notification-open" data-record="${escapeAttribute(entry.id)}" aria-describedby="${escapeAttribute(`${textIdPrefix}:${entry.id}`)}">${escapeHtml(notificationActionLabel[entry.action])}</button></div></li>`)
         .join("")}</ul>`;
-  const summaryLabel = center.mode === "off"
-    ? localize("Notifications are off")
-    : localize("Notifications, {0} unread", String(unread));
-  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary class="icon-button" id="notification-button" aria-label="${escapeAttribute(summaryLabel)}" title="${escapeAttribute(localize("Notifications"))}"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="${escapeAttribute(localize("Notifications"))}"><div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>${escapeHtml(localize("Mark all read"))}</button><button data-action="notification-clear"${center.events.length === 0 ? " disabled" : ""}>${escapeHtml(localize("Clear"))}</button><button data-action="notification-settings">${escapeHtml(localize("Settings"))}</button></div>${list}</div></details>`;
+  return `<div class="compact-actions"><button data-action="notification-read-all"${unread === 0 ? " disabled" : ""}>${escapeHtml(localize("Mark all read"))}</button><button data-action="notification-clear"${center.events.length === 0 ? " disabled" : ""}>${escapeHtml(localize("Clear"))}</button><button data-action="notification-settings">${escapeHtml(localize("Settings"))}</button></div>${list}`;
 };
+
+const notificationSummaryLabel = (center: NotificationCenterState): string =>
+  center.mode === "off"
+    ? localize("Notifications are off")
+    : localize("Notifications, {0} unread", String(center.unread));
+
+const compactNotificationsExpanded = (): boolean =>
+  state.disclosureStates.get(`compact-notifications:${activeId()}`) === true;
+
+const notificationBellHtml = (): string => {
+  const center = notificationCenterState();
+  const unread = center.unread;
+  return `<details class="notification-center" ${disclosureAttributes("notification-center")}><summary class="icon-button" id="notification-button" aria-label="${escapeAttribute(notificationSummaryLabel(center))}" title="${escapeAttribute(localize("Notifications"))}"><i class="codicon codicon-bell" aria-hidden="true"></i>${unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(unread)}</span>` : ""}</summary><div class="notification-panel" role="region" aria-label="${escapeAttribute(localize("Notifications"))}">${notificationContentsHtml(center, "notification-text")}</div></details>`;
+};
+
+const compactNotificationActionHtml = (): string => {
+  const center = notificationCenterState();
+  return `<button class="run-menu-quick-action" data-action="run-menu-notifications-toggle" aria-label="${escapeAttribute(notificationSummaryLabel(center))}" title="${escapeAttribute(localize("Notifications"))}" aria-expanded="${compactNotificationsExpanded() ? "true" : "false"}" aria-controls="run-menu-notifications"><i class="codicon codicon-bell" aria-hidden="true"></i>${center.unread > 0 ? `<span class="notification-unread" aria-hidden="true">${String(center.unread)}</span>` : ""}</button>`;
+};
+
+const compactNotificationPanelHtml = (): string =>
+  `<section id="run-menu-notifications" class="run-menu-notifications" role="region" aria-label="${escapeAttribute(localize("Notifications"))}"${compactNotificationsExpanded() ? "" : " hidden"}>${notificationContentsHtml(notificationCenterState(), "menu-notification-text")}</section>`;

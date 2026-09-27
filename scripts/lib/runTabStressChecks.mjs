@@ -16,6 +16,14 @@ const assertLayout = (result, count, controls, label) => {
   assert.equal(result.inactiveDetails, false, `${label}: inactive details`);
   assert.equal(result.selectedControlCount, controls, `${label}: complete active controls`);
   assert.ok(result.selectedTitleWidth >= 32, `${label}: selected title has readable space (${JSON.stringify(result)})`);
+  if (result.compactStrip) {
+    assert.equal(result.compactSingleRow, true, `${label}: compact title and menu share one row`);
+    assert.equal(result.compactToolsHidden, true, `${label}: secondary controls move into the menu`);
+    assert.ok(result.compactQuickActionCount >= 1, `${label}: icon actions exist in the menu`);
+  }
+  if (result.viewportWidth <= 720) {
+    assert.equal(result.scrollbarHidden, true, `${label}: compact strip has no visible scrollbar`);
+  }
   assert.deepEqual(result.order, Array.from({ length: count }, (_, index) => `stress-${index + 1}`), `${label}: stable order`);
 };
 
@@ -24,7 +32,7 @@ export const runTabStressChecks = async (session, press, pressKey) => {
   let cases = 0;
   try {
     for (const theme of ["light", "dark"]) {
-      for (const width of [320, 400, 480, 792, 900, 1280]) {
+      for (const width of [320, 375, 400, 480, 792, 900, 1280]) {
         await session.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
         await session.evaluate(`(() => {
           for (const [key, value] of Object.entries(${JSON.stringify(palettes[theme])})) document.documentElement.style.setProperty('--vscode-' + key.replaceAll('.', '-'), value);
@@ -35,16 +43,23 @@ export const runTabStressChecks = async (session, press, pressKey) => {
             const label = `${theme} ${width}px ${count} ${running ? "running" : "idle"} runs`;
             await session.evaluate(`window.__seedTabStress(${count}, ${count - 1}, { running: ${running} })`);
             await settle(session);
-            if (running) await press(session, '.run-tab-tools [data-view="execution"]');
-            else if (await session.evaluate("!!document.querySelector('.run-tab-tools [data-view=chat]')")) await press(session, '.run-tab-tools [data-view="chat"]');
+            const compact = await session.evaluate("document.querySelector('.run-tabs-strip').clientWidth <= 360");
+            if (running) {
+              if (compact) await press(session, '#room-actions-button');
+              await press(session, compact ? '.run-menu-quick-actions [data-view="execution"]' : '.run-tab-tools [data-view="execution"]');
+            } else if (await session.evaluate("!!document.querySelector('.run-tab-tools [data-view=chat]')")) {
+              if (compact) await press(session, '#room-actions-button');
+              await press(session, compact ? '.run-menu-quick-actions [data-view="chat"]' : '.run-tab-tools [data-view="chat"]');
+            }
             await settle(session);
             assertLayout(await measure(session), count, running ? 5 : 2, label);
             cases++;
           }
         }
+        const compact = await session.evaluate("document.querySelector('.run-tabs-strip').clientWidth <= 360");
         for (const [selector, trigger, action] of [
           [".run-tab.selected .run-action-menu", "#room-actions-button", '[data-action="run-rename"]'],
-          [".run-tab.selected .notification-center", "#notification-button", '[data-action="notification-settings"]'],
+          ...(!compact ? [[".run-tab.selected .notification-center", "#notification-button", '[data-action="notification-settings"]']] : []),
         ]) {
           await press(session, trigger);
           await settle(session);
@@ -63,6 +78,19 @@ export const runTabStressChecks = async (session, press, pressKey) => {
           await press(session, `${selector} ${action}`);
           await settle(session);
           assert.equal(await session.evaluate("!!document.querySelector('.app-dialog')"), true, "menu action opens its dialog");
+          await press(session, '.app-dialog [data-action="dialog-cancel"]');
+          await settle(session);
+          await pressKey(session, "Escape", "Escape", 27);
+        }
+        if (compact) {
+          await press(session, "#room-actions-button");
+          assert.equal(await session.evaluate("document.querySelector('.run-menu-quick-actions').getBoundingClientRect().height > 0"), true, "icon row is first in the menu");
+          assert.equal(await session.evaluate("Array.from(document.querySelectorAll('.run-menu-quick-actions button')).every(button => Array.from(button.childNodes).every(node => node.nodeType !== Node.TEXT_NODE || !node.textContent.trim()))"), true, "icon row has no visible labels");
+          await press(session, '[data-action="run-menu-notifications-toggle"]');
+          assert.equal(await session.evaluate("!document.querySelector('#run-menu-notifications').hidden"), true, "bell expands notifications within the menu");
+          assert.equal(await session.evaluate("document.querySelector('.run-tab.selected .run-action-menu').open"), true, "bell leaves the menu open");
+          await press(session, '#run-menu-notifications [data-action="notification-settings"]');
+          assert.equal(await session.evaluate("!!document.querySelector('.app-dialog')"), true, "compact notification settings opens");
           await press(session, '.app-dialog [data-action="dialog-cancel"]');
           await settle(session);
           await pressKey(session, "Escape", "Escape", 27);

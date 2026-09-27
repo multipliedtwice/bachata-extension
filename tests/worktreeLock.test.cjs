@@ -878,7 +878,7 @@ const startProtectedTree = async (lockPath, reentrant) => {
   return { parent, outer, inner };
 };
 
-test("killing the recorded owner does not release a worktree its re-entrant child still holds", async () => {
+test("killing the recorded owner does not release a worktree its re-entrant child still holds", { skip: process.platform === "win32" ? "Windows process termination also ends the child in this fixture" : false }, async () => {
   const { acquireWorktreeLock } = await loadLock();
   const lockPath = temporaryLockPath("protected-tree");
   const tree = await startProtectedTree(lockPath, true);
@@ -915,7 +915,7 @@ test("killing the recorded owner does not release a worktree its re-entrant chil
   }
 });
 
-test("killing the recorded owner does not release a worktree an unregistered subprocess still uses", async () => {
+test("killing the recorded owner does not release a worktree an unregistered subprocess still uses", { skip: process.platform === "win32" ? "Windows process termination also ends the child in this fixture" : false }, async () => {
   const { acquireWorktreeLock, recoverWorktreeLock } = await loadLock();
   const lockPath = temporaryLockPath("unregistered-child");
   const tree = await startProtectedTree(lockPath, false);
@@ -1000,7 +1000,7 @@ test("a publication that throws removes its own claim and publishes nothing", as
     cleanup(lockPath);
   }
 });
-test("a failed record write publishes nothing and leaves no permanent empty lock", async () => {
+test("a failed record write publishes nothing and leaves no permanent empty lock", { skip: process.platform === "win32" ? "Windows chmod does not deny directory writes" : false }, async () => {
   const { acquireWorktreeLock } = await loadLock();
   const lockPath = temporaryLockPath("failed-write");
   try {
@@ -1129,7 +1129,7 @@ test("without inodes, a release whose file was replaced still deletes nothing", 
   }
 });
 
-test("a signalled owner leaves its lock behind while its children still run", async () => {
+test("a signalled owner leaves its lock behind while its children still run", { skip: process.platform === "win32" ? "Windows signals do not preserve this child process fixture" : false }, async () => {
   const { acquireWorktreeLock } = await loadLock();
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     const lockPath = temporaryLockPath(`signalled-${signal}`);

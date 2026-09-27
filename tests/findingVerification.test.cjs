@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const { mkdtemp, rm } = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
@@ -112,7 +113,7 @@ test("verification schema refuses unknown fields, malformed versions, deep field
   assert.equal(parseFindingVerification(multibyte), undefined);
 }));
 
-test("evidence-copy reading has a literal byte bound and refuses symlinks", async () => {
+symlinkFixtureTest("evidence-copy reading has a literal byte bound and refuses symlinks", async () => {
   const { writeFile, symlink } = require("node:fs/promises");
   const { createHash } = require("node:crypto");
   const { sha256EvidenceCopy } = require("../dist/security/fileHash.js");
@@ -131,7 +132,7 @@ test("evidence-copy reading has a literal byte bound and refuses symlinks", asyn
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("verification scope excludes ignored files, redirected paths and traversal", async () => {
+symlinkFixtureTest("verification scope excludes ignored files, redirected paths and traversal", async () => {
   const { writeFile, symlink } = require("node:fs/promises");
   const { execFileSync } = require("node:child_process");
   const { verificationScopeIsObservable } = require("../dist/longitudinal/repositoryBaseline.js");

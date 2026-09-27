@@ -20,10 +20,17 @@ try {
 
 let child;
 try {
+  const childEnvironment = { ...process.env };
+  if (typeof payload.originalElectronRunAsNode === "string") {
+    childEnvironment.ELECTRON_RUN_AS_NODE = payload.originalElectronRunAsNode;
+  } else {
+    delete childEnvironment.ELECTRON_RUN_AS_NODE;
+  }
   child = spawn(payload.executable, Array.isArray(payload.args) ? payload.args : [], {
     cwd: payload.cwd,
-    env: process.env,
+    env: childEnvironment,
     shell: payload.shell === true || typeof payload.shell === "string" ? payload.shell : false,
+    windowsVerbatimArguments: payload.windowsVerbatimArguments === true,
     stdio: [payload.stdinMode === "ignore" ? "ignore" : "inherit", "inherit", "inherit"],
     windowsHide: true,
   });

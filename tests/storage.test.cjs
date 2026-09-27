@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const { createAttachmentStore } = require("../dist/attachments/attachmentStore.js");
 const { createTranscriptStore } = require("../dist/state/transcriptStore.js");
@@ -484,7 +485,7 @@ test("attachment store accepts bounded UTF-8 text and refuses text that is not d
   }
 });
 
-test("an attachment replaced by a same-size symbolic link is refused, not read", async () => {
+symlinkFixtureTest("an attachment replaced by a same-size symbolic link is refused, not read", async () => {
   const directory = temporaryDirectory();
   const store = createAttachmentStore(directory);
   try {
@@ -535,7 +536,7 @@ test("an attachment whose stored bytes no longer match its recorded type is refu
   }
 });
 
-test("backup refuses an attachment replaced by a same-size symbolic link", async () => {
+symlinkFixtureTest("backup refuses an attachment replaced by a same-size symbolic link", async () => {
   const directory = temporaryDirectory();
   const store = createAttachmentStore(directory);
   try {
@@ -564,7 +565,7 @@ test("backup refuses an attachment replaced by a same-size symbolic link", async
   }
 });
 
-test("restore replaces a symlinked attachment path instead of writing through it", async () => {
+symlinkFixtureTest("restore replaces a symlinked attachment path instead of writing through it", async () => {
   const directory = temporaryDirectory();
   const store = createAttachmentStore(directory);
   try {
@@ -606,7 +607,7 @@ const savedPngAttachment = async (store, id) => {
   });
 };
 
-test("an attachments directory replaced by a symbolic link is refused, not read through", async () => {
+symlinkFixtureTest("an attachments directory replaced by a symbolic link is refused, not read through", async () => {
   const directory = temporaryDirectory();
   const outside = temporaryDirectory();
   const store = createAttachmentStore(directory);
@@ -644,7 +645,7 @@ test("an attachments directory replaced by a symbolic link is refused, not read 
   }
 });
 
-test("an attachment snapshot directory replaced by a symbolic link is refused", async () => {
+symlinkFixtureTest("an attachment snapshot directory replaced by a symbolic link is refused", async () => {
   const directory = temporaryDirectory();
   const outside = temporaryDirectory();
   const store = createAttachmentStore(directory);

@@ -5,6 +5,7 @@ const { mkdtemp, writeFile, readFile, rm, symlink } = require("node:fs/promises"
 const path = require("node:path");
 const os = require("node:os");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const task = require("../benchmarks/longitudinal/tasks/retry-refinement.json");
 const command = path.resolve(__dirname, "../scripts/longitudinal-benchmark.mjs");
 const execute = promisify(execFile);
@@ -59,7 +60,7 @@ for (const [label, mutate] of [
   await assert.rejects(readFile(output), { code: "ENOENT" });
 }));
 
-test("command refuses oversized inputs, symlinks and task traversal", async () => fixture(async (root) => {
+symlinkFixtureTest("command refuses oversized inputs, symlinks and task traversal", async () => fixture(async (root) => {
   const input = path.join(root, "input.json"); const link = path.join(root, "link.json");
   await writeFile(input, " ".repeat(4 * 1024 * 1024 + 1));
   await assert.rejects(invoke(["score", "--task", task.id, "--single", input]), /at most 4 MiB/);

@@ -1108,6 +1108,9 @@ type HumanE2eAction =
   | "selectBrowserSession"
   | "submitPreparedRun";
 type ExtensionMessage =
+  | { type: "voice.capabilities"; host: boolean }
+  | { type: "voice.text"; conversationId: string; text: string }
+  | { type: "voice.status"; conversationId: string; status: "listening" | "stopped" | "error"; detail?: string }
   | { type: "humanE2e.uiRun"; requestId: string; prompt: string; iterationCount: number; pipeline: PipelineDefinition; submit: boolean }
   | { type: "humanE2e.uiAction"; requestId: string; action: HumanE2eAction; targetId?: string }
   | { type: "manager.snapshot"; state: ManagerState }

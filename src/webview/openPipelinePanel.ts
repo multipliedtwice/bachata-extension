@@ -5,6 +5,7 @@ import { ConversationManager } from "../conversations/createConversationManager"
 import { ConversationManagerToWebviewMessage, isRuntimeOperation } from "./protocol";
 import { getWebviewHtml } from "./html";
 import { webviewErrorMessage as errorMessage } from "./errorMessage";
+import { startWindowsDictation } from "../voice/windowsDictation";
 
 let panel: vscode.WebviewPanel | undefined;
 let panelReady = false;
@@ -404,7 +405,35 @@ export const openPipelinePanel = (
   panel.webview.options = options;
   panel.webview.html = getWebviewHtml(panel.webview, context.extensionUri);
   const detach = manager.attachWebview(panel.webview);
+  let dictation: { stop: () => void } | undefined;
   const messageListener = panel.webview.onDidReceiveMessage((message: unknown) => {
+    if (message !== null && typeof message === "object") {
+      const voice = message as Record<string, unknown>;
+      if (voice.type === "voice.stop") {
+        dictation?.stop();
+        dictation = undefined;
+        return;
+      }
+      if (voice.type === "voice.start") {
+        dictation?.stop();
+        dictation = undefined;
+        if (typeof voice.conversationId !== "string" || !voice.conversationId.trim()) return;
+        const conversationId = voice.conversationId;
+        try {
+          const session = startWindowsDictation(
+            (text) => { void panel?.webview.postMessage({ type: "voice.text", conversationId, text }); },
+            (status, detail) => {
+              if (status !== "listening" && dictation === session) dictation = undefined;
+              void panel?.webview.postMessage({ type: "voice.status", conversationId, status, detail });
+            },
+          );
+          dictation = session;
+        } catch (error) {
+          void panel?.webview.postMessage({ type: "voice.status", conversationId, status: "error", detail: errorMessage(error) });
+        }
+        return;
+      }
+    }
     if (
       message !== null &&
       typeof message === "object" &&
@@ -485,6 +514,7 @@ export const openPipelinePanel = (
         (message as Record<string, unknown>).type === "manager.ready"
       ) {
         panelReady = true;
+        void panel?.webview.postMessage({ type: "voice.capabilities", host: process.platform === "win32" });
         resolvePanelReadyWaiters();
         postPendingRestoredState();
         postPendingFocus();
@@ -538,6 +568,7 @@ export const openPipelinePanel = (
   });
 
   panel.onDidDispose(() => {
+    dictation?.stop();
     messageListener.dispose();
     detach.dispose();
     panel = undefined;

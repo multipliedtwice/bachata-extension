@@ -5,6 +5,7 @@ const { chmod, mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } = requ
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const { resolveCommandShell, runCommand, runProcess, runVerificationChecks } = require("../dist/orchestrator/commandRunner.js");
 const { selectRunnableTasks, taskPathsConflict } = require("../dist/orchestrator/scheduler.js");
@@ -373,17 +374,20 @@ test("scheduler respects dependencies, path conflicts, priority, and concurrency
 test("verification commands stop at the first deterministic failure", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "bachata-checks-"));
   try {
+    const executable = process.platform === "win32" ? process.execPath : `"${process.execPath}"`;
     const results = await runVerificationChecks([
-      `${JSON.stringify(process.execPath)} -e "process.stdout.write('ok')"`,
-      `${JSON.stringify(process.execPath)} -e "process.stderr.write('bad'); process.exit(3)"`,
-      `${JSON.stringify(process.execPath)} -e "process.exit(0)"`,
+      `${executable} -e "process.stdout.write('ok')"`,
+      `${executable} -e "process.stderr.write('bad'); process.exit(3)"`,
+      `${executable} -e "process.exit(0)"`,
     ], {
       cwd,
       timeoutMs: 5_000,
       maxOutputBytes: 10_000,
     });
     assert.deepEqual(results.map((value) => value.status), ["passed", "failed"]);
+    assert.equal(results[0].stdout, "ok");
     assert.equal(results[1].exitCode, 3);
+    assert.equal(results[1].stderr, "bad");
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -1126,7 +1130,7 @@ test("Master checks execution state only and blocks a reported deviation", gitWo
     const masterRoom = [...manager.rooms.values()].find((options) => options.pipelineId === "todo-master");
     assert.ok(masterRoom);
     assert.notEqual(masterRoom.workingDirectory, repository);
-    assert.match(masterRoom.workingDirectory, /orchestration[\/]master$/u);
+    assert.match(masterRoom.workingDirectory, /orchestration[\\/]master$/u);
     assert.match(masterPrompts[0], /T1/u);
     assert.doesNotMatch(masterPrompts[0], /private-file-content/u);
     assert.equal(await readFile(path.join(result.integrationWorktree, "src", "value.txt"), "utf8"), "private-file-content\n");
@@ -1285,6 +1289,7 @@ test("controller rejects arbitrary verification commands before task execution",
 
 test("stop blocks late completion, preserves recovery, retains history, and resume reruns the task", gitWorktreeSkip, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-controller-stop-"));
+  let controller;
   let releaseFirst;
   let calls = 0;
   let taskResolutionCount = 0;
@@ -1325,9 +1330,9 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
           : changedTaskSnapshot;
       },
     );
-    const controller = createController(root, repository, manager, { todoRetries: 0 });
+    controller = createController(root, repository, manager, { todoRetries: 0 });
     const starting = controller.start();
-    await waitFor(() => calls === 1);
+    await waitFor(() => calls === 1, process.platform === "win32" ? 30_000 : 5_000);
     const stopping = controller.stop();
     releaseFirst();
     await stopping;
@@ -1356,7 +1361,8 @@ test("stop blocks late completion, preserves recovery, retains history, and resu
     assert.equal(await store.getActiveRun(), undefined);
     await controller.dispose();
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await controller?.dispose().catch(() => undefined);
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -3972,7 +3978,7 @@ test("an unsealed dirty path still blocks the run", gitWorktreeSkip, async () =>
   }
 });
 
-test("sealing refuses an untracked symbolic link instead of dereferencing it", gitWorktreeSkip, async () => {
+symlinkFixtureTest("sealing refuses an untracked symbolic link instead of dereferencing it", gitWorktreeSkip, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-controller-sealed-link-"));
   try {
     const repository = await createRepository(root, [
@@ -4091,7 +4097,7 @@ test("disposal between the ledger write and begin leaves no active run behind", 
   }
 });
 
-test("sealing refuses a path replaced by a symbolic link after it was listed", gitWorktreeSkip, async () => {
+symlinkFixtureTest("sealing refuses a path replaced by a symbolic link after it was listed", gitWorktreeSkip, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "bachata-controller-sealed-swap-"));
   try {
     const repository = await createRepository(root, [

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const { execFileSync } = require("node:child_process");
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -776,7 +777,7 @@ test("restoring a hidden file to its baseline bytes and mode drops the retained 
   }
 });
 
-test("a retained name whose ancestor became an out-of-scope symlink fails closed across repeats and fresh turns", async () => {
+symlinkFixtureTest("a retained name whose ancestor became an out-of-scope symlink fails closed across repeats and fresh turns", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-retained-symlink-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-outside-"));
   try {

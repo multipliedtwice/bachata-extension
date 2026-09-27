@@ -65,11 +65,14 @@ export const runMinimalLayoutChecks = async (session, press, key) => {
           return {left:Math.abs(composer.left-result.left),right:Math.abs(composer.right-result.right)};
         })()`);
         assert.ok(rail.left <= 1 && rail.right <= 1, `${label}: shared content alignment`);
-        await press(session, '[data-action="room-view"][data-view="execution"]');
+        const compact = await session.evaluate("document.querySelector('.run-tabs-strip').clientWidth <= 360");
+        if (compact) await press(session, '#room-actions-button');
+        await press(session, compact ? '.run-menu-quick-actions [data-view="execution"]' : '.run-tab-tools [data-view="execution"]');
         await frame(session);
         await readable(`${label} Execution`);
         assert.ok(await session.evaluate("parseFloat(getComputedStyle(document.querySelector('.result-failure-cause')).fontSize)") >= Math.max(13, font), `${label}: Execution respects text size`);
-        await press(session, '[data-action="room-view"][data-view="chat"]');
+        if (compact) await press(session, '#room-actions-button');
+        await press(session, compact ? '.run-menu-quick-actions [data-view="chat"]' : '.run-tab-tools [data-view="chat"]');
         await frame(session);
         await press(session, '.composer-settings-button');
         await frame(session);

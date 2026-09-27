@@ -19,9 +19,10 @@ const {
 // A file-system double, so the resolution rules are asserted against a described machine rather
 // than against whichever OpenAI extension happens to be installed on the machine running these
 // tests.
+const fixturePath = (value) => value.replaceAll("\\", "/");
 const codexProbe = (tree) => ({
-  listDirectory: (directory) => tree[directory] ?? [],
-  isExecutableFile: (candidate) => tree.executables.includes(candidate),
+  listDirectory: (directory) => tree[fixturePath(directory)] ?? [],
+  isExecutableFile: (candidate) => tree.executables.includes(fixturePath(candidate)),
 });
 
 const identity = (adapterType, command = "cmd", workingDirectory = "/repo") => ({
@@ -247,7 +248,7 @@ test("a default codex resolves to the newest Codex the installed OpenAI extensio
     "versions are ordered numerically, so 71938 beats 9",
   );
   assert.equal(
-    resolveCodexExecutable("codex", overrides),
+    fixturePath(resolveCodexExecutable("codex", overrides)),
     "/home/.vscode/extensions/openai.chatgpt-26.903.71938-darwin-arm64/bin/macos-aarch64/codex",
   );
 });
@@ -333,12 +334,12 @@ const mixedHostSources = (overrides = {}) => ({
 test("an ARM macOS host never resolves an x64 or Linux Codex, however new it is", () => {
   const sources = mixedHostSources();
   assert.deepEqual(
-    bundledCodexExecutables(sources).map((entry) => entry.path),
+    bundledCodexExecutables(sources).map((entry) => fixturePath(entry.path)),
     ["/home/.vscode/extensions/openai.chatgpt-26.903.10-darwin-arm64/bin/macos-aarch64/codex"],
     "a build for another OS or CPU was offered to this host",
   );
   assert.equal(
-    resolveCodexExecutable("codex", sources),
+    fixturePath(resolveCodexExecutable("codex", sources)),
     "/home/.vscode/extensions/openai.chatgpt-26.903.10-darwin-arm64/bin/macos-aarch64/codex",
     "the newest directory won over the only binary this machine can execute",
   );
@@ -346,7 +347,7 @@ test("an ARM macOS host never resolves an x64 or Linux Codex, however new it is"
 
 test("a Linux host resolves the Linux build the same tree also carries", () => {
   assert.equal(
-    resolveCodexExecutable("codex", mixedHostSources({ platform: "linux", arch: "x64" })),
+    fixturePath(resolveCodexExecutable("codex", mixedHostSources({ platform: "linux", arch: "x64" }))),
     "/home/.vscode-server/extensions/openai.chatgpt-26.920.99-linux-x64/bin/linux-x86_64/codex",
   );
 });
@@ -372,21 +373,21 @@ test("the tree a host loads from decides, not the highest version across trees",
     arch: "arm64",
   };
   assert.equal(
-    resolveCodexExecutable("codex", sources),
+    fixturePath(resolveCodexExecutable("codex", sources)),
     stable,
     "a newer Insiders install outranked the Stable tree listed first",
   );
   assert.equal(
-    resolveCodexExecutable("codex", { ...sources, extensionsDirectory: "/home/.vscode-insiders/extensions" }),
+    fixturePath(resolveCodexExecutable("codex", { ...sources, extensionsDirectory: "/home/.vscode-insiders/extensions" })),
     insiders,
     "the tree this host loads from did not decide",
   );
   assert.equal(
-    resolveCodexExecutable("codex", {
+    fixturePath(resolveCodexExecutable("codex", {
       ...sources,
       openAiExtensionPath: "/home/.vscode/extensions/openai.chatgpt-26.903.10-darwin-arm64",
       extensionsDirectory: "/home/.vscode-insiders/extensions",
-    }),
+    })),
     stable,
     "the extension the host actually loaded lost to a higher version elsewhere",
   );
@@ -410,10 +411,10 @@ test("the host's own extension is used even when nothing in its path states a ta
     "a scanned build that proves nothing about its target was treated as compatible",
   );
   assert.equal(
-    resolveCodexExecutable("codex", {
+    fixturePath(resolveCodexExecutable("codex", {
       ...sources,
       openAiExtensionPath: "/host/extensions/openai.chatgpt-26.903.10",
-    }),
+    })),
     "/host/extensions/openai.chatgpt-26.903.10/bin/codex",
     "the extension this host loaded was refused for saying nothing Bachata already knows",
   );

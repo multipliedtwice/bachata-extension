@@ -386,6 +386,20 @@ const avatarHtml = (identity: string, name: string, className: string): string =
   return `<svg class="${className}" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="16" fill="hsl(${String(hue)} 46% 34%)"></circle><text x="16" y="16" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="700" fill="#ffffff">${escapeHtml(name.slice(0, 1).toUpperCase())}</text></svg>`;
 };
 
+const queuedPromptRevision = (panel: PanelState, entry: TranscriptEntry): string | undefined => {
+  const queueId = entry.data && typeof entry.data === "object" && !Array.isArray(entry.data)
+    ? entry.data.queueId : undefined;
+  if (typeof queueId !== "string") return undefined;
+  for (let index = panel.transcript.length - 1; index >= 0; index -= 1) {
+    const revision = panel.transcript[index];
+    if (revision?.eventType !== "message.queue.updated") continue;
+    const data = revision.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    if (data.messageId === queueId && typeof data.prompt === "string") return data.prompt;
+  }
+  return undefined;
+};
+
 const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOnly = false): string => {
   if (entry.eventType === "browser.action.detected" || entry.eventType === "browser.action.result") {
     return browserActionCard(panel, entry);
@@ -394,9 +408,10 @@ const transcriptMessageHtml = (panel: PanelState, entry: TranscriptEntry, readOn
     return workflowResumeMarkerHtml(entry);
   }
   if (entry.eventType === "user.message") {
+    const revisedPrompt = queuedPromptRevision(panel, entry);
     return `<article class="message-row user-row" data-entry="${escapeAttribute(entry.id)}">
       ${avatarHtml("user", localize("You"), "agent-avatar user-avatar")}
-      <div class="message user-message" title="${escapeAttribute(formatDateTime(entry.createdAt))}"><div class="message-author">${escapeHtml(localize("You"))}</div><div class="message-text markdown">${renderMarkdown(entry.text)}</div><time datetime="${escapeAttribute(entry.createdAt)}">${escapeHtml(messageTime(entry.createdAt))}</time></div>
+      <div class="message user-message" title="${escapeAttribute(formatDateTime(entry.createdAt))}"><div class="message-author">${escapeHtml(localize("You"))}${revisedPrompt === undefined ? "" : ` <small>${escapeHtml(localize("Edited"))}</small>`}</div><div class="message-text markdown">${renderMarkdown(revisedPrompt ?? entry.text)}</div><time datetime="${escapeAttribute(entry.createdAt)}">${escapeHtml(messageTime(entry.createdAt))}</time></div>
     </article>`;
   }
   if (entry.agentId && ["answer", "interrupted", "error"].includes(entry.kind)) {
@@ -478,29 +493,6 @@ const liveMessagesHtml = (panel: PanelState): string =>
     })
     .join("");
 
-const queueAudience = (panel: PanelState, message: QueuedMessage): string => {
-  const names = message.recipients.map((agentId) => panel.agents[agentId]?.name ?? agentId);
-  const mode = message.mode === "review" ? localize("review, read-only") : localize("implementation, may write");
-  return names.length === 0 ? localize("Recipients chosen by the pipeline · {0}", mode) : localize("To {0} · {1}", listText(names, ", "), mode);
-};
-
-const queueHtml = (panel: PanelState): string => {
-  if (panel.queuedMessages.length === 0) {
-    return "";
-  }
-  const queued = panel.queuedMessages
-    .map((message, index) => {
-      const headline = message.kind === "pipeline"
-        ? (message.iterationCount ?? 1) > 1 ? localize("Pipeline · {0} iterations", message.iterationCount ?? 1) : localize("Pipeline")
-        : localize("Direct message");
-      // A queue of identical "Cancel" buttons names nothing, and the prompt is clamped to three
-      // lines, so the control says which message it drops and the prompt keeps its full text.
-      return `<article class="queue-item" title="${escapeAttribute(formatDateTime(message.createdAt))}"><span class="queue-index">${String(index + 1)}</span><div><strong>${escapeHtml(headline)}</strong><small>${escapeHtml(queueAudience(panel, message))}</small><p class="queue-prompt" title="${escapeAttribute(message.prompt)}">${escapeHtml(message.prompt)}</p>${message.blockedReason ? `<p ${liveRegionAttributes(`queue-blocked:${message.id}`, "alert", message.blockedReason)}>${escapeHtml(message.blockedReason)}</p>` : ""}</div><button data-action="queue-cancel" data-message-id="${escapeAttribute(message.id)}" aria-label="${escapeAttribute(localize("Cancel queued message {0}, {1}", index + 1, headline))}">${escapeHtml(localize("Cancel"))}</button></article>`;
-    })
-    .join("");
-  const queueBlocked = Boolean(panel.queuedMessages[0]?.blockedReason);
-  return `<section class="queue-panel"><div class="queue-heading"><strong>${escapeHtml(localize("Queued messages"))}</strong>${panel.queuePaused && !queueBlocked ? `<button data-action="queue-resume">${escapeHtml(localize("Resume queue"))}</button>` : ""}</div>${queued}</section>`;
-};
 
 const attachmentStripHtml = (panel: PanelState, draft: ConversationDraft): string => {
   const pending = Array.from(draft.pendingAttachments.values())
@@ -913,6 +905,13 @@ const focusAfterRender = (focus: () => void): void => {
 };
 
 const render = (): void => {
+  if (dictationUsingHost && dictationConversationId !== activeId()) {
+    dictationUsingHost = false;
+    dictationActive = false;
+    dictationConversationId = undefined;
+    vscode.postMessage({ type: "voice.stop" });
+  }
+  if (dictationEngine && dictationConversationId !== activeId()) dictationEngine.stop();
   for (const id of pendingInterrupts) {
     const panel = state.panels.get(id);
     if ((!panel || runPhaseOf(panel) !== "running") && !conversationById(id)?.waitingForResources) pendingInterrupts.delete(id);
@@ -1431,7 +1430,7 @@ const startPipelineDelete = (
 
 // Opening a menu, and marking notifications read, leave what is behind the menu as it was; every
 // other action changes it, so the menu that issued the action is dismissed with the rest.
-const menuPreservingActions = new Set(["run-menu-toggle", "notification-read-all"]);
+const menuPreservingActions = new Set(["run-menu-toggle", "run-menu-notifications-toggle", "notification-read-all"]);
 const dialogMenuActions = new Set(["task-reset", "run-rename", "run-archive", "run-delete", "workflow-discard", "run-requirements"]);
 
 const dismissTransientMenus = (origin: Element | null): void => {
@@ -1733,6 +1732,12 @@ root.addEventListener("toggle", (event: Event) => {
   const disclosureKey = disclosure?.dataset.disclosureKey;
   if (disclosure && disclosureKey) {
     recordDisclosure(disclosureKey, disclosure.open);
+    if (disclosure.matches(".merged-run-menu") && !disclosure.open) {
+      state.disclosureStates.set(`compact-notifications:${activeId()}`, false);
+      const panel = disclosure.querySelector<HTMLElement>("#run-menu-notifications");
+      if (panel) panel.hidden = true;
+      disclosure.querySelector<HTMLElement>('[data-action="run-menu-notifications-toggle"]')?.setAttribute("aria-expanded", "false");
+    }
     if (disclosure.open && (disclosure.matches(".header-action-menu") || disclosure.matches(".notification-center"))) {
       root.querySelectorAll<HTMLDetailsElement>("details.header-action-menu[open], details.notification-center[open]").forEach((other) => {
         if (other !== disclosure) {
@@ -1854,8 +1859,13 @@ const runHumanE2eUiScenario = async (
   root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]:not([disabled])')?.click();
   await settleUi();
   const renderedPipelineIds: string[] = [];
-  for (const filter of Array.from(root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-filter"]'))) {
-    filter.click();
+  const filterIds = Array.from(root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-filter"]'))
+    .map((filter) => filter.dataset.pipelineFilter)
+    .filter((filter): filter is string => filter !== undefined);
+  for (const filterId of filterIds) {
+    // Each selection rerenders the popover, so query its current button rather than clicking a
+    // detached element from the initial list.
+    root.querySelector<HTMLElement>(`[data-action="pipeline-picker-filter"][data-pipeline-filter="${filterId}"]`)?.click();
     await settleUi();
     root.querySelectorAll<HTMLElement>('[data-action="pipeline-picker-select"]').forEach((option) => {
       const pipelineId = option.dataset.pipelineId;
@@ -1897,19 +1907,6 @@ const runHumanE2eUiScenario = async (
     }
   }
   await settleUi();
-
-// Pipeline editing is reached through the selected pipeline's own action menu.
-const openPipelineEditorThroughPicker = async (): Promise<void> => {
-  if (!state.pipelinePickerOpen) {
-    root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
-    await settleUi();
-  }
-  const pipelineId = activePanel().selectedPipelineId;
-  root.querySelector<HTMLElement>(`[data-action="pipeline-row-menu"][data-pipeline-id="${CSS.escape(pipelineId ?? "")}"]`)?.click();
-  await settleUi();
-  root.querySelector<HTMLElement>(`[data-action="pipeline-row-edit"][data-pipeline-id="${CSS.escape(pipelineId ?? "")}"]`)?.click();
-  await settleUi();
-};
 
   // New pipelines live in the pipeline picker beside the existing pipeline actions.
   root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
@@ -2333,7 +2330,22 @@ const runHumanE2eUiAction = async (
 window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
   const message = event.data;
   if (!message || typeof message !== "object") return;
-  if (message.type === "humanE2e.uiRun") {
+  if (message.type === "voice.capabilities") {
+    voiceHostAvailable = message.host;
+  } else if (message.type === "voice.text") {
+    if (dictationUsingHost && dictationConversationId === message.conversationId) appendDictatedText(message.conversationId, message.text);
+  } else if (message.type === "voice.status") {
+    if (dictationUsingHost && dictationConversationId === message.conversationId) {
+      if (message.status === "listening") announceStatus(localize("Listening. Speak to add text to the message."));
+      if (message.status === "error") announceStatus(localize("Voice input stopped: {0}", message.detail ?? localize("Unknown error")));
+      if (message.status !== "listening") {
+        dictationUsingHost = false;
+        dictationActive = false;
+        dictationConversationId = undefined;
+        scheduleRender();
+      }
+    }
+  } else if (message.type === "humanE2e.uiRun") {
     void runHumanE2eUiScenario(message);
   } else if (message.type === "humanE2e.uiAction") {
     void runHumanE2eUiAction(message);

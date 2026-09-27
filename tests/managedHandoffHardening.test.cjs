@@ -96,7 +96,9 @@ const createProject = (prefix) => {
   return root;
 };
 
-const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+const realGit = process.platform === "win32"
+  ? "git"
+  : execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
 
 // A stand-in for git that records the argument vector and the GIT_* environment it was handed,
 // then hands the work to the real one so the verification still reaches its real conclusion.
@@ -151,7 +153,7 @@ const runProjectChecks = async (root, changedFiles, pathPrefix) => {
 // The git that inspects a repository must not be a program that repository supplies. The
 // diff-check half of the managed handoff rebuilt its environment from scratch and threw away the
 // PATH sanitization the probe two lines above it had just applied.
-test("the managed diff check never runs a git the workspace put on PATH", async () => {
+test("the managed diff check never runs a git the workspace put on PATH", { skip: process.platform === "win32" ? "POSIX shell shim fixture" : false }, async () => {
   const logRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-log-"));
   const logPath = path.join(logRoot, "invocations.log");
   const root = createProject("bachata-handoff-path-");
@@ -186,7 +188,7 @@ test("the managed diff check never runs a git the workspace put on PATH", async 
 // the recorded claim "git diff --check passed" has to mean the same thing on the reviewer's
 // machine as on the author's, and a system gitconfig that relaxes core.whitespace must not
 // silently narrow what the check covered.
-test("every git the managed handoff runs carries the git hardening", async () => {
+test("every git the managed handoff runs carries the git hardening", { skip: process.platform === "win32" ? "POSIX shell shim fixture" : false }, async () => {
   const shimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-git-shim-"));
   const logPath = path.join(shimRoot, "invocations.log");
   const root = createProject("bachata-handoff-hardening-");

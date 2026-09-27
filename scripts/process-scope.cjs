@@ -429,7 +429,9 @@ const spawnWindowsScope = (executable, args, options) => {
     executable,
     args,
     cwd: options.cwd ?? process.cwd(),
+    originalElectronRunAsNode: environment.ELECTRON_RUN_AS_NODE,
     shell: options.shell ?? false,
+    windowsVerbatimArguments: options.windowsVerbatimArguments === true,
     stdinMode: options.stdio === "inherit"
       ? "inherit"
       : Array.isArray(options.stdio)
@@ -459,7 +461,9 @@ const spawnWindowsScope = (executable, args, options) => {
       jobStatusPath,
     ], {
       cwd: options.cwd,
-      env: environment,
+      // In the VS Code extension host, process.execPath is Code.exe. Run the bundled JavaScript
+      // host with Electron's Node mode, then restore the provider's original environment there.
+      env: { ...environment, ELECTRON_RUN_AS_NODE: "1" },
       stdio: options.stdio,
       windowsHide: options.windowsHide ?? true,
     });

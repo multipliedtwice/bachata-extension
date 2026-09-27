@@ -83,7 +83,7 @@ const run = (executable, args, env) =>
       cwd: root,
       env,
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell: false,
       windowsHide: true,
     });
     const timer = setTimeout(() => {
@@ -119,6 +119,9 @@ try {
     mkdir(extensionsDirectory, { recursive: true }),
     mkdir(workspaceDirectory, { recursive: true }),
   ]);
+  await mkdir(path.join(userDataDirectory, "User"), { recursive: true });
+  await writeFile(path.join(userDataDirectory, "User", "settings.json"),
+    JSON.stringify({ "update.mode": "none" }), "utf8");
   const evidencePath = path.join(workspaceDirectory, "activation-evidence.json");
   await writeFile(
     path.join(workspaceDirectory, "README.md"),
@@ -140,5 +143,12 @@ try {
   console.log("Activation smoke passed.");
   console.log(await readFile(evidencePath, "utf8"));
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  // VS Code can exit before Windows releases its log handles. A locked disposable profile must
+  // not turn a successful activation journey into a failed smoke or stall the runner for minutes.
+  try {
+    await rm(temporaryRoot, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 });
+  } catch (error) {
+    if (process.platform !== "win32" || !["EBUSY", "EPERM"].includes(error?.code)) throw error;
+    console.warn(`Temporary VS Code profile remains locked: ${temporaryRoot}`);
+  }
 }

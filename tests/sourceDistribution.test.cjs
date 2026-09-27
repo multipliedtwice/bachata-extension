@@ -448,12 +448,18 @@ test("an excluded name is skipped before it is stat-ed, even as a broken symboli
   }
 });
 
-test("a symbolic link the manifest carries is still refused", async () => {
+test("a symbolic link the manifest carries is still refused", async (t) => {
   const { collectMaintainedSourceFiles } = await import(
     pathToFileURL(path.join(root, "scripts", "source-distribution.mjs")).href
   );
   const link = path.join(root, "src", `bachata-link-probe-${randomUUID()}.ts`);
-  await symlink(path.join(root, "package.json"), link);
+  try {
+    await symlink(path.join(root, "package.json"), link);
+  } catch (error) {
+    if (process.platform !== "win32" || error?.code !== "EPERM" || error?.syscall !== "symlink") throw error;
+    t.skip("Windows denied symbolic-link creation; this fixture cannot run on this account");
+    return;
+  }
   try {
     await assert.rejects(
       collectMaintainedSourceFiles(root),
@@ -510,7 +516,7 @@ const buildExportCaseTree = async (base, outside, testCase) => {
   await symlink(path.join(outside, "absent-target"), target);
 };
 
-test("the exporter applies every shared exclusion case by name before type", async () => {
+test("the exporter applies every shared exclusion case by name before type", async (t) => {
   const { collectMaintainedSourceFiles } = await import(pathToFileURL(exporter).href);
   for (const testCase of sharedExportFixtures().cases) {
     const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-extension-export-case-"));
@@ -520,7 +526,14 @@ test("the exporter applies every shared exclusion case by name before type", asy
       await writeFile(path.join(source, "package.json"), JSON.stringify({ name: "bachata-vscode" }));
       await writeFile(path.join(source, "README.md"), "# fixture\n");
       await writeFile(path.join(source, "src", "index.ts"), "export const value = 1;\n");
-      await buildExportCaseTree(source, parent, testCase);
+      try {
+        await buildExportCaseTree(source, parent, testCase);
+      } catch (error) {
+        if (process.platform !== "win32" || error?.code !== "EPERM"
+          || !["symlink", "broken-symlink"].includes(testCase.type)) throw error;
+        t.diagnostic(`${testCase.name}: Windows denied symbolic-link creation; fixture not exercised`);
+        continue;
+      }
 
       const collected = collectMaintainedSourceFiles(source);
       if (testCase.rejected) {

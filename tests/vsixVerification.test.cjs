@@ -1,9 +1,11 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 
 const verifierPath = path.join(__dirname, "..", "scripts", "verify-vsix.mjs");
+const verifierUrl = pathToFileURL(verifierPath).href;
 const { webviewRuntimeAssets } = require("../dist/webview/assets.js");
 
 test("the VSIX verifier CLI refuses invocation without an artifact on every platform", () => {
@@ -99,7 +101,7 @@ const manifest = {
 };
 
 test("VSIX verification requires manifest-referenced runtime assets", async () => {
-  const { manifestAssets, requiredVsixEntries, missingVsixEntries } = await import(verifierPath);
+  const { manifestAssets, requiredVsixEntries, missingVsixEntries } = await import(verifierUrl);
 
   assert.deepEqual(manifestAssets(manifest), [
     "dist/extension.js",
@@ -145,7 +147,7 @@ test("VSIX verification requires manifest-referenced runtime assets", async () =
 });
 
 test("stale packaged runtime files are rejected against the current build", async () => {
-  const { staleVsixEntries } = await import(verifierPath);
+  const { staleVsixEntries } = await import(verifierUrl);
 
   const build = {
     "dist/extension.js": "a".repeat(64),
@@ -213,7 +215,7 @@ test("the webview asset manifest matches what the packaged HTML loads", () => {
 });
 
 test("archive entry names are validated and duplicates rejected", async () => {
-  const { unsafeVsixEntryReason } = await import(verifierPath);
+  const { unsafeVsixEntryReason } = await import(verifierUrl);
 
   assert.equal(unsafeVsixEntryReason("extension/dist/extension.js"), undefined);
   assert.equal(unsafeVsixEntryReason("extension.vsixmanifest"), undefined);
@@ -230,7 +232,7 @@ test("archive entry names are validated and duplicates rejected", async () => {
 test("verification rejects unsafe, duplicate, and self-executing archives without running their code", async () => {
   const fs = require("node:fs");
   const os = require("node:os");
-  const { verifyVsix } = await import(verifierPath);
+  const { verifyVsix } = await import(verifierUrl);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-vsix-negative-"));
   const marker = path.join(directory, "executed-marker");
   try {
@@ -265,7 +267,7 @@ test("verification rejects unsafe, duplicate, and self-executing archives withou
 });
 
 test("packaged first-party sources are compared against the working tree", async () => {
-  const { packagedSourceEquivalence, shippedSourceFiles, staleVsixEntries } = await import(verifierPath);
+  const { packagedSourceEquivalence, shippedSourceFiles, staleVsixEntries } = await import(verifierUrl);
 
   assert.deepEqual(await shippedSourceFiles({ files: ["package.nls*.json"] }), [
     "package.nls.json",

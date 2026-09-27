@@ -31,6 +31,7 @@ export type ProcessScopeOptions = {
   env?: NodeJS.ProcessEnv;
   stdio?: StdioOptions;
   windowsHide?: boolean;
+  windowsVerbatimArguments?: boolean;
   cleanupGraceMs?: number;
   shell?: boolean;
 };

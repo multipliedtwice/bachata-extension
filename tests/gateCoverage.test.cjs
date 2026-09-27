@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { chmodSync, mkdirSync, writeFileSync, copyFileSync, renameSync, rmSync, symlinkSync } = require("node:fs");
 const { readFile } = require("node:fs/promises");
@@ -305,7 +306,7 @@ test("a gate counts what it read, not what it enumerated", async () => {
   }
 });
 
-test("an eligible file a gate cannot read fails the gate instead of vanishing from it", gitWorktreeSkip, async () => {
+test("an eligible file a gate cannot read fails the gate instead of vanishing from it", { skip: process.platform === "win32" ? "Windows chmod does not deny the owner read access" : gitWorktreeSkip.skip }, async () => {
   const root = await scratchRoot("bachata-gate-unreadable-");
   let opaque;
   try {
@@ -356,7 +357,7 @@ test("a tracked file deleted from the working tree is accounted for, not treated
   }
 });
 
-test("a filename cannot write a line of the gate's own output", gitWorktreeSkip, async () => {
+test("a filename cannot write a line of the gate's own output", { skip: process.platform === "win32" ? "Windows forbids newline characters in filenames" : gitWorktreeSkip.skip }, async () => {
   // A newline is a legal byte in a path. A gate that prints one finding per line and interpolates
   // the path raw lets a filename append lines that read like the gate's own — including a line
   // that reads like a passing result, or one that blames a file that is fine.
@@ -403,7 +404,7 @@ const outsideFile = async (root, contents) => {
   return target;
 };
 
-test("an eligible symbolic link is refused rather than followed out of the repository", gitWorktreeSkip, async () => {
+symlinkFixtureTest("an eligible symbolic link is refused rather than followed out of the repository", gitWorktreeSkip, async () => {
   const root = await scratchRoot("bachata-gate-symlink-");
   try {
     const repository = await gateRepository(root);
@@ -447,7 +448,7 @@ test("an eligible symbolic link is refused rather than followed out of the repos
   }
 });
 
-test("a link to an in-repository file is refused by the same rule, and the real file is still checked once", gitWorktreeSkip, async () => {
+symlinkFixtureTest("a link to an in-repository file is refused by the same rule, and the real file is still checked once", gitWorktreeSkip, async () => {
   // ONE POLICY, STATED. Every symbolic link is refused, whatever it points at. The alternative —
   // resolving the target and allowing links that stay inside — would need a realpath comparison
   // that is itself racy, and would check the same bytes twice under two names. An in-repository
@@ -470,7 +471,7 @@ test("a link to an in-repository file is refused by the same rule, and the real 
   }
 });
 
-test("the reader never opens the path a link points at", gitWorktreeSkip, async () => {
+symlinkFixtureTest("the reader never opens the path a link points at", gitWorktreeSkip, async () => {
   // A recorder over the real `open`: every absolute path the reader asks for is written down, so
   // "the outside file was not read" is a recorded fact rather than an inference from the output.
   const root = await scratchRoot("bachata-gate-recorder-");
@@ -634,7 +635,7 @@ const kindStats = (kind) => ({
   isCharacterDevice: () => kind === "character",
 });
 
-test("a tracked file under a symbolic-link ancestor is refused, not read from outside the repository", gitWorktreeSkip, async () => {
+symlinkFixtureTest("a tracked file under a symbolic-link ancestor is refused, not read from outside the repository", gitWorktreeSkip, async () => {
   // THE ESCAPE THIS CLOSES, AND WHY THE FINAL COMPONENT WAS NEVER ENOUGH. `git ls-files --cached`
   // reads names out of the index. Git therefore never descends the working tree for a tracked
   // path to be enumerated, and a directory replaced by a link after the fact still yields every
@@ -678,7 +679,7 @@ test("a tracked file under a symbolic-link ancestor is refused, not read from ou
   }
 });
 
-test("a symbolic-link ancestor is refused even when it points back inside the repository", gitWorktreeSkip, async () => {
+symlinkFixtureTest("a symbolic-link ancestor is refused even when it points back inside the repository", gitWorktreeSkip, async () => {
   // ONE POLICY, STATED. An ancestor link is refused wherever it points, exactly as a final
   // component link is. Resolving the target and allowing the ones that stay inside would need a
   // realpath comparison that is itself racy, and would read the same bytes twice under two names.
@@ -704,7 +705,7 @@ test("a symbolic-link ancestor is refused even when it points back inside the re
   }
 });
 
-test("a repository root reached through a symbolic link is refused before any candidate is opened", gitWorktreeSkip, async () => {
+symlinkFixtureTest("a repository root reached through a symbolic link is refused before any candidate is opened", gitWorktreeSkip, async () => {
   const root = await scratchRoot("bachata-gate-linked-root-");
   try {
     const { containedReader } = await loadCandidateModule();

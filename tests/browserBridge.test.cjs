@@ -2462,6 +2462,61 @@ test("controller exposes the trusted stable binding before completion and retain
   } finally { socket?.close(); await bridge.close(); }
 });
 
+test("controller waits through ChatGPT's provisional route and accepts the final binding", async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const initial = await publishSession(bridge, socket, initialRecoverySession());
+    bridge.bindSession("owner", initial.id);
+    const iterator = bridge.sendConversation("agent", "private", initial.id,
+      new AbortController().signal, [], undefined, { ownerId: "owner" })[Symbol.asyncIterator]();
+    assert.equal((await iterator.next()).value.type, "session");
+    const request = await connected.collector.next((value) => value.type === "conversation.send");
+    const provisionalUrl = "https://chatgpt.com/c/local-chatgpt%3Af668ba9f-1ad1-4875-a815-2a3bbfad732a";
+    const provisionalIdentity = `chatgpt:${provisionalUrl}`;
+    const provisional = { ...initial, conversationUrl: provisionalUrl,
+      conversationIdentity: provisionalIdentity,
+      id: `chatgpt:${initial.tabId}:${initial.documentToken}:${encodeURIComponent(provisionalIdentity)}`,
+      status: "streaming" };
+    await publishSession(bridge, socket, provisional);
+    const final = { ...session(), status: "streaming" };
+    socket.send(JSON.stringify({ type: "conversation.binding", protocolVersion,
+      requestId: request.requestId, agentId: request.agentId,
+      sessionId: request.sessionId, session: final }));
+    const promoted = (await iterator.next()).value;
+    assert.equal(promoted.type, "binding");
+    assert.equal(promoted.binding.conversationUrl, final.conversationUrl);
+  } finally { socket?.close(); await bridge.close(); }
+});
+
+test("controller retains a first-turn request across a brief empty status before the final route", async () => {
+  const { bridge } = await createStartedBridge();
+  let socket;
+  try {
+    const connected = await connectAndPair(bridge);
+    socket = connected.socket;
+    const initial = await publishSession(bridge, socket, initialRecoverySession());
+    bridge.bindSession("gap-owner", initial.id);
+    const iterator = bridge.sendConversation("gap-agent", "private", initial.id,
+      new AbortController().signal, [], undefined, { ownerId: "gap-owner" })[Symbol.asyncIterator]();
+    assert.equal((await iterator.next()).value.type, "session");
+    const request = await connected.collector.next((value) => value.type === "conversation.send");
+    socket.send(JSON.stringify({ type: "provider.status", protocolVersion,
+      sessions: [], selectedSessionId: undefined }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const final = { ...session(), status: "streaming" };
+    await publishSession(bridge, socket, final);
+    socket.send(JSON.stringify({ type: "conversation.binding", protocolVersion,
+      requestId: request.requestId, agentId: request.agentId,
+      sessionId: request.sessionId, session: final }));
+    const promoted = (await iterator.next()).value;
+    assert.equal(promoted.type, "binding");
+    assert.equal(promoted.binding.conversationUrl, final.conversationUrl);
+  } finally { socket?.close(); await bridge.close(); }
+});
+
 for (const changed of ["documentId", "documentToken", "tabId"]) {
   test(`early binding refuses a different ${changed}`, async () => {
     const { bridge } = await createStartedBridge();

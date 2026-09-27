@@ -4,6 +4,7 @@ const { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSy
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const { DatabaseSync } = require("node:sqlite");
 const { execFileSync } = require("node:child_process");
 const { resultHandoffFixture, resultHandoffPlacements } = require("./fixtures/resultHandoff.cjs");
@@ -7145,7 +7146,7 @@ const gitRepository = (root) => {
   return root;
 };
 
-test("nested and symlinked paths to one repository share the initiative, separate repositories do not", async () => {
+symlinkFixtureTest("nested and symlinked paths to one repository share the initiative, separate repositories do not", async () => {
   const base = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "bachata-canonical-")));
   const repository = gitRepository(path.join(base, "repo"));
   const nested = path.join(repository, "package");

@@ -3,6 +3,7 @@ const { mkdtemp, rm, writeFile } = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const {
   createBrowserChatGptAdapter,
@@ -331,7 +332,7 @@ test("Claude browser adapter filters sessions by provider", async () => {
   }
 });
 
-test("browser image submission refuses excluded outside paths and redirected parents before bridge dispatch", async () => {
+symlinkFixtureTest("browser image submission refuses excluded outside paths and redirected parents before bridge dispatch", async () => {
   const { mkdir, symlink } = require("node:fs/promises");
   const parent = await mkdtemp(path.join(os.tmpdir(), "bachata-image-boundary-"));
   const workspace = path.join(parent, "build", "project");

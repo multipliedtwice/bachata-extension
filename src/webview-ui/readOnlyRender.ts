@@ -26,6 +26,7 @@ const READ_ONLY_SAFE_ACTIONS = new Set([
   "run-drawer-toggle",
   "run-drawer-backdrop",
   "run-menu-toggle",
+  "run-menu-notifications-toggle",
   "inspector-toggle",
   "composer-settings-toggle",
   "advanced-mode-open",

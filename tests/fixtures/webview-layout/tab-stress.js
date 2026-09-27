@@ -55,6 +55,9 @@ window.__measureTabStress = () => {
   const scroll = document.querySelector(".run-tabs-scroll");
   const tabs = Array.from(document.querySelectorAll(".run-tab"));
   const selected = document.querySelector(".run-tab.selected");
+  const strip = document.querySelector(".run-tabs-strip");
+  const tools = selected?.querySelector(".run-tab-tools");
+  const menu = selected?.querySelector(".run-action-menu");
   const focused = document.activeElement;
   const inside = (element, container) => {
     if (!element || !container) return false;
@@ -76,12 +79,14 @@ window.__measureTabStress = () => {
     const box = tab.getBoundingClientRect();
     return box.width > 0 && box.right > scrollBounds.left && box.left < scrollBounds.right;
   });
-  const requiredControls = ["#notification-button", "#room-actions-button"];
-  if (window.__tabStressRunning) {
+  const compactStrip = (strip?.clientWidth ?? Infinity) <= 360;
+  const requiredControls = compactStrip ? ["#room-actions-button"] : ["#notification-button", "#room-actions-button"];
+  if (window.__tabStressRunning && !compactStrip) {
     requiredControls.push('.run-tab-tool[data-view="chat"]', '.run-tab-tool[data-view="execution"]');
-    if (selected?.querySelector('[data-view="execution"][aria-pressed="true"]')) requiredControls.push('[data-action="interrupt-run"]');
+    if (selected?.querySelector('.run-tab-tool[data-view="execution"][aria-pressed="true"]')) requiredControls.push('.run-tab-tools [data-action="interrupt-run"]');
   }
   return {
+    viewportWidth: window.innerWidth,
     count: tabs.length,
     selectedId: selected?.querySelector(".run-tab-select")?.dataset.conversation,
     order: tabs.map((tab) => tab.querySelector(".run-tab-select").dataset.conversation),
@@ -99,6 +104,16 @@ window.__measureTabStress = () => {
     inactiveDetails: inactive.some((tab) => tab.querySelector(".run-tab-tools, .run-action-menu, small, .unread")),
     oneTabStop: tabs.filter((tab) => tab.querySelector(".run-tab-select").tabIndex === 0).length === 1,
     selectedContained: inside(selected, scroll),
+    compactStrip,
+    scrollbarHidden: getComputedStyle(scroll).scrollbarWidth === "none",
+    compactSingleRow: !compactStrip || !menu || (() => {
+      const action = menu.querySelector("summary").getBoundingClientRect();
+      const title = selected.querySelector(".run-tab-select").getBoundingClientRect();
+      return Math.abs((action.top + action.bottom) / 2 - (title.top + title.bottom) / 2) <= 2 &&
+        selected.getBoundingClientRect().height <= 44;
+    })(),
+    compactToolsHidden: !compactStrip || !tools || getComputedStyle(tools).display === "none",
+    compactQuickActionCount: selected?.querySelectorAll(".run-menu-quick-actions .run-menu-quick-action").length ?? 0,
     selectedTitleWidth: selected?.querySelector(".run-tab-select > span:nth-child(2)")?.getBoundingClientRect().width ?? 0,
     selectedControlsReachable: requiredControls.every((selector) => {
       const controls = selected?.querySelectorAll(selector);
@@ -122,7 +137,8 @@ window.__measureTabStressMenu = (selector) => {
   const menu = document.querySelector(selector);
   const panel = menu?.querySelector(":scope > div");
   const bounds = panel?.getBoundingClientRect();
-  const controls = Array.from(panel?.querySelectorAll("button:not([disabled])") ?? []);
+  const controls = Array.from(panel?.querySelectorAll("button:not([disabled])") ?? [])
+    .filter((control) => control.getClientRects().length > 0);
   return {
     open: menu?.open === true,
     contained: !!bounds && bounds.width > 0 && bounds.height > 0 && bounds.left >= 0 && bounds.top >= 0 &&

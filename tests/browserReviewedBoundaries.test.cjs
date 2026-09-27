@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const { BrowserContextReferences } = require("../dist/browser/contextReferences.js");
 const { captureManagedRepositoryBaseline, prepareManagedBrowserTurn, executeManagedBrowserControl, executeManagedBrowserEnvelope, isSupportedManagedContextAttachmentPath } = require("../dist/browser/managedTurn.js");
 const { assertBrowserAttachmentSource, browserAttachmentPath, isBrowserSourcePath } = require("../dist/browser/sourceTransferPolicy.js");
@@ -104,7 +105,7 @@ for (const relative of ["node_modules/pkg/reference", "NODE_MODULES/pkg/referenc
 }
 
 for (const ancestor of ["build", "dist"]) {
-  test(`workspace under ${ancestor} accepts source attachments but rejects excluded children and redirected files`, async () => {
+  symlinkFixtureTest(`workspace under ${ancestor} accepts source attachments but rejects excluded children and redirected files`, async () => {
     const parent = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-attachment-policy-"));
     const root = path.join(parent, ancestor, "project");
     const excluded = path.join(parent, "outside", "node_modules", "pkg");

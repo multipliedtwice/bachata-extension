@@ -147,7 +147,9 @@ export const terminateProcessTree = async (
     }
     const terminated = await taskkill(pid, true);
     const parentExited = await settleWithin(waitForExit(child), graceMs);
-    return terminated && parentExited;
+    // The child can exit between the initial check and taskkill. Windows then reports that PID
+    // as missing, even though Node has confirmed its exit by the time the wait finishes.
+    return parentExited && (terminated || child.exitCode !== null || child.signalCode !== null);
   }
 
   if (!posixGroupExists(pid)) {

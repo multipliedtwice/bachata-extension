@@ -4,7 +4,7 @@ import { runTabStressChecks } from "./lib/runTabStressChecks.mjs";
 /**
  * EX-UI-04. The run tab strip's hit regions at the widths a side panel actually has.
  *
- * The strip's narrow rules are viewport media queries, and a webview cannot resize its own
+ * The strip's narrow rules are container queries, and a webview cannot resize its own
  * viewport — so the activation smoke can only assert these invariants at whatever width the host
  * gave it. This drives the same built bundle in a browser whose viewport it can set, and asserts
  * at every width that matters: the selected run's action menu and the New-run button never share
@@ -27,7 +27,7 @@ import { closeCdpSession, delay, openCdpSession } from "./lib/chromeSession.mjs"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(root, "tests", "fixtures", "webview-layout", "index.html");
 const bundle = path.join(root, "dist", "webview.js");
-const WIDTHS = [320, 360, 400, 480, 700, 792, 900, 1280];
+const WIDTHS = [320, 360, 375, 400, 480, 700, 792, 900, 1280];
 
 const resolveChrome = () => {
   const configured = process.env.BACHATA_CHROME_BINARY?.trim();
@@ -255,6 +255,51 @@ const composerMeasure = `(() => {
   };
 })()`;
 
+const queueMeasure = `(() => {
+  const panel = document.querySelector(".composer .queue-panel");
+  const rows = [...document.querySelectorAll(".composer .queue-item")];
+  if (!panel || rows.length !== 3) return { present: false, rows: rows.length };
+  const boundary = panel.getBoundingClientRect();
+  const controls = rows.flatMap((row) => [...row.querySelectorAll(".queue-actions button")]);
+  return {
+    present: true,
+    promptsSingleLine: rows.every((row) => {
+      const prompt = row.querySelector(".queue-prompt");
+      return prompt && getComputedStyle(prompt).whiteSpace === "nowrap";
+    }),
+    controlsContained: controls.every((control) => {
+      const box = control.getBoundingClientRect();
+      return box.width >= 24 && box.height >= 24 &&
+        box.left >= boundary.left - 1 && box.right <= boundary.right + 1;
+    }),
+    rowsContained: rows.every((row) => {
+      const box = row.getBoundingClientRect();
+      return box.left >= boundary.left - 1 && box.right <= boundary.right + 1;
+    }),
+  };
+})()`;
+
+const warningMeasure = `(() => {
+  const warning = document.querySelector(".composer-blockers");
+  const icon = warning?.querySelector(".codicon-warning");
+  const message = warning?.querySelector("span");
+  const fix = warning?.querySelector('[data-action="readiness-remediate"]');
+  if (!warning || !icon || !message || !fix) return { present: false };
+  const w = warning.getBoundingClientRect();
+  const i = icon.getBoundingClientRect();
+  const m = message.getBoundingClientRect();
+  const f = fix.getBoundingClientRect();
+  return {
+    present: true,
+    detailVisible: message.textContent.includes("spawn claude ENOENT"),
+    contentContained: [i, m, f].every((r) => r.left >= w.left - 1 && r.right <= w.right + 1 && r.top >= w.top - 1 && r.bottom <= w.bottom + 1),
+    iconBesideMessage: i.right <= m.left && Math.abs(i.top - m.top) <= 5,
+    fixBesideMessage: f.left >= m.right - 1 && Math.abs(f.top - m.top) <= 5,
+    height: w.height,
+    horizontalScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  };
+})()`;
+
 // The rich pipeline picker opens as a floating listbox above the toolbar; it must not be clipped by
 // the composer surface or a scroll container, so its box sits above the toolbar and inside the
 // viewport at every width.
@@ -400,6 +445,10 @@ const run = async () => {
       await delay(100);
     }
     await session.evaluate("document.fonts.ready.then(() => true)");
+    if (process.argv.includes("--stress-only")) {
+      await runTabStressChecks(session, press, pressKey);
+      return;
+    }
     for (const width of WIDTHS) {
       await session.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
       await delay(300);
@@ -415,6 +464,14 @@ const run = async () => {
       if (reach.tabs < 2) failures.push(`${String(width)}px: the fixture drew ${String(reach.tabs)} run tabs, so no unselected tab was measured`);
       reach.mismatched.forEach((problem) => { failures.push(`${String(width)}px: ${problem}`); });
       const composer = await session.evaluate(composerMeasure);
+      const queue = await session.evaluate(queueMeasure);
+      if (!queue.present) {
+        failures.push(`${String(width)}px: the queued message fixture did not render three rows`);
+      } else {
+        if (!queue.promptsSingleLine) failures.push(`${String(width)}px: a queued prompt wrapped to another line`);
+        if (!queue.controlsContained) failures.push(`${String(width)}px: a queued action escapes the queue panel`);
+        if (!queue.rowsContained) failures.push(`${String(width)}px: a queued row escapes the queue panel`);
+      }
       if (!composer.present) {
         failures.push(`${String(width)}px: the composer toolbar did not render`);
       } else {
@@ -521,11 +578,26 @@ const run = async () => {
     await runWebviewProductChecks(session, press, pressKey, WIDTHS);
     await runMinimalLayoutChecks(session, press, pressKey);
     await runTabStressChecks(session, press, pressKey);
+    await session.evaluate("window.__bootWarning()");
+    await delay(160);
+    for (const width of WIDTHS) {
+      await session.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await delay(100);
+      const warning = await session.evaluate(warningMeasure);
+      if (!warning.present) {
+        failures.push(`${String(width)}px: the provider warning and its Fix action did not render`);
+        continue;
+      }
+      if (!warning.detailVisible || !warning.contentContained || !warning.iconBesideMessage || warning.horizontalScroll) {
+        failures.push(`${String(width)}px: the provider warning is clipped, scattered, or widens the page: ${JSON.stringify(warning)}`);
+      }
+      if (!warning.fixBesideMessage) failures.push(`${String(width)}px: Fix should sit beside the warning text`);
+    }
     // The execution view: booted once, then measured at every width. It replaces the fixture's
     // idle state, so it runs after every idle-state measurement is done.
     await session.evaluate("window.__bootExecution()");
     await delay(200);
-    await press(session, '[data-action="room-view"][data-view="execution"]');
+    await press(session, '.run-tab-tools [data-view="execution"]');
     await delay(200);
     for (const width of WIDTHS) {
       await session.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });

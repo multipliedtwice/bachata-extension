@@ -1046,6 +1046,43 @@ const queuedPipelineState = (
   createdAt: new Date().toISOString(),
 });
 
+test("queued messages can be edited and moved ahead while paused", async () => {
+  const first = queuedPipelineState("first-queued");
+  const second = queuedPipelineState("second-queued");
+  const harness = loadRuntimeHarness({
+    initialWorkspaceState: {
+      "bachata.runtimeState.v5": {
+        selectedPipelineId: "cross-reference-development",
+        taskDirty: true,
+        agents: {},
+        attachments: [],
+        queuedMessages: [first, second],
+        queuePaused: true,
+      },
+    },
+  });
+  try {
+    await harness.runtime.handleMessage({ type: "ready" });
+    await harness.runtime.handleMessage({ type: "queue.update", messageId: second.id, prompt: "Revised request" });
+    await harness.runtime.handleMessage({ type: "queue.promote", messageId: second.id });
+    const live = harness.runtime.getState().queuedMessages;
+    const saved = harness.workspaceState.get("bachata.runtimeState.v5").queuedMessages;
+    assert.deepEqual(live.map((item) => item.id), [second.id, first.id]);
+    assert.deepEqual(saved.map((item) => item.id), [second.id, first.id]);
+    assert.equal(live[0].prompt, "Revised request");
+    assert.equal(saved[0].prompt, "Revised request");
+    assert.equal(harness.runtime.getState().queuePaused, true);
+    assert.deepEqual(
+      harness.transcript.filter((entry) => entry.eventType === "message.queue.updated" || entry.eventType === "message.queue.promoted").map((entry) => entry.eventType),
+      ["message.queue.updated", "message.queue.promoted"],
+    );
+  } finally {
+    harness.adapterControlHistory.forEach((control) => control.release.resolve());
+    await harness.runtime.dispose();
+    harness.cleanup();
+  }
+});
+
 const singleAgentRecoveryState = (
   sourceQueueMessageId,
   definition = singleAgentPipelineDefinition(),
@@ -1468,7 +1505,7 @@ test("clean persisted selections adopt the active root scope even when definitio
     const canonicalSecondRoot = fs.realpathSync(secondRoot);
     const snapshot = harness.runtime.getSelectedPipelineSnapshot();
     assert.equal(snapshot.scopeRoot, secondRoot);
-    assert.equal(snapshot.scopeKey, `workspace:${canonicalSecondRoot}`);
+    assert.equal(snapshot.scopeKey, `workspace:${process.platform === "win32" ? canonicalSecondRoot.toLowerCase() : canonicalSecondRoot}`);
     assert.equal(harness.runtime.getState().pipelineScopeRoot, secondRoot);
   } finally {
     harness.adapterControls.forEach((control) => control.release.resolve());
@@ -4728,7 +4765,7 @@ test("runtime refuses a workspace pipeline catalog redirected outside its root",
   }
 });
 
-test("invalid duplicate pipeline files block the custom catalog until the collision is resolved", async () => {
+test("invalid duplicate pipeline files block the custom catalog until the collision is resolved", async (context) => {
   const workspaceRoot = scratchRootSync("bachata-invalid-catalog-");
   const definition = customPipelineDefinition("duplicate-definition", "Duplicate definition");
   const directory = path.join(workspaceRoot, ".bachata", "pipelines");
@@ -4748,18 +4785,27 @@ test("invalid duplicate pipeline files block the custom catalog until the collis
     assert.match(blocked.pipelineMutationReason, /must be named|catalog is invalid/u);
     fs.rmSync(duplicatePath);
     const symbolicPath = path.join(directory, "symbolic.pipeline.json");
-    fs.symlinkSync(
-      path.join(directory, `${definition.id}.pipeline.json`),
-      symbolicPath,
-      process.platform === "win32" ? "file" : undefined,
-    );
-    await harness.runtime.refreshPipelines();
-    assert.equal(
-      harness.runtime.getState().pipelines.some((item) => item.id === definition.id),
-      false,
-    );
-    assert.match(harness.runtime.getState().pipelineMutationReason, /not a regular file/u);
-    fs.rmSync(symbolicPath);
+    let symbolicCreated = false;
+    try {
+      fs.symlinkSync(
+        path.join(directory, `${definition.id}.pipeline.json`),
+        symbolicPath,
+        process.platform === "win32" ? "file" : undefined,
+      );
+      symbolicCreated = true;
+    } catch (error) {
+      if (process.platform !== "win32" || error?.code !== "EPERM" || error?.syscall !== "symlink") throw error;
+      context.diagnostic("Windows denied symbolic-link creation; the duplicate-file and recovery checks still run");
+    }
+    if (symbolicCreated) {
+      await harness.runtime.refreshPipelines();
+      assert.equal(
+        harness.runtime.getState().pipelines.some((item) => item.id === definition.id),
+        false,
+      );
+      assert.match(harness.runtime.getState().pipelineMutationReason, /not a regular file/u);
+      fs.rmSync(symbolicPath);
+    }
     await harness.runtime.refreshPipelines();
     const recovered = harness.runtime.getState();
     assert.equal(recovered.pipelines.some((item) => item.id === definition.id), true);
@@ -6245,6 +6291,7 @@ test("a removed workspace root leaves no workingDirectory or pipelineScopeRoot k
 
 test("a bound browser conversation that is gone clears the agent sessionId key", async () => {
   const workspace = scratchRootSync("bachata-vanished-browser-assignment-");
+  const scopeKey = `workspace:${process.platform === "win32" ? workspace.toLowerCase() : workspace}`;
   const tracked = createTrackedBridge([]);
   const harness = loadRuntimeHarness({
     workspaceDirectories: [workspace],
@@ -6253,7 +6300,7 @@ test("a bound browser conversation that is gone clears the agent sessionId key",
         selectedPipelineId: "review",
         taskDirty: false,
         agentAssignments: {
-          scopeKey: `workspace:${workspace}`,
+          scopeKey,
           pipelineId: "review",
           assignments: { codex: { adapter: "chatgpt-browser", browserSessionId: "vanished-session" } },
         },
@@ -6292,6 +6339,7 @@ test("a bound browser conversation that is gone clears the agent sessionId key",
 
 test("a browser binding failure clears the agent sessionId key and reports the error", async () => {
   const workspace = scratchRootSync("bachata-unbindable-browser-assignment-");
+  const scopeKey = `workspace:${process.platform === "win32" ? workspace.toLowerCase() : workspace}`;
   const tracked = createTrackedBridge([]);
   tracked.bridge.bindConversation = () => {
     throw new Error("bridge refused the binding");
@@ -6303,7 +6351,7 @@ test("a browser binding failure clears the agent sessionId key and reports the e
         selectedPipelineId: "review",
         taskDirty: false,
         agentAssignments: {
-          scopeKey: `workspace:${workspace}`,
+          scopeKey,
           pipelineId: "review",
           assignments: { codex: { adapter: "chatgpt-browser", browserSessionId: "unbindable-session" } },
         },

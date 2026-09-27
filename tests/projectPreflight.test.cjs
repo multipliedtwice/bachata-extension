@@ -3,6 +3,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const {
   assertWorkspacePolicyAudit,
@@ -51,7 +52,7 @@ const request = (workingDirectory, policy) => ({
 
 const writingPolicy = { readOnly: false, writeScope: "task", allowedPaths: ["src"], automated: true };
 
-test("a worktree root, a nested folder, a dirty tree, a trailing slash and a symlink resolve to one worktree", async () => {
+symlinkFixtureTest("a worktree root, a nested folder, a dirty tree, a trailing slash and a symlink resolve to one worktree", async () => {
   const repo = gitProject();
   const links = scratchRootSync("bachata-preflight-link-");
   try {

@@ -144,7 +144,20 @@ const atomicWriteText = async (
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporary, target);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rename(temporary, target);
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (process.platform !== "win32" || (code !== "EPERM" && code !== "EACCES") || attempt >= 7) {
+          throw error;
+        }
+        // Windows can briefly deny replacement while another process opens or replaces the
+        // index. The transcript itself is already appended; keep this atomic replacement bounded.
+        await new Promise<void>((resolve) => setTimeout(resolve, 5 * (attempt + 1)));
+      }
+    }
     await syncDirectory(directory);
   } finally {
     await handle?.close().catch(() => undefined);

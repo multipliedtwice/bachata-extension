@@ -716,7 +716,10 @@ test("the selected run tab owns view controls, notifications, and one grouped ac
     );
     const notificationSettings = selected.querySelector('.notification-center [data-action="notification-settings"]');
     assert.ok(notificationSettings);
-    assert.equal(selected.querySelector('.header-action-menu [data-action="notification-settings"]'), null);
+    const compactNotifications = selected.querySelector('#run-menu-notifications');
+    assert.ok(compactNotifications?.hasAttribute("hidden"));
+    assert.ok(compactNotifications.querySelector('[data-action="notification-settings"]'));
+    assert.equal(selected.querySelector('.run-menu-quick-actions').textContent, "");
   } finally {
     harness.restore();
   }
@@ -1099,10 +1102,9 @@ test("resizing the tab strip dismisses moved menus and recovers their focus", ()
     harness.sendWindowEvent("resize", {});
     assert.equal(menu.open, false);
     assert.equal(harness.document.activeElement === menu.querySelector("summary"), true);
-    assert.equal(strip.hasAttribute("data-compact"), true);
+    assert.ok(strip);
     scroll.clientWidth = 600;
     harness.sendWindowEvent("resize", {});
-    assert.equal(strip.hasAttribute("data-compact"), false);
     menu.querySelector("summary").click();
     const composer = root.querySelector("#composer-prompt");
     composer.focus();
@@ -1150,11 +1152,13 @@ test("1000 running tabs keep the active controls and dispatch Stop once", () => 
     const root = harness.document.root;
     root.querySelector('.run-tab-tools [data-view="execution"]').click();
     const selected = root.querySelector(".run-tab.selected");
-    for (const selector of ['[data-view="chat"]', '[data-view="execution"]', '[data-action="interrupt-run"]', "#notification-button", "#room-actions-button"]) {
-      assert.equal(selected.querySelectorAll(selector).length, 1, selector);
+    for (const selector of ['[data-view="chat"]', '[data-view="execution"]', '[data-action="interrupt-run"]']) {
+      assert.equal(selected.querySelectorAll(`.run-tab-tools ${selector}`).length, 1, selector);
+      assert.equal(selected.querySelectorAll(`.run-menu-quick-actions ${selector}`).length, 1, `${selector} in compact menu`);
     }
+    for (const selector of ["#notification-button", "#room-actions-button"]) assert.equal(selected.querySelectorAll(selector).length, 1, selector);
     assert.equal(root.querySelectorAll(".run-tab-tools").length, 1);
-    const stop = selected.querySelector('[data-action="interrupt-run"]');
+    const stop = selected.querySelector('.run-tab-tools [data-action="interrupt-run"]');
     stop.click();
     stop.click();
     assert.deepEqual(harness.messages.filter((message) => message.message?.type === "run.interrupt"), [
@@ -1604,6 +1608,96 @@ test("legacy blocked queue requests expose cancellation without a misleading res
     assert.match(harness.document.root.innerHTML, /Cancel and queue this request again\./u);
     assert.equal(harness.document.root.querySelector('[data-action="queue-resume"]'), null);
     assert.ok(harness.document.root.querySelector('[data-action="queue-cancel"]'));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("queue controls edit and prioritize messages beside the composer", async () => {
+  const harness = bootWebview(
+    managerState(),
+    panelState({ queuedMessages: [
+      { id: "first", kind: "pipeline", prompt: "First", mode: "implementation", recipients: [], attachmentIds: [], createdAt: timestamp },
+      { id: "second", kind: "pipeline", prompt: "Second", mode: "implementation", recipients: [], attachmentIds: [], createdAt: timestamp },
+    ] }),
+  );
+  try {
+    const queue = harness.document.root.querySelector(".composer .queue-panel");
+    assert.ok(queue);
+    assert.equal(queue.querySelector(".queue-count").textContent, "2");
+    assert.doesNotMatch(queue.textContent, /implementation, may write/u,
+      "a queued pipeline must not inherit the direct-message permission label");
+    queue.querySelector('[data-action="queue-promote"][data-message-id="second"]').click();
+    assert.equal(harness.messages.at(-1).message.type, "queue.promote");
+    queue.querySelector('[data-action="queue-edit"][data-message-id="second"]').click();
+    const editor = harness.document.root.querySelector(".queue-edit-prompt");
+    assert.ok(editor);
+    editor.value = "Edited second";
+    harness.document.root.dispatch("input", { target: editor });
+    harness.document.root.querySelector('[data-action="queue-edit-save"]').click();
+    assert.deepEqual(harness.messages.at(-1).message, { type: "queue.update", messageId: "second", prompt: "Edited second" });
+    assert.ok(harness.document.root.querySelector('[data-action="voice-toggle"]'));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("an edited queued message shows its latest text in the chat history", () => {
+  const harness = bootWebview(
+    managerState(),
+    panelState({ transcript: [
+      { id: "original", kind: "prompt", eventType: "user.message", text: "Original queued text", createdAt: timestamp,
+        data: { queued: true, queueId: "queued-1" } },
+      { id: "revision", kind: "event", eventType: "message.queue.updated", text: "Queued message edited.", createdAt: timestamp,
+        data: { messageId: "queued-1", prompt: "Revised queued text" } },
+    ] }),
+  );
+  try {
+    const userMessage = harness.document.root.querySelector('[data-entry="original"]');
+    assert.match(userMessage.textContent, /Revised queued text/u);
+    assert.doesNotMatch(userMessage.textContent, /Original queued text/u);
+    assert.match(userMessage.textContent, /Edited/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("voice input appends recognized speech to the current draft and stops on request", () => {
+  const harness = bootWebview();
+  let engine;
+  window.SpeechRecognition = class {
+    start() { engine = this; }
+    stop() { this.onend?.(); }
+  };
+  try {
+    harness.document.root.querySelector('[data-action="voice-toggle"]').click();
+    assert.equal(harness.document.root.querySelector('[data-action="voice-toggle"]').getAttribute("aria-pressed"), "true");
+    const field = harness.document.root.querySelector("#composer-prompt");
+    field.dispatchEvent = (event) => harness.document.root.dispatch(event.type, { target: field });
+    engine.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "spoken request" } }] });
+    assert.equal(field.value, "spoken request");
+    assert.match(harness.document.root.innerHTML, /spoken request/u);
+    harness.document.root.querySelector('[data-action="voice-toggle"]').click();
+    assert.equal(harness.document.root.querySelector('[data-action="voice-toggle"]').getAttribute("aria-pressed"), "false");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("Windows host dictation routes recognized text into the current draft", () => {
+  const harness = bootWebview();
+  try {
+    harness.sendWindowMessage({ type: "voice.capabilities", host: true });
+    harness.document.root.querySelector('[data-action="voice-toggle"]').click();
+    assert.deepEqual(harness.messages.at(-1), { type: "voice.start", conversationId: "run-1" });
+    const field = harness.document.root.querySelector("#composer-prompt");
+    field.dispatchEvent = (event) => harness.document.root.dispatch(event.type, { target: field });
+    harness.sendWindowMessage({ type: "voice.text", conversationId: "run-1", text: "local speech" });
+    assert.equal(field.value, "local speech");
+    harness.document.root.querySelector('[data-action="voice-toggle"]').click();
+    assert.deepEqual(harness.messages.at(-1), { type: "voice.stop" });
+    harness.sendWindowMessage({ type: "voice.status", conversationId: "run-1", status: "stopped" });
+    assert.equal(harness.document.root.querySelector('[data-action="voice-toggle"]').getAttribute("aria-pressed"), "false");
   } finally {
     harness.restore();
   }
@@ -3090,6 +3184,31 @@ test("the loop control opens a bounded discrete slider and an active run queues 
     assert.equal(harness.document.getElementById("message-delivery"), null);
     assert.doesNotMatch(harness.document.root.innerHTML, /Edit pipeline|New pipeline|Fork selected/u);
     assert.match(harness.document.root.innerHTML, /data-action="submit-message" data-delivery="queue"/u);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("an active run can queue a follow-up while provider readiness is being refreshed", () => {
+  const harness = bootWebview(managerState(), panelState({
+    selectedPipelineDefinition: pipelineDefinition(),
+    running: true,
+    workflowStatus: "running",
+    readiness: {
+      status: "needsSetup",
+      findings: [{ id: "adapter.codex", label: "Codex", status: "needsSetup", detail: "Provider availability has not been checked yet" }],
+    },
+  }));
+  try {
+    const prompt = harness.document.getElementById("composer-prompt");
+    prompt.value = "Include whether the finding is user-visible";
+    harness.document.root.dispatch("input", { target: prompt });
+    const submit = harness.document.root.querySelector('[data-action="submit-message"]');
+    assert.equal(submit.getAttribute("data-delivery"), "queue");
+    assert.notEqual(submit.getAttribute("aria-disabled"), "true");
+    submit.click();
+    assert.equal(harness.messages.at(-1).message.type, "pipeline.run");
+    assert.equal(harness.messages.at(-1).message.delivery, "queue");
   } finally {
     harness.restore();
   }
@@ -6026,7 +6145,8 @@ test("banners that did not change are re-inserted without being announced again"
     assert.match(first, /class="blocking-workflow-banner" role="status">/u);
     assert.match(first, /class="read-only-banner"/u);
     assert.doesNotMatch(first, /class="notification-bubble"/u);
-    assert.equal(first.split("Review converged: 1 needs you.").length - 1, 1);
+    assert.equal(harness.document.root.querySelectorAll('.notification-center .notification-list p').length, 1);
+    assert.ok(harness.document.getElementById('run-menu-notifications')?.hasAttribute("hidden"));
 
     // render() replaces the whole tree, so an unrelated snapshot re-inserts all three and a
     // screen reader reads them out again. Each keeps its role — it is still a status region in
@@ -6041,7 +6161,8 @@ test("banners that did not change are re-inserted without being announced again"
     assert.match(second, /class="read-only-banner" role="status" aria-live="off" data-read-only-banner/u);
     assert.match(second, /class="blocking-workflow-banner" role="status" aria-live="off">/u);
     assert.doesNotMatch(second, /class="notification-bubble"/u);
-    assert.equal(second.split("Review converged: 1 needs you.").length - 1, 1);
+    assert.equal(harness.document.root.querySelectorAll('.notification-center .notification-list p').length, 1);
+    assert.ok(harness.document.getElementById('run-menu-notifications')?.hasAttribute("hidden"));
   } finally {
     harness.restore();
   }
@@ -6695,7 +6816,7 @@ test("the newest notification is said once when the centre is open", () => {
       "the newest event is drawn twice while the centre is open",
     );
     assert.equal(
-      opened.split("Review converged: 3 resolved, 1 new, 0 regressed, 1 needs you.").length - 1,
+      harness.document.root.querySelector('.notification-center').textContent.split("Review converged: 3 resolved, 1 new, 0 regressed, 1 needs you.").length - 1,
       1,
       "the newest event's text appears more than once",
     );
@@ -7637,7 +7758,7 @@ test("each notification action is described by its own row, and that row exists"
   }));
   try {
     const root = harness.document.root;
-    const buttons = Array.from(root.querySelectorAll('[data-action="notification-open"]'))
+    const buttons = Array.from(root.querySelectorAll('.notification-center [data-action="notification-open"]'))
       .filter((button) => button.getAttribute("aria-describedby"));
     assert.equal(buttons.length, 2, "the centre's actions are not described by their rows");
     const described = new Set();
@@ -9080,7 +9201,9 @@ test("notification preferences remain available from the bell without notificati
     for (const action of ["inspector-toggle", "availability-check", "working-directory", "transcript-export", "task-reset"]) {
       assert.ok(harness.document.root.querySelector(`.header-action-menu [data-action="${action}"]`), action);
     }
-    assert.equal(harness.document.root.querySelector('.header-action-menu [data-action="notification-settings"]'), null);
+    const compactNotifications = harness.document.getElementById('run-menu-notifications');
+    assert.ok(compactNotifications?.hasAttribute("hidden"));
+    assert.ok(compactNotifications.querySelector('[data-action="notification-settings"]'));
     assert.ok(harness.document.root.querySelector('.header-action-menu [data-action="task-reset"]').className.includes("danger"));
   } finally {
     harness.restore();

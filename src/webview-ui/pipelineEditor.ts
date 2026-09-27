@@ -733,3 +733,21 @@ const updateEditorInput = (element: HTMLInputElement | HTMLTextAreaElement | HTM
   syncEditorRaw();
   if (rerender) scheduleRender();
 };
+// The activation journey edits a saved pipeline through the same picker actions a user takes.
+const openPipelineEditorThroughPicker = async (): Promise<void> => {
+  if (!state.pipelinePickerOpen) {
+    root.querySelector<HTMLElement>('[data-action="pipeline-picker-toggle"]')?.click();
+    await settleUi();
+  }
+  const pipelineId = activePanel().selectedPipelineId;
+  const selectedPipeline = activePanel().pipelines.find((pipeline) => pipeline.id === pipelineId);
+  if (selectedPipeline) {
+    const category = pipelineCategory(selectedPipeline);
+    root.querySelector<HTMLElement>(`[data-action="pipeline-picker-filter"][data-pipeline-filter="${category}"]`)?.click();
+    await settleUi();
+  }
+  root.querySelector<HTMLElement>(`[data-action="pipeline-row-menu"][data-pipeline-id="${CSS.escape(pipelineId ?? "")}"]`)?.click();
+  await settleUi();
+  root.querySelector<HTMLElement>(`[data-action="pipeline-row-edit"][data-pipeline-id="${CSS.escape(pipelineId ?? "")}"]`)?.click();
+  await settleUi();
+};

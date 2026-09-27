@@ -93,6 +93,7 @@ const execute = async (
     env: options.environment ?? safeProcessEnvironment(options.cwd),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+    windowsVerbatimArguments: process.platform === "win32" && path.win32.basename(executable).toLowerCase() === "cmd.exe",
     cleanupGraceMs: 2_000,
   });
   const admit = (chunks: Buffer[], chunk: Buffer): void => {

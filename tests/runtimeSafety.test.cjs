@@ -623,7 +623,7 @@ test("coverage gates source files and critical modules separately", async () => 
     "the browser layout gate runs before the build it measures",
   );
   const layoutSource = await loadSource("scripts/run-webview-layout.mjs");
-  assert.match(layoutSource, /const WIDTHS = \[320, 360, 400, 480, 700, 792, 900, 1280\]/u);
+  assert.match(layoutSource, /const WIDTHS = \[320, 360, 375, 400, 480, 700, 792, 900, 1280\]/u);
   assert.match(layoutSource, /overlaps the action menu/u);
   assert.match(layoutSource, /pressing the action menu created a run/u);
   assert.match(layoutSource, /does not take keyboard focus/u);

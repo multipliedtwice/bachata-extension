@@ -175,6 +175,7 @@ type PendingConversation = {
   abortListener: () => void;
   interruptTimer?: NodeJS.Timeout;
   deadlineTimer?: NodeJS.Timeout;
+  transitionGapTimer?: NodeJS.Timeout;
   interruptRequested: boolean;
   allowSessionTransition: boolean;
   boundSessionIds: Set<string>;
@@ -571,6 +572,7 @@ export const createBrowserBridgeServer = (
       clearTimeout(operation.interruptTimer);
     }
     if (operation.deadlineTimer) clearTimeout(operation.deadlineTimer);
+    if (operation.transitionGapTimer) clearTimeout(operation.transitionGapTimer);
     pending.delete(requestId);
     for (const key of operation.reservedConversationKeys) {
       if (key !== conversationByBindingOwner.get(operation.ownerId) && bindingOwnerByConversation.get(key) === operation.ownerId) {
@@ -588,6 +590,7 @@ export const createBrowserBridgeServer = (
     if (!pending.has(operation.requestId)) return;
     clearTimeout(operation.interruptTimer);
     clearTimeout(operation.deadlineTimer);
+    clearTimeout(operation.transitionGapTimer);
     delete operation.interruptTimer;
     delete operation.deadlineTimer;
     operation.interruptRequested = false;
@@ -832,6 +835,16 @@ export const createBrowserBridgeServer = (
     }
   };
 
+  const provisionalChatGptUrl = (value: string): boolean => {
+    try {
+      const url = new URL(value);
+      return url.origin === "https://chatgpt.com"
+        && /^\/c\/local-chatgpt%3A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(url.pathname);
+    } catch {
+      return false;
+    }
+  };
+
   const isInitialConversationPage = (
     provider: BrowserProvider,
     value: string,
@@ -939,6 +952,8 @@ export const createBrowserBridgeServer = (
       }
       if (operation.promotedBindingSession) return;
       try {
+        if (operation.transitionGapTimer) clearTimeout(operation.transitionGapTimer);
+        delete operation.transitionGapTimer;
         const binding = bindingForSession(session);
         promoteOperationBinding(operation, binding);
         operation.promotedBindingSession = structuredClone(session);
@@ -997,12 +1012,18 @@ export const createBrowserBridgeServer = (
             session.conversationUrl === operation.session.conversationUrl &&
             session.conversationIdentity === operation.session.conversationIdentity,
         );
-        if (current && current.status !== "failed" && current.status !== "disconnected") return;
+        if (current && current.status !== "failed" && current.status !== "disconnected") {
+          if (operation.transitionGapTimer) clearTimeout(operation.transitionGapTimer);
+          delete operation.transitionGapTimer;
+          return;
+        }
         const transitioned = operation.allowSessionTransition
           ? sessions.find((session) => {
               if (session.provider !== operation.session.provider
                 || session.tabId !== operation.session.tabId
                 || session.frameId !== operation.session.frameId
+                || session.documentId !== operation.session.documentId
+                || session.documentToken !== operation.session.documentToken
                 || session.status === "failed"
                 || session.status === "disconnected") return false;
               try {
@@ -1017,6 +1038,12 @@ export const createBrowserBridgeServer = (
             })
           : undefined;
         if (transitioned) {
+          if (operation.transitionGapTimer) clearTimeout(operation.transitionGapTimer);
+          delete operation.transitionGapTimer;
+          // ChatGPT's local route is replaced by a final route in the same document. Wait for
+          // the stable binding before claiming a new conversation or reserving its session.
+          if (transitioned.provider === "chatgpt"
+            && provisionalChatGptUrl(transitioned.conversationUrl)) return;
           const owner = pendingBySession.get(transitioned.id);
           if (owner && owner !== operation.requestId) {
             settleUnconfirmed(operation,
@@ -1038,6 +1065,20 @@ export const createBrowserBridgeServer = (
           pendingBySession.set(transitioned.id, operation.requestId);
           return;
         }
+        // During ChatGPT's first-turn route change, the background may briefly publish no
+        // session for the tab between the initial and final URLs. Keep the original request
+        // reserved while waiting for that same tab/document to reappear; never bind a new tab.
+        if (operation.allowSessionTransition && operation.session.provider === "chatgpt"
+          && isInitialConversationPage("chatgpt", operation.session.conversationUrl)
+          && !operation.transitionGapTimer) {
+          operation.transitionGapTimer = setTimeout(() => {
+            settleUnconfirmed(operation, new Error(
+              "The bound browser conversation did not reappear after its initial route change; remote termination is unconfirmed",
+            ));
+          }, 3_000);
+          return;
+        }
+        if (operation.transitionGapTimer) return;
         settleUnconfirmed(operation,
           new Error("The bound browser conversation changed during the active request; remote termination is unconfirmed"),
         );

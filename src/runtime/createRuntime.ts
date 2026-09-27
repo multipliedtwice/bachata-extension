@@ -8533,11 +8533,16 @@ export const createRuntime = (
       .join("; ");
   };
 
-  const pipelineRunRefusal = (): string | undefined => {
+  const pipelineRunRefusal = (delivery: MessageDelivery = "immediate"): string | undefined => {
     if (state.workingDirectory === undefined && state.workspaceRoots.length !== 1) {
       return state.workspaceRoots.length === 0
         ? "Open a VS Code workspace folder before starting a session"
         : "Select a working directory before starting a session in a multi-root workspace";
+    }
+    // A running pipeline already passed preflight. Let follow-ups enter its queue; the next
+    // pipeline checks readiness again when the queued item actually starts.
+    if (delivery !== "immediate" && (workflowActive || activeWorkflow || state.workflowStatus === "running")) {
+      return undefined;
     }
     return blockedReadinessRefusal();
   };
@@ -8551,7 +8556,7 @@ export const createRuntime = (
     requiredCleanPasses = 2,
     onAccepted?: () => Promise<void> | void,
   ): Promise<void> => {
-    const refusal = pipelineRunRefusal();
+    const refusal = pipelineRunRefusal(delivery);
     if (refusal) {
       throw new Error(refusal);
     }
@@ -10646,7 +10651,7 @@ export const createRuntime = (
   };
 
   const handleQueueMessage = async (
-    message: Extract<WebviewToExtensionMessage, { type: "queue.cancel" | "queue.resume" }>,
+    message: Extract<WebviewToExtensionMessage, { type: "queue.cancel" | "queue.update" | "queue.promote" | "queue.resume" }>,
   ): Promise<void> => {
     if (message.type === "queue.cancel") {
       const queued = state.queuedMessages.find(
@@ -10658,6 +10663,41 @@ export const createRuntime = (
       const removed = await cancelQueuedMessage(queued.id);
       if (!removed) {
         throw new Error("The queued message already started");
+      }
+      return;
+    }
+    if (message.type === "queue.update" || message.type === "queue.promote") {
+      const changed = await serializeQueueTransition(async () => {
+        const index = state.queuedMessages.findIndex((item) => item.id === message.messageId);
+        if (index < 0) throw new Error("The queued message no longer exists");
+        if (queueStartClaim?.messageId === message.messageId) throw new Error("The queued message already started");
+        if (message.type === "queue.promote" && (queueStartClaim || (queueDraining && !state.queuePaused))) {
+          throw new Error("Wait for the current queued message to finish starting");
+        }
+        const messages = structuredClone(state.queuedMessages);
+        if (message.type === "queue.update") {
+          messages[index]!.prompt = message.prompt;
+        } else if (index > 0) {
+          const [promoted] = messages.splice(index, 1);
+          messages.unshift(promoted!);
+        }
+        await commitQueueState({
+          queuedMessages: messages,
+          queuePaused: state.queuePaused,
+          queueStart: queueStartClaim,
+          taskDirty,
+        });
+        return { kind: messages[message.type === "queue.promote" ? 0 : index]!.kind, changed: message.type === "queue.update" || index > 0 };
+      });
+      if (changed.changed) {
+        await appendTranscriptAfterCommit(
+          createEventEntry(
+            message.type === "queue.update" ? "message.queue.updated" : "message.queue.promoted",
+            message.type === "queue.update" ? "Queued message edited." : "Queued message moved to the front.",
+            toJsonValue({ messageId: message.messageId, kind: changed.kind, ...(message.type === "queue.update" ? { prompt: message.prompt } : {}) }),
+          ),
+          "Queue edit",
+        );
       }
       return;
     }
@@ -10840,6 +10880,8 @@ export const createRuntime = (
       case "transcript.loadOlder":
         return await handleTranscriptMessage(message);
       case "queue.cancel":
+      case "queue.update":
+      case "queue.promote":
       case "queue.resume":
         return await handleQueueMessage(message);
       case "attachment.add":

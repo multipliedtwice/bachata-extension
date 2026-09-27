@@ -74,7 +74,9 @@ const concurrency = Math.max(
 );
 const runTimeoutMs = Math.max(
   timeoutMs,
-  Number(process.env.BACHATA_TEST_RUN_TIMEOUT_MS ?? 3_600_000),
+  // Windows process-host and Git fixtures make the full 252-file lane exceed one hour on
+  // slower machines even when individual files remain healthy. Keep the override available.
+  Number(process.env.BACHATA_TEST_RUN_TIMEOUT_MS ?? (process.platform === "win32" ? 7_200_000 : 3_600_000)),
 );
 const graceMs = Math.max(500, Number(process.env.BACHATA_TEST_FILE_KILL_GRACE_MS ?? 2_000));
 let activeProcessScope;

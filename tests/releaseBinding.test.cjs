@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const root = path.join(__dirname, "..");
 const load = () => import(pathToFileURL(path.join(root, "scripts", "lib", "bindReleaseArtifacts.mjs")).href);
@@ -982,7 +983,9 @@ test("two copies of the pinned Bridge are refused even when identical", async ()
   assert.equal(path.basename(resolved.path), fileName);
 });
 
-test("interrupting release verification removes every temporary directory it took", () => {
+test("interrupting release verification removes every temporary directory it took", {
+  skip: process.platform === "win32" ? "Windows process.kill(SIGINT) terminates without delivering a catchable Node signal" : false,
+}, () => {
   const prefixes = ["bachata-release-verify-", "bachata-vsix-"];
   // The unit lane runs independent files concurrently. Keep this child in a private temp
   // root, otherwise a VSIX verification in another file can create a matching directory
@@ -1072,7 +1075,7 @@ const releaseArtifacts = () => import(
   pathToFileURL(path.join(root, "scripts", "lib", "releaseArtifacts.mjs")).href
 );
 
-test("a release artifact replaced by a symbolic link is refused, not read", async () => {
+symlinkFixtureTest("a release artifact replaced by a symbolic link is refused, not read", async () => {
   const { openPinnedArtifact } = await releaseArtifacts();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-artifact-link-"));
   try {
@@ -1306,8 +1309,10 @@ test("a successful binding rewrites every document and keeps its mode", async ()
     assert.equal(outcome.status, "bound");
     assert.equal(fs.readFileSync(plans[0].file, "utf8"), "one after\n");
     assert.equal(fs.readFileSync(plans[1].file, "utf8"), "two after\n");
-    assert.equal(fs.statSync(plans[0].file).mode & 0o777, 0o644, "staging mode replaced the document mode");
-    assert.equal(fs.statSync(plans[1].file).mode & 0o777, 0o640, "staging mode replaced the document mode");
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(plans[0].file).mode & 0o777, 0o644, "staging mode replaced the document mode");
+      assert.equal(fs.statSync(plans[1].file).mode & 0o777, 0o640, "staging mode replaced the document mode");
+    }
     assert.deepEqual(bindingResidue(directory), [], "the binder left staging or backup files behind");
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -1401,8 +1406,10 @@ test("a rename failure restores every already-committed document with its mode",
     assert.equal(outcome.status, "rolled-back");
     assert.equal(fs.readFileSync(plans[0].file, "utf8"), "one before\n", "a committed document was not restored");
     assert.equal(fs.readFileSync(plans[1].file, "utf8"), "two before\n");
-    assert.equal(fs.statSync(plans[0].file).mode & 0o777, 0o644, "the restored document lost its mode");
-    assert.equal(fs.statSync(plans[1].file).mode & 0o777, 0o600);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(plans[0].file).mode & 0o777, 0o644, "the restored document lost its mode");
+      assert.equal(fs.statSync(plans[1].file).mode & 0o777, 0o600);
+    }
     assert.deepEqual(bindingResidue(directory), []);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -1437,7 +1444,7 @@ test("a document edited after staging is never overwritten by its staged content
   }
 });
 
-test("a document replaced by a symbolic link is never written through", async () => {
+symlinkFixtureTest("a document replaced by a symbolic link is never written through", async () => {
   const { bindDocuments } = await bindingTransaction();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "bachata-bind-outside-"));
   const target = path.join(outside, "external.md");

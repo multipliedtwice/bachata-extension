@@ -526,7 +526,8 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       await session.evaluate(`document.body.className = ${JSON.stringify(`vscode-${theme}`)}`);
       await session.evaluate(`for (const [key,value] of Object.entries(${JSON.stringify(themeColors[theme === "light" ? "light" : "dark"])})) document.documentElement.style.setProperty('--vscode-' + key.replaceAll('.', '-'), value)`);
       await activate(menu, "keyboard");
-      const controls = await session.evaluate(`Array.from(document.querySelectorAll('.header-action-menu button:enabled')).map(el => el.dataset.action)`);
+      const compact = await session.evaluate("document.querySelector('.run-tabs-strip').clientWidth <= 360");
+      const controls = await session.evaluate(`Array.from(document.querySelectorAll('.header-action-menu button:enabled')).filter(el => el.getClientRects().length > 0).map(el => el.dataset.action)`);
       for (const action of controls) {
         const hitResult = await session.evaluate(`(() => {
           const el = document.querySelector('.header-action-menu [data-action="${action}"]');
@@ -541,11 +542,17 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
         })()`);
         assert.equal(hitResult.ok, true, `${theme} ${width}: hit-test ${action}: ${JSON.stringify(hitResult)}`);
       }
-      await activate(bell, "keyboard");
-      assert.equal(await isOpen(".header-action-menu"), false);
-      assert.equal(await isOpen(".notification-center"), true);
+      if (compact) {
+        await activate('[data-action="run-menu-notifications-toggle"]', "keyboard");
+        assert.equal(await isOpen(".header-action-menu"), true);
+        assert.equal(await session.evaluate("!document.querySelector('#run-menu-notifications').hidden"), true);
+      } else {
+        await activate(bell, "keyboard");
+        assert.equal(await isOpen(".header-action-menu"), false);
+        assert.equal(await isOpen(".notification-center"), true);
+      }
       assert.equal(await session.evaluate("document.querySelector('#notification-mode') === null"), true);
-      await activate('.notification-center [data-action="notification-settings"]', "keyboard");
+      await activate(compact ? '#run-menu-notifications [data-action="notification-settings"]' : '.notification-center [data-action="notification-settings"]', "keyboard");
       assert.equal(await session.evaluate("document.querySelector('#notification-mode')?.closest('.app-dialog') !== null"), true);
       await session.evaluate("window.__posted = []; const mode = document.querySelector('#notification-mode'); mode.value = 'off'; mode.dispatchEvent(new Event('change', { bubbles: true }))");
       await frame(session);
@@ -555,9 +562,10 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       assert.equal(await session.evaluate("document.querySelector('.app-dialog') === null"), true);
       await key(session, "Escape", "Escape", 27);
       await frame(session);
-      assert.equal(await isOpen(".notification-center"), false);
-      assert.equal(await session.evaluate("document.activeElement === document.querySelector('.notification-center > summary')"), true);
-      await activate(bell, "pointer"); await activate(menu, "pointer");
+      assert.equal(await isOpen(compact ? ".header-action-menu" : ".notification-center"), false);
+      assert.equal(await session.evaluate(`document.activeElement === document.querySelector(${JSON.stringify(compact ? menu : bell)})`), true);
+      if (compact) await activate(menu, "pointer");
+      else { await activate(bell, "pointer"); await activate(menu, "pointer"); }
       assert.equal(await isOpen(".notification-center"), false);
       await press(session, "#composer-prompt");
       assert.equal(await isOpen(".header-action-menu"), false);
@@ -570,7 +578,8 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       assert.equal(await session.evaluate("document.querySelectorAll('.user-message').length"), 2);
       assert.equal(await session.evaluate("[...document.querySelectorAll('.user-message .markdown, .user-message .markdown p, .user-message .markdown h1, .user-message .markdown li, .user-message .markdown code, .user-message .markdown a')].every(el => getComputedStyle(el).textAlign === 'left')"), true, `${theme} ${width}: user message alignment`);
       await session.evaluate("window.__bootExecution()"); await frame(session);
-      await press(session, '[data-action="room-view"][data-view="execution"]');
+      if (compact) await activate(menu, "pointer");
+      await press(session, compact ? '.run-menu-quick-actions [data-view="execution"]' : '.run-tab-tools [data-view="execution"]');
       let executionRendered = false;
       for (let attempt = 0; attempt < 50; attempt++) {
         executionRendered = await session.evaluate("document.querySelector('.execution-content') !== null");
@@ -612,7 +621,8 @@ export const runWebviewProductChecks = async (session, press, key, widths) => {
       assert.equal(await session.evaluate("document.querySelector('.result-failure') === null"), true);
       assert.equal(await session.evaluate("document.querySelector('.result-decision').classList.contains('outcome-interrupted')"), true);
       assert.match(await session.evaluate("document.querySelector('.execution-content').textContent"), /Stopped by you/);
-      await press(session, '[data-action="room-view"][data-view="chat"]');
+      if (compact) await activate(menu, "pointer");
+      await press(session, compact ? '.run-menu-quick-actions [data-view="chat"]' : '.run-tab-tools [data-view="chat"]');
       assert.equal(await session.evaluate("document.querySelector('.run-outcome [data-action=\"workflow-resume\"]').textContent.trim()"), 'Resume stopped step');
       await runStateMatrixChecks(session, key, `${theme} ${width}`);
       passed++;

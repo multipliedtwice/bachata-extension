@@ -771,6 +771,8 @@ export type WebviewToExtensionMessage =
   | { type: "browser.asset.reveal"; assetId: string }
   | { type: "transcript.export" }
   | { type: "queue.cancel"; messageId: string }
+  | { type: "queue.update"; messageId: string; prompt: string }
+  | { type: "queue.promote"; messageId: string }
   | { type: "queue.resume" }
   | { type: "workflow.resume" }
   /** Replay the recorded run from its first enabled step, keeping the checkpoint until it does. */
@@ -1166,6 +1168,22 @@ const parseMessage = (value: unknown): WebviewToExtensionMessage => {
       throw new Error("queue.cancel requires a message id");
     }
     return { type: "queue.cancel", messageId: value.messageId };
+  }
+
+  if (value.type === "queue.update") {
+    if (!hasOnlyKeys(value, ["type", "messageId", "prompt"]) || typeof value.messageId !== "string" || !value.messageId.trim()) {
+      throw new Error("queue.update requires a message id and prompt");
+    }
+    const prompt = parsePrompt(value.prompt);
+    if (!prompt) throw new Error("Prompt cannot be empty");
+    return { type: "queue.update", messageId: value.messageId, prompt };
+  }
+
+  if (value.type === "queue.promote") {
+    if (!hasOnlyKeys(value, ["type", "messageId"]) || typeof value.messageId !== "string" || !value.messageId.trim()) {
+      throw new Error("queue.promote requires a message id");
+    }
+    return { type: "queue.promote", messageId: value.messageId };
   }
 
   if (value.type === "pipeline.import") {

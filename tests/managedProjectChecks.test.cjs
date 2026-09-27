@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 const { execFileSync } = require("node:child_process");
 
 const {
@@ -154,7 +155,7 @@ test("renaming a TypeScript module away from its importers fails the project che
 // EX-A5-R09. The managed check used to resolve and run the reviewed repository's own
 // `node_modules/.bin/tsc`, checking only that the link landed inside the dependency directory.
 // Containment is not identity: a dependency directory is still the reviewed repository's code.
-test("the project check runs Bachata's pinned compiler, never the workspace's own", async () => {
+symlinkFixtureTest("the project check runs Bachata's pinned compiler, never the workspace's own", async () => {
   const root = createProject("bachata-managed-compiler-", {
     "tsconfig.json": TSCONFIG,
     // A genuine type error. Bachata's own compiler reports it; the impostor below does not.

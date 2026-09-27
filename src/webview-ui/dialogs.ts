@@ -443,14 +443,6 @@ type RunTabStripSnapshot = {
   anchors: Array<{ id: string; offset: number }>;
 };
 
-const updateRunTabStripLayout = (): void => {
-  const strip = root.querySelector<HTMLElement>(".run-tabs-strip");
-  const scroll = strip?.querySelector<HTMLElement>(".run-tabs-scroll");
-  if (!strip || !scroll) return;
-  if (scroll.clientWidth > 0 && scroll.clientWidth < 360) strip.setAttribute("data-compact", "");
-  else strip.removeAttribute("data-compact");
-};
-
 const captureRunTabStrip = (): RunTabStripSnapshot => {
   const scroll = root.querySelector<HTMLElement>(".run-tabs-scroll");
   const bounds = scroll?.getBoundingClientRect();
@@ -493,7 +485,6 @@ const revealRunTab = (tab: HTMLElement | null): void => {
 const restoreRunTabStrip = (snapshot: RunTabStripSnapshot): void => {
   const scroll = root.querySelector<HTMLElement>(".run-tabs-scroll");
   if (!scroll) return;
-  updateRunTabStripLayout();
   scroll.scrollLeft = snapshot.left;
   const selected = root.querySelector<HTMLElement>(".run-tab.selected .run-tab-select");
   const selectionChanged = snapshot.selectedId !== selected?.dataset.conversation;

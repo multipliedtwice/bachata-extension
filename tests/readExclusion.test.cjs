@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const {
   MAX_READABLE_ROOTS,
@@ -64,7 +65,7 @@ test("declared protected paths are removed from readable roots", async () => {
   }
 });
 
-test("symlinks are never granted as readable roots", async () => {
+symlinkFixtureTest("symlinks are never granted as readable roots", async () => {
   const root = createWorkspace();
   try {
     fs.symlinkSync(path.join(root, ".bachata"), path.join(root, "link-to-pair"), "dir");

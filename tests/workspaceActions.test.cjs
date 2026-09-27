@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { symlinkFixtureTest } = require("./support/windowsSymlink.cjs");
 
 const {
   createBrowserActionCandidate,
@@ -100,7 +101,7 @@ test("deleting a symlink removes only the requested link", async () => {
   }
 });
 
-test("workspace writes cannot follow symbolic-link leaves", async () => {
+symlinkFixtureTest("workspace writes cannot follow symbolic-link leaves", async () => {
   const directory = await temporaryDirectory();
   try {
     const target = path.join(directory, "target.txt");

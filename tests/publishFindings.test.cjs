@@ -2,6 +2,7 @@ const { pathToFileURL } = require("node:url");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const test = require("node:test");
+const path = require("node:path");
 
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
@@ -60,7 +61,7 @@ test("only accepted findings are projected into the editor", () => {
     "/repo",
   );
   assert.equal(published.located, 1, "a projection carried a finding that was not accepted");
-  const diagnostics = target.entries.get("/repo/src/retry.ts");
+  const diagnostics = target.entries.get(path.resolve("/repo", "src/retry.ts"));
   assert.equal(diagnostics.length, 1);
   assert.equal(diagnostics[0].message, "retry is unbounded");
   assert.equal(diagnostics[0].source, "Bachata");
@@ -87,7 +88,7 @@ test("a projection carries the location that navigates back to the finding", () 
     result([finding({ location: { file: "src/a.ts", startLine: 12, endLine: 14 } })]),
     "/repo",
   );
-  const diagnostics = target.entries.get("/repo/src/a.ts");
+  const diagnostics = target.entries.get(path.resolve("/repo", "src/a.ts"));
   assert.equal(diagnostics[0].range.start.line, 11, "the projection lost its line provenance");
   assert.equal(diagnostics[0].range.end.line, 13);
 });

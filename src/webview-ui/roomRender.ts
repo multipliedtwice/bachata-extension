@@ -24,6 +24,21 @@ const runConfigurationLocked = (panel: PanelState, conversationId = activeId()):
   Object.values(panel.agents).some((agent) => agent.status === "running") ||
   conversationById(conversationId)?.waitingForResources === true;
 
+const compactRunActionsHtml = (tabConversation: ConversationSummary): string => {
+  const conversation = activeConversation() ?? tabConversation;
+  const panel = state.panels.get(conversation.id) ?? emptyPanel();
+  const execution = executionViewAvailable(conversation, panel) || state.roomView === "execution";
+  const blockingCount = blockingDecisionCount(panel, conversation.id);
+  const waitingForResources = conversation.waitingForResources === true;
+  const viewSwitcher = execution
+    ? `<button class="run-menu-quick-action" data-action="room-view" data-view="chat" aria-pressed="${state.roomView === "chat" ? "true" : "false"}" aria-label="${escapeAttribute(localize("Chat"))}" title="${escapeAttribute(localize("Chat"))}"><i class="codicon codicon-comment-discussion" aria-hidden="true"></i></button><button class="run-menu-quick-action" data-action="room-view" data-view="execution" aria-pressed="${state.roomView === "execution" ? "true" : "false"}" aria-label="${escapeAttribute(blockingCount > 0 ? localize("Execution ({0})", blockingCount) : localize("Execution"))}" title="${escapeAttribute(localize("Execution"))}"><i class="codicon codicon-list-tree" aria-hidden="true"></i></button>`
+    : "";
+  const stopping = !conversation.archived && state.roomView !== "chat" && (runPhaseOf(panel) === "running" || waitingForResources)
+    ? `<button class="run-menu-quick-action run-tab-stop" data-action="interrupt-run" aria-label="${escapeAttribute(waitingForResources ? localize("Cancel wait") : localize("Stop"))}" title="${escapeAttribute(waitingForResources ? localize("Cancel wait") : localize("Stop"))}"${pendingInterrupts.has(conversation.id) ? ' disabled aria-busy="true"' : ""}><i class="codicon codicon-debug-stop" aria-hidden="true"></i></button>`
+    : "";
+  return `<div class="run-menu-quick-actions" role="group" aria-label="${escapeAttribute(localize("Quick actions"))}">${viewSwitcher}${stopping}${compactNotificationActionHtml()}</div>${compactNotificationPanelHtml()}`;
+};
+
 const runActionsMenuHtml = (
   conversation: ConversationSummary,
   surface = "tab",
@@ -32,7 +47,7 @@ const runActionsMenuHtml = (
 ): string => {
   const runActions = `${conversation.archived ? "" : `<button data-action="run-rename" data-conversation="${escapeAttribute(conversation.id)}">${escapeHtml(localize("Rename"))}</button>`}<button data-action="run-duplicate" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-duplicate", family)}>${escapeHtml(localize("Duplicate"))}</button><button data-action="${conversation.archived ? "run-unarchive" : "run-archive"}" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, conversation.archived ? "run-unarchive" : "run-archive", family)}>${escapeHtml(conversation.archived ? localize("Unarchive") : localize("Archive"))}</button>`;
   const items = selected
-    ? `<div class="run-action-menu-group" role="group" aria-label="${escapeAttribute(localize("Run"))}"><span class="run-action-menu-label">${escapeHtml(localize("Run"))}</span>${runActions}</div>${selectedRunWorkspaceMenuHtml(conversation)}<div class="run-action-menu-group run-action-menu-danger" role="group" aria-label="${escapeAttribute(localize("Danger zone"))}"><span class="run-action-menu-label">${escapeHtml(localize("Danger zone"))}</span>${selectedRunResetActionHtml(conversation)}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete", family)}>${escapeHtml(localize("Delete"))}</button></div>`
+    ? `${compactRunActionsHtml(conversation)}<div class="run-action-menu-group" role="group" aria-label="${escapeAttribute(localize("Run"))}"><span class="run-action-menu-label">${escapeHtml(localize("Run"))}</span>${runActions}</div>${selectedRunWorkspaceMenuHtml(conversation)}<div class="run-action-menu-group run-action-menu-danger" role="group" aria-label="${escapeAttribute(localize("Danger zone"))}"><span class="run-action-menu-label">${escapeHtml(localize("Danger zone"))}</span>${selectedRunResetActionHtml(conversation)}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete", family)}>${escapeHtml(localize("Delete"))}</button></div>`
     : `${runActions}<button class="danger" data-action="run-delete" data-conversation="${escapeAttribute(conversation.id)}"${runActionAttributes(conversation, "run-delete", family)}>${escapeHtml(localize("Delete"))}</button>`;
   return `<details class="run-action-menu${selected ? " header-action-menu merged-run-menu" : ""}" ${disclosureAttributes(`run-menu:${surface}:${conversation.id}`)}><summary class="icon-button" ${selected ? `id="room-actions-button" ` : ""}data-action="run-menu-toggle" aria-label="${escapeAttribute(localize("Actions for {0}", runTabLabel(conversation)))}" title="${escapeAttribute(localize("Run actions"))}"><i class="codicon codicon-ellipsis" aria-hidden="true"></i></summary><div class="run-action-menu-items">${items}</div></details>`;
 };
@@ -146,7 +161,7 @@ const tabsHtml = (): string => {
     : `<span class="icon-button run-tabs-brand" aria-hidden="true">${logo}</span>`;
   return `<nav class="run-tabs" aria-label="${escapeAttribute(localize("Bachata workspace"))}">
     ${brand}
-    <button class="run-tab-all" data-action="run-drawer-toggle" aria-label="${escapeAttribute(browseLabel)}" title="${escapeAttribute(browseLabel)}" ${state.roomView === "direction" ? 'aria-current="page"' : ""} ${expandedControlAttributes(state.runDrawerOpen, "run-drawer")}><span>${escapeHtml(localize("Runs"))}</span>${archivedLabel ? `<small>${escapeHtml(archivedLabel)}</small>` : ""}</button>
+    <button class="run-tab-all" data-action="run-drawer-toggle" aria-label="${escapeAttribute(browseLabel)}" title="${escapeAttribute(browseLabel)}" ${state.roomView === "direction" ? 'aria-current="page"' : ""} ${expandedControlAttributes(state.runDrawerOpen, "run-drawer")}><i class="codicon codicon-list-tree run-tab-all-icon" aria-hidden="true"></i><span>${escapeHtml(localize("Runs"))}</span>${archivedLabel ? `<small>${escapeHtml(archivedLabel)}</small>` : ""}</button>
     <div class="run-tabs-strip"><div class="run-tabs-scroll">${runs.map((conversation) => {
       const selected = conversation.id === selectedRootId && state.roomView !== "direction";
       const { status, label } = conversation.archived ? { status: "archived", label: localize("Archived") } : conversationStatus(conversation);
@@ -454,6 +469,8 @@ const sendBlockers = (
 ): SendBlocker[] => {
   const conversation = conversationById(conversationId);
   const blockers: SendBlocker[] = [];
+  const deferredDelivery = draft.delivery !== "immediate" &&
+    (runPhaseOf(panel) === "running" || conversation?.waitingForResources === true);
   if (state.pendingExecutionContext) {
     blockers.push({ condition: localize("Saving context default…"), requirement: localize("Wait for the context setting to be saved.") });
   }
@@ -493,7 +510,7 @@ const sendBlockers = (
       action: { label: localize("Discard pending submit"), attributes: `data-action="run-discard-pending"` },
     });
   }
-  (panel.executionContract?.policyRefusals ?? []).forEach((refusal) => blockers.push({
+  (deferredDelivery ? [] : panel.executionContract?.policyRefusals ?? []).forEach((refusal) => blockers.push({
     condition: refusal,
     requirement: localize("This repository's policy file refuses this run; change the pipeline or the policy before it can start."),
   }));
@@ -553,7 +570,7 @@ const sendBlockers = (
       quiet: true,
     });
   }
-  (panel.readiness?.findings ?? [])
+  (deferredDelivery ? [] : panel.readiness?.findings ?? [])
     .filter((finding) => finding.status !== "ready")
     .forEach((finding) => blockers.push({
       condition: `${finding.label}: ${finding.detail}`,
@@ -655,7 +672,7 @@ const mainRoomHtml = (): string => {
       .join("");
     // The decision that stops the run sits where the run is being read, not one view away.
     const decisions = has.decisions ? pendingDecisionCardsHtml(panel, conversation.id) : "";
-    return `<h2 class="sr-only">${escapeHtml(localize("Conversation"))}</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">${escapeHtml(localize("Load older messages"))}</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${has.interactions ? interactionsHtml(conversation.id) : ""}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}${readOnly ? "" : queueHtml(panel)}`;
+    return `<h2 class="sr-only">${escapeHtml(localize("Conversation"))}</h2>${panel.transcriptError ? `<p class="error-banner">${escapeHtml(panel.transcriptError)}</p>` : ""}${panel.transcriptHasMore ? `<button class="load-older" data-action="load-older">${escapeHtml(localize("Load older messages"))}</button>` : ""}${intro}${transcript}${readOnly ? "" : liveMessagesHtml(panel)}${has.interactions ? interactionsHtml(conversation.id) : ""}${decisions}${runOutcomeHtml(conversation, panel, readOnly)}`;
   };
   const continuationFooter = state.roomView === "execution" ? resultContinuationFooterHtml(conversation.id, panel) : "";
   const resultLivesInFooter = continuationFooter.length > 0;

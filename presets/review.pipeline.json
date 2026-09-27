@@ -24,7 +24,7 @@
       "participants": [
         "codex"
       ],
-      "promptTemplate": "Review this scope. Do not modify files. Return JSON only with findings. Each finding needs stable id, subject, message, disposition proposed, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. A single model cannot mark a finding accepted.\n\n{{userPrompt}}",
+      "promptTemplate": "Review this scope. Do not modify files. Return exactly one JSON object with the single top-level key findings. Each finding needs stable id, subject, message, disposition proposed, evidence and challenges string arrays, optional severity error/warning/information, and optional location with file/startLine/endLine. Do not add other keys at any level. Put any extra detail requested by the user inside a finding's message or evidence. A single model cannot mark a finding accepted.\n\n{{userPrompt}}",
       "parallel": false,
       "consensus": false,
       "permissionModes": {

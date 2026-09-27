@@ -1,7 +1,7 @@
 import { managedCommitMode, shouldCreateManagedCommit, type ManagedCommitMode } from "./managedCommitPolicy";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, constants, copyFile, lstat, mkdir, mkdtemp, open, readFile, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, constants, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -455,6 +455,25 @@ export const createWorktreeManager = (
     command = git,
   ): Promise<void> => {
     const resolved = await canonicalizePath(worktreePath);
+    // Git for Windows can traverse a directory junction while removing a worktree. Detach links
+    // first so cleanup cannot remove the shared dependency bytes in the original repository.
+    if (process.platform === "win32") {
+      const pending = [resolved];
+      while (pending.length > 0) {
+        const directory = pending.pop();
+        if (!directory) continue;
+        const entries = await readdir(directory, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return [];
+          throw error;
+        });
+        for (const entry of entries) {
+          const candidate = path.join(directory, entry.name);
+          const info = await lstat(candidate);
+          if (info.isSymbolicLink()) await unlink(candidate);
+          else if (info.isDirectory()) pending.push(candidate);
+        }
+      }
+    }
     if ((await worktreePaths(repositoryRoot, command)).includes(resolved)) {
       await command(repositoryRoot, ["worktree", "remove", "--force", resolved]);
     }

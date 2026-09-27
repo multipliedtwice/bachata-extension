@@ -71,7 +71,7 @@ export const findUnguardedTimeoutReads = async (directory = sourceRoot) => {
       ) {
         const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
         findings.push({
-          file: path.relative(root, file),
+          file: path.relative(root, file).replaceAll(path.sep, "/"),
           line: line + 1,
           key: node.arguments[0].text,
         });
@@ -103,7 +103,7 @@ export const findGuardedTimeoutReads = async (directory = sourceRoot) => {
       ) {
         const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
         found.push({
-          file: path.relative(root, file),
+          file: path.relative(root, file).replaceAll(path.sep, "/"),
           line: line + 1,
           key: node.arguments[1].text,
         });
