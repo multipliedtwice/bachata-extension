@@ -11,11 +11,11 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 | Fact | Value |
 | --- | --- |
-| Extension version | 0.7.8 |
+| Extension version | 0.8.0 |
 | Pinned Browser Bridge version | 0.7.2 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 933 |
-| Maintained source manifest SHA-256 (Git-tracked) | d42eb2bf598eb7d271d8f2897b42581591d82d05d15d4e5433b651926b8a265e |
+| Maintained source files (Git-tracked) | 936 |
+| Maintained source manifest SHA-256 (Git-tracked) | 0eb72bd3ae38ddd6fb38df2820886827f866cfa4c78d046b0075656843a3e227 |
 | Contributed settings | 115 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
@@ -38,13 +38,13 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit 2e3a859d779613adf1952b7dd2171a6f0d880d4d.
+The working tree was clean, so these values also describe commit 3509f961c384b85f6df68570ebea53eed858c867.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 2e3a859d779613adf1952b7dd2171a6f0d880d4d |
-| Working tree | modified |
-| Maintained source files (working tree, what source:export carries) | 933 |
+| Revision | 3509f961c384b85f6df68570ebea53eed858c867 |
+| Working tree | clean |
+| Maintained source files (working tree, what source:export carries) | 936 |
 | Platform | Windows_NT 10.0.26200 x64 |
 | Node | v24.21.0 |
 | Git | git version 2.45.2.windows.1 |
@@ -56,7 +56,7 @@ The working tree was modified, so these values describe the working tree and not
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | bachata-vscode-0.7.8.vsix, 14.10 MB, SHA-256 2cda4174bd593e3fe4a75214d123373f2a3476463cb299adf33f350fb5bb6938 |
-| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.7.2.zip, 1.11 MB, SHA-256 b1b1ed0319dfee8ec7e9d25428ac5e3e0af1e4d882c16dc144663015e516eb07 |
+| Staged VSIX | no bachata-vscode-0.8.0.vsix is staged |
+| Pinned Browser Bridge ZIP | protocol/browser-bridge.compatibility.json pins bachata-browser-bridge-0.7.2.zip, which was not found beside this repository. |
 | Test run | not collected in this generation |
 
