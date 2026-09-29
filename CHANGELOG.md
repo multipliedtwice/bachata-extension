@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.8.0 — Direction usability and editor shortcut
+
+- Added a Bachata logo button alongside other editor actions, with light and dark theme icons.
+- Fixed Direction scrolling resetting when background updates arrive in an empty run.
+- Made the initially expanded Initiative section collapse on the first click.
+- Preserve unfinished project-goal and direction edits across updates, scoped to their project and initiative.
+- Explain the project-goal form and its required fields.
+- Retains Browser Bridge 0.7.2 compatibility.
+
 ## 0.7.8 — Compact runs and message input
 
 - Refined the compact run header and action menu for narrow VS Code panels.

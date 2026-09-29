@@ -5593,6 +5593,35 @@ test("superseding a record requires an explicit replacement that is not itself",
   }
 });
 
+test("Direction retains edits across snapshots and isolates them when the initiative changes", () => {
+  const direction = directionState();
+  const manager = managerState({ direction });
+  const harness = bootWebview(manager);
+  try {
+    openWorkspaceDirection(harness);
+    harness.document.root.querySelector('[data-section="direction-initiative"]').click();
+    const goal = harness.document.getElementById("initiative-goal");
+    goal.value = "Keep my unfinished goal";
+    harness.document.root.dispatch("input", { target: goal });
+    harness.sendWindowMessage({ type: "manager.snapshot", state: manager });
+    assert.equal(harness.document.getElementById("initiative-goal").textContent, "Keep my unfinished goal");
+    const other = structuredClone(manager);
+    other.direction.initiative.id = "another-initiative";
+    other.direction.initiative.goal = "Another goal";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: other });
+    assert.equal(harness.document.getElementById("initiative-goal").textContent, "Another goal");
+    const saved = structuredClone(manager);
+    saved.direction.initiative.goal = "Keep my unfinished goal";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: saved });
+    const updated = structuredClone(saved);
+    updated.direction.initiative.goal = "A later saved goal";
+    harness.sendWindowMessage({ type: "manager.snapshot", state: updated });
+    assert.equal(harness.document.getElementById("initiative-goal").textContent, "A later saved goal");
+  } finally {
+    harness.restore();
+  }
+});
+
 test("empty project direction remains reachable without adding an empty run notice", () => {
   const harness = bootWebview();
   try {

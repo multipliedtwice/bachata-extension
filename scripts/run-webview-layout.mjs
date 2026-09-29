@@ -1,6 +1,7 @@
 import { runMinimalLayoutChecks } from "./lib/webviewMinimalLayoutChecks.mjs";
 import { runWebviewProductChecks } from "./lib/webviewProductChecks.mjs";
 import { runTabStressChecks } from "./lib/runTabStressChecks.mjs";
+import { runDirectionChecks } from "./lib/webviewDirectionChecks.mjs";
 /**
  * EX-UI-04. The run tab strip's hit regions at the widths a side panel actually has.
  *
@@ -445,6 +446,10 @@ const run = async () => {
       await delay(100);
     }
     await session.evaluate("document.fonts.ready.then(() => true)");
+    if (process.argv.includes("--direction-only")) {
+      await runDirectionChecks(session, press);
+      return;
+    }
     if (process.argv.includes("--stress-only")) {
       await runTabStressChecks(session, press, pressKey);
       return;

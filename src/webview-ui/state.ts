@@ -191,6 +191,7 @@ const state: {
   historyFilter: string;
   directionRationale: string;
   directionEvidence: string;
+  directionFormDrafts: Map<string, Record<string, string>>;
   editorOpen: boolean;
   editorConversationId?: string;
   editorMode: "form" | "json";
@@ -282,6 +283,7 @@ const state: {
   historyFilter: "",
   directionRationale: "",
   directionEvidence: "",
+  directionFormDrafts: new Map(),
   editorOpen: false,
   editorMode: "form",
   editorRaw: "",

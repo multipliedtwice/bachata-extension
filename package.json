@@ -2,7 +2,7 @@
   "name": "bachata-vscode",
   "displayName": "Bachata",
   "description": "%extension.description%",
-  "version": "0.7.8",
+  "version": "0.8.0",
   "publisher": "Rememo",
   "license": "MIT",
   "repository": {
@@ -87,6 +87,8 @@
     "l10n",
     "media/icon.png",
     "media/icon.svg",
+    "media/icon-light.svg",
+    "media/icon-dark.svg",
     "media/readme-header.png",
     "media/readme-demo.gif",
     "media/walkthrough-apply.md",
@@ -278,7 +280,11 @@
       {
         "command": "bachata.open",
         "title": "%command.bachata.open.title%",
-        "category": "Bachata"
+        "category": "Bachata",
+        "icon": {
+          "light": "media/icon-light.svg",
+          "dark": "media/icon-dark.svg"
+        }
       },
       {
         "command": "bachata.doctor",
@@ -429,6 +435,12 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "bachata.open",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "bachata.reviewFile",

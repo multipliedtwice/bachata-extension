@@ -748,7 +748,7 @@ root.addEventListener("click", (event) => {
     });
   } else if (action === "direction-section-toggle" && target.dataset.section) {
     const key = `${activeId()}:${target.dataset.section}`;
-    state.disclosureStates.set(key, !(state.disclosureStates.get(key) ?? false));
+    state.disclosureStates.set(key, target.getAttribute("aria-expanded") !== "true");
     scheduleRender();
   } else if (action === "room-view") {
     state.runDrawerOpen = false;
@@ -1435,6 +1435,13 @@ root.addEventListener("input", (event) => {
   }
   // A field the reader is repairing is no longer the field that was refused.
   if (target.id) clearFieldError(target.id);
+  if (directionFormFieldIds.has(target.id)) {
+    const key = directionFormDraftKey();
+    const draft = state.directionFormDrafts.get(key) ?? {};
+    draft[target.id] = target.value;
+    state.directionFormDrafts.set(key, draft);
+    return;
+  }
   if (target.id === "app-dialog-input" && state.dialog && "inputValue" in state.dialog) {
     state.dialog.inputValue = target.value;
     return;

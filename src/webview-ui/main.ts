@@ -996,7 +996,7 @@ const render = (): void => {
       nextScroll.scrollTop = Math.max(0, nextScroll.scrollHeight - nextScroll.clientHeight - distanceFromBottom);
     } else if (sameSurface) {
       nextScroll.scrollTop = scrollTopBefore;
-    } else if (storedScroll?.following === true || (storedScroll === undefined && state.roomView === "chat")) {
+    } else if (state.roomView === "chat" && (storedScroll?.following === true || storedScroll === undefined)) {
       nextScroll.scrollTop = nextScroll.scrollHeight;
     } else {
       nextScroll.scrollTop = storedScroll?.top ?? 0;
@@ -2366,7 +2366,7 @@ window.addEventListener("message", (event: MessageEvent<ExtensionMessage>) => {
       delete state.pendingExecutionContext;
     }
     Array.from(state.scrollPositions.keys()).forEach((key) => {
-      if (!conversationIds.has(key.split(":", 1)[0] ?? "")) state.scrollPositions.delete(key);
+      if (!key.startsWith("workspace:") && !conversationIds.has(key.split(":", 1)[0] ?? "")) state.scrollPositions.delete(key);
     });
     for (const [key, pending] of state.pendingAgentModels) {
       if (!conversationIds.has(pending.conversationId)) state.pendingAgentModels.delete(key);

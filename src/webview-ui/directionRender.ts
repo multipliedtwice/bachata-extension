@@ -10,6 +10,31 @@
 const labelFor = (labels: Record<string, string>, value: string): string =>
   labels[value] ?? value;
 
+const directionFormFieldIds = new Set([
+  "initiative-title", "initiative-goal", "initiative-outcome", "initiative-scope",
+  "initiative-constraints", "initiative-criteria", "initiative-direction",
+]);
+
+const directionFormDraftKey = (): string => JSON.stringify([
+  activeConversation()?.workingDirectory ?? "workspace",
+  longitudinalState().initiative?.id ?? "new",
+]);
+
+// Background snapshots may redraw the whole view while a person is filling in the form.
+// Keep each field until the saved value catches up, scoped to its project and initiative.
+const directionFormValue = (field: string, saved: string): string => {
+  const key = directionFormDraftKey();
+  const draft = state.directionFormDrafts.get(key);
+  const value = draft?.[field];
+  if (value === undefined) return saved;
+  if (value !== saved) return value;
+  if (draft) {
+    delete draft[field];
+    if (Object.keys(draft).length === 0) state.directionFormDrafts.delete(key);
+  }
+  return saved;
+};
+
 // Reasons arrive as finished sentences, so the joined line carries exactly one terminal stop
 // rather than repeating whatever the writer already ended with.
 const sentenceJoin = (items: string[]): string =>
@@ -257,7 +282,7 @@ const initiativeSwitcherHtml = (): string => {
 
 const initiativeFormHtml = (): string => {
   const initiative = longitudinalState().initiative;
-  return `<form class="direction-initiative-form" data-action="noop"><label class="field"><span>${escapeHtml(localize("Title"))}</span><input id="initiative-title" maxlength="200" aria-describedby="initiative-title-error" value="${escapeAttribute(initiative?.title ?? "")}"></label><div class="field-error error" id="initiative-title-error"></div><label class="field"><span>${escapeHtml(localize("Goal"))}</span><textarea id="initiative-goal" rows="2" maxlength="2000" aria-describedby="initiative-goal-error">${escapeHtml(initiative?.goal ?? "")}</textarea></label><div class="field-error error" id="initiative-goal-error"></div><label class="field"><span>${escapeHtml(localize("Desired outcome"))}</span><textarea id="initiative-outcome" rows="2" maxlength="2000">${escapeHtml(initiative?.desiredOutcome ?? "")}</textarea></label><label class="field"><span>${escapeHtml(localize("Scope (one per line)"))}</span><textarea id="initiative-scope" rows="2">${escapeHtml((initiative?.scope ?? []).join("\n"))}</textarea></label><label class="field"><span>${escapeHtml(localize("Constraints (one per line)"))}</span><textarea id="initiative-constraints" rows="2">${escapeHtml((initiative?.constraints ?? []).join("\n"))}</textarea></label><label class="field"><span>${escapeHtml(localize("Acceptance criteria (one per line)"))}</span><textarea id="initiative-criteria" rows="2">${escapeHtml((initiative?.acceptanceCriteria ?? []).join("\n"))}</textarea></label><div class="compact-actions"><button type="button" class="primary" data-action="initiative-save">${escapeHtml(initiative ? localize("Update initiative") : localize("State the goal"))}</button></div></form>`;
+  return `<form class="direction-initiative-form" data-action="noop"><label class="field"><span>${escapeHtml(localize("Title"))}</span><input id="initiative-title" maxlength="200" aria-describedby="initiative-title-error" value="${escapeAttribute(directionFormValue("initiative-title", initiative?.title ?? ""))}"></label><div class="field-error error" id="initiative-title-error"></div><label class="field"><span>${escapeHtml(localize("Goal"))}</span><textarea id="initiative-goal" rows="2" maxlength="2000" aria-describedby="initiative-goal-error">${escapeHtml(directionFormValue("initiative-goal", initiative?.goal ?? ""))}</textarea></label><div class="field-error error" id="initiative-goal-error"></div><label class="field"><span>${escapeHtml(localize("Desired outcome"))}</span><textarea id="initiative-outcome" rows="2" maxlength="2000">${escapeHtml(directionFormValue("initiative-outcome", initiative?.desiredOutcome ?? ""))}</textarea></label><label class="field"><span>${escapeHtml(localize("Scope (one per line)"))}</span><textarea id="initiative-scope" rows="2">${escapeHtml(directionFormValue("initiative-scope", (initiative?.scope ?? []).join("\n")))}</textarea></label><label class="field"><span>${escapeHtml(localize("Constraints (one per line)"))}</span><textarea id="initiative-constraints" rows="2">${escapeHtml(directionFormValue("initiative-constraints", (initiative?.constraints ?? []).join("\n")))}</textarea></label><label class="field"><span>${escapeHtml(localize("Acceptance criteria (one per line)"))}</span><textarea id="initiative-criteria" rows="2">${escapeHtml(directionFormValue("initiative-criteria", (initiative?.acceptanceCriteria ?? []).join("\n")))}</textarea></label><div class="compact-actions"><button type="button" class="primary" data-action="initiative-save">${escapeHtml(initiative ? localize("Update initiative") : localize("State the goal"))}</button></div></form>`;
 };
 
 const cycleTypeOptions = [
@@ -514,7 +539,7 @@ const directionHtml = (): string => {
   const goalDetails = (view.desiredOutcome ? '<p>' + escapeHtml(view.desiredOutcome) + '</p>' : "") +
     directionEvidenceListHtml(localize("Acceptance criteria"), view.acceptanceCriteria) +
     (view.constraints.length > 0 ? '<p class="muted">' + escapeHtml(localize("Constraints: {0}", view.constraints.join("; "))) + '</p>' : "");
-  const directionEdit = `<label class="field"><span>${escapeHtml(localize("Accepted direction"))}</span><textarea id="initiative-direction" rows="2" maxlength="4000" aria-describedby="initiative-direction-error">` + escapeHtml(view.acceptedDirection ?? "") + `</textarea></label><div class="field-error error" id="initiative-direction-error"></div><label class="field"><span>${escapeHtml(localize("Rationale (optional)"))}</span><input id="initiative-direction-rationale" maxlength="500" value="` + escapeAttribute(state.directionRationale) + '"></label>' + directionSupportHtml() + `<label class="field"><span>${escapeHtml(localize("Evidence, one per line (optional)"))}</span><textarea id="initiative-direction-evidence" rows="2">` + escapeHtml(state.directionEvidence) + '</textarea></label><button data-action="initiative-direction-save"' + disabledWithReason(view.goal === undefined ? localize("Record a goal before accepting a direction.") : undefined) + `>${escapeHtml(localize("Save direction"))}</button>`;
+  const directionEdit = `<label class="field"><span>${escapeHtml(localize("Accepted direction"))}</span><textarea id="initiative-direction" rows="2" maxlength="4000" aria-describedby="initiative-direction-error">` + escapeHtml(directionFormValue("initiative-direction", view.acceptedDirection ?? "")) + `</textarea></label><div class="field-error error" id="initiative-direction-error"></div><label class="field"><span>${escapeHtml(localize("Rationale (optional)"))}</span><input id="initiative-direction-rationale" maxlength="500" value="` + escapeAttribute(state.directionRationale) + '"></label>' + directionSupportHtml() + `<label class="field"><span>${escapeHtml(localize("Evidence, one per line (optional)"))}</span><textarea id="initiative-direction-evidence" rows="2">` + escapeHtml(state.directionEvidence) + '</textarea></label><button data-action="initiative-direction-save"' + disabledWithReason(view.goal === undefined ? localize("Record a goal before accepting a direction.") : undefined) + `>${escapeHtml(localize("Save direction"))}</button>`;
   const review = cycle ? `<section><h3>${escapeHtml(localize("Review progress"))}</h3><p class="muted">` + escapeHtml(localize("Cycle {0} · {1} · {2}", cycle.sequence, labelFor(cycleTypeLabel, cycle.type), labelFor(cycleCompletionLabel, cycle.completion))) + '</p>' +
     (changes || (comparison ? `<p class="muted">${escapeHtml(localize("No additional material changes."))}</p>` : "")) +
     '<p class="' + (view.saturation.saturated ? "direction-saturated" : "direction-quiet-reviews") + '" title="' + escapeAttribute(view.saturationDisclaimer || localize("Repeated reviews without new findings do not prove correctness.")) + '">' + escapeHtml(view.quietReviewStatement || (view.saturation.quietFreshReviews === 1 ? localize("1 fresh review found no material change.") : localize("{0} fresh reviews found no material change.", view.saturation.quietFreshReviews))) + '</p>' +
@@ -531,6 +556,7 @@ const directionHtml = (): string => {
   const stale = (longitudinal.staleRuns ?? []).length === 0 ? "" : `<section class="direction-stale"><h3>${escapeHtml(localize("Outdated checks"))}</h3><p>` + escapeHtml(((longitudinal.staleRuns ?? []).length === 1 ? localize("1 run checked an earlier repository state.") : localize("{0} runs checked an earlier repository state.", (longitudinal.staleRuns ?? []).length))) + '</p><div class="compact-actions">' + (longitudinal.staleRuns ?? []).map((item, index) => '<button data-action="open-producing-run" data-run="' + escapeAttribute(item.runRef) + '" title="' + escapeAttribute(formatDateTime(item.recordedAt)) + '">' + escapeHtml(localize("Review earlier run {0}", index + 1)) + '</button>').join("") + '</div></section>';
   const failures = (longitudinal.validationErrors ?? []).length === 0 ? "" : `<section class="direction-failures" role="alert"><h3>${escapeHtml(localize("Some changes could not be saved"))}</h3><ul>` + (longitudinal.validationErrors ?? []).map((item) => '<li>' + escapeHtml(item) + '</li>').join("") + '</ul></section>';
   return `<section class="direction-center"><header><div><span class="decision-label">${escapeHtml(localize("Project direction"))}</span><h2>` + escapeHtml(view.goal ?? localize("Define the goal")) + '</h2></div></header>' +
+    (view.goal ? "" : `<p>${escapeHtml(localize("Save a goal for this project. Bachata uses it in fresh reviews and tracks decisions and findings across runs. Only Title and Goal are required."))}</p>`) +
     (view.goal ? '<section class="direction-next"><button class="primary" data-action="direction-next-action" title="' + escapeAttribute(view.nextAction.detail ?? "") + '">' + escapeHtml(nextActionButtonLabel(view.nextAction)) + '</button></section>' : "") +
     failures + attention +
     (view.acceptedDirection ? `<section><h3>${escapeHtml(localize("Accepted direction"))}</h3><p>` + escapeHtml(view.acceptedDirection) + '</p></section>' : "") +
