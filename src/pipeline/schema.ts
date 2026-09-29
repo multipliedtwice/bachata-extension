@@ -1,4 +1,5 @@
 import { MAXIMUM_TIMEOUT_MS } from "../state/timeoutBounds";
+import { validateDeliverableRequirement } from "../browser/deliverableSelection";
 import {
   AgentCapabilities,
   CodexApprovalPolicy,
@@ -216,6 +217,7 @@ const AGENT_STEP_KEYS = new Set([
   "attachments",
   "requiredCapabilities",
   "output",
+  "browserDeliverable",
   "artifactPromotion",
   "coreDecisionOutput",
 ]);
@@ -1302,6 +1304,11 @@ export const validatePipelineDefinition = (value: unknown): ValidationResult => 
         !ATTACHMENT_MODES.has(step.attachments))
     ) {
       errors.push(`${stepPath}.attachments must be none or selected`);
+    }
+    if (!checklist && step.browserDeliverable !== undefined) {
+      try { validateDeliverableRequirement(step.browserDeliverable); }
+      catch (error) { errors.push(`${stepPath}.browserDeliverable: ${error instanceof Error ? error.message : "invalid requirement"}`); }
+      if (step.output !== undefined || step.consensus === true) errors.push(`${stepPath}.browserDeliverable requires a non-consensus step without JSON output`);
     }
     if (!checklist && step.coreDecisionOutput !== undefined) {
       validateCoreDecisionOutput(

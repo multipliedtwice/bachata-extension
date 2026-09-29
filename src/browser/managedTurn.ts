@@ -1,4 +1,5 @@
 import { currentControllerEvidenceCapture } from "../state/executionEvidence";
+import { deliverableRequirementPrompt, type DeliverableRequirement } from "./deliverableSelection";
 import { captureSourceBaseline } from "./sourceBaseline";
 import { BrowserContextReferences } from "./contextReferences";
 import { assertBrowserSourcePath, browserAttachmentPath, isBrowserSourcePath, browserSourceDiff } from "./sourceTransferPolicy";
@@ -21,6 +22,7 @@ import {
   BrowserContextMetadataField,
   BrowserControlEnvelope,
   browserControlProtocolPrompt,
+  browserReadOnlyControlProtocolReminder,
   extractBrowserControlEnvelope,
 } from "./controlProtocol";
 import {
@@ -81,6 +83,7 @@ export type ManagedVerificationCheck = {
 };
 
 export type ManagedBrowserTurnOptions = {
+  browserDeliverable?: DeliverableRequirement | undefined;
   taskId: string;
   taskHash?: string | undefined;
   originalTask: string;
@@ -93,6 +96,7 @@ export type ManagedBrowserTurnOptions = {
   protectedPaths?: string[] | undefined;
   commitMode: "never" | "allow";
   readOnly: boolean;
+  compactProtocol?: boolean | undefined;
   verificationChecks: ManagedVerificationCheck[];
   maxRevisionCycles: number;
   deadlineAt: number;
@@ -172,6 +176,7 @@ export type ManagedControlExecution = {
   terminal: boolean;
   envelope?: BrowserControlEnvelope;
   nextPrompt?: string;
+  nextPromptCompact?: string;
   actionResults: BrowserActionExecutionResult[];
   changedFiles: string[];
   verification: HandoffVerification[];
@@ -1281,6 +1286,7 @@ const handoffPrompt = async (
   options: ManagedBrowserTurnOptions,
 ): Promise<string> => {
   const handoff = buildManagedTaskHandoff(options.role, {
+    ...(options.browserDeliverable ? { browserDeliverable: options.browserDeliverable } : {}),
     taskId: options.taskId,
     originalTask: options.originalTask,
     constraints: managedTaskConstraints(options, turn.index.coverage),
@@ -1313,6 +1319,7 @@ const handoffPrompt = async (
     "Bachata managed task handoff. Treat this controller-provided state as authoritative.",
     (turn.contextReferences ??= new BrowserContextReferences(options.workingDirectory)).render(handoff),
     browserControlProtocolPrompt,
+    ...(options.browserDeliverable ? [deliverableRequirementPrompt(options.browserDeliverable)] : []),
   ].join("\n\n");
 };
 
@@ -2003,24 +2010,30 @@ const renderResults = (
   payload: unknown[],
   turn: ManagedBrowserTurn,
   maxBytes: number,
-): string => {
+  compactProtocol = false,
+): { full: string; compact?: string } => {
   const boundedMaxBytes = Math.max(65_536, maxBytes);
-  const build = (items: unknown[], omitted: number): string => [
-    "Bachata processed your managed control request. Continue the same task using only controller results below.",
-    `Previous managed status: ${envelope.status}`,
-    (turn.contextReferences ??= new BrowserContextReferences(turn.index?.workspaceRoot)).render({
-      results: items,
-      ...(omitted > 0 ? {
-        resultPayloadTruncated: true,
-        omittedResultCount: omitted,
-        instruction: "Re-request omitted controller results in smaller batches or narrower file ranges.",
-      } : {}),
-    }),
-    `Workspace revision: ${String(turn.workspaceRevision)}`,
-    browserControlProtocolPrompt,
-  ].join("\n\n");
-  const ensureBounded = (value: string): string => {
-    if (Buffer.byteLength(value, "utf8") > boundedMaxBytes) {
+  const build = (items: unknown[], omitted: number): { full: string; compact?: string } => {
+    const body = [
+      "Bachata processed your managed control request. Continue the same task using only controller results below.",
+      `Previous managed status: ${envelope.status}`,
+      (turn.contextReferences ??= new BrowserContextReferences(turn.index?.workspaceRoot)).render({
+        results: items,
+        ...(omitted > 0 ? {
+          resultPayloadTruncated: true,
+          omittedResultCount: omitted,
+          instruction: "Re-request omitted controller results in smaller batches or narrower file ranges.",
+        } : {}),
+      }),
+      `Workspace revision: ${String(turn.workspaceRevision)}`,
+    ].join("\n\n");
+    return {
+      full: [body, browserControlProtocolPrompt].join("\n\n"),
+      ...(compactProtocol ? { compact: [body, browserReadOnlyControlProtocolReminder].join("\n\n") } : {}),
+    };
+  };
+  const ensureBounded = (value: { full: string; compact?: string }): typeof value => {
+    if (Buffer.byteLength(value.full, "utf8") > boundedMaxBytes) {
       throw new Error(`Managed continuation protocol exceeds the ${String(boundedMaxBytes)} byte local execution limit`);
     }
     return value;
@@ -2030,7 +2043,7 @@ const renderResults = (
   for (let index = 0; index < payload.length; index += 1) {
     const compacted = compactContinuationItem(payload[index]);
     const candidate = [...items, compacted];
-    if (Buffer.byteLength(build(candidate, payload.length - candidate.length), "utf8") > boundedMaxBytes) {
+    if (Buffer.byteLength(build(candidate, payload.length - candidate.length).full, "utf8") > boundedMaxBytes) {
       return ensureBounded(build(items, payload.length - items.length));
     }
     items.push(compacted);
@@ -2442,11 +2455,14 @@ export const executeManagedBrowserEnvelope = async (
   if (terminal || stop) {
     await closeManagedDirectoryListings(turn);
   }
+  const continuation = terminal ? undefined : renderResults(envelope, payload, turn, options.continuationMaxBytes,
+    options.readOnly === true && options.compactProtocol === true);
   return {
     recognized: true,
     terminal,
     envelope,
-    ...(terminal ? {} : { nextPrompt: renderResults(envelope, payload, turn, options.continuationMaxBytes) }),
+    ...(continuation === undefined ? {} : { nextPrompt: continuation.full,
+      ...(continuation.compact === undefined ? {} : { nextPromptCompact: continuation.compact }) }),
     actionResults,
     changedFiles: turn.changedFiles,
     verification: turn.verification,

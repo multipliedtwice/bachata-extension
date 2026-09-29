@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { createBrowserActionCandidate, patchRisk, type BrowserActionCandidate } from "./actions";
 import type { BrowserBridgeServer } from "./bridgeServer";
@@ -8,17 +7,29 @@ import { deliverableLimits, readDeliverableZip, type DeliverableFile } from "./d
 import { deliverableText, filesToDeliverablePatch, validateDeliverablePatch, type DeliverableChangeOptions } from "./deliverableChanges";
 import type { CapturedAsset, CapturedResponse } from "./protocol";
 import { redactFreeFormText } from "../security/redact";
+import { fetchDeliverableBytes } from "./deliverableTransfer";
+import { buildDeliverableSelectionRequest, resolveDeliverableSelection, unambiguousDeliverableSelection, validateDeliverableRequirement,
+  type DeliverableRequirement, type SelectedDeliverable } from "./deliverableSelection";
+import { isBrowserSourcePath } from "./sourceTransferPolicy";
+import { isRestrictedWorkspacePath } from "./mutationPolicy";
+export { fetchDeliverableBytes } from "./deliverableTransfer";
+
+export type DeliverableEvidence = Pick<SelectedDeliverable, "captureId" | "provenance" | "completeness" | "paths">;
 
 export type PreparedDeliverable =
   | { kind: "none" }
   | { kind: "correction"; message: string }
-  | { kind: "unchanged"; message: string }
-  | { kind: "changes"; action: BrowserActionCandidate; envelope: BrowserControlEnvelope };
+  | { kind: "unchanged"; message: string; evidence?: DeliverableEvidence }
+  | { kind: "evidence"; message: string; evidence: DeliverableEvidence }
+  | { kind: "changes"; action: BrowserActionCandidate; envelope: BrowserControlEnvelope; evidence?: DeliverableEvidence };
 
 export type DeliverableOptions = Omit<DeliverableChangeOptions, "knownFiles"> & {
   references: BrowserContextReferences;
   fetchAsset: BrowserBridgeServer["fetchAsset"];
   hasControlActions: boolean;
+  selectionRequirement?: DeliverableRequirement;
+  selectionDecision?: unknown;
+  selectionRequired?: boolean;
 };
 
 const patchName = (name: string): boolean => /\.(?:patch|diff)$/iu.test(name);
@@ -28,42 +39,54 @@ const sourceName = (name: string): boolean => /\.(?:[cm]?[jt]sx?|json|html?|css|
 const relevantAsset = (asset: CapturedAsset): boolean => patchName(asset.name) || archiveName(asset.name)
   || (sourceName(asset.name) && ["generatedFile", "codeArtifact", "artifact"].includes(asset.kind));
 
-export const fetchDeliverableBytes = async (
-  asset: CapturedAsset, fetchAsset: BrowserBridgeServer["fetchAsset"], signal: AbortSignal, maximumBytes: number,
-): Promise<Buffer> => {
-  if (!asset.downloadAvailable) throw new Error("The deliverable is not downloadable; attach the actual file or return structured workspace changes");
-  if (asset.size !== undefined && asset.size > maximumBytes) throw new Error("Deliverable exceeds the download limit");
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let sequence = 0;
-  let started = false;
-  let completed = false;
-  let declaredSize: number | undefined;
-  const digest = createHash("sha256");
-  for await (const event of fetchAsset(asset.id, maximumBytes, signal)) {
+const prepareSelectedBrowserDeliverable = async (
+  response: CapturedResponse, options: DeliverableOptions, requirement: DeliverableRequirement,
+): Promise<PreparedDeliverable> => {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), deliverableLimits.timeoutMs);
+  const signal = AbortSignal.any([options.signal, timeout.signal]);
+  try {
     signal.throwIfAborted();
-    if (completed || event.assetId !== asset.id) throw new Error("Deliverable transfer identity or order is invalid");
-    if (event.type === "start") {
-      if (started || (event.size !== undefined && event.size > maximumBytes)) throw new Error("Deliverable transfer start is invalid");
-      if (event.name !== asset.name) throw new Error("Deliverable identity changed during download");
-      started = true;
-      declaredSize = event.size;
-    } else if (event.type === "chunk") {
-      if (!started || sequence >= 8192 || event.sequence !== sequence++ || event.data.length > maximumBytes - size) throw new Error("Deliverable transfer is out of order or oversized");
-      chunks.push(event.data);
-      digest.update(event.data);
-      size += event.data.length;
-    } else {
-      if (!started || event.size !== size || (declaredSize !== undefined && declaredSize !== size)
-        || (asset.size !== undefined && asset.size !== size) || digest.digest("hex") !== event.sha256) {
-        throw new Error("Deliverable transfer failed integrity validation");
-      }
-      completed = true;
+    requirement = validateDeliverableRequirement(requirement);
+    const inline = inlineDeliverables(response);
+    const hasRepresentation = response.assets.some(relevantAsset) || inline.patches.length > 0 || inline.files.length > 0
+      || response.segments.some((segment) => segment.type === "codeBlock" && ["md", "markdown", "diff", "patch"].includes(segment.language?.toLowerCase() ?? ""))
+      || response.segments.some((segment) => segment.type === "text" && /(?:^|\n)(?:FILE|PATCH) /u.test(segment.text))
+      || /\[[^\]\n]*\]\((?:sandbox:|https?:)[^\s)]*\.(?:zip|patch|diff)(?:[?#][^\s)]*)?\)/iu.test(response.text);
+    if (!hasRepresentation && (options.hasControlActions || options.selectionRequired === false)) return { kind: "none" };
+    if (options.hasControlActions) throw new Error("Return either executable control actions or a deliverable, not both, so changes cannot be applied twice");
+    const request = buildDeliverableSelectionRequest(response, requirement);
+    const selected = await resolveDeliverableSelection(response, requirement,
+      options.selectionDecision ?? unambiguousDeliverableSelection(request), { signal, fetchAsset: options.fetchAsset });
+    if (selected.kind === "abstain") throw new Error("The requested deliverable is missing, incomplete or ambiguous; provide one authoritative representation for every requested path");
+    const evidence: DeliverableEvidence = { captureId: selected.captureId, provenance: selected.provenance,
+      completeness: selected.completeness, paths: selected.paths };
+    if (selected.format === "listing") return { kind: "evidence", evidence,
+      message: "The requested file listing was captured completely. It does not establish that those files exist or that the task is correct; no workspace changes were prepared." };
+    for (const target of selected.paths) {
+      if (!isBrowserSourcePath(target) || isRestrictedWorkspacePath(target)) throw new Error("The requested deliverable contains an excluded or restricted source path");
     }
-  }
-  signal.throwIfAborted();
-  if (!completed) throw new Error("Deliverable download ended before completion");
-  return Buffer.concat(chunks, size);
+    const changeOptions: DeliverableChangeOptions = { ...options, signal, knownFiles: options.references.knownFileDigests() };
+    const prepared = selected.format === "diff"
+      ? await validateDeliverablePatch(deliverableText(selected.bytes!), changeOptions)
+      : await filesToDeliverablePatch(selected.files, changeOptions, false);
+    if (!prepared.changedPaths.length) return { kind: "unchanged", evidence,
+      message: "The delivered files already match the workspace. No files were changed. Continue with verification and report the actual outcome." };
+    signal.throwIfAborted();
+    const action = createBrowserActionCandidate({ kind: "workspace.applyPatch", patch: prepared.patch, expectedFiles: prepared.expectedFiles,
+      risk: patchRisk(prepared.patch), origin: "structured", confidence: "explicit",
+      source: { start: 0, end: 0, text: `Validated browser deliverable: ${String(prepared.changedPaths.length)} changed file(s)` } });
+    return { kind: "changes", evidence, action,
+      envelope: { protocol: "bachata-browser-turn-v1", status: "applyPatch",
+        actions: [{ kind: "workspace.applyPatch", patch: prepared.patch, expectedFiles: prepared.expectedFiles }],
+        summary: action.source.text, objections: [], unresolved: [] } };
+  } catch (error) {
+    options.signal.throwIfAborted();
+    const detail = error instanceof Error && "path" in error ? "A deliverable source file could not be inspected"
+      : error instanceof Error ? error.message.slice(0, 16384).split(options.workingDirectory).join(".") : "Deliverable inspection failed";
+    const reason = timeout.signal.aborted ? "Deliverable inspection timed out" : redactFreeFormText(detail);
+    return { kind: "correction", message: `Bachata did not apply the deliverable. ${reason}. Correct the deliverable or request the required current source context, then continue. Do not claim the changes are installed.` };
+  } finally { clearTimeout(timer); }
 };
 
 const inlineDeliverables = (response: CapturedResponse): { patches: string[]; files: DeliverableFile[] } => {
@@ -88,6 +111,7 @@ const inlineDeliverables = (response: CapturedResponse): { patches: string[]; fi
 };
 
 export const prepareBrowserDeliverable = async (response: CapturedResponse, options: DeliverableOptions): Promise<PreparedDeliverable> => {
+  if (options.selectionRequirement !== undefined) return prepareSelectedBrowserDeliverable(response, options, options.selectionRequirement);
   const inline = inlineDeliverables(response);
   const assets = response.assets.filter(relevantAsset);
   const hasLink = /\[[^\]\n]*\]\((?:sandbox:|https?:)[^\s)]*\.(?:zip|patch|diff)(?:[?#][^\s)]*)?\)/iu.test(response.text);

@@ -1,9 +1,9 @@
 import { executionContextAssignments, executionContextUnavailable } from "./executionContextEligibility";
-import { executionContextModeForRun } from "./settingsSnapshot";
+import { executionContextModeForRun, managedCompactProtocolForRun } from "./settingsSnapshot";
 import { createLocalExecutionState, localExecutionScope, type LocalExecutionState } from "./localExecutionState";
 import { evidenceDigest, withControllerEvidence, type ExecutionEvidenceRecord } from "../state/executionEvidence";
 import type { ManagedRepositoryBaseline } from "../orchestrator/managedPair";
-import { browserCandidateReference, browserControllerEvidence, browserControllerText, composeAgentPrompt } from "./browserPromptContracts";
+import { browserCandidateReference, browserControllerEvidence, browserControllerText, composeAgentPrompt, managedBrowserWirePrompt } from "./browserPromptContracts";
 import {
   BrowserSessionOrigin,
   RESUMED_STEP_NOTICE,
@@ -13,6 +13,7 @@ import {
   roleAnswers,
 } from "./browserContinuity";
 import { prepareBrowserDeliverable } from "../browser/deliverables";
+import { deliverableRequirementPrompt, validateDeliverableRequirement } from "../browser/deliverableSelection";
 import { BrowserContextReferences } from "../browser/contextReferences";
 import { assertBrowserAttachmentSource } from "../browser/sourceTransferPolicy";
 import { webviewErrorMessage } from "../webview/errorMessage";
@@ -158,10 +159,10 @@ import {
   MANAGED_CONVERSATION_DEFAULT_BYTES,
   composeManagedRolloverPrompt,
   managedConversationMaxBytes,
-  managedConversationRolloverRequired,
   managedFreshSessionKey,
   managedRolloverTaskId,
 } from "../browser/managedConversationBudget";
+import { createManagedPromptSender, freshManagedBrowserBinding, managedPromptGeneration, type ManagedPrompt } from "../browser/managedPromptSession";
 import { mostSpecificPositiveNumber } from "./configurationScope";
 import {
   gitProcessEnvironment,
@@ -1813,6 +1814,7 @@ export const createRuntime = (
       ? live
       : { ...live, values: { ...live.values, executionContextMode: "legacy", ...restored.values } };
     activeRunSettings.values.executionContextMode = executionContextModeForRun(live.values.executionContextMode, restored);
+    activeRunSettings.values.browserManagedCompactProtocol = managedCompactProtocolForRun(live.values.browserManagedCompactProtocol, restored);
     return activeRunSettings;
   };
 
@@ -4539,6 +4541,8 @@ export const createRuntime = (
     // disabling one provider never prevents the extension from starting or from running a
     // workflow bound to another.
     const disabledAdapter = definitions[agentId]?.adapter;
+    const browserDeliverable = options.browserDeliverable === undefined ? undefined : validateDeliverableRequirement(options.browserDeliverable);
+    if (browserDeliverable && !disabledAdapter?.endsWith("-browser")) throw new Error("A browser deliverable step requires a Browser Bridge participant");
     if (disabledAdapter?.endsWith("-browser")) {
       for (const attachment of attachments) assertBrowserAttachmentSource(attachment, state.attachments, state.workingDirectory);
     }
@@ -4647,6 +4651,7 @@ export const createRuntime = (
         useManagedBrowser || useLocalControllerVerification
           ? {
               taskId: operationTaskId,
+              ...(browserDeliverable ? { browserDeliverable } : {}),
               originalTask: options.originalTask ?? prompt,
               role: options.managedRole ?? (options.roleId === "lead" ? "lead" : "worker"),
               roleSummary: [options.roleName, options.participant].filter(Boolean).join(" · "),
@@ -4923,6 +4928,8 @@ export const createRuntime = (
       let managedBrowserTurn: Awaited<ReturnType<typeof prepareManagedBrowserTurn>> | undefined;
       let managedTurnIsRevisionWorker = false;
       if (managedBrowserOptions) {
+        managedBrowserOptions.compactProtocol = managedBrowserOptions.readOnly === true
+          && configuration().get<boolean>("browserManagedCompactProtocol", false) === true;
         managedBrowserOptions.readPaths = await resolveManagedReadPaths({
           workingDirectory: managedBrowserOptions.workingDirectory,
           originalTask: managedBrowserOptions.originalTask,
@@ -5261,15 +5268,17 @@ export const createRuntime = (
       const continuity = isBrowserAgent && !managedBrowserTurn && stepId !== undefined
         ? await browserContinuityBlock(agentId, stepId, options, browserSessionOrigin)
         : undefined;
-      const initialPrompt = composeAgentPrompt({
+      const composedInitialPrompt = composeAgentPrompt({
         task: prompt,
         continuity,
         managedHandoff: managedBrowserTurn?.prompt,
-        controllerContract: managedControllerBlock,
+        controllerContract: [managedControllerBlock, !managedBrowserTurn && browserDeliverable ? deliverableRequirementPrompt(browserDeliverable) : undefined]
+          .filter((part): part is string => typeof part === "string").join("\n\n"),
         workspaceProtocol: isBrowserAgent && structuredTurnToken
           ? browserWorkspaceProtocolPrompt(options, structuredTurnToken)
           : undefined,
       });
+      const initialPrompt = managedBrowserTurn ? managedBrowserWirePrompt(composedInitialPrompt) : composedInitialPrompt;
       const initialAttachments = managedBrowserTurn
         ? attachments.filter((file) => isSupportedBrowserAttachmentPath(file, workingDirectory))
         : attachments;
@@ -5282,6 +5291,7 @@ export const createRuntime = (
       ];
       let deliverableCorrections = 0;
       let unresolvedDeliverable = false;
+      let requestedDeliverableSatisfied = browserDeliverable === undefined;
       let providerAssetsObserved = (initial.capturedResponse?.assets.length ?? 0) > 0;
       const recordBrowserTurn = (turn: AdapterTurnResult): void => {
         providerAssetsObserved ||= (turn.capturedResponse?.assets.length ?? 0) > 0;
@@ -5299,65 +5309,68 @@ export const createRuntime = (
           MANAGED_CONVERSATION_DEFAULT_BYTES,
         ),
       );
-      let managedConversationBytes = managedBrowserTurn
-        ? Buffer.byteLength(initialPrompt, "utf8") + Buffer.byteLength(initial.result.answer, "utf8")
-        : 0;
       let managedConversationRollovers = 0;
+      const managedPromptSender = managedBrowserOptions && managedBrowserTurn
+        ? createManagedPromptSender<AdapterTurnResult>({
+          compactReadOnly: managedBrowserOptions.compactProtocol === true,
+          maxBytes: managedConversationLimitBytes,
+          initialPrompt,
+          initialAnswer: initial.result.answer,
+          initialSucceeded: initial.result.status === "completed" && initial.capturedResponse !== undefined,
+          framePrompt: managedBrowserWirePrompt,
+          generation: () => managedPromptGeneration(bridge.resolveBoundSession(
+            `${runtimeOwnerId}:${agentId}`, agentStateFor(agentId).browserBinding, agentStateFor(agentId).sessionId,
+          )),
+          send: (effectivePrompt, eventType) => sendTurn(effectivePrompt, [], eventType),
+          rehydrate: async (continuationPrompt, reason) => {
+            if (!managedBrowserOptions || !managedBrowserTurn) throw new Error("Managed controller state is unavailable during rehydration");
+            managedConversationRollovers += 1;
+            await ensureFreshManagedBrowserSession(
+              agentId,
+              managedRolloverTaskId(operationTaskId, managedConversationRollovers),
+              controller.signal,
+            );
+            managedBrowserTurn = await prepareManagedBrowserTurn({
+              ...managedBrowserOptions,
+              taskHash: managedPairCheckpoint?.taskHash ?? managedBrowserTurn.taskHash,
+              initialVerification: managedBrowserTurn.verification,
+              initialUnresolved: managedPairCheckpoint?.unresolved ?? managedBrowserOptions.initialUnresolved,
+              initialWorkspaceRevision: managedBrowserTurn.workspaceRevision,
+              initialChangedFiles: managedBrowserTurn.changedFiles,
+              initialDiff: managedBrowserTurn.diff,
+              repositoryBaseline: managedBrowserTurn.repositoryBaseline,
+            });
+            const effectivePrompt = composeManagedRolloverPrompt({
+              preparedPrompt: managedBrowserTurn.prompt,
+              continuationPrompt,
+              maxBytes: managedConversationLimitBytes,
+            });
+            await appendTranscript(
+              createEventEntry(
+                "browser.managed.conversationRollover",
+                reason === "budget"
+                  ? `Opened fresh managed role conversation ${String(managedConversationRollovers)} after reaching the cumulative context budget.`
+                  : `Opened fresh managed role conversation ${String(managedConversationRollovers)} after conversation identity became changed or uncertain.`,
+                toJsonValue({
+                  managedConversationMaxBytes: managedConversationLimitBytes,
+                  workspaceRevision: managedBrowserTurn.workspaceRevision,
+                  workspaceFingerprint: managedBrowserTurn.workspaceFingerprint,
+                  reason,
+                }),
+                agentId,
+                step,
+              ),
+            );
+            return effectivePrompt;
+          },
+        }) : undefined;
       const sendManagedContinuation = async (
         continuationPrompt: string,
         promptEventType: string,
+        promptOptions: Omit<ManagedPrompt, "full"> = {},
       ): Promise<AdapterTurnResult> => {
-        if (!managedBrowserOptions || !managedBrowserTurn) {
-          return await sendTurn(continuationPrompt, [], promptEventType);
-        }
-        let effectivePrompt = continuationPrompt;
-        if (
-          managedConversationRolloverRequired(
-            managedConversationBytes,
-            Buffer.byteLength(continuationPrompt, "utf8"),
-            managedConversationLimitBytes,
-          )
-        ) {
-          managedConversationRollovers += 1;
-          await ensureFreshManagedBrowserSession(
-            agentId,
-            managedRolloverTaskId(operationTaskId, managedConversationRollovers),
-            controller.signal,
-          );
-          managedBrowserTurn = await prepareManagedBrowserTurn({
-            ...managedBrowserOptions,
-            taskHash: managedPairCheckpoint?.taskHash ?? managedBrowserTurn.taskHash,
-            initialVerification: managedBrowserTurn.verification,
-            initialUnresolved: managedPairCheckpoint?.unresolved ?? managedBrowserOptions.initialUnresolved,
-            initialWorkspaceRevision: managedBrowserTurn.workspaceRevision,
-            initialChangedFiles: managedBrowserTurn.changedFiles,
-            initialDiff: managedBrowserTurn.diff,
-            repositoryBaseline: managedBrowserTurn.repositoryBaseline,
-          });
-          effectivePrompt = composeManagedRolloverPrompt({
-            preparedPrompt: managedBrowserTurn.prompt,
-            continuationPrompt,
-            maxBytes: managedConversationLimitBytes,
-          });
-          managedConversationBytes = 0;
-          await appendTranscript(
-            createEventEntry(
-              "browser.managed.conversationRollover",
-              `Opened fresh managed role conversation ${String(managedConversationRollovers)} after reaching the cumulative context budget.`,
-              toJsonValue({
-                managedConversationMaxBytes: managedConversationLimitBytes,
-                workspaceRevision: managedBrowserTurn.workspaceRevision,
-                workspaceFingerprint: managedBrowserTurn.workspaceFingerprint,
-              }),
-              agentId,
-              step,
-            ),
-          );
-        }
-        const result = await sendTurn(effectivePrompt, [], promptEventType);
-        managedConversationBytes += Buffer.byteLength(effectivePrompt, "utf8")
-          + Buffer.byteLength(result.result.answer, "utf8");
-        return result;
+        if (!managedPromptSender) return await sendTurn(continuationPrompt, [], promptEventType);
+        return await managedPromptSender({ full: continuationPrompt, ...promptOptions }, promptEventType);
       };
       const browserRounds: BrowserActionRound[] = [];
       const seenFingerprints = new Set<string>();
@@ -5452,6 +5465,8 @@ export const createRuntime = (
           capturedResponse.text, capturedResponse.segments, structuredTurnToken, browserContextReferences,
         );
         let deliverable = await prepareBrowserDeliverable(capturedResponse, {
+          ...(browserDeliverable ? { selectionRequirement: browserDeliverable,
+            selectionRequired: !requestedDeliverableSatisfied && originalEnvelope?.status !== "blocked" } : {}),
           workingDirectory,
           references: managedBrowserTurn?.contextReferences ?? browserContextReferences,
           fetchAsset: bridge.fetchAsset,
@@ -5463,12 +5478,21 @@ export const createRuntime = (
             readOnly: options.readOnly,
           }),
         });
+        if (browserDeliverable && (originalEnvelope?.actions.some((action) => action.kind.startsWith("workspace."))
+          || fallbackActions.some((action) => action.risk !== "readOnly"))) {
+          deliverable = { kind: "correction", message: "Return the controller-requested deliverable format and exact path manifest instead of executable mutation actions. Context and verification requests remain available in separate replies." };
+        }
+        if ("evidence" in deliverable && deliverable.evidence) {
+          await appendTranscript(createEventEntry("browser.deliverable.selected",
+            "Controller selected a captured deliverable; task correctness remains unverified.", deliverable.evidence, agentId, step));
+        }
         if (deliverable.kind === "none" && unresolvedDeliverable
           && !(originalEnvelope?.actions.length || fallbackActions.length)
           && originalEnvelope?.status !== "blocked") {
           deliverable = { kind: "correction", message: "The previous deliverable is still unresolved. Return corrected changes or request current source context; a prose completion claim cannot resolve an unapplied deliverable." };
         }
-        if (deliverable.kind === "correction" || deliverable.kind === "unchanged") {
+        if (deliverable.kind === "correction" || deliverable.kind === "unchanged" || deliverable.kind === "evidence") {
+          if (deliverable.kind !== "correction" && deliverable.evidence) requestedDeliverableSatisfied = true;
           unresolvedDeliverable = deliverable.kind === "correction";
           await appendTranscript(createEventEntry(
             `browser.deliverable.${deliverable.kind}`, deliverable.message, undefined, agentId, step,
@@ -5485,7 +5509,10 @@ export const createRuntime = (
           capturedResponse = continuation.capturedResponse;
           continue;
         }
-        if (deliverable.kind === "changes") unresolvedDeliverable = true;
+        if (deliverable.kind === "changes") {
+          unresolvedDeliverable = true;
+          if (browserDeliverable) requestedDeliverableSatisfied = false;
+        }
         if (managedBrowserTurn && managedBrowserOptions) {
           const prospectiveEnvelope = deliverable.kind === "changes" ? deliverable.envelope : originalEnvelope;
           if (terminalOnlyRound && (prospectiveEnvelope?.actions.length ?? 0) > 0) {
@@ -5634,6 +5661,7 @@ export const createRuntime = (
                 browserControlProtocolPrompt,
               ].join("\n\n"),
               "browser.managed.controlRepair",
+              { fullContract: true },
             );
             status = continuation.result.status;
             lastNaturalAnswer = continuation.result.answer;
@@ -5646,6 +5674,7 @@ export const createRuntime = (
             && controlled.actionResults.length > 0 && controlled.actionResults.every((result) => result.status === "completed")) {
             unresolvedDeliverable = false;
             deliverableCorrections = 0;
+            if (deliverable.kind === "changes" && deliverable.evidence) requestedDeliverableSatisfied = true;
           }
           actionCount += controlled.envelope?.actions.length ?? 0;
           const activeManagedTurn = managedBrowserTurn;
@@ -5807,6 +5836,8 @@ export const createRuntime = (
           const continuation = await sendManagedContinuation(
             nextManagedPrompt,
             "browser.managed.resultsReinjected",
+            { fullContract: true, ...(!verificationGate && controlled.nextPromptCompact !== undefined
+              ? { compact: controlled.nextPromptCompact } : {}) },
           );
           status = continuation.result.status;
           lastNaturalAnswer = continuation.result.answer;
@@ -5967,6 +5998,7 @@ export const createRuntime = (
           && results.every((result) => result.status === "completed")) {
           unresolvedDeliverable = false;
           deliverableCorrections = 0;
+          if (deliverable.kind === "changes" && deliverable.evidence) requestedDeliverableSatisfied = true;
         }
         browserRounds.push({ response: capturedResponse, actions, results });
         if (stopLoop || controller.signal.aborted) {
@@ -5993,6 +6025,9 @@ export const createRuntime = (
 
       if (controller.signal.aborted && status === "completed") {
         status = "interrupted";
+      }
+      if (status === "completed" && !requestedDeliverableSatisfied) {
+        throw new Error("The requested browser deliverable was not validated and accepted; the run cannot claim completion");
       }
 
       // P3. Controller-owned verification for a managed turn that is not a browser turn.
@@ -7468,6 +7503,9 @@ export const createRuntime = (
           options.resume?.checkpoint ?? emptyPipelineResumeState();
         const restoringSettings = recordedRun !== undefined || recordedRunSettings !== undefined;
         const runSettings = beginRunSettings(recordedRun?.runSettings);
+        if (recordedRun !== undefined && recordedRun.runSettings === undefined) {
+          runSettings.values.browserManagedCompactProtocol = false;
+        }
         if ((recordedRun !== undefined && recordedRun.runSettings === undefined)
           || (!restoringSettings && executionContextUnavailable(pipeline, !!workspaceRoot, attachmentIds.length))) {
           runSettings.values.executionContextMode = "legacy";
@@ -11283,7 +11321,7 @@ export const createRuntime = (
     const agent = state.agents[agentId];
     const provider = agent ? browserProviderForAdapterType(agent.adapterType) : undefined;
     if (!agent || !provider) return;
-    const preferredBinding = agent.browserBinding ?? programmaticResetBindings.get(agentId);
+    const preferredBinding = freshManagedBrowserBinding(agent.browserBinding ?? programmaticResetBindings.get(agentId));
     const opened = await bridge.openConversation(provider, signal, preferredBinding, true);
     if (signal.aborted) throw new Error("Opening a fresh managed browser conversation was interrupted");
     if (provider === "generic") {

@@ -24,6 +24,41 @@ const presetPath = path.join(
 
 const readPreset = () => JSON.parse(fs.readFileSync(presetPath, "utf8"));
 
+test("browser deliverable declarations retain exact manifests and refuse incompatible output contracts", () => {
+  const valid = readPreset();
+  const step = valid.steps.find((entry) => entry.type === "agent");
+  step.consensus = false;
+  delete step.consensusConfig;
+  delete step.output;
+  delete step.artifactPromotion;
+  delete step.coreDecisionOutput;
+  // Validate an isolated turn so later preset output dependencies do not obscure the contract.
+  valid.steps = [step];
+  step.participants = [valid.agents[0].id];
+  step.promptTemplate = "{{userPrompt}}";
+  step.browserDeliverable = { format: "markdown", paths: ["notes/result.md"] };
+  const accepted = validatePipelineDefinition(valid);
+  assert.equal(accepted.success, true, JSON.stringify(accepted));
+  assert.deepEqual(accepted.data.steps[0].browserDeliverable, step.browserDeliverable);
+  for (const requirement of [
+    { format: "pdf", paths: ["notes/result.md"] }, { format: "zip", paths: [] },
+    { format: "diff", paths: ["../escape"] }, { format: "listing", paths: ["a", "A"] },
+    { format: "markdown", paths: ["notes/result.md"], complete: true },
+    { format: "zip", paths: Array.from({ length: 100 }, (_, index) => `dir/${String(index)}-${"x".repeat(100)}`) },
+  ]) {
+    const candidate = structuredClone(valid); candidate.steps[0].browserDeliverable = requirement;
+    const result = validatePipelineDefinition(candidate);
+    assert.equal(result.success, false, JSON.stringify(requirement));
+    assert.ok(result.errors.some((message) => message.includes("browserDeliverable")));
+  }
+  for (const incompatible of [{ consensus: true }, { output: { name: "result", format: "json" } }]) {
+    const candidate = structuredClone(valid); Object.assign(candidate.steps[0], incompatible);
+    const result = validatePipelineDefinition(candidate);
+    assert.equal(result.success, false);
+    assert.ok(result.errors.some((message) => message.includes("browserDeliverable")));
+  }
+});
+
 const todoPresetPath = path.join(
   __dirname,
   "..",

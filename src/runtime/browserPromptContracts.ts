@@ -1,5 +1,8 @@
 import type { BrowserContextReferences } from "../browser/contextReferences";
 import type { ControllerEvidenceLine } from "./controllerVerification";
+import { randomUUID } from "node:crypto";
+
+export const managedBrowserWirePrompt = (prompt: string): string => `BACHATA_REQUEST_ID:${randomUUID()}\n\n${prompt}`;
 
 export const browserControllerText = (text: string, workspaceRoot: string): string => {
   if (!workspaceRoot || workspaceRoot === "." || workspaceRoot === "/") return text;

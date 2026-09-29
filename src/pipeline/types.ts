@@ -1,4 +1,5 @@
 import { RulingProvenance } from "../results/rulingProvenance";
+import type { DeliverableRequirement } from "../browser/deliverableSelection";
 import {
   AgentCapabilities,
   CodexApprovalPolicy,
@@ -166,6 +167,8 @@ export type AgentTurnStep = PipelineStepBase & {
   consensus: boolean;
   consensusConfig?: ConsensusConfig;
   output?: StepOutputConfig;
+  // Controller-owned output manifest, separate from the writable scope.
+  browserDeliverable?: DeliverableRequirement;
   permissionModes?: Record<string, string>;
   approvalPolicies?: Record<string, CodexApprovalPolicy>;
   attachments?: PipelineAttachmentMode;

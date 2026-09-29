@@ -260,7 +260,10 @@ const main = async () => {
   summary(tasks);
 };
 
-main().then(() => process.exit(0), (error) => {
+const selectedBenchmark = process.argv[2] === "browser-observations"
+  ? () => require("./browser-observation-benchmark.cjs").main(process.argv.slice(3))
+  : main;
+selectedBenchmark().then(() => process.exit(0), (error) => {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exit(1);
 });

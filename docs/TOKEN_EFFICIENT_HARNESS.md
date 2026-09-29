@@ -109,6 +109,10 @@ it. Fail closed if projection is invalid or incomplete.
 
 ### 3. Browser observation handles — proposed
 
+Offline measurement and a retrieval prototype are now available. See
+[Browser observation research](./BROWSER_OBSERVATION_RESEARCH.md) for the measured workload,
+recall tradeoff and candidate contract. No managed-runtime behavior changed.
+
 Large DOM, diff, and verifier output becomes controller-owned evidence. Prompt gets compact summary
 and stable handle. Model may request exact evidence by handle. Controller checks scope and returns a
 bounded slice.
@@ -212,6 +216,11 @@ Consequence:
 - Local slice frozen. Legacy stays default; its session resume keeps provider cache warm.
 - Browser observation handles (mechanism 3) fit where Bachata owns the tool loop. Measure that
   share before building.
+- The live read-only Bridge pilot found no repeated large observations and zero handle
+  benefit. A separate compact-protocol pilot passed with 13.57% fewer sent bytes and no extra
+  calls. A new matched recovery/fresh-chat comparison passed with 9.55% fewer bytes and no
+  extra calls. Research supports a default-off read-only production pilot; see
+  `BROWSER_OBSERVATION_RESEARCH.md` for workloads, limitations and integration boundaries.
 - Structured consensus projection (mechanism 2) waits on a measured Bachata share per round.
 - Untested: long revision loops. Not shown to occur on these tasks.
 

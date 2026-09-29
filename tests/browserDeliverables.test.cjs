@@ -56,6 +56,114 @@ const slowPlatformFactor = process.platform === "win32" ? 6 : 1;
 
 const execute = (prepared, root, extra = {}) => executeBrowserAction(prepared.action, { workingDirectory: root, signal: new AbortController().signal, timeoutMs: 5000 * slowPlatformFactor, terminateGraceMs: 100, maxOutputBytes: 65536, maxReadBytes: 65536, maxSearchResults: 100, ...extra });
 
+const selectedCapture = (parts, assets = []) => {
+  let offset = 0;
+  const segments = parts.map((part) => {
+    const start = offset; offset += part.text.length; return { ...part, start, end: offset };
+  });
+  return { requestId: "selection-request", agentId: "reviewer", sessionId: "initial-session", provider: "chatgpt",
+    finalSessionId: "final-session", finalConversationIdentity: "chatgpt:final-conversation", fidelity: "bestEffort", captureFormat: "renderedText",
+    text: segments.map((part) => part.text).join(""), segments, assets };
+};
+
+test("an explicit requirement permits separate context requests and enforces delivery before completion", async () => {
+  const state = await workspace();
+  try {
+    const captured = selectedCapture([{ type: "codeBlock", language: "bachata-control", text: "{}" }]);
+    const options = { ...state.options, selectionRequirement: { format: "listing", paths: ["src/retry.ts"] } };
+    assert.equal((await prepareBrowserDeliverable(captured, { ...options, hasControlActions: true })).kind, "none");
+    assert.equal((await prepareBrowserDeliverable(captured, options)).kind, "correction");
+    assert.equal((await prepareBrowserDeliverable(captured, { ...options, selectionRequired: false })).kind, "none");
+    const competing = selectedCapture([{ type: "text", text: "FILE wrong.md\n" }, { type: "codeBlock", language: "md", text: "wrong" }]);
+    assert.equal((await prepareBrowserDeliverable(competing, { ...options, selectionRequired: false })).kind, "correction");
+    assert.equal((await prepareBrowserDeliverable(competing, { ...options, hasControlActions: true })).kind, "correction");
+  } finally { await fs.rm(state.root, { recursive: true, force: true }); }
+});
+
+test("explicit Markdown preparation preserves provenance and uses the existing versioned patch executor", async () => {
+  const state = await workspace();
+  try {
+    const before = await fs.readFile(path.join(state.root, "README.md"), "utf8"), updated = "# Notes\n\n\u0e0d \u043f\u0440\u0438\u0432\u0435\u0442\n";
+    state.references.fileVersion("README.md", hash(before));
+    const captured = selectedCapture([{ type: "text", text: "FILE README.md\n" }, { type: "codeBlock", language: "md", text: updated }]);
+    const prepared = await prepareBrowserDeliverable(captured, { ...state.options, selectionRequirement: { format: "markdown", paths: ["README.md"] } });
+    assert.equal(prepared.kind, "changes", JSON.stringify(prepared));
+    assert.equal(prepared.evidence.provenance.requestId, captured.requestId);
+    assert.equal(prepared.evidence.provenance.evidence[0].sha256, hash(updated));
+    assert.deepEqual(prepared.envelope.actions[0].expectedFiles, [{ path: "README.md", sha256: hash(before) }]);
+    assert.equal(await fs.readFile(path.join(state.root, "README.md"), "utf8"), before);
+    const result = await execute(prepared, state.root);
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(await fs.readFile(path.join(state.root, "README.md"), "utf8"), updated);
+    assert.equal(await fs.readFile(path.join(state.root, "src/retry.ts"), "utf8"), state.original);
+  } finally { await fs.rm(state.root, { recursive: true, force: true }); }
+});
+
+test("explicit diff preparation records only its line terminator repair before versioned application", async () => {
+  const state = await workspace();
+  try {
+    const patch = "--- a/src/retry.ts\n+++ b/src/retry.ts\n@@ -1 +1 @@\n-export const retryCount = 2;\n+export const retryCount = 3;";
+    const captured = selectedCapture([{ type: "codeBlock", language: "diff", text: patch }]);
+    const prepared = await prepareBrowserDeliverable(captured, { ...state.options, selectionRequirement: { format: "diff", paths: ["src/retry.ts"] } });
+    assert.equal(prepared.kind, "changes", JSON.stringify(prepared));
+    assert.equal(prepared.evidence.provenance.evidence[0].sha256, hash(patch));
+    assert.deepEqual(prepared.evidence.provenance.evidence[0].transformations, ["appendUnifiedDiffRecordTerminator"]);
+    assert.equal(prepared.action.patch, patch + "\n");
+    assert.equal(await fs.readFile(path.join(state.root, "src/retry.ts"), "utf8"), state.original);
+    assert.equal((await execute(prepared, state.root)).status, "completed");
+    assert.equal(await fs.readFile(path.join(state.root, "src/retry.ts"), "utf8"), "export const retryCount = 3;\n");
+  } finally { await fs.rm(state.root, { recursive: true, force: true }); }
+});
+
+test("explicit ZIP preparation requires the exact manifest and retains current scope and file-version gates", async () => {
+  const state = await workspace();
+  try {
+    const data = zip([{ name: "src/retry.ts", text: "export const retryCount = 3;\n" }]), name = "source.zip";
+    const captured = selectedCapture([{ type: "text", text: "Attached source" }], [asset(name, data)]);
+    const options = { ...state.options, fetchAsset: transfer(name, data), selectionRequirement: { format: "zip", paths: ["src/retry.ts"] } };
+    const admitted = await prepareBrowserDeliverable(captured, options);
+    assert.equal(admitted.kind, "changes", JSON.stringify(admitted));
+    assert.equal(admitted.evidence.provenance.evidence[0].sha256, hash(data));
+    for (const refusal of [
+      { selectionRequirement: { format: "zip", paths: ["src/retry.ts", "missing.md"] } },
+      { references: new BrowserContextReferences(state.root) },
+      { mutationContext: { scopeMode: "bounded", allowedPaths: ["docs"] } },
+      { mutationContext: { scopeMode: "workspace", readOnly: true } },
+      { hasControlActions: true },
+    ]) assert.equal((await prepareBrowserDeliverable(captured, { ...options, ...refusal })).kind, "correction");
+    await fs.writeFile(path.join(state.root, "src/retry.ts"), "Unrelated newer work\n");
+    assert.equal((await prepareBrowserDeliverable(captured, options)).kind, "correction");
+    assert.equal(await fs.readFile(path.join(state.root, "src/retry.ts"), "utf8"), "Unrelated newer work\n");
+  } finally { await fs.rm(state.root, { recursive: true, force: true }); }
+});
+
+test("explicit listing is evidence with unverified correctness and cannot create a mutation action", async () => {
+  const state = await workspace();
+  try {
+    const captured = selectedCapture([{ type: "text", text: "FILE src/retry.ts\nFILE missing.md\n" }]);
+    const result = await prepareBrowserDeliverable(captured, { ...state.options,
+      selectionRequirement: { format: "listing", paths: ["src/retry.ts", "missing.md"] }, mutationContext: { scopeMode: "workspace", readOnly: true } });
+    assert.equal(result.kind, "evidence", JSON.stringify(result));
+    assert.equal(result.action, undefined); assert.equal(result.envelope, undefined);
+    assert.equal(result.evidence.completeness.taskCorrectness, "unverified");
+    assert.match(result.message, /does not establish that those files exist/);
+    assert.equal(await fs.stat(path.join(state.root, "missing.md")).then(() => true, () => false), false);
+    assert.equal(await fs.readFile(path.join(state.root, "src/retry.ts"), "utf8"), state.original);
+  } finally { await fs.rm(state.root, { recursive: true, force: true }); }
+});
+
+test("verified transfer retains the bytes hashed when a producer reuses its chunk buffer", async () => {
+  const original = Buffer.from("verified source"), chunk = Buffer.from(original);
+  const fetch = async function* (assetId) {
+    yield { type: "start", assetId, name: "source.md", size: original.length };
+    yield { type: "chunk", assetId, sequence: 0, data: chunk };
+    chunk.fill(120);
+    yield { type: "complete", assetId, size: original.length, sha256: hash(original) };
+  };
+  const bytes = await fetchDeliverableBytes(asset("source.md", original), fetch, new AbortController().signal, 1024);
+  assert.deepEqual(bytes, original);
+});
+
 for (const variant of ["partial", "full", "wrapped", "missing-final-newline", "empty-new-file"]) {
   test(`imports ${variant} source archive through the existing patch executor and preserves omitted files`, async () => {
     const state = await workspace();

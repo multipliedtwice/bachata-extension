@@ -7,6 +7,7 @@ import {
   WorkspaceWriteScope,
 } from "../adapters/types";
 import { isProviderFailureError, providerFallbackFailureCodes } from "../adapters/providerFailure";
+import { validateDeliverableRequirement, type DeliverableRequirement } from "../browser/deliverableSelection";
 import { consensusAcceptanceFor } from "./consensusPromotion";
 import { parsePendingConsensus } from "./consensusCheckpoint";
 import { CONSENSUS_RETRY_ROUNDS } from "./consensusPolicy";
@@ -39,6 +40,7 @@ import {
 } from "./types";
 
 export type PipelineAgentOptions = {
+  browserDeliverable?: DeliverableRequirement | undefined;
   permissionMode?: string | undefined;
   approvalPolicy?: CodexApprovalPolicy | undefined;
   model?: string | undefined;
@@ -441,6 +443,9 @@ const participantOptions = (
   runtimeCommitMode?: "never" | "allow",
   runtimeWriteScope?: WorkspaceWriteScope,
 ): PipelineAgentOptions => {
+  const browserDeliverable = step.type === "agent" && step.browserDeliverable !== undefined
+    ? validateDeliverableRequirement(step.browserDeliverable) : undefined;
+  if (browserDeliverable && !definition.adapter.endsWith("-browser")) throw new Error("A browser deliverable step requires a Browser Bridge participant");
   const requested =
     resolveOption(step.permissionModes, participant, agentId) ?? definition.permissionMode;
   const roleReadOnly = roleDefinition?.readOnly === true;
@@ -451,6 +456,7 @@ const participantOptions = (
     roleReadOnly,
   });
   return {
+    ...(browserDeliverable ? { browserDeliverable } : {}),
     permissionMode,
     approvalPolicy:
       resolveOption(step.approvalPolicies, participant, agentId) ??

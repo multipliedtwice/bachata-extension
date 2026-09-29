@@ -1,3 +1,5 @@
+import type { DeliverableRequirement } from "../browser/deliverableSelection";
+
 export type HandoffSnippet = {
   id: string;
   path: string;
@@ -58,6 +60,7 @@ export type HandoffContextManifestCoverage = {
 };
 
 export type ManagedTaskHandoffInput = {
+  browserDeliverable?: DeliverableRequirement;
   taskId: string;
   originalTask: string;
   constraints: string[];
@@ -108,6 +111,7 @@ export type HandoffMetadataListCoverage = {
 };
 
 export type ManagedTaskHandoff = {
+  browserDeliverable?: DeliverableRequirement;
   protocol: "bachata-task-handoff-v1";
   role: "worker" | "lead";
   taskId: string;
@@ -275,6 +279,7 @@ export function buildManagedTaskHandoff(
   const preexistingChangedFiles = uniqueSorted(input.preexistingChangedFiles);
   const policyViolations = uniqueSorted(input.repositoryPolicyViolations);
   const handoff: ManagedTaskHandoff = {
+    ...(input.browserDeliverable ? { browserDeliverable: { format: input.browserDeliverable.format, paths: [...input.browserDeliverable.paths] } } : {}),
     protocol: "bachata-task-handoff-v1",
     role,
     taskId: bounded(input.taskId, 4_096),

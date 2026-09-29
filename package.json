@@ -928,6 +928,12 @@
             "description": "%configuration.bachata.browserManagedConversationMaxBytes.description%",
             "order": 15
           },
+          "bachata.browserManagedCompactProtocol": {
+            "type": "boolean",
+            "default": false,
+            "description": "%configuration.bachata.browserManagedCompactProtocol.description%",
+            "order": 16
+          },
           "bachata.browserActionMaxActions": {
             "type": "number",
             "minimum": 1,

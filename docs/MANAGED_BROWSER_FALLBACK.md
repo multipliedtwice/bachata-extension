@@ -103,6 +103,29 @@ Provider-resource queues are bounded. The bundled Codex and Claude agents have e
 
 The bundled TODO Bachata starts with Codex Lead and Claude Worker. Browser fallback conversations are provisioned lazily only after the corresponding CLI participant reports an eligible no-side-effect provider failure. Each role tries its ChatGPT Browser candidate first and can continue to an explicitly bound Generic Browser candidate, such as Grok or Z.AI, after another eligible no-side-effect provider failure. Lead and Worker have distinct browser fallback agent identities, and a fallback candidate reserved by the opposite role cannot be reused. Browser fallback inherits separate read/write scopes, no-commit policy, workspace mutation fence, and SHA-256 stale-write preconditions. Every managed task, including ordinary UI-started tasks, opens a fresh Worker conversation and a separate fresh Lead conversation once per task; bounded revisions reuse only that task/role conversation. Generic fresh sessions must re-attest verified Send, lifecycle completion, interruption, and conversation state.
 
+## Experimental compact protocol
+
+Set `"bachata.browserManagedCompactProtocol": true` in VS Code settings to try compact
+protocol reminders for read-only managed browser turns. The default is `false`. The setting
+is pinned at the run boundary; a resumed or replayed run uses its recorded value, and older
+runs without this setting keep full framing. Mutation-capable turns always use full framing.
+
+The initial handoff supplies the complete contract. A compact result prompt is eligible only
+after that contract was successfully sent to the same confirmed provider conversation, tab,
+frame and document. Controller evidence, file versions, failures and existing completeness
+flags are identical in both renderings. The reminder grants no new permission.
+
+Repair and verification-gate prompts remain full. Automatic budget rollover sends a complete
+new handoff and the full pending continuation, then resets accounting to the actual new
+dispatch. A changed or uncertain conversation after confirmed exposure also opens a fresh
+conversation and rehydrates current controller state. A change during a compact send is
+detected before the next dispatch. Exposure is held only in memory; restart never restores
+an exposure flag from a saved session or checkpoint.
+
+The pilot reduced sent bytes on two generated ChatGPT workloads. This is not a billed-token
+or cost estimate, or a compatibility claim for every provider. See
+`BROWSER_OBSERVATION_RESEARCH.md` for the live research results and their limits.
+
 ## Repeated improvement
 
 Run execution supports fixed iteration counts and bounded `untilClean` convergence. `untilClean` always keeps a hard maximum iteration count and requires the configured number of consecutive completed iterations whose controller-observed repository fingerprint did not change. A Lead/model statement that the work is clean is not itself a convergence signal. When repository-change evidence is unavailable, the controller does not guess that an iteration is clean and continues until the hard maximum. Fresh provider sessions are requested between iterations. Built-in ChatGPT/Claude browser agents recycle only their previously bound tab into the provider fresh-chat entry route when possible. Generic providers reuse their persisted bound identity, activate the validated New Conversation control, and proceed only after the bridge observes fresh-conversation evidence; otherwise the iteration fails closed.

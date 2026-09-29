@@ -47,6 +47,7 @@ export const pinnedRunSettings: readonly RunSettingDeclaration[] = [
   { key: "maxPipelineIterations", kind: "number", fallback: 10, minimum: 1, maximum: 50 },
   { key: "browserOperationTimeoutMs", kind: "number", fallback: 7_200_000, minimum: 10_000, maximum: MAXIMUM_TIMEOUT_MS },
   { key: "browserActionMaxRounds", kind: "number", fallback: 32, minimum: 1, maximum: 100 },
+  { key: "browserManagedCompactProtocol", kind: "boolean", fallback: false },
   {
     key: "browserManagedConversationMaxBytes",
     kind: "number",
@@ -500,3 +501,6 @@ export const executionContextModeForRun = (
   const value = recorded === undefined ? configured : recorded.values.executionContextMode;
   return value === "localTodoStateV1" ? "localTodoStateV1" : "legacy";
 };
+
+export const managedCompactProtocolForRun = (configured: unknown, recorded?: RunSettingsSnapshot): boolean =>
+  (recorded === undefined ? configured : recorded.values.browserManagedCompactProtocol) === true;

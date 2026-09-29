@@ -23,6 +23,19 @@ duplicated here. Cross-repository and owner work lives in [`../TODO.md`](../TODO
   Preserve unrelated cache/OS activity and valid persisted verification fingerprints.
   Root-scoped enumeration alone does not distinguish task writes from unrelated activity.
 
+## Browser deliverable R&D
+
+- [ ] **EX-DELIVERABLE-SELECTION-01 / production evidence routing:** integrate the
+  explicit ZIP/Markdown/listing/diff requirement with live provider evidence. Typed selection,
+  preparation and the agent-step `browserDeliverable` manifest are implemented. Simulated
+  real-runtime checks cover context, delivery, verification and completion for all four formats.
+  Preparation routes explicit evidence locally and preserves capture/download provenance;
+  the controller decides required-manifest completeness. Current saved-capture replay:
+  deterministic 15/15, Qwen 5/5, Ministral 5/5, Bonsai 3/5. These results do not prove
+  task correctness or live cross-provider compatibility. Retain existing scope,
+  file-version, approval, candidate and verification gates. See
+  `docs/BROWSER_DELIVERABLE_RESEARCH.md` for the contract and experiment limits.
+
 ## Active composer work
 
 - [ ] **EX-MENTION-01 / role-addressed messages:** while a run works, typing `@` opens
@@ -50,12 +63,27 @@ included, deferred or claimed complete. See `docs/STABLE_RELEASE_GATE.md`.
   keep `legacy` default. No provider-quality, token, cost or latency claim. Native ignored-write
   gap remains EX-G6-09.
 - [ ] **EX-BROWSER-OBS-01 / Browser Bridge observation handles:** Bachata owns the managed
-  browser tool loop, so SoL-Pi ObservationPack fits there: large DOM, diff and verifier output
-  becomes controller evidence; prompt carries a compact head/tail and stable handle; model
-  recalls exact slices by handle. Spec first (design mechanism 3). Web chats keep no local token
-  log, so first extend the offline benchmark script to record bytes Bachata sends per managed
-  browser turn and their growth across turns; proceed only if large observations dominate.
-  - Paths: docs, src/browser, tests
+  workspace-action loop. Offline byte measurement, a scoped retrieval prototype and the
+  candidate contract are in `docs/BROWSER_OBSERVATION_RESEARCH.md`. Scripted large source reads
+  dominate sent bytes; small reads are mostly protocol framing. Partial recall saved bytes
+  with extra requests; full recall cost more. No model-quality or production saving claim.
+    Local Qwen/Ministral research did not establish a valid baseline; do not infer a saving.
+    The completed live Bridge pair passed both phases in both arms: 42,425 sent bytes and
+    five prompts per arm, zero receipts/recalls and zero saving. Keep handles research-only.
+    A narrower read-only protocol-framing pilot passed against the compatible recorded
+    baseline: 36,668 bytes, five prompts, three compacted suffixes and no invalid responses
+    (13.57% fewer bytes, no added calls). Full handoffs/repairs and exact controller JSON
+    remain intact. Matched recovery/fresh-chat research also passed: 80,377 vs 72,701 bytes
+    (9.55% fewer), seven messages per arm, both planted failures handled, both handoffs full,
+    and changed fixture values confirmed in distinct new chats. The default-off read-only
+    production pilot is implemented as `browserManagedCompactProtocol`, with typed evidence
+    rendering, actual-byte rollover, document-change rehydration and restored-setting checks.
+    Next: longer real read-only use through the production path before broadening provider
+    claims or considering a default change. No billing or general quality claim. The
+  available local conversation trace contains no eligible managed turns. Current loop has no
+  DOM-observation tool. Reuse durable execution evidence if this moves into runtime; keep
+  the existing flow and frozen local pilot unchanged.
+  - Paths: docs, scripts, src/browser, tests
   - Verify: bachata:project-checks
 - [ ] **EX-CONSENSUS-SHARE-01 / measure before consensus projection:** extend the offline
   benchmark script (today `todo-implementation` fix tasks only) to a consensus pipeline (Code

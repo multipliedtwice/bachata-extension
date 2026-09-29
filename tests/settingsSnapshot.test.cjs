@@ -350,3 +350,15 @@ test("old runs remain legacy and setting withdrawal takes effect at the next new
   assert.equal(executionContextModeForRun("legacy"), "legacy");
   assert.equal(executionContextModeForRun("invalid"), "legacy");
 });
+
+test("compact browser protocol is default-off, pinned, and absent in old snapshots", () => {
+  const { managedCompactProtocolForRun } = require("../dist/runtime/settingsSnapshot.js");
+  const defaults = captureRunSettings(reader()); assert.equal(defaults.values.browserManagedCompactProtocol, false);
+  const active = captureRunSettings(reader({ browserManagedCompactProtocol: true }));
+  assert.equal(managedCompactProtocolForRun(false, active), true);
+  assert.equal(managedCompactProtocolForRun(true, defaults), false);
+  delete defaults.values.browserManagedCompactProtocol;
+  assert.equal(managedCompactProtocolForRun(true, defaults), false);
+  assert.equal(managedCompactProtocolForRun(true), true);
+  assert.equal(managedCompactProtocolForRun("true"), false);
+});
