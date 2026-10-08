@@ -22,6 +22,13 @@ if (!process.argv.includes("app-server")) {
   process.exit(2);
 }
 
+// What a real codex-cli prints when another Codex holds its state database: one stderr line,
+// then exit 1, before it answers anything.
+if (process.env.MOCK_CODEX_STARTUP_FAILURE) {
+  process.stderr.write(`Error: ${process.env.MOCK_CODEX_STARTUP_FAILURE}\n`);
+  process.exit(1);
+}
+
 const send = (value) => {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 };

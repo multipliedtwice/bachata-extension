@@ -142,6 +142,26 @@ test("a Codex that cannot list models refuses nothing, so the reader's own model
 });
 
 
+test("a Codex that exits at startup is reported with the reason it printed, not only its exit code", async () => {
+  const previous = process.env.MOCK_CODEX_STARTUP_FAILURE;
+  process.env.MOCK_CODEX_STARTUP_FAILURE = "failed to initialize sqlite state runtime under C:\\Users\\me\\.codex";
+  const adapter = createCodex();
+  try {
+    await assert.rejects(
+      collect(adapter.send(sendRequest(), new AbortController().signal)),
+      (error) => {
+        assert.match(error.message, /exited with code 1/u);
+        assert.match(error.message, /failed to initialize sqlite state runtime/u);
+        return true;
+      },
+    );
+  } finally {
+    if (previous === undefined) delete process.env.MOCK_CODEX_STARTUP_FAILURE;
+    else process.env.MOCK_CODEX_STARTUP_FAILURE = previous;
+    await adapter.dispose();
+  }
+});
+
 test("refreshing the Codex catalog asks the provider again without starting a turn", async () => {
   await withMockModels("provider-model-one,provider-model-two", async (recorded) => {
     const adapter = createCodex();

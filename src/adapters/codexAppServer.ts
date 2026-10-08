@@ -1,5 +1,6 @@
 import { assertAdapterSessionMode } from "./types";
 import {
+  appendBoundedText,
   createBoundedLineDecoder,
   createIncrementalTextDecoder,
 } from "./streamDecoding";
@@ -1131,8 +1132,12 @@ export const createCodexAppServerAdapter = (
 
     // Decoded incrementally: a multi-byte character split across two chunks would otherwise
     // reach the log as a replacement character.
+    // The tail is retained so an exit can say why: without it the panel shows only an exit code
+    // and the reason Codex printed is left in the output channel.
     const stderrDecoder = createIncrementalTextDecoder();
+    let stderrTail = "";
     const takeStderr = (value: string): void => {
+      stderrTail = appendBoundedText(stderrTail, value, 2_048);
       const text = value.trim();
       if (text) {
         log(`[codex] ${text}`);
@@ -1190,8 +1195,10 @@ export const createCodexAppServerAdapter = (
       processChild.once("error", failStartup);
       processChild.once("exit", (code, signal) => {
         linesClosed = true;
+        const detail = stderrTail.trim();
         const error = new Error(
-          `Codex app-server exited with code ${String(code)} and signal ${String(signal)}`,
+          `Codex app-server exited with code ${String(code)} and signal ${String(signal)}`
+          + (detail ? `: ${detail}` : ""),
         );
         processFailure(error);
         if (!startupSettled) {
