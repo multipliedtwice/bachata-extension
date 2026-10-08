@@ -38,12 +38,12 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was modified, so these values describe the working tree and not commit b49fc074d1cc79a2cb7a390c66f7e5c9d63d6b9a.
+The working tree was clean, so these values also describe commit ed9a3a5d44b6a1b35b042a7c97c8e04689ba3382.
 
 | Observation | Value |
 | --- | --- |
-| Revision | b49fc074d1cc79a2cb7a390c66f7e5c9d63d6b9a |
-| Working tree | modified |
+| Revision | ed9a3a5d44b6a1b35b042a7c97c8e04689ba3382 |
+| Working tree | clean |
 | Maintained source files (working tree, what source:export carries) | 957 |
 | Platform | Windows_NT 10.0.26200 x64 |
 | Node | v22.18.0 |
