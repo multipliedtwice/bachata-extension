@@ -43,6 +43,7 @@ const mutationPolicy = read("src/browser/mutationPolicy.ts");
 const workspaceActions = read("src/browser/workspaceActions.ts");
 const browserActions = read("src/browser/actions.ts");
 const managedTurn = read("src/browser/managedTurn.ts");
+const managedPromptSession = read("src/browser/managedPromptSession.ts");
 // EX-AUD-12. The managed turn's own judgements and the runner's movement rules left their
 // callers for these two modules, so the checks that keep them honest read them where they are.
 const managedTurnDecisions = read("src/runtime/managedTurn.ts");
@@ -79,7 +80,7 @@ const webview = JSON.parse(read("tsconfig.webview.json"))
   .include.map((file) => read(file))
   .join("\n");
 
-check("version", packageJson.version === "0.7.8", `version=${packageJson.version}`);
+check("version", packageJson.version === "0.8.1", `version=${packageJson.version}`);
 
 check("workspacePolicy:explicitScope", /resolveWorkspaceWritePolicy/.test(workspacePolicyAudit) && /writeScope === "task"/.test(workspacePolicyAudit) && /writeScope === "workspace"/.test(workspacePolicyAudit) && /Task-scoped execution requires an explicit file or directory path/.test(workspacePolicyAudit), "task-scoped local and browser agents derive a deterministic write boundary while whole-workspace authority is explicit");
 check("managedPair:verificationRecovery", /"WORKER_VERIFY"/.test(managedPair) && /case "workerNeedsContext"/.test(managedPair), "managed Worker can request additional context after verification or stale-hash failure");
@@ -223,7 +224,7 @@ check("managedPair:verificationState", /requiredVerificationCheckIds/.test(manag
 check("managedPair:persistedParser", /parseManagedPairCheckpoint/.test(managedPair) && /hashTask/.test(managedPair) && /taskHash/.test(managedPair) && /repositoryBaseline/.test(managedPair), "persisted managed checkpoints are structurally validated with task identity and repository baseline evidence");
 check("managedPair:noOpFinalize", !/noChangedFiles/.test(managedPair), "legitimate no-op managed tasks may finalize when verification and unresolved-issue invariants pass");
 check("managedPair:revisionBoundFinality", /revisionCycles >= checkpoint\.policy\.maxRevisionCycles/.test(managedPair), "zero, one, and two revision policies reach final Lead review at the configured bound");
-check("managedPair:conversationRollover", /managedConversationRolloverRequired/.test(runtime) && /composeManagedRolloverPrompt/.test(runtime) && /managedRolloverTaskId\(operationTaskId, managedConversationRollovers\)/.test(runtime) && /managedFreshSessionKey\(taskId, agentId\)/.test(runtime) && /ensureFreshManagedBrowserSession\(/.test(runtime) && /browser\.managed\.conversationRollover/.test(runtime) && /managedConversationBytes = 0/.test(runtime), "reaching the cumulative conversation budget opens a fresh role conversation, resets byte accounting, and rehydrates authoritative controller state");
+check("managedPair:conversationRollover", /createManagedPromptSender</.test(runtime) && /managedConversationRolloverRequired\(bytes,/.test(managedPromptSession) && /composeManagedRolloverPrompt/.test(runtime) && /managedRolloverTaskId\(operationTaskId, managedConversationRollovers\)/.test(runtime) && /managedFreshSessionKey\(taskId, agentId\)/.test(runtime) && /ensureFreshManagedBrowserSession\(/.test(runtime) && /browser\.managed\.conversationRollover/.test(runtime) && /bytes = 0;/.test(managedPromptSession), "reaching the cumulative conversation budget opens a fresh role conversation, resets byte accounting, and rehydrates authoritative controller state");
 check("managedPair:verificationPlanIdentity", /verificationPlanHash/.test(managedPair) && /verificationChecks/.test(runtime), "checkpoint identity includes the normalized verification command plan, not only check IDs");
 check("worktree:noCommitBranch", /shouldCreateManagedCommit/.test(worktrees) && /persistIntegrationTree/.test(worktrees) && /refs\/bachata\/state/.test(worktrees), "legacy TODO orchestration retains no-commit integration state as tree objects");
 check("worktree:noCommitNoCommitTree", !/commit-tree/.test(worktrees), "no-commit validation path does not manufacture commits");

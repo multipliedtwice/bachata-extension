@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.1 — Codex startup reasons and compact browser protocol pilot
+
+- When Codex exits before answering, the error now includes the reason Codex printed, such as a state database it could not open, instead of only its exit code.
+- Added the experimental `bachata.browserManagedCompactProtocol` setting, off by default, for compact protocol reminders in read-only managed browser turns.
+- Agent steps can declare a `browserDeliverable` requirement for ZIP, Markdown, listing or diff results from browser agents.
+- Retains Browser Bridge 0.7.2 compatibility.
+
 ## 0.8.0 — Direction usability and editor shortcut
 
 - Added a Bachata logo button alongside other editor actions, with light and dark theme icons.

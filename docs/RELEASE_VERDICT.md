@@ -3,7 +3,7 @@
 Current source repairs cover run/recovery state, project preflight, bounded result decisions,
 human consensus resolution, provider-capacity acquisition, and the reviewed Chat and Execution
 UI. Focused runtime, DOM, source-distribution, rendered-layout, and browser checks pass. A fresh
-0.8.0 VSIX is rebuilt and installed only after the full gate below passes. Stable release still
+0.8.1 VSIX is rebuilt and installed only after the full gate below passes. Stable release still
 needs the human, provider, platform, compatibility, terms, packaged-build screenshot, and binding
 evidence below.
 Current gate truth: [stable gate](STABLE_RELEASE_GATE.md),
@@ -26,16 +26,18 @@ verdict below is authored by a human and no generator may set it.
 
 ## Verdict
 
-**SHIP as a stable release, 0.8.0, by owner decision on 2026-09-29.**
+**SHIP as a stable release, 0.8.1, by owner decision on 2026-10-08.**
 
-The owner requested a minor version release after the editor shortcut and Direction usability
-repairs. This release includes only those UI changes and their regression checks; unfinished
-browser-deliverable and observation experiments remain outside this release. Browser Bridge
-0.7.2 is retained unchanged.
+The owner requested a patch release after the Codex startup diagnostic repair: an app-server
+that exits before answering now reports the stderr reason it printed alongside its exit code.
+This release also carries the browser-deliverable requirement on agent steps and the
+default-off `bachata.browserManagedCompactProtocol` pilot; neither changes default behavior,
+and no provider-quality, billing or cross-provider compatibility claim is made for them.
+Browser Bridge 0.7.2 is retained unchanged.
 
 The candidate and verify phases of Paired release verification must pass for this exact
 commit and artifact before the marketplace publisher runs. Existing measurements below
-remain historical and are not re-claimed for 0.8.0. The human evidence records in
+remain historical and are not re-claimed for 0.8.1. The human evidence records in
 RELEASE_VALIDATION_RECORD.md, PROVIDER_TERMS.md and COMPATIBILITY_MATRIX.md remain
 unrecorded; this verdict does not claim them.
 

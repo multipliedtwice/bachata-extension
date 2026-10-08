@@ -11,19 +11,19 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 | Fact | Value |
 | --- | --- |
-| Extension version | 0.8.0 |
+| Extension version | 0.8.1 |
 | Pinned Browser Bridge version | 0.7.2 |
 | Browser protocol version | 9 |
-| Maintained source files (Git-tracked) | 936 |
-| Maintained source manifest SHA-256 (Git-tracked) | 0eb72bd3ae38ddd6fb38df2820886827f866cfa4c78d046b0075656843a3e227 |
-| Contributed settings | 115 |
+| Maintained source files (Git-tracked) | 957 |
+| Maintained source manifest SHA-256 (Git-tracked) | d86b14fb7d98bd3b34ac2762a9b2a2f8006a0fb2aae9fa313669eb59e9b5edab |
+| Contributed settings | 116 |
 | Settings in "Bachata" | 12 |
 | Settings in "%configuration.group.2.title%" | 21 |
-| Settings in "%configuration.group.3.title%" | 41 |
+| Settings in "%configuration.group.3.title%" | 42 |
 | Settings in "%configuration.group.4.title%" | 41 |
 | Contributed commands | 28 |
 | Built-in presets (Git-tracked) | 21 |
-| Test files (Git-tracked) | 252 |
+| Test files (Git-tracked) | 260 |
 | Declared artifact promotion types | design, recommendation, requirement |
 | Benchmark tasks (Git-tracked) | 4 |
 | Benchmark arms declared (Git-tracked tasks) | 8 |
@@ -38,17 +38,17 @@ Paths enumerated with `git ls-files`; untracked files are excluded. Bytes are re
 
 Depends on the checkout, the installed dependencies and the host. Recorded, never compared.
 
-The working tree was clean, so these values also describe commit 3509f961c384b85f6df68570ebea53eed858c867.
+The working tree was modified, so these values describe the working tree and not commit b49fc074d1cc79a2cb7a390c66f7e5c9d63d6b9a.
 
 | Observation | Value |
 | --- | --- |
-| Revision | 3509f961c384b85f6df68570ebea53eed858c867 |
-| Working tree | clean |
-| Maintained source files (working tree, what source:export carries) | 936 |
+| Revision | b49fc074d1cc79a2cb7a390c66f7e5c9d63d6b9a |
+| Working tree | modified |
+| Maintained source files (working tree, what source:export carries) | 957 |
 | Platform | Windows_NT 10.0.26200 x64 |
-| Node | v24.21.0 |
+| Node | v22.18.0 |
 | Git | git version 2.45.2.windows.1 |
-| dist | 9.78 MB |
+| dist | 9.85 MB |
 | node_modules/typescript | 22.87 MB |
 | node_modules/ts-morph | 1.46 MB |
 | node_modules/@ts-morph | 11.69 MB |
@@ -56,7 +56,7 @@ The working tree was clean, so these values also describe commit 3509f961c384b85
 | node_modules/fast-glob | 0.10 MB |
 | node_modules/ignore | 0.06 MB |
 | node_modules/jsonrepair | 0.52 MB |
-| Staged VSIX | no bachata-vscode-0.8.0.vsix is staged |
-| Pinned Browser Bridge ZIP | protocol/browser-bridge.compatibility.json pins bachata-browser-bridge-0.7.2.zip, which was not found beside this repository. |
+| Staged VSIX | bachata-vscode-0.8.1.vsix, 14.13 MB, SHA-256 b9e0f2bc418ea06f013458cc4f373225e216899e9b96b40c4277417317fd0cbd |
+| Pinned Browser Bridge ZIP | bachata-browser-bridge-0.7.2.zip, 1.11 MB, SHA-256 b1b1ed0319dfee8ec7e9d25428ac5e3e0af1e4d882c16dc144663015e516eb07 |
 | Test run | not collected in this generation |
 
