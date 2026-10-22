@@ -365,7 +365,7 @@ Implementation, local Claude/Codex, a workspace folder and no attachments. Activ
 
 ## Current status
 
-Bachata is currently a closed-alpha candidate, not a stable public release.
+Bachata is available as an alpha candidate through the public [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Rememo.bachata-vscode), not as a stable release.
 Automated checks exist, but exact-build provider, platform, browser, and
 graphical validation is still incomplete. The
 [support matrix](https://github.com/multipliedtwice/bachata-extension/blob/main/docs/SUPPORT_MATRIX.md) records what is known.
